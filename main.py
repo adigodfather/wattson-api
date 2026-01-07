@@ -748,3 +748,7 @@ def calc_electric(data: ProjectData):
         "circuits_all": circuits_all,
         "memoriu_tehnic": memoriu,
     }
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
