@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZYNAPSE – Proiecte Electrice Automate</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- HEADER -->
+  <header>
+    <div class="container header-inner">
+      <div class="logo">
+        <span class="logo-z">Z</span>YNAPSE
+      </div>
+      <p class="tagline">Configurator inteligent de proiecte electrice</p>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="container">
+
+    <!-- STEP INDICATOR -->
+    <div class="steps">
+      <div class="step active" id="step-ind-1"><span>1</span> Proiect</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-2"><span>2</span> Clădire</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-3"><span>3</span> Instalație</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-4"><span>4</span> Camere</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-5"><span>5</span> Rezultate</div>
+    </div>
+
+    <!-- STEP 1 – DATE PROIECT + UPLOAD -->
+    <section class="card" id="step-1">
+      <h2>Proiect & Planuri</h2>
+
+      <div class="form-group">
+        <label for="project_id">Nume proiect *</label>
+        <input type="text" id="project_id" placeholder="ex: Casa Ionescu P+M 160mp" />
+      </div>
+
+      <div class="upload-area" id="upload-area">
+        <div class="upload-icon">📁</div>
+        <p>Trage planurile aici sau <label for="file-input" class="link">selectează fișiere</label></p>
+        <p class="upload-hint">PDF, DWG, JPG, PNG – parter, etaj, mansardă</p>
+        <input type="file" id="file-input" multiple accept=".pdf,.dwg,.jpg,.jpeg,.png" hidden />
+      </div>
+      <div id="file-list" class="file-list"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="goStep(2)">Continuă →</button>
+      </div>
+    </section>
+
+    <!-- STEP 2 – DATE CLĂDIRE -->
+    <section class="card hidden" id="step-2">
+      <h2>Date Clădire</h2>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="building_type">Tip clădire *</label>
+          <select id="building_type">
+            <option value="casa_unifamiliala">Casă unifamilială</option>
+            <option value="duplex">Duplex</option>
+            <option value="bloc_mic">Bloc mic</option>
+            <option value="vila">Vilă</option>
+            <option value="birouri">Birouri</option>
+            <option value="alt">Alt tip</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="building_levels">Regim înălțime *</label>
+          <select id="building_levels">
+            <option value="P">P</option>
+            <option value="P+M">P+M</option>
+            <option value="P+1">P+1</option>
+            <option value="P+1+M">P+1+M</option>
+            <option value="P+2">P+2</option>
+            <option value="S+P">S+P</option>
+            <option value="S+P+M">S+P+M</option>
+            <option value="S+P+1">S+P+1</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="total_area">Suprafață utilă totală (m²) *</label>
+          <input type="number" id="total_area" placeholder="ex: 160" min="1" />
+        </div>
+
+        <div class="form-group">
+          <label for="total_volume">Volum total (m³) *</label>
+          <input type="number" id="total_volume" placeholder="ex: 440" min="1" />
+        </div>
+
+        <div class="form-group">
+          <label for="climate_zone">Zona climatică *</label>
+          <select id="climate_zone">
+            <option value="I">Zona I (−12°C) – TM, CT, CS</option>
+            <option value="II" selected>Zona II (−15°C) – BH, PH, DJ</option>
+            <option value="III">Zona III (−18°C) – CJ, IS, SV</option>
+            <option value="IV">Zona IV (−21°C) – BV, SB, MS</option>
+            <option value="V">Zona V (−25°C) – HR, CV</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="insulation_level">Nivel izolație *</label>
+          <select id="insulation_level">
+            <option value="slaba">Slabă (veche, nereabilitată)</option>
+            <option value="medie">Medie</option>
+            <option value="buna" selected>Bună (normativ actual)</option>
+            <option value="foarte_buna">Foarte bună (pasivă / low-energy)</option>
+          </select>
+        </div>
+
+        <div class="form-group full-width">
+          <label for="main_entrance">Intrare principală</label>
+          <input type="text" id="main_entrance" placeholder="ex: Parter, fațada sud" />
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(1)">← Înapoi</button>
+        <button class="btn btn-primary" onclick="goStep(3)">Continuă →</button>
+      </div>
+    </section>
+
+    <!-- STEP 3 – INSTALAȚIE -->
+    <section class="card hidden" id="step-3">
+      <h2>Sistem de Încălzire & Instalație</h2>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="heating_type">Tip încălzire *</label>
+          <select id="heating_type">
+            <option value="pdc_air_water">PDC aer-apă</option>
+            <option value="pdc_air_air">PDC aer-aer</option>
+            <option value="gas_boiler">Centrală gaz</option>
+            <option value="electric_boiler">Centrală electrică</option>
+            <option value="geothermal">Geotermală</option>
+            <option value="none">Fără încălzire centralizată</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="pdc-phase-group">
+          <label for="pdc_phase">Fază PDC</label>
+          <select id="pdc_phase">
+            <option value="mono">Monofazat</option>
+            <option value="tri" selected>Trifazat</option>
+          </select>
+        </div>
+
+        <div class="form-group full-width">
+          <label>Opțiuni suplimentare</label>
+          <div class="checkboxes">
+            <label class="checkbox-label">
+              <input type="checkbox" id="has_acm_boiler" />
+              Boiler ACM electric
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="has_ventilation" />
+              Ventilație mecanică
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="has_hrv" />
+              Recuperator de căldură (HRV)
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="has_floor_heating" />
+              Încălzire în pardoseală
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(2)">← Înapoi</button>
+        <button class="btn btn-primary" onclick="goStep(4)">Continuă →</button>
+      </div>
+    </section>
+
+    <!-- STEP 4 – CAMERE -->
+    <section class="card hidden" id="step-4">
+      <h2>Camere</h2>
+      <p class="hint">Adaugă fiecare cameră din proiect. Datele pot fi extrase automat din planuri (cu AI) sau introduse manual.</p>
+
+      <div id="rooms-list"></div>
+
+      <button class="btn btn-outline" onclick="addRoom()">+ Adaugă cameră</button>
+
+      <div class="btn-row" style="margin-top:2rem">
+        <button class="btn btn-secondary" onclick="goStep(3)">← Înapoi</button>
+        <button class="btn btn-primary" onclick="submitProject()">
+          ⚡ Generează Proiect Electric
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 5 – REZULTATE -->
+    <section class="card hidden" id="step-5">
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Se calculează proiectul electric...</p>
+      </div>
+
+      <div id="results" class="hidden">
+        <h2>Rezultate – <span id="result-project-id"></span></h2>
+
+        <!-- SUMAR -->
+        <div class="result-summary" id="result-summary"></div>
+
+        <!-- TABS -->
+        <div class="tabs">
+          <button class="tab active" onclick="showTab('tab-pdc')">PDC & Incalzire</button>
+          <button class="tab" onclick="showTab('tab-tect')">TE-CT</button>
+          <button class="tab" onclick="showTab('tab-teg')">TEG</button>
+          <button class="tab" onclick="showTab('tab-rooms')">Camere</button>
+          <button class="tab" onclick="showTab('tab-memoriu')">Memoriu Tehnic</button>
+          <button class="tab" onclick="showTab('tab-json')">JSON</button>
+        </div>
+
+        <div class="tab-content" id="tab-pdc"></div>
+        <div class="tab-content hidden" id="tab-tect"></div>
+        <div class="tab-content hidden" id="tab-teg"></div>
+        <div class="tab-content hidden" id="tab-rooms"></div>
+        <div class="tab-content hidden" id="tab-memoriu"></div>
+        <div class="tab-content hidden" id="tab-json"></div>
+
+        <div class="btn-row" style="margin-top:2rem">
+          <button class="btn btn-secondary" onclick="goStep(4)">← Modifică</button>
+          <button class="btn btn-outline" onclick="copyJSON()">📋 Copiază JSON</button>
+          <button class="btn btn-outline" onclick="downloadMemoriu()">⬇ Descarcă Memoriu</button>
+        </div>
+      </div>
+
+      <div id="error-box" class="error-box hidden"></div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container">
+      <p>ZYNAPSE &copy; 2025 – Motor de proiectare electrică automat</p>
+      <p class="footer-sub">API: <span id="api-url-display"></span></p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

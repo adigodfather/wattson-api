@@ -1,125 +1,92 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
+import os
 
 app = FastAPI(
-    title="WATTSON Core API",
-    description="Motor inteligent de calcul pentru proiecte electrice rezidențiale – WATTSON",
-    version="1.0.0",
+    title="ZYNAPSE Core API",
+    description="Motor inteligent de calcul pentru proiecte electrice rezidențiale – ZYNAPSE",
+    version="2.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # -------------------------------------------------
 #  CONSTANTE
 # -------------------------------------------------
 
-# COP tipic pentru PDC – se poate ajusta ulterior
 COP_BY_TYPE = {
-    "PDC aer-apa": 4.0,
-    "PDC aer-aer": 3.5,
-    "geotermala": 4.5,
+    "pdc_air_water": 4.0,
+    "pdc_air_air": 3.5,
+    "geothermal": 4.5,
 }
 
-# Mapare aproximativa JUDET -> zona climatica (conform hartilor uzuale)
-# NOTA: este o aproximare la nivel de judet, pentru proiecte serioase
-# se poate rafina pe localitati / altitudine.
-COUNTY_TO_ZONE = {
-    # Zona I (-12 °C)
-    "TM": "zona I",
-    "CS": "zona I",
-    "CT": "zona I",
-    "TL": "zona I",
+# Temperatura exterioara de calcul pe zone climatice (°C)
+ZONE_TEMP = {
+    "I": -12,
+    "II": -15,
+    "III": -18,
+    "IV": -21,
+    "V": -25,
+}
 
-    # Zona II (-15 °C)
-    "MH": "zona II",
-    "GJ": "zona II",
-    "DJ": "zona II",
-    "OT": "zona II",
-    "TR": "zona II",
-    "GR": "zona II",
-    "CL": "zona II",
-    "IL": "zona II",
-    "AG": "zona II",
-    "DB": "zona II",
-    "PH": "zona II",
-    "BZ": "zona II",
-    "BR": "zona II",
-    "BH": "zona II",
-    "AR": "zona II",
-
-    # Zona III (-18 °C)
-    "CJ": "zona III",
-    "SJ": "zona III",
-    "SM": "zona III",
-    "AB": "zona III",
-    "HD": "zona III",
-    "VL": "zona III",
-    "VN": "zona III",
-    "GL": "zona III",
-    "VS": "zona III",
-    "IS": "zona III",
-    "NT": "zona III",
-    "BC": "zona III",
-    "BT": "zona III",
-    "SV": "zona III",
-    "RM": "zona III",  # Rep. Moldova – aproximativ
-
-    # Zona IV (-21 °C)
-    "BN": "zona IV",
-    "MS": "zona IV",
-    "SB": "zona IV",
-    "BV": "zona IV",
-
-    # Zona V (-25 °C) – zone foarte reci (pungi de frig)
-    "HR": "zona V",
-    "CV": "zona V",
+# W/m² de baza in functie de nivelul de izolatie
+INSULATION_W_M2 = {
+    "slaba": 70.0,
+    "medie": 60.0,
+    "buna": 50.0,
+    "foarte_buna": 40.0,
 }
 
 # -------------------------------------------------
-#  MODELE DE INTRARE
+#  MODELE DE INTRARE  (schema noua v2)
 # -------------------------------------------------
 
 
 class Building(BaseModel):
     type: str
     levels: str
-    floor_area: float
-    volume: float
-    # poate fi dat direct ("zona I", "zona II"...),
-    # sau poate lipsi, caz in care incercam sa o deducem din judet
-    climate_zone: Optional[str] = None
-    insulation: Literal["sub_normativ", "minim_normativ", "peste_normativ"]
-    # amplasament – pentru deducerea zonei climatice
-    county: Optional[str] = None  # ex: "BV", "CJ", "TM"
-    locality: Optional[str] = None  # ex: "Brasov", "Cluj-Napoca"
+    climate_zone: Optional[str] = None       # "I" / "II" / "III" / "IV" / "V"
+    insulation_level: Literal["slaba", "medie", "buna", "foarte_buna"]
+    main_entrance: Optional[str] = None
+    total_area_m2: float
+    total_volume_m3: float
 
 
 class Heating(BaseModel):
     type: Literal[
-        "PDC aer-apa",
-        "PDC aer-aer",
-        "centrala_gaz",
-        "centrala_electrica",
-        "geotermala",
-        "fara_incalzire",
+        "pdc_air_water",
+        "pdc_air_air",
+        "gas_boiler",
+        "electric_boiler",
+        "geothermal",
+        "none",
     ]
-    acm: Optional[str] = None
-    ventilation: Optional[str] = None
+    has_acm_boiler: bool = False
     has_ventilation: bool = False
     has_hrv: bool = False
-    # PDC monofazata sau trifazata (daca e cazul)
-    pdc_phase: Optional[Literal["monofazat", "trifazat"]] = "trifazat"
+    pdc_phase: Optional[Literal["mono", "tri"]] = "tri"
 
 
 class Room(BaseModel):
     name: str
-    area: float
-    height: float
-    function: Literal["zi", "noapte", "circulatie", "baie", "bucatarie"]
+    level: Optional[str] = None
+    area_m2: float
+    height_m: float
+    window_sill_height_m: Optional[float] = None
+    function: Literal["day", "night", "circulation", "bathroom", "kitchen", "technical/storage", "other"]
     has_tv: bool = False
-    tv_mount: Optional[Literal["suspendat", "pe_comoda"]] = None
     has_nightstands: bool = False
-    is_bathroom: bool = False
 
 
 class ProjectData(BaseModel):
@@ -128,113 +95,71 @@ class ProjectData(BaseModel):
     heating: Heating
     rooms: List[Room]
     has_floor_heating: bool = False
+    notes: Optional[str] = None
 
 
 # -------------------------------------------------
-#  FUNCTII UTILITARE – ZONA CLIMATICA
+#  UTILITARE – ZONA CLIMATICA
 # -------------------------------------------------
 
 
-def auto_climate_zone(building: Building) -> str:
-    """
-    Daca building.climate_zone este setat, folosim valoarea aceea.
-    Altfel, incercam sa deducem zona din judet (county).
-    Daca nu reusim, default 'zona II'.
-    """
-    if building.climate_zone and building.climate_zone.strip():
-        return building.climate_zone
-
-    if building.county:
-        code = building.county.strip().upper()
-        zone = COUNTY_TO_ZONE.get(code)
-        if zone:
-            return zone
-
-    # fallback rezonabil
-    return "zona II"
+def resolve_climate_zone(building: Building) -> str:
+    if building.climate_zone:
+        z = building.climate_zone.strip().upper().replace("ZONA", "").strip()
+        if z in ZONE_TEMP:
+            return z
+    return "II"
 
 
 # -------------------------------------------------
-#  FUNCTII UTILITARE – PDC / TE-CT
+#  UTILITARE – PDC / TE-CT
 # -------------------------------------------------
 
 
 def calc_pdc_power_kw(building: Building, heating: Heating, climate_zone: str) -> float:
-    """
-    Calcul simplificat pentru puterea termica a PDC (kW), dupa suprafata, izolatie si zona climatica.
-    """
-    if not heating.type.startswith("PDC"):
+    if not heating.type.startswith("pdc") and heating.type != "geothermal":
         return 0.0
 
-    # baza W/m² in functie de izolatie
-    if building.insulation == "peste_normativ":
-        w_per_m2 = 40.0
-    elif building.insulation == "minim_normativ":
-        w_per_m2 = 50.0
-    else:
-        w_per_m2 = 70.0
+    w_per_m2 = INSULATION_W_M2.get(building.insulation_level, 50.0)
 
-    zone_norm = climate_zone.replace(" ", "").lower()
+    # Ajustare dupa zona climatica fata de zona II (referinta)
+    zone_delta = {
+        "I": -5.0,
+        "II": 0.0,
+        "III": 3.0,
+        "IV": 5.0,
+        "V": 8.0,
+    }
+    w_per_m2 += zone_delta.get(climate_zone, 0.0)
 
-    # ajustari dupa zona climatica (mai rece -> mai multi W/m²)
-    if "zonai" in zone_norm:
-        w_per_m2 -= 5.0
-    elif "zonaiii" in zone_norm:
-        # zona III – baza
-        pass
-    elif "zonaiv" in zone_norm:
-        w_per_m2 += 5.0
-    elif "zonav" in zone_norm:
-        w_per_m2 += 8.0
-    # zona II – implicit, fara modificare
-
-    # regula ta: case < 250 m² cu izolatie ok -> fix 10 kW
-    if building.floor_area <= 250 and building.insulation in ["minim_normativ", "peste_normativ"]:
+    # Regula practica: casa ≤ 250 m², izolatie buna/foarte_buna → 10 kW fix
+    if building.total_area_m2 <= 250 and building.insulation_level in ["buna", "foarte_buna"]:
         return 10.0
 
-    q_kw = building.floor_area * w_per_m2 / 1000.0
+    q_kw = building.total_area_m2 * w_per_m2 / 1000.0
     return round(q_kw, 1)
 
 
 def choose_pdc_circuit(
     power_kw: float,
-    phase: str = "trifazat",
-    pdc_type: str = "PDC aer-apa",
+    phase: str = "tri",
+    pdc_type: str = "pdc_air_water",
 ) -> Optional[dict]:
-    """
-    Dimensioneaza circuitul PDC mono/tri plecand de la:
-      - puterea termica (kW),
-      - COP (in functie de tip PDC),
-      - formulele date de tine:
-
-        Pi_el (kW) = P_termica / COP
-
-        Ia_trifazat = Pi_el / (0.4 * 0.92 * 1.73)
-        Ia_monofazat = Pi_el / 0.23
-    """
     if power_kw <= 0:
         return None
 
-    # COP din tabel; daca nu gasim, presupunem 4.0
     cop = COP_BY_TYPE.get(pdc_type, 4.0)
-
-    # puterea electrica absorbita (kW si W)
     p_el_kw = power_kw / cop
-    # p_el_w = p_el_kw * 1000.0  # nu e neaparat nevoie, las asa comentat
 
-    if phase == "trifazat":
-        ia = p_el_kw / (0.4 * 0.92 * 1.73)
-        ia = math.ceil(ia)
+    if phase == "tri":
+        ia = math.ceil(p_el_kw / (0.4 * 0.92 * 1.73))
 
         if power_kw <= 10:
-            breaker = 16
-            cable = "5x2.5 mm² CYYF"
+            breaker, cable = 16, "5×2,5 mm² CYYF"
         elif power_kw <= 14:
-            breaker = 20
-            cable = "5x4 mm² CYYF"
+            breaker, cable = 20, "5×4 mm² CYYF"
         else:
-            breaker = 25
-            cable = "5x6 mm² CYYF"
+            breaker, cable = 25, "5×6 mm² CYYF"
 
         return {
             "device": "PDC",
@@ -245,19 +170,16 @@ def choose_pdc_circuit(
             "current_a_calc": ia,
             "breaker_a": breaker,
             "cable": cable,
-            "notes": f"Circuit trifazat PDC, COP ~{cop}. Ia = Pi_el / (0.4×0.92×1.73).",
+            "notes": f"Circuit trifazat PDC, COP ~{cop}.",
         }
 
     # monofazat
-    ia = p_el_kw / 0.23
-    ia = math.ceil(ia)
+    ia = math.ceil(p_el_kw / 0.23)
 
     if power_kw <= 10:
-        breaker = 20
-        cable = "3x4 mm² CYYF"
+        breaker, cable = 20, "3×4 mm² CYYF"
     else:
-        breaker = 25
-        cable = "3x6 mm² CYYF"
+        breaker, cable = 25, "3×6 mm² CYYF"
 
     return {
         "device": "PDC",
@@ -268,30 +190,22 @@ def choose_pdc_circuit(
         "current_a_calc": ia,
         "breaker_a": breaker,
         "cable": cable,
-        "notes": f"Circuit monofazat PDC, COP ~{cop}. Ia = Pi_el / 0.23.",
+        "notes": f"Circuit monofazat PDC, COP ~{cop}.",
     }
 
 
 def choose_boiler_circuit(building: Building, heating: Heating) -> Optional[dict]:
-    if not heating.acm or "boiler" not in (heating.acm or ""):
+    if not heating.has_acm_boiler:
         return None
 
-    if building.floor_area <= 200:
-        p_kw = 2.0
-    else:
-        p_kw = 3.0
+    p_kw = 2.0 if building.total_area_m2 <= 200 else 3.0
+    breaker = 16 if p_kw <= 2.5 else 20
 
-    if p_kw <= 2.5:
-        breaker = 16
-    else:
-        breaker = 20
-
-    cable = "3x2.5 mm² CYYF"
     return {
         "device": "Boiler ACM",
         "power_kw": p_kw,
         "breaker_a": breaker,
-        "cable": cable,
+        "cable": "3×2,5 mm² CYYF",
         "notes": "Circuit monofazat dedicat pentru boiler ACM.",
     }
 
@@ -301,7 +215,7 @@ def choose_pump_circuit() -> dict:
         "device": "Pompa circulatie",
         "power_kw": 0.3,
         "breaker_a": 10,
-        "cable": "3x1.5 mm² CYYF",
+        "cable": "3×1,5 mm² CYYF",
         "notes": "Circuit monofazat pentru pompa de circulatie.",
     }
 
@@ -314,13 +228,13 @@ def choose_ventilation_circuit(heating: Heating) -> Optional[dict]:
         "device": "Ventilatie / recuperare",
         "power_kw": 0.2,
         "breaker_a": 10,
-        "cable": "3x1.5 mm² CYYF",
-        "notes": "Circuit monofazat pentru unitate de ventilatie / recuperare.",
+        "cable": "3×1,5 mm² CYYF",
+        "notes": "Circuit monofazat pentru unitate de ventilatie / HRV.",
     }
 
 
 # -------------------------------------------------
-#  FUNCTII PE CAMERE (PRIZE + ILUMINAT)
+#  CAMERE – PRIZE + ILUMINAT
 # -------------------------------------------------
 
 
@@ -328,7 +242,7 @@ def calc_room_electrics(room: Room) -> dict:
     sockets = []
     lights = []
 
-    # prize noptiere
+    # Prize noptiere
     if room.has_nightstands:
         sockets.append({
             "type": "priza_noptiera",
@@ -337,60 +251,67 @@ def calc_room_electrics(room: Room) -> dict:
             "notes": "Prize la 0,6 m la fiecare noptiera.",
         })
 
-    # prize TV
+    # Prize TV
     if room.has_tv:
-        if room.tv_mount == "suspendat":
-            sockets.append({
-                "type": "priza_TV",
-                "count": 1,
-                "height_m": 1.8,
-                "notes": "TV suspendat, priza la ~1,8–2,0 m.",
-            })
-        elif room.tv_mount == "pe_comoda":
-            sockets.append({
-                "type": "priza_TV",
-                "count": 1,
-                "height_m": 0.6,
-                "notes": "TV pe comoda, priza la ~0,6 m.",
-            })
+        h_tv = 1.8 if room.function in ["day"] else 0.6
+        sockets.append({
+            "type": "priza_TV",
+            "count": 1,
+            "height_m": h_tv,
+            "notes": f"TV – priza la ~{h_tv} m.",
+        })
 
-    # iluminat in functie de tip camera
-    if room.function in ["zi", "noapte"]:
+    # Iluminat dupa functie
+    func = room.function
+    if func in ["day", "night"]:
         lights.append({
             "type": "candelabru_central",
             "count": 1,
-            "notes": "Corp plafon central in incapere (lustra LED / pendul).",
+            "notes": "Corp plafon central (lustra LED / pendul).",
         })
-    elif room.function == "baie" or room.is_bathroom:
+        if room.area_m2 > 20:
+            lights.append({
+                "type": "spoturi_sau_benzi",
+                "count": math.ceil(room.area_m2 / 5),
+                "notes": "Iluminat accent / ambiental pentru camera mare.",
+            })
+    elif func == "bathroom":
         lights.append({
             "type": "aplica_IP44",
             "count": 1,
-            "notes": "Corp cu IP44 sau mai mare in zona de baie.",
+            "notes": "Corp cu IP44 sau mai mare (zona umeda).",
         })
-    elif room.function == "bucatarie":
+    elif func == "kitchen":
         lights.append({
             "type": "plafoniera_LED",
             "count": 1,
-            "notes": "Plafoniera LED centrala; se pot adauga benzi LED deasupra blatului.",
+            "notes": "Plafoniera LED centrala; benzi LED deasupra blatului.",
+        })
+    elif func == "circulation":
+        lights.append({
+            "type": "plafoniera_slim",
+            "count": max(1, math.ceil(room.area_m2 / 8)),
+            "notes": "Iluminat general circulatie.",
         })
     else:
         lights.append({
             "type": "plafoniera",
             "count": 1,
-            "notes": "Iluminat general pentru circulatii / spatii tehnice.",
+            "notes": "Iluminat general.",
         })
 
     return {
         "name": room.name,
+        "level": room.level,
         "function": room.function,
-        "area_m2": room.area,
+        "area_m2": room.area_m2,
         "sockets": sockets,
         "lights": lights,
     }
 
 
 # -------------------------------------------------
-#  LISTA DE CIRCUITE TE-CT + TEG (simplificat)
+#  CIRCUITE TE-CT + TEG
 # -------------------------------------------------
 
 
@@ -401,16 +322,6 @@ def build_circuits_te_ct(
     ventilation_circuit: Optional[dict],
     has_floor_heating: bool,
 ) -> List[dict]:
-    """
-    Genereaza lista de circuite pentru TE-CT (camera tehnica).
-    Schema simplificata:
-      1 - PDC
-      2 - Boiler ACM
-      3 - Automatizare (fara detaliu acum)
-      4 - Pompa circulatie
-      5 - Circuit de rezerva
-      6 - Distribuitor IP (daca exista incalzire in pardoseala)
-    """
     circuits = []
     idx = 1
 
@@ -418,12 +329,7 @@ def build_circuits_te_ct(
         nonlocal idx
         if not device_dict:
             return
-        circuits.append({
-            "id": f"TECT_{idx}",
-            "panel": "TE-CT",
-            "usage": usage_name,
-            **device_dict,
-        })
+        circuits.append({"id": f"TECT_{idx}", "panel": "TE-CT", "usage": usage_name, **device_dict})
         idx += 1
 
     add(pdc_circuit, "Alimentare PDC")
@@ -431,137 +337,80 @@ def build_circuits_te_ct(
     add(pump_circuit, "Pompa circulatie")
     add(ventilation_circuit, "Ventilatie / recuperare")
 
-    # Automatizare (fara calcul detaliat acum)
     circuits.append({
-        "id": f"TECT_{idx}",
-        "panel": "TE-CT",
-        "usage": "Automatizare CT",
-        "device": "Automatizare",
-        "breaker_a": 10,
-        "cable": "3x1.5 mm² CYYF",
+        "id": f"TECT_{idx}", "panel": "TE-CT", "usage": "Automatizare CT",
+        "device": "Automatizare", "breaker_a": 10, "cable": "3×1,5 mm² CYYF",
         "notes": "Alimentare automatizare centrala / PDC.",
     })
     idx += 1
 
-    # Circuit de rezerva
     circuits.append({
-        "id": f"TECT_{idx}",
-        "panel": "TE-CT",
-        "usage": "Circuit rezerva",
-        "device": "Rezerva",
-        "breaker_a": 16,
-        "cable": "3x2.5 mm² CYYF",
+        "id": f"TECT_{idx}", "panel": "TE-CT", "usage": "Circuit rezerva",
+        "device": "Rezerva", "breaker_a": 16, "cable": "3×2,5 mm² CYYF",
         "notes": "Circuit de rezerva pentru echipamente viitoare.",
     })
     idx += 1
 
-    # Distribuitor IP (daca exista incalzire in pardoseala)
     if has_floor_heating:
         circuits.append({
-            "id": f"TECT_{idx}",
-            "panel": "TE-CT",
-            "usage": "Distribuitor incalzire in pardoseala",
-            "device": "Distribuitor IP",
-            "power_kw": 0.5,
-            "breaker_a": 16,
-            "cable": "3x2.5 mm² CYYF",
-            "notes": "Alimentare distribuitor IP (pompe / actuatoare).",
+            "id": f"TECT_{idx}", "panel": "TE-CT", "usage": "Distribuitor incalzire in pardoseala",
+            "device": "Distribuitor IP", "power_kw": 0.5, "breaker_a": 16,
+            "cable": "3×2,5 mm² CYYF", "notes": "Alimentare distribuitor IP (pompe / actuatoare).",
         })
 
     return circuits
 
 
-def build_circuits_teg(data: ProjectData, room_results: List[dict]) -> List[dict]:
-    """
-    Lista simplificata de circuite pentru TEG:
-      - iluminat general (2 circuite daca suprafata e mare)
-      - iluminat exterior
-      - prize generale
-      - prize bucatarie
-      - masina spalat rufe (daca exista baie)
-    """
+def build_circuits_teg(data: ProjectData) -> List[dict]:
     circuits = []
-    idx = 1
+    total_area = sum(r.area_m2 for r in data.rooms)
+    has_kitchen = any(r.function == "kitchen" for r in data.rooms)
+    has_bathroom = any(r.function == "bathroom" for r in data.rooms)
 
-    total_area = sum(r.area for r in data.rooms)
-    has_kitchen = any(r.function == "bucatarie" for r in data.rooms)
-    has_bathroom = any(r.is_bathroom or r.function == "baie" for r in data.rooms)
-
-    # Iluminat interior: minim 1, altfel ~1 circuit / 60 m2
-    num_light_circuits = max(1, math.ceil(total_area / 60.0))
-    for i in range(num_light_circuits):
+    # Iluminat interior
+    num_light = max(1, math.ceil(total_area / 60.0))
+    for i in range(num_light):
         circuits.append({
-            "id": f"TEG_L{i+1}",
-            "panel": "TEG",
-            "usage": "Iluminat interior",
-            "type": "iluminat",
-            "breaker_a": 10,
-            "cable": "3x1.5 mm² CYYF",
-            "notes": "Circuit iluminat general pentru niveluri / zone.",
+            "id": f"TEG_L{i+1}", "panel": "TEG", "usage": "Iluminat interior",
+            "type": "iluminat", "breaker_a": 10, "cable": "3×1,5 mm² CYYF",
+            "notes": "Circuit iluminat general.",
         })
 
-    # Iluminat exterior
     circuits.append({
-        "id": "TEG_EX1",
-        "panel": "TEG",
-        "usage": "Iluminat exterior",
-        "type": "iluminat",
-        "breaker_a": 10,
-        "cable": "3x1.5 mm² CYYF",
+        "id": "TEG_EX1", "panel": "TEG", "usage": "Iluminat exterior",
+        "type": "iluminat", "breaker_a": 10, "cable": "3×1,5 mm² CYYF",
         "notes": "Aplice LED cu senzor crepuscular la intrari / terase.",
     })
 
-    # Prize generale: ~1 circuit / 40 m2
-    num_socket_circuits = max(1, math.ceil(total_area / 40.0))
-    for i in range(num_socket_circuits):
+    # Prize generale
+    num_sockets = max(1, math.ceil(total_area / 40.0))
+    for i in range(num_sockets):
         circuits.append({
-            "id": f"TEG_P{i+1}",
-            "panel": "TEG",
-            "usage": "Prize generale",
-            "type": "prize",
-            "breaker_a": 16,
-            "cable": "3x2.5 mm² CYYF",
-            "rcd_30ma": True,
-            "afdd": True,
-            "notes": "Prize generale in camere de zi / dormitoare (max ~5 prize / circuit).",
+            "id": f"TEG_P{i+1}", "panel": "TEG", "usage": "Prize generale",
+            "type": "prize", "breaker_a": 16, "cable": "3×2,5 mm² CYYF",
+            "rcd_30ma": True, "afdd": True,
+            "notes": "Prize generale camere zi / dormitoare (max ~5 prize / circuit).",
         })
 
-    # Bucatarie - prize dedicate
     if has_kitchen:
         circuits.append({
-            "id": "TEG_PB1",
-            "panel": "TEG",
-            "usage": "Prize blaturi bucatarie",
-            "type": "prize",
-            "breaker_a": 20,
-            "cable": "3x2.5 mm² CYYF",
-            "rcd_30ma": True,
-            "afdd": True,
-            "notes": "Prize blaturi bucatarie, multe consumatoare mici.",
+            "id": "TEG_PB1", "panel": "TEG", "usage": "Prize blaturi bucatarie",
+            "type": "prize", "breaker_a": 20, "cable": "3×2,5 mm² CYYF",
+            "rcd_30ma": True, "afdd": True,
+            "notes": "Prize blaturi bucatarie – consumatoare mici.",
         })
         circuits.append({
-            "id": "TEG_PB2",
-            "panel": "TEG",
-            "usage": "Electrocasnice bucatarie",
-            "type": "prize",
-            "breaker_a": 20,
-            "cable": "3x2.5 mm² CYYF",
-            "rcd_30ma": True,
-            "afdd": True,
-            "notes": "Cuptor electric / masina spalat vase / alte aparate dedicate.",
+            "id": "TEG_PB2", "panel": "TEG", "usage": "Electrocasnice bucatarie",
+            "type": "prize", "breaker_a": 20, "cable": "3×2,5 mm² CYYF",
+            "rcd_30ma": True, "afdd": True,
+            "notes": "Cuptor / masina spalat vase / aparate dedicate.",
         })
 
-    # Masina de spalat rufe (daca avem baie)
     if has_bathroom:
         circuits.append({
-            "id": "TEG_MSR1",
-            "panel": "TEG",
-            "usage": "Masina spalat rufe",
-            "type": "prize",
-            "breaker_a": 16,
-            "cable": "3x2.5 mm² CYYF",
-            "rcd_30ma": True,
-            "afdd": True,
+            "id": "TEG_MSR1", "panel": "TEG", "usage": "Masina spalat rufe",
+            "type": "prize", "breaker_a": 16, "cable": "3×2,5 mm² CYYF",
+            "rcd_30ma": True, "afdd": True,
             "notes": "Circuit dedicat masina de spalat rufe.",
         })
 
@@ -585,23 +434,34 @@ def build_memoriu(
     circuits_teg: List[dict],
 ) -> str:
     lines = []
+    b = data.building
+    h = data.heating
 
+    lines.append(f"MEMORIU TEHNIC INSTALATIE ELECTRICA")
+    lines.append(f"=====================================")
     lines.append(f"Proiect: {data.project_id}")
     lines.append(
-        f"Cladire: {data.building.type}, regim {data.building.levels}, "
-        f"Supr. utila {data.building.floor_area} m², volum {data.building.volume} m³."
+        f"Cladire: {b.type}, regim {b.levels}, "
+        f"Supr. utila {b.total_area_m2} m², volum {b.total_volume_m3} m³."
     )
-    lines.append(
-        f"Zona climatica: {climate_zone}, izolatie: {data.building.insulation}."
-    )
-    if data.building.county or data.building.locality:
-        loc = f"{data.building.locality or ''}, jud. {data.building.county or ''}".strip(", ")
-        lines.append(f"Amplasament: {loc}.")
+    lines.append(f"Zona climatica: {climate_zone}, izolatie: {b.insulation_level}.")
+    if b.main_entrance:
+        lines.append(f"Intrare principala: {b.main_entrance}.")
     lines.append("")
-    lines.append(
-        f"Sistem de incalzire: {data.heating.type}. "
-        f"ACM: {data.heating.acm or 'nespecificat'}."
-    )
+
+    heating_labels = {
+        "pdc_air_water": "PDC aer-apa",
+        "pdc_air_air": "PDC aer-aer",
+        "gas_boiler": "Centrala gaz",
+        "electric_boiler": "Centrala electrica",
+        "geothermal": "Geotermala",
+        "none": "Fara incalzire centralizata",
+    }
+    lines.append(f"Sistem de incalzire: {heating_labels.get(h.type, h.type)}.")
+    lines.append(f"Boiler ACM: {'Da' if h.has_acm_boiler else 'Nu'}.")
+    lines.append(f"Ventilatie mecanica: {'Da' if h.has_ventilation else 'Nu'}.")
+    lines.append(f"Recuperator caldura (HRV): {'Da' if h.has_hrv else 'Nu'}.")
+    lines.append(f"Incalzire in pardoseala: {'Da' if data.has_floor_heating else 'Nu'}.")
     lines.append("")
 
     if pdc_circuit:
@@ -612,12 +472,9 @@ def build_memoriu(
         )
         lines.append(
             f"  - Curent calculat: ~{pdc_circuit['current_a_calc']} A, "
-            f"protectie: siguranta automata {pdc_circuit['breaker_a']} A ({pdc_circuit['poles']})."
+            f"protectie: {pdc_circuit['breaker_a']} A ({pdc_circuit['poles']})."
         )
         lines.append(f"  - Cablu: {pdc_circuit['cable']}.")
-        lines.append("")
-    else:
-        lines.append("Nu a fost generat circuit de PDC (tip incalzire diferit sau date insuficiente).")
         lines.append("")
 
     if boiler_circuit:
@@ -633,22 +490,16 @@ def build_memoriu(
 
     if ventilation_circuit:
         lines.append("Circuit ventilatie / recuperare:")
-        lines.append(
-            f"  - Protectie: {ventilation_circuit['breaker_a']} A, cablu {ventilation_circuit['cable']}."
-        )
+        lines.append(f"  - Protectie: {ventilation_circuit['breaker_a']} A, cablu {ventilation_circuit['cable']}.")
         lines.append("")
 
     lines.append("Rezumat camera cu camera (prize si iluminat):")
     for r in room_results:
         lines.append(f"- {r['name']} ({r['area_m2']} m²):")
-        for s in r["sockets"]:
-            lines.append(
-                f"    · {s['type']} x{s['count']} la h ≈ {s['height_m']} m ({s['notes']})"
-            )
-        for l in r["lights"]:
-            lines.append(
-                f"    · Iluminat: {l['type']} x{l['count']} ({l['notes']})"
-            )
+        for s in r.get("sockets", []):
+            lines.append(f"    · {s['type']} ×{s['count']} la h ≈ {s['height_m']} m ({s['notes']})")
+        for lgt in r.get("lights", []):
+            lines.append(f"    · Iluminat: {lgt['type']} ×{lgt['count']} ({lgt['notes']})")
         lines.append("")
 
     if circuits_te_ct:
@@ -668,9 +519,7 @@ def build_memoriu(
             )
         lines.append("")
 
-    lines.append(
-        "Toate circuitele vor fi verificate si dimensionate conform normativelor in vigoare."
-    )
+    lines.append("Toate circuitele vor fi verificate si dimensionate conform normativelor in vigoare.")
     return "\n".join(lines)
 
 
@@ -681,18 +530,12 @@ def build_memoriu(
 
 @app.post("/calc-electric")
 def calc_electric(data: ProjectData):
-    # 1. Stabilim zona climatica (auto din judet, daca nu e data explicit)
-    climate_zone = auto_climate_zone(data.building)
+    climate_zone = resolve_climate_zone(data.building)
 
-    # 2. Incalzire / PDC / TE-CT
     pdc_power_kw = calc_pdc_power_kw(data.building, data.heating, climate_zone)
-    pdc_phase = data.heating.pdc_phase or "trifazat"
+    pdc_phase = data.heating.pdc_phase or "tri"
     pdc_circuit = (
-        choose_pdc_circuit(
-            power_kw=pdc_power_kw,
-            phase=pdc_phase,
-            pdc_type=data.heating.type,
-        )
+        choose_pdc_circuit(power_kw=pdc_power_kw, phase=pdc_phase, pdc_type=data.heating.type)
         if pdc_power_kw > 0
         else None
     )
@@ -700,15 +543,13 @@ def calc_electric(data: ProjectData):
     boiler_circuit = choose_boiler_circuit(data.building, data.heating)
 
     pump_circuit = None
-    if data.heating.type in ["PDC aer-apa", "centrala_gaz", "centrala_electrica", "geotermala"]:
+    if data.heating.type in ["pdc_air_water", "gas_boiler", "electric_boiler", "geothermal"]:
         pump_circuit = choose_pump_circuit()
 
     ventilation_circuit = choose_ventilation_circuit(data.heating)
 
-    # 3. Camere
     room_results = [calc_room_electrics(r) for r in data.rooms]
 
-    # 4. Liste de circuite
     circuits_te_ct = build_circuits_te_ct(
         pdc_circuit=pdc_circuit,
         boiler_circuit=boiler_circuit,
@@ -716,10 +557,9 @@ def calc_electric(data: ProjectData):
         ventilation_circuit=ventilation_circuit,
         has_floor_heating=data.has_floor_heating,
     )
-    circuits_teg = build_circuits_teg(data, room_results)
+    circuits_teg = build_circuits_teg(data)
     circuits_all = circuits_te_ct + circuits_teg
 
-    # 5. Memoriu tehnic
     memoriu = build_memoriu(
         data=data,
         climate_zone=climate_zone,
@@ -748,7 +588,21 @@ def calc_electric(data: ProjectData):
         "circuits_all": circuits_all,
         "memoriu_tehnic": memoriu,
     }
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}
 
+
+# -------------------------------------------------
+#  SERVIRE FRONTEND STATIC
+# -------------------------------------------------
+
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+    @app.get("/")
+    def root():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
