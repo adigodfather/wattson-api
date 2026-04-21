@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  --color-zy-bg: #0A0B0E;
+  --color-zy-card: rgba(255, 255, 255, 0.02);
+  --color-zy-border: rgba(255, 255, 255, 0.06);
+  --color-zy-blue: #378ADD;
+  --color-zy-teal: #1D9E75;
+  --color-zy-text: #e0e0e0;
+  --color-zy-muted: #999;
+  --color-zy-dim: #666;
+  --font-family-sans: 'DM Sans', system-ui, sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
+}
+
+@keyframes zy-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes zy-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+body {
+  background: var(--color-zy-bg);
+  color: var(--color-zy-text);
+  font-family: var(--font-family-sans);
+}
+
+select option {
+  background: #1a1b1f;
+  color: #eee;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
