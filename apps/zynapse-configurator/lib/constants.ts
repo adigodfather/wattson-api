@@ -2,32 +2,32 @@ export const BUILDING_TYPES = [
   { value: "casa_unifamiliala", label: "Casă unifamilială" },
   { value: "duplex", label: "Duplex" },
   { value: "apartament", label: "Apartament" },
-  { value: "bloc_mic", label: "Bloc mic" },
+  { value: "bloc_mic", label: "Bloc mic / townhouse" },
 ];
 
 export const LEVELS = ["P", "P+M", "P+1", "P+1+M", "P+2", "D+P+M", "D+P+1", "D+P+1+M"];
 
 export const CLIMATE_ZONES = [
-  { value: "I", label: "Zona I (-12°C)" },
-  { value: "II", label: "Zona II (-15°C)" },
-  { value: "III", label: "Zona III (-18°C)" },
-  { value: "IV", label: "Zona IV (-21°C)" },
+  { value: "I",   label: "Zona I — −12°C" },
+  { value: "II",  label: "Zona II — −15°C" },
+  { value: "III", label: "Zona III — −18°C" },
+  { value: "IV",  label: "Zona IV — −21°C" },
 ];
 
 export const INSULATION = [
-  { value: "slaba", label: "Slabă (>70 W/m²)" },
-  { value: "medie", label: "Medie (~60 W/m²)" },
-  { value: "buna", label: "Bună (~50 W/m²)" },
-  { value: "foarte_buna", label: "Foarte bună (<40 W/m²)" },
+  { value: "slaba",       label: "Slabă  (> 70 W/m²)" },
+  { value: "medie",       label: "Medie  (~60 W/m²)" },
+  { value: "buna",        label: "Bună  (~50 W/m²)" },
+  { value: "foarte_buna", label: "Foarte bună  (< 40 W/m²)" },
 ];
 
 export const HEATING = [
-  { value: "pdc_air_water", label: "PDC Aer-Apă" },
-  { value: "pdc_air_air", label: "PDC Aer-Aer" },
-  { value: "gas_boiler", label: "Centrală pe gaz" },
-  { value: "electric_boiler", label: "Centrală electrică" },
-  { value: "geothermal", label: "Geotermală" },
-  { value: "none", label: "Fără încălzire centralizată" },
+  { value: "pdc_air_water",    label: "PDC Aer–Apă" },
+  { value: "pdc_air_air",      label: "PDC Aer–Aer" },
+  { value: "gas_boiler",       label: "Centrală pe gaz" },
+  { value: "electric_boiler",  label: "Centrală electrică" },
+  { value: "geothermal",       label: "Geotermală" },
+  { value: "none",             label: "Fără încălzire centralizată" },
 ];
 
 export interface FormData {
@@ -70,7 +70,13 @@ export interface ProjectResult {
   project_id: string;
   climate_zone: string;
   heating_circuits: {
-    pdc?: { power_kw_thermal: number; power_kw_electric: number; breaker_a: number; cable: string; phase: string };
+    pdc?: {
+      power_kw_thermal: number;
+      power_kw_electric: number;
+      breaker_a: number;
+      cable: string;
+      phase: string;
+    };
     boiler?: { power_kw: number; breaker_a: number; cable: string };
     pump?: { breaker_a: number; cable: string };
     ventilation?: { breaker_a: number; cable: string } | null;

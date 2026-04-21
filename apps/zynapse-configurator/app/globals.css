@@ -1,39 +1,117 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
-
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @theme {
   --color-zy-bg: #0A0B0E;
-  --color-zy-card: rgba(255, 255, 255, 0.02);
-  --color-zy-border: rgba(255, 255, 255, 0.06);
+  --color-zy-surface: #0F1115;
+  --color-zy-card: rgba(255, 255, 255, 0.025);
+  --color-zy-card-hover: rgba(255, 255, 255, 0.04);
+  --color-zy-border: rgba(255, 255, 255, 0.07);
+  --color-zy-border-subtle: rgba(255, 255, 255, 0.04);
   --color-zy-blue: #378ADD;
+  --color-zy-blue-light: #5BB8F5;
   --color-zy-teal: #1D9E75;
-  --color-zy-text: #e0e0e0;
-  --color-zy-muted: #999;
-  --color-zy-dim: #666;
-  --font-family-sans: 'DM Sans', system-ui, sans-serif;
-  --font-family-mono: 'JetBrains Mono', monospace;
+  --color-zy-teal-light: #3ECFA0;
+  --color-zy-text: #E2E4E9;
+  --color-zy-text-muted: #8B8FA8;
+  --color-zy-text-dim: #545870;
+  --font-family-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 @keyframes zy-spin {
   to { transform: rotate(360deg); }
 }
+
 @keyframes zy-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.01); }
+}
+
+@keyframes zy-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes zy-slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes zy-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes zy-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   background: var(--color-zy-bg);
   color: var(--color-zy-text);
   font-family: var(--font-family-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+  min-height: 100vh;
 }
 
 select option {
-  background: #1a1b1f;
-  color: #eee;
+  background: #1C1E26;
+  color: #E2E4E9;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+select {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+textarea {
+  resize: vertical;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+::selection {
+  background: rgba(55, 138, 221, 0.3);
+  color: #fff;
+}
+
+.zy-card {
+  background: var(--color-zy-card);
+  border: 1px solid var(--color-zy-border);
+  border-radius: 14px;
+}
+
+.zy-animate-in {
+  animation: zy-fade-in 0.35s ease forwards;
+}
+
+.zy-slide-in {
+  animation: zy-slide-in 0.3s ease forwards;
+}
