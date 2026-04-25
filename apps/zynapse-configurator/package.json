@@ -9,12 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.104.1",
+    "@tailwindcss/postcss": "^4.0.0",
     "next": "^15.1.0",
+    "postcss": "^8.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
-    "postcss": "^8.4.0"
+    "tailwindcss": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

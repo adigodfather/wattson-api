@@ -5,6 +5,7 @@ import {
   BUILDING_TYPES, LEVELS, CLIMATE_ZONES, INSULATION, HEATING,
   INITIAL_FORM, type FormData, type ProjectResult, type Circuit, type RoomResult,
 } from "@/lib/constants";
+import { useAuth } from "@/components/auth-provider";
 
 const WEBHOOK_URL =
   process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
@@ -354,6 +355,7 @@ function MetricCard({ value, label, color }: { value: string | number; label: st
 
 /* ─── Main configurator ─── */
 export function ZynapseConfigurator() {
+  const { user, profile, signOut } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [status, setStatus] = useState("idle");
@@ -431,7 +433,27 @@ export function ZynapseConfigurator() {
             Beta
           </span>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-3">
+          <StatusBadge status={status} />
+          {user && (
+            <>
+              <span className="text-sm hidden sm:block" style={{ color: "#8B8FA8" }}>
+                {profile?.full_name || user.email}
+              </span>
+              <button onClick={signOut}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium font-[inherit] cursor-pointer transition-colors duration-150"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#8B8FA8",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                Deconectare
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {/* ── Layout ── */}
