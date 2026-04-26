@@ -159,7 +159,7 @@ function CircuitCanvas() {
 function PulseRing({ delay = 0 }: { delay?: number }) {
   return (
     <div style={{
-      position: "absolute", width: 300, height: 300, borderRadius: "50%",
+      position: "absolute", width: 400, height: 400, borderRadius: "50%",
       border: "1px solid rgba(55,138,221,0.1)",
       animation: `pulse-ring 4s ease-out infinite ${delay}s`,
       pointerEvents: "none",
@@ -301,7 +301,9 @@ export default function Landing() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={28} height={28} />
+          <img src="/logo-icon.png" alt="Zynapse" width={32} height={32} style={{
+            objectFit: "contain", filter: "brightness(2) drop-shadow(0 0 6px rgba(55,138,221,0.4))",
+          }} />
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>ZYNAPSE</span>
           <span style={{ fontSize: 10, color: "#444", fontWeight: 500, letterSpacing: 1.5, marginLeft: 4 }}>ELECTRICAL AI</span>
         </div>
@@ -331,21 +333,19 @@ export default function Landing() {
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
         {/* Logo floating */}
-        <div style={{ position: "relative", marginBottom: 40, animation: "float 5s ease-in-out infinite" }}>
+        <div style={{ position: "relative", marginBottom: 24, animation: "float 5s ease-in-out infinite", display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
-          <div style={{
-            width: 200, height: 200, borderRadius: 30, position: "relative",
-            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 0 80px rgba(55,138,221,0.12), 0 0 40px rgba(29,158,117,0.06)",
-          }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Zynapse" width={160} height={160} style={{
-              filter: "drop-shadow(0 0 40px rgba(55,138,221,0.3)) drop-shadow(0 0 80px rgba(29,158,117,0.15))",
-            }} />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-icon.png" alt="Zynapse" width={220} height={220} style={{
+            position: "relative",
+            filter: "brightness(2.5) contrast(1.2) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.3)) drop-shadow(0 0 100px rgba(55,138,221,0.15))",
+          }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.jpg" alt="Zynapse" width={280} style={{
+            filter: "brightness(1.8)", marginTop: 16, opacity: 0.9, position: "relative",
+          }} />
         </div>
 
         {/* Badge */}
@@ -512,7 +512,9 @@ export default function Landing() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={18} height={18} />
+          <img src="/logo-icon.png" alt="Zynapse" width={18} height={18} style={{
+            filter: "brightness(2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
+          }} />
           <span style={{ fontSize: 12, color: "#333" }}>ZYNAPSE 2025 — Business AI &amp; Electrical Automation</span>
         </div>
         <div style={{ display: "flex", gap: 20 }}>

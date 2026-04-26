@@ -82,7 +82,9 @@ export default function RegisterPage() {
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={36} height={36} />
+          <img src="/logo-icon.png" alt="Zynapse" width={36} height={36} style={{
+            objectFit: "contain", filter: "brightness(2) drop-shadow(0 0 6px rgba(55,138,221,0.4))",
+          }} />
           <span style={{ fontSize: 20, fontWeight: 700, color: "#E2E4E9", letterSpacing: "-0.5px", fontFamily: "'DM Sans', sans-serif" }}>Zynapse</span>
         </div>
 

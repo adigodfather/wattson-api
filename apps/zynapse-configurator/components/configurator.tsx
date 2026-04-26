@@ -303,7 +303,9 @@ export function ZynapseConfigurator() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Zynapse" width={28} height={28} />
+            <img src="/logo-icon.png" alt="Zynapse" width={32} height={32} style={{
+              objectFit: "contain", filter: "brightness(2) drop-shadow(0 0 6px rgba(55,138,221,0.4))",
+            }} />
             <span className="text-[17px] font-bold tracking-tight" style={{ color: "#E2E4E9" }}>Zynapse</span>
             <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded-md"
               style={{ background: "rgba(55,138,221,0.12)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.2)" }}>
