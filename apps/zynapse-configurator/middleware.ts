@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/register", "/reset-password", "/auth/callback"];
+const PUBLIC_ROUTES = ["/", "/login", "/register", "/reset-password", "/auth/callback"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -28,19 +28,23 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
-  const isPublic = PUBLIC_ROUTES.some(r => pathname.startsWith(r));
+  const isPublic = PUBLIC_ROUTES.some(r =>
+    r === "/" ? pathname === "/" : pathname.startsWith(r)
+  );
 
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (user && (pathname === "/login" || pathname === "/register")) {
-    return NextResponse.redirect(new URL("/", request.url));
+  if (user) {
+    if (pathname === "/" || pathname === "/login" || pathname === "/register") {
+      return NextResponse.redirect(new URL("/configurator", request.url));
+    }
   }
 
   return response;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.svg|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.svg|logo.jpg|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

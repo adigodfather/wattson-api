@@ -66,7 +66,7 @@ export default function ProjectDetailPage() {
       <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
         style={{ background: "rgba(10,11,14,0.88)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
         <div className="flex items-center gap-4">
-          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
+          <Link href="/configurator" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
             <ZLogo size={32} gradientId="zg-detail" />
             <span className="text-[17px] font-bold tracking-tight" style={{ color: "#E2E4E9" }}>Zynapse</span>
           </Link>

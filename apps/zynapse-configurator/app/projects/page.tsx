@@ -64,7 +64,7 @@ export default function ProjectsPage() {
       <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
         style={{ background: "rgba(10,11,14,0.88)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
         <div className="flex items-center gap-4">
-          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
+          <Link href="/configurator" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
             <ZLogo size={32} gradientId="zg-projects" />
             <span className="text-[17px] font-bold tracking-tight" style={{ color: "#E2E4E9" }}>Zynapse</span>
             <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded-md"
@@ -73,7 +73,7 @@ export default function ProjectsPage() {
             </span>
           </Link>
           <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-          <Link href="/"
+          <Link href="/configurator"
             className="text-sm font-medium transition-colors duration-150"
             style={{ color: "#8B8FA8", textDecoration: "none" }}
             onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
@@ -108,7 +108,7 @@ export default function ProjectsPage() {
               {profile ? `${profile.projects_used} / ${profile.projects_limit} proiecte folosite` : ""}
             </p>
           </div>
-          <Link href="/"
+          <Link href="/configurator"
             className="px-5 py-2.5 rounded-xl text-sm font-semibold"
             style={{ background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff", textDecoration: "none" }}>
             + Proiect nou
@@ -130,7 +130,7 @@ export default function ProjectsPage() {
             </div>
             <h3 className="text-lg font-semibold m-0 mb-2" style={{ color: "#545870" }}>Niciun proiect încă</h3>
             <p className="text-sm m-0 mb-6" style={{ color: "#3A3D50" }}>Generează primul tău proiect electric</p>
-            <Link href="/"
+            <Link href="/configurator"
               className="px-5 py-2.5 rounded-xl text-sm font-semibold"
               style={{ background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff", textDecoration: "none" }}>
               Deschide configuratorul
