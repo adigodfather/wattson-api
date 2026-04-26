@@ -300,12 +300,14 @@ export default function Landing() {
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 8,
-            background: "linear-gradient(135deg, #378ADD, #1D9E75)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 16, fontWeight: 700, color: "#fff", flexShrink: 0,
-          }}>Z</div>
+          <div style={{ width: 38, height: 38, overflow: "hidden", flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.jpg" alt="Zynapse" style={{
+              width: "100%", height: "100%",
+              objectFit: "cover", objectPosition: "center 18%",
+              filter: "invert(1)", mixBlendMode: "screen",
+            }} />
+          </div>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>ZYNAPSE</span>
           <span style={{ fontSize: 10, color: "#444", fontWeight: 500, letterSpacing: 1.5, marginLeft: 4 }}>ELECTRICAL AI</span>
         </div>
@@ -335,23 +337,21 @@ export default function Landing() {
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
         {/* Logo floating */}
-        <div style={{ position: "relative", marginBottom: 40, animation: "float 5s ease-in-out infinite" }}>
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
+        <div style={{ position: "relative", marginBottom: 40, animation: "float 5s ease-in-out infinite", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ position: "absolute", top: "40%", left: "50%", transform: "translate(-50%,-50%)" }}>
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
-          <div style={{
-            width: 180, height: 180, borderRadius: 28, position: "relative", overflow: "hidden",
-            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 0 80px rgba(55,138,221,0.12), 0 0 40px rgba(29,158,117,0.06), inset 0 0 40px rgba(55,138,221,0.03)",
-          }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.jpg"
-              alt="Zynapse"
-              style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 28 }}
-            />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.jpg"
+            alt="Zynapse"
+            style={{
+              width: 320, height: "auto",
+              filter: "invert(1)",
+              mixBlendMode: "screen",
+              position: "relative",
+            }}
+          />
         </div>
 
         {/* Badge */}
@@ -517,12 +517,14 @@ export default function Landing() {
         display: "flex", justifyContent: "space-between", alignItems: "center",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 22, height: 22, borderRadius: 5,
-            background: "linear-gradient(135deg, #378ADD, #1D9E75)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 11, fontWeight: 700, color: "#fff",
-          }}>Z</div>
+          <div style={{ width: 28, height: 28, overflow: "hidden", flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.jpg" alt="Zynapse" style={{
+              width: "100%", height: "100%",
+              objectFit: "cover", objectPosition: "center 18%",
+              filter: "invert(1)", mixBlendMode: "screen",
+            }} />
+          </div>
           <span style={{ fontSize: 12, color: "#333" }}>ZYNAPSE 2025 — Business AI &amp; Electrical Automation</span>
         </div>
         <div style={{ display: "flex", gap: 20 }}>

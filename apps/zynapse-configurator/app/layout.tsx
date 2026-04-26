@@ -5,7 +5,7 @@ import { AuthProvider } from "@/components/auth-provider";
 export const metadata: Metadata = {
   title: "Zynapse — Proiectare Electrică Automată",
   description: "Configurator automat de proiecte electrice rezidențiale. Upload planșe, completează formularul, primești proiectul electric complet în sub 30 de secunde.",
-  icons: { icon: "/favicon.svg" },
+  icons: { icon: "/logo.jpg" },
 };
 
 export const viewport: Viewport = {
