@@ -5,21 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
-function ZLogo() {
-  return (
-    <svg width="36" height="36" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="zgl" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#378ADD" />
-          <stop offset="100%" stopColor="#1D9E75" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="8" fill="url(#zgl)" />
-      <text x="16" y="23" textAnchor="middle" fontFamily="'DM Sans', system-ui, sans-serif"
-        fontSize="20" fontWeight="700" fill="white" letterSpacing="-1">Z</text>
-    </svg>
-  );
-}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -50,7 +35,8 @@ export default function LoginPage() {
       <div style={{ width: "100%", maxWidth: 400 }}>
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center" }}>
-          <ZLogo />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-icon.png" alt="Zynapse" width={36} height={36} />
           <span style={{ fontSize: 20, fontWeight: 700, color: "#E2E4E9", letterSpacing: "-0.5px", fontFamily: "'DM Sans', sans-serif" }}>Zynapse</span>
         </div>
 
