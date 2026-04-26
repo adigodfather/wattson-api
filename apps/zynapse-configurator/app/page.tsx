@@ -342,10 +342,6 @@ export default function Landing() {
             position: "relative",
             filter: "brightness(2.5) contrast(1.2) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.3)) drop-shadow(0 0 100px rgba(55,138,221,0.15))",
           }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.jpg" alt="Zynapse" width={280} style={{
-            filter: "brightness(1.8)", marginTop: 16, opacity: 0.9, position: "relative",
-          }} />
         </div>
 
         {/* Badge */}
