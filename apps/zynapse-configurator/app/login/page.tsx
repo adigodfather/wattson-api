@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
-
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,8 +31,19 @@ export default function LoginPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+      <style>{`
+        .zy-input { transition: border-color 0.15s; }
+        .zy-input:focus { border-color: rgba(55,138,221,0.4) !important; outline: none; }
+        .zy-input::placeholder { color: #555; }
+        .zy-input:-webkit-autofill,
+        .zy-input:-webkit-autofill:hover,
+        .zy-input:-webkit-autofill:focus {
+          -webkit-box-shadow: 0 0 0 100px #0d0f12 inset;
+          -webkit-text-fill-color: #E2E4E9;
+          caret-color: #E2E4E9;
+        }
+      `}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-icon.png" alt="Zynapse" width={36} height={36} style={{
@@ -61,11 +71,12 @@ export default function LoginPage() {
                 EMAIL
               </label>
               <input
+                className="zy-input"
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="adresa@email.com" required autoComplete="email"
                 style={{
                   width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
-                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
                   color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
                 }} />
             </div>
@@ -75,11 +86,12 @@ export default function LoginPage() {
                 PAROLĂ
               </label>
               <input
+                className="zy-input"
                 type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required autoComplete="current-password"
                 style={{
                   width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
-                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
                   color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
                 }} />
             </div>

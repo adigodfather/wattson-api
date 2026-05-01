@@ -159,7 +159,7 @@ function CircuitCanvas() {
 function PulseRing({ delay = 0 }: { delay?: number }) {
   return (
     <div style={{
-      position: "absolute", width: 400, height: 400, borderRadius: "50%",
+      position: "absolute", width: 350, height: 350, borderRadius: "50%",
       border: "1px solid rgba(55,138,221,0.1)",
       animation: `pulse-ring 4s ease-out infinite ${delay}s`,
       pointerEvents: "none",
@@ -284,7 +284,7 @@ export default function Landing() {
         .cta-main { transition: all .25s }
         .cta-main:hover { transform:translateY(-2px); box-shadow: 0 8px 40px rgba(55,138,221,.3) }
         .feat { transition: all .25s }
-        .feat:hover { border-color: rgba(55,138,221,.25) !important; transform: translateY(-3px) }
+        .feat:hover { border-color: rgba(55,138,221,.2) !important; transform: translateY(-2px) }
         .nav-link { transition: color .2s }
         .nav-link:hover { color: #fff !important }
         .sec-btn:hover { border-color: rgba(255,255,255,0.15) !important; color: #fff !important }
@@ -301,8 +301,8 @@ export default function Landing() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={32} height={32} style={{
-            objectFit: "contain", filter: "brightness(2) drop-shadow(0 0 6px rgba(55,138,221,0.4))",
+          <img src="/logo-icon.png" alt="Zynapse" width={30} height={30} style={{
+            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
           }} />
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>ZYNAPSE</span>
           <span style={{ fontSize: 10, color: "#444", fontWeight: 500, letterSpacing: 1.5, marginLeft: 4 }}>ELECTRICAL AI</span>
@@ -332,19 +332,17 @@ export default function Landing() {
         alignItems: "center", justifyContent: "center",
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
-        {/* Logo floating */}
         <div style={{ position: "relative", marginBottom: 24, animation: "float 5s ease-in-out infinite", display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={220} height={220} style={{
+          <img src="/logo-icon.png" alt="Zynapse" width={200} height={200} style={{
             position: "relative",
-            filter: "brightness(2.5) contrast(1.2) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.3)) drop-shadow(0 0 100px rgba(55,138,221,0.15))",
+            filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.25))",
           }} />
         </div>
 
-        {/* Badge */}
         <div className="fu fu1" style={{
           display: "inline-flex", alignItems: "center", gap: 8,
           padding: "5px 16px", borderRadius: 20,
@@ -358,7 +356,6 @@ export default function Landing() {
           BUSINESS AI &amp; ELECTRICAL AUTOMATION
         </div>
 
-        {/* Headline */}
         <h1 className="fu fu2" style={{
           fontSize: 56, fontWeight: 700, lineHeight: 1.06, color: "#fff",
           margin: "0 0 22px", letterSpacing: -2, maxWidth: 700,
@@ -378,7 +375,6 @@ export default function Landing() {
           Memoriu tehnic, BOM, liste cantități — totul în 30 de secunde, conform I7-2011.
         </p>
 
-        {/* CTAs */}
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
           <a href="/register" className="cta-main" style={{
             padding: "15px 36px", borderRadius: 12, fontSize: 16, fontWeight: 600,
@@ -394,9 +390,8 @@ export default function Landing() {
           </a>
         </div>
 
-        {/* Stats */}
         <div style={{
-          display: "flex", gap: 48, marginTop: 72, padding: "28px 0",
+          display: "flex", gap: 48, marginTop: 40, padding: "28px 0",
           borderTop: "1px solid rgba(255,255,255,0.04)",
         }}>
           {[
@@ -416,7 +411,7 @@ export default function Landing() {
       {/* ── Cum funcționează ── */}
       <section id="cum-functioneaza" style={{
         position: "relative", zIndex: 1,
-        maxWidth: 900, margin: "0 auto", padding: "60px 40px 100px",
+        maxWidth: 900, margin: "0 auto", padding: "60px 40px 60px",
       }}>
         <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
           Cum funcționează
@@ -449,10 +444,44 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ── Tot ce ai nevoie ── */}
+      <section style={{
+        position: "relative", zIndex: 1,
+        maxWidth: 1100, margin: "0 auto", padding: "60px 40px",
+      }}>
+        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 10px", letterSpacing: -.8 }}>
+          Tot ce ai nevoie
+        </h2>
+        <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 48px" }}>
+          Un singur tool pentru întregul proiect electric
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
+          {[
+            { dot: "#378ADD", title: "Extragere AI din planșe", desc: "Claude Vision citește planșele și identifică încăperile automat" },
+            { dot: "#1D9E75", title: "Calcul conform I7-2011", desc: "Circuite dimensionate normativ, fără erori de calcul" },
+            { dot: "#C4963A", title: "Memoriu tehnic automat", desc: "Document complet generat, gata de depus la proiect" },
+            { dot: "#378ADD", title: "BOM instant", desc: "Liste cantități automate, exportabile imediat în PDF" },
+            { dot: "#1D9E75", title: "DTAC & PT complet", desc: "Documentații complete pentru autorizare de construire" },
+            { dot: "#C4963A", title: "30 secunde per proiect", desc: "Fără ore de calcul manual — totul automatizat" },
+          ].map((f, i) => (
+            <div key={i} className="feat" style={{
+              padding: "24px 28px", borderRadius: 16,
+              background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: f.dot, flexShrink: 0 }} />
+                <span style={{ fontSize: 15, fontWeight: 700, color: "#ddd" }}>{f.title}</span>
+              </div>
+              <p style={{ fontSize: 13, color: "#555", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ── Pachete & prețuri ── */}
       <section id="pachete" style={{
         position: "relative", zIndex: 1,
-        maxWidth: 1200, margin: "0 auto", padding: "40px 40px 100px",
+        maxWidth: 1200, margin: "0 auto", padding: "60px 40px 100px",
       }}>
         <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
           Pachete &amp; prețuri
@@ -460,14 +489,11 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 56px" }}>
           Începe gratuit cu DTAC Casă. Upgrade când ai nevoie.
         </p>
-
-        {/* Row 1 */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 16 }}>
           {PLANS.slice(0, 3).map((p, i) => (
             <PlanCard key={i} p={p} idx={i} hovered={hovered} onHover={setHovered} />
           ))}
         </div>
-        {/* Row 2 */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
           {PLANS.slice(3).map((p, i) => (
             <PlanCard key={i + 3} p={p} idx={i + 3} hovered={hovered} onHover={setHovered} />
@@ -502,20 +528,33 @@ export default function Landing() {
       {/* ── Footer ── */}
       <footer style={{
         position: "relative", zIndex: 1,
-        maxWidth: 1100, margin: "0 auto", padding: "32px 40px 48px",
-        borderTop: "1px solid rgba(255,255,255,0.03)",
-        display: "flex", justifyContent: "space-between", alignItems: "center",
+        maxWidth: 1100, margin: "0 auto", padding: "40px 40px 56px",
+        borderTop: "1px solid rgba(255,255,255,0.04)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={18} height={18} style={{
-            filter: "brightness(2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
-          }} />
-          <span style={{ fontSize: 12, color: "#333" }}>ZYNAPSE 2025 — Business AI &amp; Electrical Automation</span>
-        </div>
-        <div style={{ display: "flex", gap: 20 }}>
-          <a href="/login" style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>Login</a>
-          <a href="mailto:contact@zynapse.org" style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>Contact</a>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 40, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-icon.png" alt="Zynapse" width={18} height={18} style={{
+                filter: "brightness(2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>ZYNAPSE</span>
+            </div>
+            <span style={{ fontSize: 12, color: "#333", lineHeight: 1.7 }}>2025 — Business AI &amp;<br />Electrical Automation</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+            {[
+              { label: "Login", href: "/login" },
+              { label: "Register", href: "/register" },
+              { label: "Pachete", href: "#pachete" },
+              { label: "Contact", href: "mailto:contact@zynapse.org" },
+            ].map(item => (
+              <a key={item.label} href={item.href} style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>{item.label}</a>
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+            <a href="mailto:contact@zynapse.org" style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>contact@zynapse.org</a>
+          </div>
         </div>
       </footer>
     </div>
