@@ -1,8 +1,42 @@
 export const BUILDING_TYPES = [
+  // Rezidential
   { value: "casa_unifamiliala", label: "Casă unifamilială" },
-  { value: "duplex", label: "Duplex" },
-  { value: "apartament", label: "Apartament" },
-  { value: "bloc_mic", label: "Bloc mic / townhouse" },
+  { value: "duplex",            label: "Duplex" },
+  { value: "apartament",        label: "Apartament" },
+  // Bloc
+  { value: "bloc_locuinte",     label: "Bloc de locuințe" },
+  { value: "bloc_mixt",         label: "Bloc mixt" },
+  // Public
+  { value: "camin_cultural",    label: "Cămin cultural" },
+  { value: "scoala",            label: "Școală / Grădiniță" },
+  { value: "birou",             label: "Clădire birouri" },
+  { value: "spital",            label: "Spital / Clinică" },
+  { value: "institutie",        label: "Instituție publică" },
+  // Industrial
+  { value: "hala",              label: "Hală industrială" },
+  { value: "depozit",           label: "Depozit / Logistică" },
+  { value: "atelier",           label: "Atelier / Workshop" },
+  { value: "fabrica",           label: "Fabrică" },
+  // Comercial
+  { value: "magazin",           label: "Magazin / Retail" },
+  { value: "restaurant",        label: "Restaurant / Bar" },
+  { value: "hotel",             label: "Hotel" },
+  { value: "mall",              label: "Mall / Centru comercial" },
+];
+
+export const BUILDING_CATEGORIES = [
+  { value: "rezidential", label: "Rezidențial" },
+  { value: "public",      label: "Clădire publică" },
+  { value: "industrial",  label: "Hală industrială" },
+  { value: "bloc",        label: "Bloc de locuințe" },
+  { value: "comercial",   label: "Spațiu comercial" },
+];
+
+export const COMMERCIAL_SUBTYPES = [
+  { value: "magazin",    label: "Magazin / Retail" },
+  { value: "restaurant", label: "Restaurant / Bar" },
+  { value: "hotel",      label: "Hotel" },
+  { value: "mall",       label: "Mall / Centru comercial" },
 ];
 
 export const LEVELS = ["P", "P+M", "P+1", "P+1+M", "P+2", "D+P+M", "D+P+1", "D+P+1+M"];
@@ -30,9 +64,17 @@ export const HEATING = [
   { value: "none",             label: "Fără încălzire centralizată" },
 ];
 
+export interface Motor {
+  name: string;
+  power_kw: number;
+  phase: string;   // "mono" | "tri"
+  count: number;
+}
+
 export interface FormData {
   project_id: string;
   building_type: string;
+  building_category: string;
   levels: string;
   climate_zone: string;
   insulation_level: string;
@@ -44,6 +86,17 @@ export interface FormData {
   has_hrv: boolean;
   has_floor_heating: boolean;
   notes: string;
+  // Bloc
+  floors: string;
+  apartments_per_floor: string;
+  has_elevator: boolean;
+  has_fire_pump: boolean;
+  // Industrial
+  has_compressed_air: boolean;
+  has_overhead_crane: boolean;
+  ip_zone: string;
+  // Comercial
+  commercial_subtype: string;
 }
 
 export interface Circuit {
@@ -68,6 +121,7 @@ export interface RoomResult {
 export interface ProjectResult {
   status: string;
   project_id: string;
+  building_category?: string;
   climate_zone: string;
   heating_circuits: {
     pdc?: {
@@ -92,6 +146,7 @@ export interface ProjectResult {
 export const INITIAL_FORM: FormData = {
   project_id: "",
   building_type: "",
+  building_category: "",
   levels: "",
   climate_zone: "II",
   insulation_level: "",
@@ -103,4 +158,15 @@ export const INITIAL_FORM: FormData = {
   has_hrv: false,
   has_floor_heating: false,
   notes: "",
+  // Bloc
+  floors: "",
+  apartments_per_floor: "",
+  has_elevator: false,
+  has_fire_pump: false,
+  // Industrial
+  has_compressed_air: false,
+  has_overhead_crane: false,
+  ip_zone: "IP65",
+  // Comercial
+  commercial_subtype: "",
 };

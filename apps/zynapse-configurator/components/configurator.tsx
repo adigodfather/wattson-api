@@ -3,8 +3,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import {
-  BUILDING_TYPES, LEVELS, CLIMATE_ZONES, INSULATION, HEATING,
-  INITIAL_FORM, type FormData, type ProjectResult,
+  BUILDING_TYPES, BUILDING_CATEGORIES, COMMERCIAL_SUBTYPES,
+  LEVELS, CLIMATE_ZONES, INSULATION, HEATING,
+  INITIAL_FORM, type FormData, type ProjectResult, type Motor,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase";
@@ -201,6 +202,7 @@ export function ZynapseConfigurator() {
   const [error, setError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [motors, setMotors] = useState<Motor[]>([]);
 
   const update = (key: keyof FormData, val: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: val }));
@@ -231,7 +233,14 @@ export function ZynapseConfigurator() {
       const base64 = await fileToBase64(files[0]);
 
       setStepIndex(1);
-      const payload = { plan_base64: base64, plan_type: files[0].type || "image/jpeg", ...form };
+      const payload: Record<string, unknown> = {
+        plan_base64: base64,
+        plan_type: files[0].type || "image/jpeg",
+        ...form,
+        ...(form.floors ? { floors: parseInt(form.floors) } : {}),
+        ...(form.apartments_per_floor ? { apartments_per_floor: parseInt(form.apartments_per_floor) } : {}),
+        ...(form.building_category === "industrial" && motors.length > 0 ? { motors } : {}),
+      };
 
       setStepIndex(2);
       const res = await fetch(WEBHOOK_URL, {
@@ -385,6 +394,8 @@ export function ZynapseConfigurator() {
             onChange={v => update("project_id", v)} placeholder="ex: Casa Popescu P+M 160mp" required />
 
           <SectionLabel>Parametri clădire</SectionLabel>
+          <SelectField label="Categorie clădire" value={form.building_category}
+            onChange={v => update("building_category", v)} options={BUILDING_CATEGORIES} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <SelectField label="Tip clădire" value={form.building_type}
               onChange={v => update("building_type", v)} options={BUILDING_TYPES} required />
@@ -399,6 +410,126 @@ export function ZynapseConfigurator() {
           </div>
           <TextField label="Intrare principală" value={form.main_entrance}
             onChange={v => update("main_entrance", v)} placeholder="ex: Parter, fațada sud" />
+
+          {/* ── Câmpuri specifice bloc ── */}
+          {form.building_category === "bloc" && (
+            <>
+              <SectionLabel>Detalii bloc</SectionLabel>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="mb-3.5">
+                  <label className="block text-[12px] font-semibold tracking-wide mb-1.5" style={{ color: "#8B8FA8" }}>
+                    NR. ETAJE
+                  </label>
+                  <input type="number" min={1} max={30} value={form.floors}
+                    onChange={e => update("floors", e.target.value)}
+                    placeholder="ex: 4"
+                    className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none font-[inherit]"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+                </div>
+                <div className="mb-3.5">
+                  <label className="block text-[12px] font-semibold tracking-wide mb-1.5" style={{ color: "#8B8FA8" }}>
+                    APARTAMENTE/ETAJ
+                  </label>
+                  <input type="number" min={1} max={20} value={form.apartments_per_floor}
+                    onChange={e => update("apartments_per_floor", e.target.value)}
+                    placeholder="ex: 4"
+                    className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none font-[inherit]"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+                </div>
+              </div>
+              <Toggle label="Are lift" checked={form.has_elevator} onChange={v => update("has_elevator", v)} />
+              <Toggle label="Pompă incendiu" checked={form.has_fire_pump} onChange={v => update("has_fire_pump", v)}
+                description="Circuit prioritar trifazat dedicat" />
+            </>
+          )}
+
+          {/* ── Câmpuri specifice industrial ── */}
+          {form.building_category === "industrial" && (
+            <>
+              <SectionLabel>Detalii hală</SectionLabel>
+              <SelectField label="Grad protecție (IP)" value={form.ip_zone}
+                onChange={v => update("ip_zone", v)}
+                options={[
+                  { value: "IP44", label: "IP44" },
+                  { value: "IP65", label: "IP65" },
+                  { value: "IP67", label: "IP67" },
+                ]} />
+              <Toggle label="Aer comprimat" checked={form.has_compressed_air}
+                onChange={v => update("has_compressed_air", v)} description="Circuit trifazat 32A dedicat" />
+              <Toggle label="Pod rulant (macara)" checked={form.has_overhead_crane}
+                onChange={v => update("has_overhead_crane", v)} description="Circuit trifazat 63A dedicat" />
+
+              <div className="mt-4 mb-1">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[11px] font-semibold tracking-widest uppercase" style={{ color: "#545870" }}>
+                    Motoare electrice
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMotors(prev => [...prev, { name: "", power_kw: 0, phase: "tri", count: 1 }])}
+                    className="text-[12px] font-semibold px-3 py-1.5 rounded-lg font-[inherit] cursor-pointer"
+                    style={{ background: "rgba(55,138,221,0.12)", border: "1px solid rgba(55,138,221,0.25)", color: "#5BB8F5" }}>
+                    + Adaugă motor
+                  </button>
+                </div>
+                {motors.map((m, i) => (
+                  <div key={i} className="mb-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginBottom: 8 }}>
+                      <input
+                        type="text" placeholder="Nume motor (ex: Compresor 1)" value={m.name}
+                        onChange={e => setMotors(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                        className="w-full px-3 py-2 rounded-lg text-sm outline-none font-[inherit]"
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+                      <button type="button"
+                        onClick={() => setMotors(prev => prev.filter((_, j) => j !== i))}
+                        className="px-2.5 py-2 rounded-lg text-base leading-none cursor-pointer font-[inherit]"
+                        style={{ background: "rgba(226,75,74,0.1)", border: "1px solid rgba(226,75,74,0.15)", color: "#F09595" }}>
+                        ×
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      <div>
+                        <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>kW</label>
+                        <input type="number" min={0.1} step={0.1} value={m.power_kw || ""}
+                          onChange={e => setMotors(prev => prev.map((x, j) => j === i ? { ...x, power_kw: parseFloat(e.target.value) || 0 } : x))}
+                          className="w-full px-2.5 py-2 rounded-lg text-sm outline-none font-[inherit]"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>FAZE</label>
+                        <select value={m.phase}
+                          onChange={e => setMotors(prev => prev.map((x, j) => j === i ? { ...x, phase: e.target.value } : x))}
+                          className="w-full px-2.5 py-2 rounded-lg text-sm outline-none font-[inherit]"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }}>
+                          <option value="tri">3F</option>
+                          <option value="mono">1F</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>BUC</label>
+                        <input type="number" min={1} max={20} value={m.count}
+                          onChange={e => setMotors(prev => prev.map((x, j) => j === i ? { ...x, count: parseInt(e.target.value) || 1 } : x))}
+                          className="w-full px-2.5 py-2 rounded-lg text-sm outline-none font-[inherit]"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {motors.length === 0 && (
+                  <p className="text-[12px]" style={{ color: "#3A3D50" }}>Niciun motor adăugat — opțional</p>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ── Câmpuri specifice comercial ── */}
+          {form.building_category === "comercial" && (
+            <>
+              <SectionLabel>Detalii comercial</SectionLabel>
+              <SelectField label="Subtip spațiu" value={form.commercial_subtype}
+                onChange={v => update("commercial_subtype", v)} options={COMMERCIAL_SUBTYPES} />
+            </>
+          )}
 
           <SectionLabel>Sistem termoenergetic</SectionLabel>
           <SelectField label="Tip încălzire" value={form.heating_type}
