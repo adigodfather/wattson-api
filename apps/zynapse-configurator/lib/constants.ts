@@ -1,52 +1,39 @@
-export const BUILDING_TYPES = [
-  // Rezidential
-  { value: "casa_unifamiliala", label: "Casă unifamilială" },
-  { value: "duplex",            label: "Duplex" },
-  { value: "apartament",        label: "Apartament" },
-  // Bloc
-  { value: "bloc_locuinte",     label: "Bloc de locuințe" },
-  { value: "bloc_mixt",         label: "Bloc mixt" },
-  // Public
-  { value: "camin_cultural",    label: "Cămin cultural" },
-  { value: "scoala",            label: "Școală / Grădiniță" },
-  { value: "birou",             label: "Clădire birouri" },
-  { value: "spital",            label: "Spital / Clinică" },
-  { value: "institutie",        label: "Instituție publică" },
-  // Industrial
-  { value: "hala",              label: "Hală industrială" },
-  { value: "depozit",           label: "Depozit / Logistică" },
-  { value: "atelier",           label: "Atelier / Workshop" },
-  { value: "fabrica",           label: "Fabrică" },
-  // Comercial
-  { value: "magazin",           label: "Magazin / Retail" },
-  { value: "restaurant",        label: "Restaurant / Bar" },
-  { value: "hotel",             label: "Hotel" },
-  { value: "mall",              label: "Mall / Centru comercial" },
-];
+// ─── 3 user-facing building categories (PAS 1) ───────────────────────────────
 
-export const BUILDING_CATEGORIES = [
-  { value: "rezidential", label: "Rezidențial" },
-  { value: "public",      label: "Clădire publică" },
-  { value: "industrial",  label: "Hală industrială" },
-  { value: "bloc",        label: "Bloc de locuințe" },
-  { value: "comercial",   label: "Spațiu comercial" },
-];
+export const BUILDING_CATEGORIES_3 = [
+  { value: "rezidential", label: "Rezidențial", icon: "🏠", desc: "Case, duplexuri, blocuri, hoteluri" },
+  { value: "public",      label: "Public",      icon: "🏛️", desc: "Școli, spitale, cămine culturale" },
+  { value: "industrial",  label: "Industrial",  icon: "🏭", desc: "Hale, depozite, ateliere" },
+] as const;
 
-export const COMMERCIAL_SUBTYPES = [
-  { value: "magazin",    label: "Magazin / Retail" },
-  { value: "restaurant", label: "Restaurant / Bar" },
-  { value: "hotel",      label: "Hotel" },
-  { value: "mall",       label: "Mall / Centru comercial" },
-];
+// ─── Subtypes per category (PAS 2) ───────────────────────────────────────────
 
-export const LEVELS = ["P", "P+M", "P+1", "P+1+M", "P+2", "D+P+M", "D+P+1", "D+P+1+M"];
+export const BUILDING_SUBTYPES: Record<string, { value: string; label: string }[]> = {
+  rezidential: [
+    { value: "casa_unifamiliala",    label: "Casă unifamilială" },
+    { value: "duplex",               label: "Duplex / Vilă" },
+    { value: "bloc_locuinte",        label: "Bloc de locuințe" },
+    { value: "spatiu_comercial_bloc",label: "Spațiu comercial în bloc" },
+    { value: "hotel_pensiune",       label: "Hotel / Pensiune" },
+  ],
+  public: [
+    { value: "camin_cultural",  label: "Cămin cultural / Sală eveniment" },
+    { value: "scoala",          label: "Școală / Grădiniță" },
+    { value: "spital",          label: "Spital / Clinică" },
+    { value: "institutie",      label: "Instituție / Primărie" },
+    { value: "biserica",        label: "Biserică" },
+    { value: "sala_sport",      label: "Sală sport" },
+  ],
+  industrial: [
+    { value: "hala_productie",      label: "Hală producție" },
+    { value: "depozit",             label: "Depozit / Logistică" },
+    { value: "atelier",             label: "Atelier / Service" },
+    { value: "ferma",               label: "Fermă" },
+    { value: "statie_tehnologica",  label: "Stație tehnologică" },
+  ],
+};
 
-export const CLIMATE_ZONES = [
-  { value: "I",   label: "Zona I — −12°C" },
-  { value: "II",  label: "Zona II — −15°C" },
-  { value: "III", label: "Zona III — −18°C" },
-  { value: "IV",  label: "Zona IV — −21°C" },
-];
+// ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [
   { value: "slaba",       label: "Slabă  (> 70 W/m²)" },
@@ -55,49 +42,106 @@ export const INSULATION = [
   { value: "foarte_buna", label: "Foarte bună  (< 40 W/m²)" },
 ];
 
-export const HEATING = [
-  { value: "pdc_air_water",    label: "PDC Aer–Apă" },
-  { value: "pdc_air_air",      label: "PDC Aer–Aer" },
+// ─── Heating generation (TIP GENERARE CĂLDURĂ) ───────────────────────────────
+
+export const HEATING_GENERATION = [
+  { value: "pdc_air_water",    label: "Pompă de căldură aer-apă" },
+  { value: "pdc_ground_water", label: "Pompă de căldură sol-apă (geotermală)" },
   { value: "gas_boiler",       label: "Centrală pe gaz" },
   { value: "electric_boiler",  label: "Centrală electrică" },
-  { value: "geothermal",       label: "Geotermală" },
-  { value: "none",             label: "Fără încălzire centralizată" },
+  { value: "district_heating", label: "Termoficare (rețea urbană)" },
+  { value: "existing",         label: "Sistem existent (fără modificări)" },
 ];
+
+// ─── Heating distribution (TIP DISTRIBUȚIE CĂLDURĂ) ─────────────────────────
+
+export const HEATING_DISTRIBUTION = [
+  { value: "floor_heating",     label: "Încălzire în pardoseală" },
+  { value: "fan_coil",          label: "Ventiloconvector" },
+  { value: "electric_radiator", label: "Radiator electric" },
+  { value: "radiant_ceiling",   label: "Tavan radiant" },
+  { value: "existing",          label: "Sistem existent" },
+];
+
+// ─── Extra equipment presets ──────────────────────────────────────────────────
+
+export interface ExtraEquipment {
+  type: string;
+  name: string;
+  power_kw: number;
+  phase: string;  // "mono" | "tri" | "none"
+}
+
+export const EXTRA_EQUIPMENT_DEFAULTS: {
+  type: string; label: string; icon: string; default_kw: number; default_phase: string;
+}[] = [
+  { type: "boiler",     label: "Boiler ACM",                             icon: "🛁", default_kw: 2,   default_phase: "mono" },
+  { type: "ac",         label: "Aer condiționat",                        icon: "❄️", default_kw: 2.5, default_phase: "mono" },
+  { type: "hrv",        label: "Ventilație cu recuperare căldură (HRV)", icon: "🌀", default_kw: 0.2, default_phase: "mono" },
+  { type: "internet",   label: "Rețea date / Internet (prize RJ45)",     icon: "🌐", default_kw: 0,   default_phase: "none" },
+  { type: "solar",      label: "Panouri fotovoltaice",                   icon: "☀️", default_kw: 5,   default_phase: "mono" },
+  { type: "ev_charger", label: "Stație încărcare mașină electrică",      icon: "🚗", default_kw: 7.4, default_phase: "mono" },
+];
+
+// ─── Motor (industrial) ───────────────────────────────────────────────────────
 
 export interface Motor {
   name: string;
   power_kw: number;
-  phase: string;   // "mono" | "tri"
+  phase: string;
   count: number;
 }
 
+// ─── Form state ───────────────────────────────────────────────────────────────
+
 export interface FormData {
   project_id: string;
-  building_type: string;
-  building_category: string;
-  levels: string;
-  climate_zone: string;
+  building_category: string;    // "rezidential" | "public" | "industrial"
+  building_type: string;        // subtype value
+  power_phase: string;          // "mono" | "tri"
   insulation_level: string;
-  main_entrance: string;
-  heating_type: string;
-  pdc_phase: string;
-  has_acm_boiler: boolean;
-  has_ventilation: boolean;
-  has_hrv: boolean;
-  has_floor_heating: boolean;
+  heating_type: string;         // generation type
+  heating_distribution: string;
   notes: string;
-  // Bloc
+  main_entrance: string;
+  // Manual height (Vision may override; always sent as fallback)
+  has_basement: boolean;
+  floors_above_ground: number;
+  has_attic: boolean;
+  // Bloc specifics (shown when building_type === "bloc_locuinte")
   floors: string;
   apartments_per_floor: string;
   has_elevator: boolean;
   has_fire_pump: boolean;
-  // Industrial
+  // Industrial specifics
   has_compressed_air: boolean;
   has_overhead_crane: boolean;
   ip_zone: string;
-  // Comercial
-  commercial_subtype: string;
 }
+
+export const INITIAL_FORM: FormData = {
+  project_id: "",
+  building_category: "",
+  building_type: "",
+  power_phase: "mono",
+  insulation_level: "",
+  heating_type: "",
+  heating_distribution: "",
+  notes: "",
+  main_entrance: "",
+  has_basement: false,
+  floors_above_ground: 0,
+  has_attic: false,
+  floors: "",
+  apartments_per_floor: "",
+  has_elevator: false,
+  has_fire_pump: false,
+  has_compressed_air: false,
+  has_overhead_crane: false,
+  ip_zone: "IP65",
+};
+
+// ─── Backend response types ───────────────────────────────────────────────────
 
 export interface Circuit {
   id: string;
@@ -123,6 +167,8 @@ export interface ProjectResult {
   project_id: string;
   building_category?: string;
   climate_zone: string;
+  climate_source?: string;
+  levels_string?: string;
   heating_circuits: {
     pdc?: {
       power_kw_thermal: number;
@@ -142,31 +188,3 @@ export interface ProjectResult {
   memoriu_tehnic: string;
   ai_notes?: string;
 }
-
-export const INITIAL_FORM: FormData = {
-  project_id: "",
-  building_type: "",
-  building_category: "",
-  levels: "",
-  climate_zone: "II",
-  insulation_level: "",
-  main_entrance: "",
-  heating_type: "",
-  pdc_phase: "mono",
-  has_acm_boiler: true,
-  has_ventilation: false,
-  has_hrv: false,
-  has_floor_heating: false,
-  notes: "",
-  // Bloc
-  floors: "",
-  apartments_per_floor: "",
-  has_elevator: false,
-  has_fire_pump: false,
-  // Industrial
-  has_compressed_air: false,
-  has_overhead_crane: false,
-  ip_zone: "IP65",
-  // Comercial
-  commercial_subtype: "",
-};

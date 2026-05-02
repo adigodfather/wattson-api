@@ -10,7 +10,7 @@ import os
 app = FastAPI(
     title="ZYNAPSE Core API",
     description="Motor inteligent de calcul pentru proiecte electrice – ZYNAPSE",
-    version="3.0.0",
+    version="4.0.0",
 )
 
 app.add_middleware(
@@ -61,11 +61,11 @@ CABLE_SECTIONS = [
 MCB_STEPS = [6, 10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125]
 
 BUILDING_CATEGORY_MAP = {
-    "rezidential": ["casa_unifamiliala", "duplex", "apartament"],
-    "public":      ["camin_cultural", "scoala", "birou", "spital", "institutie"],
-    "industrial":  ["hala", "depozit", "atelier", "fabrica", "productie"],
+    "rezidential": ["casa_unifamiliala", "duplex", "apartament", "duplex_vila"],
+    "public":      ["camin_cultural", "scoala", "birou", "spital", "institutie", "sala_sport", "biserica"],
+    "industrial":  ["hala", "depozit", "atelier", "fabrica", "productie", "hala_productie", "ferma", "statie_tehnologica"],
     "bloc":        ["bloc_locuinte", "bloc_mixt", "bloc_mic"],
-    "comercial":   ["magazin", "restaurant", "hotel", "mall", "comercial"],
+    "comercial":   ["magazin", "restaurant", "hotel", "mall", "comercial", "spatiu_comercial_bloc", "hotel_pensiune"],
 }
 
 NORMATIVE_BY_CATEGORY = {
@@ -96,10 +96,18 @@ class MotorData(BaseModel):
     count: int = 1
 
 
+class ExtraEquipment(BaseModel):
+    type: str   # boiler/ac/hrv/internet/solar/ev_charger/custom
+    name: str
+    power_kw: float = 0.0
+    phase: str = "mono"  # mono / tri / none
+
+
 class Building(BaseModel):
     type: str
     levels: str
     climate_zone: Optional[str] = None
+    climate_source: Optional[str] = None  # e.g. "jud. Bihor" — auto-detected by Vision
     insulation_level: Literal["slaba", "medie", "buna", "foarte_buna"]
     main_entrance: Optional[str] = None
     total_area_m2: float
@@ -107,14 +115,12 @@ class Building(BaseModel):
 
 
 class Heating(BaseModel):
-    type: Literal[
-        "pdc_air_water", "pdc_air_air", "gas_boiler",
-        "electric_boiler", "geothermal", "none",
-    ]
+    type: str  # pdc_air_water/pdc_air_air/pdc_ground_water/gas_boiler/electric_boiler/geothermal/district_heating/existing/none
     has_acm_boiler: bool = False
     has_ventilation: bool = False
     has_hrv: bool = False
     pdc_phase: Optional[Literal["mono", "tri"]] = "tri"
+    distribution: Optional[str] = None  # floor_heating/fan_coil/electric_radiator/radiant_ceiling/existing
 
 
 class Room(BaseModel):
@@ -137,8 +143,10 @@ class ProjectData(BaseModel):
     rooms: List[Room]
     has_floor_heating: bool = False
     notes: Optional[str] = None
-    # Auto-detectat daca lipseste
     building_category: Optional[str] = None
+    extra_equipment: Optional[List[ExtraEquipment]] = None
+    power_phase: Optional[str] = "mono"         # mono / tri
+    heating_distribution: Optional[str] = None  # floor_heating/fan_coil/…
     # Industrial
     motors: Optional[List[MotorData]] = None
     has_compressed_air: bool = False
@@ -200,6 +208,94 @@ def cable_for_current(current_a: float) -> str:
 # -------------------------------------------------
 #  UTILITARE – PDC / TE-CT
 # -------------------------------------------------
+
+
+def calc_extra_equipment_circuits(
+    equipment: List[ExtraEquipment],
+    panel: str = "TEG",
+) -> List[dict]:
+    circuits = []
+    for i, eq in enumerate(equipment):
+        tag = i + 1
+        if eq.type == "boiler":
+            circuits.append({
+                "id": f"C_BOILER_{tag}", "panel": panel,
+                "usage": f"Boiler ACM — {eq.name}",
+                "type": "boiler", "breaker_a": 16,
+                "cable": "3x2,5 mm² NYM", "rcd_30ma": True,
+                "notes": "Circuit dedicat boiler ACM, MCB 16A, RCCB 30mA.",
+            })
+        elif eq.type == "ac":
+            circuits.append({
+                "id": f"C_AC_{tag}", "panel": panel,
+                "usage": f"Aer condiționat — {eq.name}",
+                "type": "ac", "breaker_a": 16,
+                "cable": "3x2,5 mm² NYM", "rcd_30ma": True,
+                "notes": "Circuit dedicat AC, MCB 16A, RCCB 30mA.",
+            })
+        elif eq.type == "hrv":
+            circuits.append({
+                "id": f"C_HRV_{tag}", "panel": panel,
+                "usage": f"Ventilație HRV — {eq.name}",
+                "type": "hrv", "breaker_a": 10,
+                "cable": "3x1,5 mm² NYM",
+                "notes": "Circuit ventilație cu recuperare căldură, MCB 10A.",
+            })
+        elif eq.type == "ev_charger":
+            if eq.phase == "tri":
+                circuits.append({
+                    "id": f"C_EV_{tag}", "panel": panel,
+                    "usage": f"Stație EV — {eq.name}",
+                    "type": "ev_charger", "phase": "trifazat", "breaker_a": 16,
+                    "cable": "5x6 mm² NYM", "rcd_30ma": True,
+                    "notes": "Stație EV trifazată: MCB 3P 16A, RCCB 3P 25A/30mA, NYM 5x6.",
+                })
+            else:
+                circuits.append({
+                    "id": f"C_EV_{tag}", "panel": panel,
+                    "usage": f"Stație EV — {eq.name}",
+                    "type": "ev_charger", "breaker_a": 32,
+                    "cable": "3x6 mm² NYM", "rcd_30ma": True,
+                    "notes": "Stație EV monofazată: MCB 32A, RCCB 30mA, NYM 3x6.",
+                })
+        elif eq.type == "solar":
+            if eq.phase == "tri":
+                circuits.append({
+                    "id": f"C_PV_{tag}", "panel": panel,
+                    "usage": f"Invertor FV — {eq.name}",
+                    "type": "solar", "breaker_a": 20,
+                    "cable": "5x4 mm² NYM",
+                    "notes": "Invertor fotovoltaic trifazat: MCB 2P 20A, NYM 5x4.",
+                })
+            else:
+                circuits.append({
+                    "id": f"C_PV_{tag}", "panel": panel,
+                    "usage": f"Invertor FV — {eq.name}",
+                    "type": "solar", "breaker_a": 20,
+                    "cable": "3x4 mm² NYM",
+                    "notes": "Invertor fotovoltaic monofazat: MCB 2P 20A, NYM 3x4.",
+                })
+        elif eq.type == "internet":
+            pass  # No power circuit needed
+        elif eq.type == "custom" and eq.power_kw > 0:
+            if eq.phase == "tri":
+                i_calc = eq.power_kw * 1000 / 692.0
+            else:
+                i_calc = eq.power_kw * 1000 / 230.0
+            mcb = next_mcb(i_calc * 1.25)
+            section = cable_for_current(i_calc * 1.25)
+            prefix = "5" if eq.phase == "tri" else "3"
+            circuits.append({
+                "id": f"C_CUST_{tag}", "panel": panel,
+                "usage": eq.name,
+                "type": "custom", "breaker_a": mcb,
+                "cable": f"{prefix}x{section} mm²",
+                "notes": (
+                    f"Echipament custom: {eq.power_kw} kW, "
+                    f"I={i_calc:.1f}A, MCB {mcb}A."
+                ),
+            })
+    return circuits
 
 
 def calc_pdc_power_kw(building: Building, heating: Heating, climate_zone: str) -> float:
@@ -980,11 +1076,26 @@ def build_memoriu(
         lines.append("")
 
     heating_labels = {
-        "pdc_air_water": "PDC aer-apa", "pdc_air_air": "PDC aer-aer",
-        "gas_boiler": "Centrala gaz", "electric_boiler": "Centrala electrica",
-        "geothermal": "Geotermala", "none": "Fara incalzire centralizata",
+        "pdc_air_water":    "PDC aer-apa",
+        "pdc_air_air":      "PDC aer-aer",
+        "pdc_ground_water": "PDC sol-apa (geotermala)",
+        "gas_boiler":       "Centrala gaz",
+        "electric_boiler":  "Centrala electrica",
+        "geothermal":       "Geotermala",
+        "district_heating": "Termoficare (retea urbana)",
+        "existing":         "Sistem existent",
+        "none":             "Fara incalzire centralizata",
     }
     lines.append(f"Sistem de incalzire: {heating_labels.get(h.type, h.type)}.")
+    if data.heating_distribution:
+        dist_labels = {
+            "floor_heating":     "incalzire in pardoseala",
+            "fan_coil":          "ventiloconvector",
+            "electric_radiator": "radiator electric",
+            "radiant_ceiling":   "tavan radiant",
+            "existing":          "sistem existent",
+        }
+        lines.append(f"Distributie caldura: {dist_labels.get(data.heating_distribution, data.heating_distribution)}.")
     if pdc_circuit:
         lines.append(
             f"Circuit PDC: {pdc_circuit['power_kw_thermal']} kW termica, "
@@ -1024,6 +1135,19 @@ def build_memoriu(
                 f"cablu {c.get('cable', '?')}."
             )
         lines.append("")
+
+    # Echipamente speciale (extra_equipment)
+    if data.extra_equipment:
+        active = [e for e in data.extra_equipment if e.type != "internet"]
+        if active:
+            lines.append("Echipamente speciale:")
+            for eq in active:
+                phase_lbl = "trifazat" if eq.phase == "tri" else "monofazat"
+                if eq.power_kw > 0:
+                    lines.append(f"  - {eq.name}: {eq.power_kw} kW {phase_lbl}, circuit dedicat.")
+                else:
+                    lines.append(f"  - {eq.name}: circuit dedicat.")
+            lines.append("")
 
     lines.append("Toate circuitele vor fi verificate si dimensionate conform normativelor in vigoare.")
     return "\n".join(lines)
@@ -1079,7 +1203,12 @@ def calc_electric(data: ProjectData):
         )
         circuits_teg = build_circuits_teg(data)
 
-    circuits_all = circuits_te_ct + circuits_teg
+    # Extra equipment circuits (boiler, AC, EV charger, solar, HRV…)
+    extra_circuits: List[dict] = []
+    if data.extra_equipment:
+        extra_circuits = calc_extra_equipment_circuits(data.extra_equipment)
+
+    circuits_all = circuits_te_ct + circuits_teg + extra_circuits
 
     memoriu = build_memoriu(
         data=data,
@@ -1099,6 +1228,8 @@ def calc_electric(data: ProjectData):
         "status": "success",
         "building_category": building_category,
         "climate_zone": climate_zone,
+        "climate_source": data.building.climate_source,
+        "levels_string": data.building.levels,
         "heating_circuits": {
             "pdc": pdc_circuit,
             "boiler": boiler_circuit,
@@ -1108,6 +1239,7 @@ def calc_electric(data: ProjectData):
         "rooms": room_results,
         "circuits_te_ct": circuits_te_ct,
         "circuits_teg": circuits_teg,
+        "circuits_extra": extra_circuits,
         "circuits_all": circuits_all,
         "memoriu_tehnic": memoriu,
     }
@@ -1115,7 +1247,7 @@ def calc_electric(data: ProjectData):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "4.0.0"}
 
 
 # -------------------------------------------------
