@@ -513,7 +513,13 @@ export function ZynapseConfigurator() {
         plan_base64: base64,
         plan_type: files[0].type || "image/jpeg",
         ...form,
+        // Climate — use Vision-detected values from previous run, or defaults
+        climate_zone: autoDetected?.climate_zone || "II",
+        climate_auto_detected: !!autoDetected?.climate_zone,
+        climate_source: autoDetected?.climate_source || null,
+        // Height regime
         levels_string: levelsString,
+        levels_auto_detected: !!autoDetected?.levels_string,
         floors_above_ground: manualFloors,
         power_phase: form.power_phase,
         heating_type: form.heating_type,

@@ -39,6 +39,10 @@ ZONE_TEMP = {
     "V": -25,
 }
 
+SNOW_LOAD_BY_ZONE = {
+    "I": 1.0, "II": 1.5, "III": 2.0, "IV": 2.5, "V": 3.0,
+}
+
 INSULATION_W_M2 = {
     "slaba": 70.0,
     "medie": 60.0,
@@ -147,6 +151,16 @@ class ProjectData(BaseModel):
     extra_equipment: Optional[List[ExtraEquipment]] = None
     power_phase: Optional[str] = "mono"         # mono / tri
     heating_distribution: Optional[str] = None  # floor_heating/fan_coil/…
+    # Climate (top-level, from Vision auto-detect or frontend default)
+    climate_zone: Optional[str] = "II"
+    climate_auto_detected: Optional[bool] = False
+    climate_source: Optional[str] = None
+    # Height regime (from frontend manual controls or Vision)
+    levels_string: Optional[str] = None
+    levels_auto_detected: Optional[bool] = False
+    has_basement: Optional[bool] = False
+    floors_above_ground: Optional[int] = 0
+    has_attic: Optional[bool] = False
     # Industrial
     motors: Optional[List[MotorData]] = None
     has_compressed_air: bool = False
@@ -189,6 +203,14 @@ def resolve_climate_zone(building: Building) -> str:
         if z in ZONE_TEMP:
             return z
     return "II"
+
+
+def resolve_climate_zone_from_data(data: "ProjectData") -> str:
+    if data.climate_zone:
+        z = data.climate_zone.strip().upper().replace("ZONA", "").strip()
+        if z in ZONE_TEMP:
+            return z
+    return resolve_climate_zone(data.building)
 
 
 def next_mcb(current_a: float) -> int:
@@ -1026,76 +1048,104 @@ def build_memoriu(
     b = data.building
     h = data.heating
     cat_label = CATEGORY_LABELS.get(building_category, building_category.title())
-    normative = NORMATIVE_BY_CATEGORY.get(building_category, "I7-2011")
 
-    lines.append(f"MEMORIU TEHNIC – INSTALATIE ELECTRICA {cat_label.upper()}")
+    # Height regime
+    levels_str = data.levels_string or b.levels or "P"
+    has_basement = data.has_basement or False
+    floors_above = data.floors_above_ground or 0
+    has_attic = data.has_attic or False
+    num_levels = 1 + floors_above + (1 if has_attic else 0) + (1 if has_basement else 0)
+
+    # Climate
+    temp_ext = ZONE_TEMP.get(climate_zone, -15)
+    snow_load = SNOW_LOAD_BY_ZONE.get(climate_zone, 1.5)
+    climate_source = data.climate_source or b.climate_source
+    climate_auto = data.climate_auto_detected or False
+
+    lines.append(f"MEMORIU TEHNIC — INSTALATIE ELECTRICA {cat_label.upper()}")
     lines.append("=" * 60)
+    lines.append("")
+
+    # ── 1. DATE GENERALE ──────────────────────────────────────────────────────
+    lines.append("1. DATE GENERALE")
     lines.append(f"Proiect: {data.project_id}")
-    lines.append(
-        f"Cladire: {b.type}, regim {b.levels}, "
-        f"Suprafata utila {b.total_area_m2} m2, volum {b.total_volume_m3} m3."
-    )
-    lines.append(f"Categorie: {cat_label}.")
-    lines.append(f"Zona climatica: {climate_zone}, izolatie: {b.insulation_level}.")
+    lines.append(f"Tip cladire: {b.type}, categorie: {cat_label}.")
+    lines.append(f"Regim de inaltime: {levels_str}")
+    lines.append(f"Numar niveluri: {num_levels}")
+    lines.append(f"Suprafata utila totala: {b.total_area_m2} mp")
+    lines.append(f"Volum incalzit: {b.total_volume_m3} mc")
     if b.main_entrance:
         lines.append(f"Intrare principala: {b.main_entrance}.")
-    lines.append("")
-    lines.append(f"Normative aplicate: {normative}.")
+    lines.append(f"Izolatie termica: {b.insulation_level}.")
     lines.append("")
 
-    if building_category == "public":
-        lines.append("SPECIFICATII CLADIRE PUBLICA:")
-        lines.append("- Iluminat de siguranta/evacuare obligatoriu conform P118-99.")
-        lines.append("- Niveluri de iluminare conform SR EN 12464-1.")
-        lines.append("- Protectie diferentiala 10mA in zone umede (grupuri sanitare).")
-        lines.append("")
-    elif building_category == "industrial":
-        lines.append("SPECIFICATII HALA INDUSTRIALA:")
-        lines.append(f"- Grad de protectie echipamente: {data.ip_zone or 'IP65'}.")
-        if data.has_explosive_zone:
-            lines.append("- ATENTIE: Zone cu pericol de explozie (ATEX) — conform SR EN 60079.")
-        if data.has_overhead_crane:
-            lines.append("- Pod rulant: circuit dedicat trifazat 63A, conform SR EN 60204.")
-        if data.has_compressed_air:
-            lines.append("- Instalatie aer comprimat: circuit trifazat 32A.")
-        lines.append("")
-    elif building_category == "bloc":
-        lines.append("SPECIFICATII BLOC DE LOCUINTE:")
-        lines.append(f"- Numar etaje: {data.floors or '?'}, apartamente/etaj: {data.apartments_per_floor or '?'}.")
-        lines.append("- Structura: TE → TGB → Tablouri etaj → Tablouri apartament.")
-        if data.has_elevator:
-            lines.append("- Lift: circuit dedicat trifazat, conform EN 81.")
-        if data.has_fire_pump:
-            lines.append("- Pompa incendiu: circuit prioritar trifazat, nu se intrerupe automat.")
-        lines.append("")
-    elif building_category == "comercial":
-        lines.append("SPECIFICATII SPATIU COMERCIAL:")
-        lines.append("- Tablou comercial (TC) separat de tabloul tehnic (TT).")
-        lines.append("- Iluminat vitrine pe circuit separat dimabil.")
-        lines.append("- Casa de marcat pe circuit dedicat cu UPS.")
-        lines.append("")
+    # ── 2. DATE CLIMATICE ─────────────────────────────────────────────────────
+    lines.append("2. DATE CLIMATICE SI DE AMPLASAMENT")
+    lines.append(f"Zona climatica: {climate_zone} conform C107/2005")
+    lines.append(f"Temperatura exterioara de calcul: {temp_ext}°C")
+    lines.append(f"Zona de vant: conform CR 1-1-4/2012")
+    lines.append(f"Zona de zapada: {snow_load} kN/mp conform CR 1-1-3/2012")
+    if climate_auto and climate_source:
+        lines.append(f"Detectat automat din: {climate_source}")
+    lines.append("")
 
+    # ── 3. BAZA DE PROIECTARE ─────────────────────────────────────────────────
+    lines.append("3. BAZA DE PROIECTARE")
+    base_normative = [
+        "I7/2011 — Normativ privind proiectarea, executia si exploatarea instalatiilor electrice",
+        "NP 061-2002 — Normativ pentru proiectarea si executarea sistemelor de iluminat",
+        "C107/2005 — Normativ privind calculul termotehnic al elementelor de constructie ale cladirilor",
+        "CR 1-1-3/2012 — Evaluarea actiunii zapezii asupra constructiilor",
+        "CR 1-1-4/2012 — Cod de proiectare. Evaluarea actiunii vantului",
+        "P118/1999 — Norme de siguranta la foc",
+        "SR EN 61439 — Tablouri electrice de joasa tensiune",
+    ]
+    category_extra_norms: dict = {
+        "public":     [
+            "SR EN 12464-1 — Cerinte de iluminat pentru locuri de munca in interior",
+            "PE 003/1979 — Normativ privind utilizarea rationala a energiei electrice",
+        ],
+        "industrial": [
+            "SR EN 60529 — Grade de protectie asigurate prin carcase (cod IP)",
+            "SR EN 60204-1 — Siguranta masinilor. Echipament electric al masinilor",
+        ],
+        "bloc":       [
+            "SR EN 50522 — Punerea la pamant a instalatiilor electrice",
+            "NP 061-2002 — Proiectarea si executarea sistemelor de iluminat artificial",
+        ],
+        "comercial":  [
+            "NP 031 — Normativ pentru proiectarea, executia si exploatarea constructiilor si instalatiilor aferente spatiilor comerciale",
+        ],
+    }
+    for norm in base_normative:
+        lines.append(f"- {norm}")
+    for norm in category_extra_norms.get(building_category, []):
+        lines.append(f"- {norm}")
+    lines.append("")
+
+    # ── 4. SISTEM TERMOENERGETIC ──────────────────────────────────────────────
     heating_labels = {
-        "pdc_air_water":    "PDC aer-apa",
-        "pdc_air_air":      "PDC aer-aer",
-        "pdc_ground_water": "PDC sol-apa (geotermala)",
-        "gas_boiler":       "Centrala gaz",
+        "pdc_air_water":    "Pompa de caldura aer-apa",
+        "pdc_air_air":      "Pompa de caldura aer-aer",
+        "pdc_ground_water": "Pompa de caldura sol-apa (geotermala)",
+        "gas_boiler":       "Centrala pe gaz",
         "electric_boiler":  "Centrala electrica",
-        "geothermal":       "Geotermala",
+        "geothermal":       "Sistem geothermal",
         "district_heating": "Termoficare (retea urbana)",
-        "existing":         "Sistem existent",
+        "existing":         "Sistem existent (fara modificari)",
         "none":             "Fara incalzire centralizata",
     }
-    lines.append(f"Sistem de incalzire: {heating_labels.get(h.type, h.type)}.")
+    dist_labels = {
+        "floor_heating":     "incalzire in pardoseala",
+        "fan_coil":          "ventiloconvector",
+        "electric_radiator": "radiator electric",
+        "radiant_ceiling":   "tavan radiant",
+        "existing":          "sistem existent",
+    }
+    lines.append("4. SISTEM TERMOENERGETIC")
+    lines.append(f"Tip generare caldura: {heating_labels.get(h.type, h.type)}.")
     if data.heating_distribution:
-        dist_labels = {
-            "floor_heating":     "incalzire in pardoseala",
-            "fan_coil":          "ventiloconvector",
-            "electric_radiator": "radiator electric",
-            "radiant_ceiling":   "tavan radiant",
-            "existing":          "sistem existent",
-        }
-        lines.append(f"Distributie caldura: {dist_labels.get(data.heating_distribution, data.heating_distribution)}.")
+        lines.append(f"Tip distributie caldura: {dist_labels.get(data.heating_distribution, data.heating_distribution)}.")
     if pdc_circuit:
         lines.append(
             f"Circuit PDC: {pdc_circuit['power_kw_thermal']} kW termica, "
@@ -1108,39 +1158,74 @@ def build_memoriu(
         lines.append(f"Ventilatie/HRV: MCB {ventilation_circuit['breaker_a']}A.")
     lines.append("")
 
+    # ── 5. SPECIFICATII CATEGORIE ─────────────────────────────────────────────
+    if building_category == "public":
+        lines.append("5. SPECIFICATII CLADIRE PUBLICA")
+        lines.append("- Iluminat de siguranta/evacuare obligatoriu conform P118-99.")
+        lines.append("- Niveluri de iluminare conform SR EN 12464-1.")
+        lines.append("- Protectie diferentiala 10mA in zone umede (grupuri sanitare).")
+        lines.append("")
+    elif building_category == "industrial":
+        lines.append("5. SPECIFICATII HALA INDUSTRIALA")
+        lines.append(f"- Grad de protectie echipamente: {data.ip_zone or 'IP65'}.")
+        if data.has_explosive_zone:
+            lines.append("- ATENTIE: Zone cu pericol de explozie (ATEX) — conform SR EN 60079.")
+        if data.has_overhead_crane:
+            lines.append("- Pod rulant: circuit dedicat trifazat 63A, conform SR EN 60204.")
+        if data.has_compressed_air:
+            lines.append("- Instalatie aer comprimat: circuit trifazat 32A.")
+        lines.append("")
+    elif building_category == "bloc":
+        lines.append("5. SPECIFICATII BLOC DE LOCUINTE")
+        lines.append(f"- Numar etaje: {data.floors or '?'}, apartamente/etaj: {data.apartments_per_floor or '?'}.")
+        lines.append("- Structura: TE → TGB → Tablouri etaj → Tablouri apartament.")
+        if data.has_elevator:
+            lines.append("- Lift: circuit dedicat trifazat, conform EN 81.")
+        if data.has_fire_pump:
+            lines.append("- Pompa incendiu: circuit prioritar trifazat, nu se intrerupe automat.")
+        lines.append("")
+    elif building_category == "comercial":
+        lines.append("5. SPECIFICATII SPATIU COMERCIAL")
+        lines.append("- Tablou comercial (TC) separat de tabloul tehnic (TT).")
+        lines.append("- Iluminat vitrine pe circuit separat dimabil.")
+        lines.append("- Casa de marcat pe circuit dedicat cu UPS.")
+        lines.append("")
+
+    # ── 6. CAMERE ─────────────────────────────────────────────────────────────
     if room_results:
-        lines.append("Rezumat camere:")
+        lines.append("6. REZUMAT CAMERE")
         for r in room_results:
-            lines.append(f"- {r['name']} ({r['area_m2']} m2):")
+            lines.append(f"- {r['name']} ({r['area_m2']} mp):")
             for s in r.get("sockets", []):
                 lines.append(f"    . {s['type']} x{s['count']} la h~{s['height_m']}m ({s['notes']})")
             for lgt in r.get("lights", []):
                 lines.append(f"    . Iluminat: {lgt['type']} x{lgt['count']} ({lgt['notes']})")
         lines.append("")
 
+    # ── 7. CIRCUITE ELECTRICE ─────────────────────────────────────────────────
     if circuits_main:
-        lines.append("Lista circuite principale:")
+        lines.append("7. LISTA CIRCUITE PRINCIPALE")
         for c in circuits_main:
             lines.append(
-                f"  - {c['id']}: {c.get('usage', '?')} – MCB {c.get('breaker_a', '?')}A, "
+                f"  - {c['id']}: {c.get('usage', '?')} — MCB {c.get('breaker_a', '?')}A, "
                 f"cablu {c.get('cable', '?')}. {c.get('notes', '')}"
             )
         lines.append("")
 
     if circuits_secondary:
-        lines.append("Circuite secundare / tablou termic:")
+        lines.append("7b. CIRCUITE TABLOU TERMIC (TE-CT)")
         for c in circuits_secondary:
             lines.append(
-                f"  - {c['id']}: {c.get('usage', '?')} – MCB {c.get('breaker_a', '?')}A, "
+                f"  - {c['id']}: {c.get('usage', '?')} — MCB {c.get('breaker_a', '?')}A, "
                 f"cablu {c.get('cable', '?')}."
             )
         lines.append("")
 
-    # Echipamente speciale (extra_equipment)
+    # ── 8. ECHIPAMENTE SPECIALE ───────────────────────────────────────────────
     if data.extra_equipment:
         active = [e for e in data.extra_equipment if e.type != "internet"]
         if active:
-            lines.append("Echipamente speciale:")
+            lines.append("8. ECHIPAMENTE SPECIALE")
             for eq in active:
                 phase_lbl = "trifazat" if eq.phase == "tri" else "monofazat"
                 if eq.power_kw > 0:
@@ -1149,7 +1234,7 @@ def build_memoriu(
                     lines.append(f"  - {eq.name}: circuit dedicat.")
             lines.append("")
 
-    lines.append("Toate circuitele vor fi verificate si dimensionate conform normativelor in vigoare.")
+    lines.append("Toate circuitele vor fi verificate si dimensionate definitiv conform normativelor in vigoare.")
     return "\n".join(lines)
 
 
@@ -1160,7 +1245,7 @@ def build_memoriu(
 
 @app.post("/calc-electric")
 def calc_electric(data: ProjectData):
-    climate_zone = resolve_climate_zone(data.building)
+    climate_zone = resolve_climate_zone_from_data(data)
     building_category = data.building_category or detect_building_category(data.building.type)
 
     pdc_power_kw = calc_pdc_power_kw(data.building, data.heating, climate_zone)
