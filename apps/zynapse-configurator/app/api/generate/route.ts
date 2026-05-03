@@ -3,18 +3,21 @@ import { NextRequest, NextResponse } from "next/server";
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 
 export async function POST(req: NextRequest) {
-  let body: unknown;
+  const contentType = req.headers.get("content-type") || "";
+
+  let body: Blob | string;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    body = await req.blob();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to read request body";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   try {
     const upstream = await fetch(N8N_WEBHOOK, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: { "Content-Type": contentType },
+      body,
     });
 
     const data = await upstream.json();
