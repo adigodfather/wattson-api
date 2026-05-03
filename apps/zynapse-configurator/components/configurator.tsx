@@ -14,9 +14,7 @@ import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection,
 } from "@/components/result-sections";
 
-const WEBHOOK_URL =
-  process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
-  "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
+const WEBHOOK_URL = "/api/generate";
 
 const PROGRESS_STEPS = [
   "Se encodează planșele...",
