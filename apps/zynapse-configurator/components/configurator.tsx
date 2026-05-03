@@ -433,6 +433,7 @@ export function ZynapseConfigurator() {
   const [error, setError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [motors, setMotors] = useState<Motor[]>([]);
 
   // Height regime (manual controls)
@@ -589,6 +590,19 @@ export function ZynapseConfigurator() {
     const a = document.createElement("a");
     a.href = url; a.download = `${result.project_id || "proiect"}.json`; a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!result || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const { downloadProjectPDF } = await import("@/components/pdf-export");
+      await downloadProjectPDF(result);
+    } catch (e) {
+      console.error("PDF generation failed:", e);
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const isLoading = status === "loading";
@@ -898,13 +912,25 @@ export function ZynapseConfigurator() {
                   {result!.levels_string && ` · ${result!.levels_string}`}
                 </p>
               </div>
-              <button onClick={exportJSON}
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
-                Export JSON
-              </button>
+              <div className="flex gap-2">
+                <button onClick={handleDownloadPDF} disabled={pdfLoading}
+                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
+                  style={{
+                    background: pdfLoading ? "rgba(55,138,221,0.05)" : "rgba(55,138,221,0.12)",
+                    border: "1px solid rgba(55,138,221,0.3)",
+                    color: pdfLoading ? "#545870" : "#5BB8F5",
+                    cursor: pdfLoading ? "not-allowed" : "pointer",
+                  }}>
+                  {pdfLoading ? "Se generează..." : "Descarcă PDF"}
+                </button>
+                <button onClick={exportJSON}
+                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
+                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                  onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+                  Export JSON
+                </button>
+              </div>
             </div>
 
             <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
@@ -921,7 +947,7 @@ export function ZynapseConfigurator() {
             <CircuitTable circuits={result!.circuits_te_ct} title="TE-CT — Cameră tehnică" />
             <CircuitTable circuits={result!.circuits_teg} title="TEG — Tablou general" />
             <RoomsList rooms={result!.rooms} />
-            <MemoriuSection text={result!.memoriu_tehnic} filename={`${result!.project_id || "memoriu"}.txt`} />
+            <MemoriuSection text={result!.memoriu_tehnic} />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 440, padding: "0 40px" }}>

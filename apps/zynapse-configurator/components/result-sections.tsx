@@ -119,17 +119,8 @@ export function RoomsList({ rooms }: { rooms: RoomResult[] }) {
 }
 
 /* ─── Memoriu section ─── */
-export function MemoriuSection({ text, filename = "memoriu_tehnic.txt" }: { text: string; filename?: string }) {
+export function MemoriuSection({ text }: { text: string }) {
   if (!text) return null;
-
-  const download = () => {
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <ResultSection title="Memoriu tehnic" defaultOpen={false}>
       <pre className="mt-3 whitespace-pre-wrap break-words leading-relaxed m-0 max-h-[440px] overflow-y-auto p-4 rounded-lg"
@@ -140,13 +131,6 @@ export function MemoriuSection({ text, filename = "memoriu_tehnic.txt" }: { text
           background: "rgba(0,0,0,0.3)",
           lineHeight: 1.7,
         }}>{text}</pre>
-      <button onClick={download}
-        className="mt-3 px-5 py-2 rounded-lg text-sm cursor-pointer font-[inherit] transition-colors duration-150"
-        style={{ background: "rgba(55,138,221,0.1)", border: "1px solid rgba(55,138,221,0.25)", color: "#5BB8F5" }}
-        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.18)")}
-        onMouseOut={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.1)")}>
-        Descarcă memoriu .txt
-      </button>
     </ResultSection>
   );
 }
@@ -206,7 +190,7 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
       <RoomsList rooms={result.rooms} />
-      <MemoriuSection text={result.memoriu_tehnic} filename={`${result.project_id || "memoriu"}.txt`} />
+      <MemoriuSection text={result.memoriu_tehnic} />
     </div>
   );
 }
