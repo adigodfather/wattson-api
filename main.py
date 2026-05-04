@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
 import os
+import base64
+import io
 
 app = FastAPI(
     title="ZYNAPSE Core API",
@@ -1328,6 +1330,90 @@ def calc_electric(data: ProjectData):
         "circuits_all": circuits_all,
         "memoriu_tehnic": memoriu,
     }
+
+
+# -------------------------------------------------
+#  ADNOTARE PLAN
+# -------------------------------------------------
+
+class RoomWithCircuits(BaseModel):
+    name: str
+    function: str
+    bbox: Optional[dict] = None  # {x, y, w, h} in pixels
+    sockets: Optional[List[dict]] = None
+    lights: Optional[List[dict]] = None
+
+
+class AnnotatePlanRequest(BaseModel):
+    plan_base64: str   # raw base64 (no data: prefix) OR data:image/...;base64,...
+    plan_type: str = "image/png"
+    rooms_with_circuits: List[RoomWithCircuits]
+    image_width_px: Optional[int] = None
+    image_height_px: Optional[int] = None
+
+
+@app.post("/annotate-plan")
+def annotate_plan(req: AnnotatePlanRequest):
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return {"error": "Pillow not installed"}
+
+    # Decode image
+    b64 = req.plan_base64
+    if "," in b64:
+        b64 = b64.split(",", 1)[1]
+    img_bytes = base64.b64decode(b64)
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    for room in req.rooms_with_circuits:
+        bbox = room.bbox
+        if not bbox:
+            continue
+        cx = int(bbox.get("x", 0) + bbox.get("w", 0) / 2)
+        cy = int(bbox.get("y", 0) + bbox.get("h", 0) / 2)
+
+        socket_count = sum(s.get("count", 0) for s in (room.sockets or []))
+        light_count  = sum(l.get("count", 0) for l in (room.lights or []))
+
+        # Draw light symbol: blue circle + cross
+        if light_count > 0:
+            r = 12
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r],
+                         outline="#3B82F6", fill=(59, 130, 246, 60), width=2)
+            draw.line([cx - r + 3, cy, cx + r - 3, cy], fill="#3B82F6", width=2)
+            draw.line([cx, cy - r + 3, cx, cy + r - 3], fill="#3B82F6", width=2)
+
+        # Draw socket symbol: orange circle + 2 horizontal lines
+        if socket_count > 0:
+            ox = cx + (16 if light_count > 0 else 0)
+            oy = cy
+            r = 10
+            draw.ellipse([ox - r, oy - r, ox + r, oy + r],
+                         outline="#F59E0B", fill=(245, 158, 11, 60), width=2)
+            draw.line([ox - 5, oy - 3, ox + 5, oy - 3], fill="#F59E0B", width=2)
+            draw.line([ox - 5, oy + 3, ox + 5, oy + 3], fill="#F59E0B", width=2)
+
+        # Draw panel symbol for technical rooms: green square
+        if room.function in ("technical", "electrical"):
+            sx, sy, sw, sh = int(bbox["x"]) + 4, int(bbox["y"]) + 4, 20, 20
+            draw.rectangle([sx, sy, sx + sw, sy + sh],
+                           fill=(34, 197, 94, 200), outline="#22C55E", width=2)
+
+        # Draw switch symbol for circulation/hall: red semicircle
+        if room.function in ("circulation", "hall"):
+            r = 10
+            bx = int(bbox["x"]) + 4
+            by = int(bbox["y"]) + 4
+            draw.arc([bx - r, by - r, bx + r, by + r], 0, 180,
+                     fill="#EF4444", width=2)
+
+    # Encode result
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    encoded = base64.b64encode(out.getvalue()).decode()
+    return {"annotated_plan_base64": f"data:image/png;base64,{encoded}"}
 
 
 @app.get("/health")

@@ -135,6 +135,44 @@ export function MemoriuSection({ text }: { text: string }) {
   );
 }
 
+/* ─── Annotated plan ─── */
+export function AnnotatedPlanSection({ src }: { src: string }) {
+  if (!src) return null;
+
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = "plansa_adnotata.png";
+    a.click();
+  };
+
+  return (
+    <ResultSection title="Planșă adnotată" defaultOpen>
+      <div className="mt-3">
+        <img
+          src={src}
+          alt="Planșă electrică adnotată"
+          className="w-full rounded-lg"
+          style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+        />
+        <button
+          onClick={handleDownload}
+          className="mt-3 w-full py-2.5 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
+          style={{
+            background: "rgba(55,138,221,0.12)",
+            border: "1px solid rgba(55,138,221,0.25)",
+            color: "#85B7EB",
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.2)")}
+          onMouseOut={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.12)")}
+        >
+          Descarcă planșă adnotată
+        </button>
+      </div>
+    </ResultSection>
+  );
+}
+
 /* ─── Metric card ─── */
 export function MetricCard({ value, label, color }: { value: string | number; label: string; color: string }) {
   return (
@@ -187,6 +225,9 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
         <MetricCard value={result.rooms?.length || 0} label="Camere" color="#ED93B1" />
       </div>
 
+      {result.annotated_plan_base64 && (
+        <AnnotatedPlanSection src={result.annotated_plan_base64} />
+      )}
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
       <RoomsList rooms={result.rooms} />

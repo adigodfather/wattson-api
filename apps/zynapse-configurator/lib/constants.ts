@@ -187,4 +187,5 @@ export interface ProjectResult {
   circuits_all: Circuit[];
   memoriu_tehnic: string;
   ai_notes?: string;
+  annotated_plan_base64?: string | null;
 }
