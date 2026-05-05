@@ -1416,6 +1416,375 @@ def annotate_plan(req: AnnotatePlanRequest):
     return {"annotated_plan_base64": f"data:image/png;base64,{encoded}"}
 
 
+# -------------------------------------------------
+#  SCHEMĂ MONOFILARĂ (POST /generate-schema)
+# -------------------------------------------------
+
+class CircuitSchema(BaseModel):
+    nr: int
+    faza: str = "R"
+    tip: str = "iluminat"
+    destinatie: str
+    Pi_kW: float = 0.0
+    Ia_A: float = 0.0
+    protectie: str = ""
+    diferential: bool = False
+    afdd: bool = False
+    cablu: str = ""
+    pozare: str = ""
+    nr_corpuri: int = 0
+    simbol: str = ""
+
+
+class TablouInfo(BaseModel):
+    name: str
+    Pi: float = 0.0
+    Pa: float = 0.0
+    Ia: float = 0.0
+    alimentare_kv: str = "0.4"
+    protectie_generala: str = ""
+
+
+class ProjectInfoSchema(BaseModel):
+    beneficiar: str = ""
+    titlu_proiect: str = ""
+    adresa: str = ""
+    proiect_nr: str = ""
+    data: str = ""
+    faza: str = "DTAC"
+
+
+class GenerateSchemaRequest(BaseModel):
+    project_info: Optional[ProjectInfoSchema] = None
+    tablou: TablouInfo
+    circuits: List[CircuitSchema]
+
+
+def _build_schema_pdf(req: GenerateSchemaRequest) -> bytes:
+    try:
+        from reportlab.pdfgen import canvas as rl_canvas
+        from reportlab.lib.pagesizes import A3
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor, white
+    except ImportError:
+        raise RuntimeError("reportlab not installed")
+
+    circuits = req.circuits
+    N = len(circuits)
+    tablou = req.tablou
+    pinfo = req.project_info or ProjectInfoSchema()
+
+    buf = io.BytesIO()
+    pw, ph = A3[1], A3[0]   # A3 landscape: 1190.55 × 841.89 pt
+    c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+
+    # ── Nested drawing helpers (close over c, mm, white)
+    def draw_mcb(cx, cy, w, h, color):
+        c.setFillColor(white); c.setStrokeColor(color); c.setLineWidth(0.8)
+        c.rect(cx - w / 2, cy - h / 2, w, h, fill=1, stroke=1)
+        c.line(cx - w / 2 + 0.5, cy + h / 2 - 0.5, cx + w / 2 - 0.5, cy - h / 2 + 0.5)
+
+    def draw_rcd(cx, cy, r, color):
+        c.setFillColor(white); c.setStrokeColor(color); c.setLineWidth(0.8)
+        c.circle(cx, cy, r, fill=1, stroke=1)
+        c.setFillColor(color); c.setFont("Helvetica", max(4.0, r * 0.85))
+        c.drawCentredString(cx, cy - r * 0.38, "Δ")
+
+    # ── Colors
+    TIP_COL = {
+        "iluminat":   HexColor("#1E40AF"),
+        "prize":      HexColor("#D97706"),
+        "alimentare": HexColor("#15803D"),
+        "forta":      HexColor("#15803D"),
+        "rezerva":    HexColor("#6B7280"),
+        "motoare":    HexColor("#15803D"),
+    }
+    C_BORDER  = HexColor("#1E293B")
+    C_HEADER  = HexColor("#0F172A")
+    C_BUSBAR  = HexColor("#F59E0B")
+    C_TEXT    = HexColor("#334155")
+    C_DIM     = HexColor("#94A3B8")
+    C_ROW_ALT = HexColor("#F8FAFC")
+    C_TBL_LN  = HexColor("#CBD5E1")
+
+    # ── Layout constants (all in mm; y measured from bottom-left)
+    ML, MR, MT, MB = 12, 12, 10, 10
+    PH_mm = 297; PW_mm = 420
+    CX = ML; CW = PW_mm - ML - MR   # 396 mm content width
+
+    HDR_H   = 30
+    HDR_BOT = PH_mm - MT - HDR_H    # 257 mm — bottom of header
+    BUS_Y   = HDR_BOT - 20          # 237 mm — busbar y
+    BR_BOT  = MB + 100              # 110 mm — branch bottom
+    TBL_TOP = BR_BOT - 5            # 105 mm — table top
+    TBL_BOT = MB + 22               # 32 mm  — table bottom
+    FTR_TOP = TBL_BOT               # 32 mm  — footer top
+    FTR_BOT = MB                    # 10 mm  — footer bottom
+
+    # ── Branch geometry
+    PITCH = min(25.0, CW / max(N, 1))
+    PITCH = max(PITCH, 10.0)
+    TOT_BW = PITCH * N
+    BX0 = CX + (CW - TOT_BW) / 2   # leftmost branch center x (mm)
+
+    def bx(i):
+        return BX0 + (i + 0.5) * PITCH
+
+    # ── Outer border
+    c.setStrokeColor(C_BORDER); c.setLineWidth(1.5)
+    c.rect(ML * mm, MB * mm, CW * mm, (PH_mm - MT - MB) * mm)
+
+    # ── Header background
+    c.setFillColor(C_HEADER); c.setStrokeColor(C_HEADER)
+    c.rect(ML * mm, HDR_BOT * mm, CW * mm, HDR_H * mm, fill=1, stroke=0)
+
+    # Header text
+    c.setFillColor(white); c.setFont("Helvetica-Bold", 13)
+    c.drawString((ML + 5) * mm, (HDR_BOT + 18) * mm,
+                 f"SCHEMA MONOFILARA — {tablou.name}")
+    c.setFont("Helvetica", 8); c.setFillColor(C_DIM)
+    c.drawString((ML + 5) * mm, (HDR_BOT + 10) * mm,
+                 f"Pi = {tablou.Pi:.2f} kW   Pa = {tablou.Pa:.2f} kW   "
+                 f"Ia = {tablou.Ia:.2f} A   U = {tablou.alimentare_kv} kV   "
+                 f"Prot. gen.: {tablou.protectie_generala}")
+    info_parts = [
+        f"Beneficiar: {pinfo.beneficiar}" if pinfo.beneficiar else "",
+        f"Adresa: {pinfo.adresa}" if pinfo.adresa else "",
+        f"Proiect: {pinfo.titlu_proiect}" if pinfo.titlu_proiect else "",
+    ]
+    c.drawString((ML + 5) * mm, (HDR_BOT + 4) * mm,
+                 "   ".join(p for p in info_parts if p))
+
+    # ── Incoming feeder (vertical line left of branches)
+    feeder_x = max(BX0 - 12, ML + 8)   # mm
+    c.setStrokeColor(C_BUSBAR); c.setLineWidth(2.5)
+    c.line(feeder_x * mm, HDR_BOT * mm, feeder_x * mm, BUS_Y * mm)
+
+    # General MCB on feeder
+    mcb_cy = HDR_BOT - 10   # mm
+    draw_mcb(feeder_x * mm, mcb_cy * mm, 5 * mm, 8 * mm, C_BUSBAR)
+    c.setFillColor(C_BUSBAR); c.setFont("Helvetica", 6)
+    c.drawString((feeder_x + 3) * mm, mcb_cy * mm,
+                 (tablou.protectie_generala or "MCB gen.")[:18])
+
+    # ── Busbar (thick horizontal line)
+    bus_xl = min(feeder_x, BX0 - 3) * mm
+    bus_xr = (BX0 + TOT_BW + 3) * mm
+    c.setStrokeColor(C_BUSBAR); c.setLineWidth(5)
+    c.line(bus_xl, BUS_Y * mm, bus_xr, BUS_Y * mm)
+    c.setFillColor(C_BUSBAR); c.setFont("Helvetica-Bold", 7)
+    c.drawString(bus_xl, (BUS_Y + 2) * mm, f"{tablou.alimentare_kv} kV")
+
+    # ── Branches
+    for i, circ in enumerate(circuits):
+        cx_mm = bx(i)
+        color = TIP_COL.get(circ.tip, TIP_COL["rezerva"])
+
+        # Vertical line from busbar to branch bottom
+        c.setStrokeColor(color); c.setLineWidth(1.5)
+        c.line(cx_mm * mm, BUS_Y * mm, cx_mm * mm, (BR_BOT + 12) * mm)
+
+        # Phase label just below busbar
+        c.setFillColor(color); c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(cx_mm * mm, (BUS_Y - 5) * mm, circ.faza)
+
+        # MCB symbol
+        sw = min(PITCH * 0.38, 4.5)
+        mcb_sym_cy = BUS_Y - 14   # mm
+        draw_mcb(cx_mm * mm, mcb_sym_cy * mm, sw * mm, 7 * mm, color)
+
+        # Protection rating label
+        prot_tok = ""
+        for tok in circ.protectie.split(","):
+            tok = tok.strip()
+            if any(ch.isdigit() for ch in tok) and "A" in tok:
+                prot_tok = tok[:9]; break
+        if not prot_tok:
+            prot_tok = circ.protectie[:9]
+        c.setFillColor(color)
+        c.setFont("Helvetica", min(6.0, max(5.0, PITCH * 0.44)))
+        c.drawCentredString(cx_mm * mm, (mcb_sym_cy - 3.5 - 2.5) * mm, prot_tok)
+
+        cur_y = mcb_sym_cy - 3.5 - 6   # mm, cursor moving down
+
+        # RCD / differential
+        if circ.diferential:
+            r_rcd = min(PITCH * 0.22, 3.5)
+            cur_y -= r_rcd
+            draw_rcd(cx_mm * mm, cur_y * mm, r_rcd * mm, color)
+            cur_y -= r_rcd + 2
+
+        # AFDD
+        if circ.afdd:
+            afs = 3.5
+            cur_y -= afs
+            c.setFillColor(color); c.setStrokeColor(color); c.setLineWidth(0.5)
+            c.rect((cx_mm - afs / 2) * mm, (cur_y - afs / 2) * mm,
+                   afs * mm, afs * mm, fill=1, stroke=1)
+            c.setFillColor(white); c.setFont("Helvetica-Bold", 5)
+            c.drawCentredString(cx_mm * mm, (cur_y - 1.5) * mm, "A")
+            cur_y -= afs / 2 + 2
+
+        # Load symbol (fixed position near branch bottom)
+        load_y = BR_BOT + 18   # mm
+        lr = min(PITCH * 0.28, 4.0)
+        c.setStrokeColor(color); c.setLineWidth(1.5)
+
+        if circ.tip == "iluminat":
+            c.setFillColor(HexColor("#DBEAFE"))
+            c.circle(cx_mm * mm, load_y * mm, lr * mm, fill=1, stroke=1)
+            c.line((cx_mm - lr) * mm, load_y * mm, (cx_mm + lr) * mm, load_y * mm)
+            c.line(cx_mm * mm, (load_y - lr) * mm, cx_mm * mm, (load_y + lr) * mm)
+        elif circ.tip == "prize":
+            c.setFillColor(HexColor("#FEF3C7"))
+            c.circle(cx_mm * mm, load_y * mm, lr * mm, fill=1, stroke=1)
+            c.setLineWidth(1)
+            c.line((cx_mm - lr * 0.5) * mm, (load_y + lr * 0.3) * mm,
+                   (cx_mm + lr * 0.5) * mm, (load_y + lr * 0.3) * mm)
+            c.line((cx_mm - lr * 0.5) * mm, (load_y - lr * 0.3) * mm,
+                   (cx_mm + lr * 0.5) * mm, (load_y - lr * 0.3) * mm)
+        elif circ.tip in ("alimentare", "forta", "motoare"):
+            c.setFillColor(HexColor("#DCFCE7")); c.setStrokeColor(color)
+            p = c.beginPath()
+            p.moveTo(cx_mm * mm, (load_y + lr) * mm)
+            p.lineTo((cx_mm + lr) * mm, load_y * mm)
+            p.lineTo((cx_mm + lr * 0.5) * mm, load_y * mm)
+            p.lineTo((cx_mm + lr * 0.5) * mm, (load_y - lr) * mm)
+            p.lineTo((cx_mm - lr * 0.5) * mm, (load_y - lr) * mm)
+            p.lineTo((cx_mm - lr * 0.5) * mm, load_y * mm)
+            p.lineTo((cx_mm - lr) * mm, load_y * mm)
+            p.close()
+            c.drawPath(p, fill=1, stroke=1)
+        else:  # rezerva / unknown
+            c.setFillColor(HexColor("#F1F5F9")); c.setStrokeColor(color)
+            c.setDash([2, 2])
+            c.rect((cx_mm - lr) * mm, (load_y - lr) * mm,
+                   2 * lr * mm, 2 * lr * mm, fill=1, stroke=1)
+            c.setDash([])
+
+        # Count label below load symbol
+        if circ.nr_corpuri > 0:
+            c.setFillColor(color); c.setFont("Helvetica", 6)
+            c.drawCentredString(cx_mm * mm, (load_y - lr - 2.5) * mm,
+                                f"\xd7{circ.nr_corpuri}")
+
+        # Circuit number at branch bottom
+        c.setFillColor(C_TEXT); c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(cx_mm * mm, (BR_BOT + 5) * mm, str(circ.nr))
+
+    # ── Data table
+    hdrs    = ["Nr.", "Faza", "Tip", "Destinatie", "Pi kW", "Ia A",
+               "Protectie", "Cablu", "Pozare"]
+    col_pct = [0.04, 0.05, 0.07, 0.24, 0.06, 0.06, 0.18, 0.15, 0.15]
+    tot_p   = sum(col_pct)
+    col_ws  = [p / tot_p * (CW - 4) for p in col_pct]   # widths in mm
+
+    tbl_x  = ML + 2
+    tbl_w  = CW - 4
+    row_h  = min((TBL_TOP - TBL_BOT) / max(N + 1.5, 2), 6.5)
+    row_h  = max(row_h, 3.5)
+
+    # Header row
+    hdr_y = TBL_TOP - row_h
+    c.setFillColor(C_BORDER)
+    c.rect(tbl_x * mm, hdr_y * mm, tbl_w * mm, row_h * mm, fill=1, stroke=0)
+    xc = tbl_x
+    for hdr, cw_mm in zip(hdrs, col_ws):
+        c.setFillColor(white); c.setFont("Helvetica-Bold", 6)
+        c.drawString((xc + 0.8) * mm, (hdr_y + 1.2) * mm, hdr)
+        xc += cw_mm
+
+    # Data rows
+    for i, circ in enumerate(circuits):
+        ry = hdr_y - (i + 1) * row_h
+        if ry < TBL_BOT:
+            break
+        c.setFillColor(C_ROW_ALT if i % 2 == 0 else white)
+        c.setStrokeColor(C_TBL_LN); c.setLineWidth(0.3)
+        c.rect(tbl_x * mm, ry * mm, tbl_w * mm, row_h * mm, fill=1, stroke=1)
+        tc = TIP_COL.get(circ.tip, TIP_COL["rezerva"])
+        vals = [str(circ.nr), circ.faza, circ.tip[:6],
+                circ.destinatie[:32], f"{circ.Pi_kW:.2f}", f"{circ.Ia_A:.2f}",
+                circ.protectie[:24], circ.cablu[:20], circ.pozare[:20]]
+        xc = tbl_x
+        for j, (val, cw_mm) in enumerate(zip(vals, col_ws)):
+            c.setFillColor(tc if j in (0, 2) else C_TEXT)
+            c.setFont("Helvetica-Bold" if j == 0 else "Helvetica", 6)
+            c.drawString((xc + 0.8) * mm, (ry + 1.2) * mm, val)
+            xc += cw_mm
+
+    # ── Legend (bottom-left footer)
+    leg_x = ML + 2; leg_y = FTR_TOP - 2
+    c.setFont("Helvetica-Bold", 7); c.setFillColor(C_TEXT)
+    c.drawString(leg_x * mm, (leg_y - 4) * mm, "LEGENDA:")
+    for k, (lc, lbl) in enumerate([
+        (TIP_COL["iluminat"],   "Iluminat"),
+        (TIP_COL["prize"],      "Prize"),
+        (TIP_COL["alimentare"], "Alimentare / Forta"),
+        (TIP_COL["rezerva"],    "Rezerva"),
+    ]):
+        lx = leg_x + 22 + k * 43
+        ly = leg_y - 4
+        c.setFillColor(lc); c.setStrokeColor(lc)
+        c.rect(lx * mm, ly * mm, 5 * mm, 3 * mm, fill=1, stroke=0)
+        c.setFillColor(C_TEXT); c.setFont("Helvetica", 6)
+        c.drawString((lx + 6) * mm, ly * mm, lbl)
+
+    # ── Title block (bottom-right footer)
+    tb_w = 85; tb_h = FTR_TOP - FTR_BOT - 2
+    tb_x = ML + CW - tb_w - 2; tb_y = FTR_BOT + 1
+    c.setStrokeColor(C_BORDER); c.setLineWidth(0.5); c.setFillColor(white)
+    c.rect(tb_x * mm, tb_y * mm, tb_w * mm, tb_h * mm, fill=1, stroke=1)
+    c.setFont("Helvetica-Bold", 7); c.setFillColor(C_BORDER)
+    c.drawString((tb_x + 2) * mm, (tb_y + tb_h - 5) * mm,
+                 (pinfo.titlu_proiect or "SCHEMA MONOFILARA")[:38])
+    c.setFont("Helvetica", 6)
+    c.drawString((tb_x + 2) * mm, (tb_y + tb_h - 9) * mm,
+                 f"Nr.: {pinfo.proiect_nr}   Faza: {pinfo.faza}   Data: {pinfo.data}")
+    c.drawString((tb_x + 2) * mm, (tb_y + tb_h - 13) * mm,
+                 f"Beneficiar: {(pinfo.beneficiar or '')[:32]}")
+    c.drawString((tb_x + 2) * mm, (tb_y + 2) * mm,
+                 f"Adresa: {(pinfo.adresa or '')[:38]}")
+
+    # App signature
+    c.setFont("Helvetica", 5); c.setFillColor(C_DIM)
+    c.drawRightString((ML + CW - 2) * mm, (MB + 1) * mm,
+                      "Generat automat de ZYNAPSE · I7-2011 · zynapse.ro")
+
+    c.save()
+    return buf.getvalue()
+
+
+@app.post("/generate-schema-b64")
+def generate_schema_b64(req: GenerateSchemaRequest):
+    """Returns schema as base64-encoded PDF inside JSON — for n8n integration."""
+    try:
+        pdf_bytes = _build_schema_pdf(req)
+    except RuntimeError as e:
+        return {"error": str(e)}
+    encoded = base64.b64encode(pdf_bytes).decode()
+    return {"schema_monofilara_pdf": f"data:application/pdf;base64,{encoded}"}
+
+
+@app.post("/generate-schema")
+def generate_schema(req: GenerateSchemaRequest):
+    from fastapi.responses import Response as FastAPIResponse
+    try:
+        pdf_bytes = _build_schema_pdf(req)
+    except RuntimeError as e:
+        return {"error": str(e)}
+    tablou_name = req.tablou.name.replace(" ", "-").replace("/", "-").lower()
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="schema-monofilara-{tablou_name}.pdf"'
+            ),
+        },
+    )
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "4.0.0"}

@@ -188,4 +188,5 @@ export interface ProjectResult {
   memoriu_tehnic: string;
   ai_notes?: string;
   annotated_plan_base64?: string | null;
+  schema_monofilara_pdf?: string | null;
 }

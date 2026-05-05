@@ -135,6 +135,40 @@ export function MemoriuSection({ text }: { text: string }) {
   );
 }
 
+/* ─── Schema monofilară download button ─── */
+export function SchemaDownloadButton({ base64Pdf }: { base64Pdf: string }) {
+  const handleDownload = () => {
+    const raw = base64Pdf.includes(",") ? base64Pdf.split(",")[1] : base64Pdf;
+    const byteStr = atob(raw);
+    const ab = new ArrayBuffer(byteStr.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+    const blob = new Blob([ab], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "schema-monofilara.pdf";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <button
+      onClick={handleDownload}
+      className="w-full py-2.5 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150 flex items-center justify-center gap-2"
+      style={{
+        background: "rgba(21,128,61,0.12)",
+        border: "1px solid rgba(21,128,61,0.28)",
+        color: "#4ADE80",
+      }}
+      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.22)")}
+      onMouseOut={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.12)")}
+    >
+      <span style={{ fontSize: 15 }}>⬇</span> Schemă monofilară PDF
+    </button>
+  );
+}
+
 /* ─── Annotated plan ─── */
 export function AnnotatedPlanSection({ src }: { src: string }) {
   if (!src) return null;
@@ -227,6 +261,11 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
 
       {result.annotated_plan_base64 && (
         <AnnotatedPlanSection src={result.annotated_plan_base64} />
+      )}
+      {result.schema_monofilara_pdf && (
+        <div className="mb-3">
+          <SchemaDownloadButton base64Pdf={result.schema_monofilara_pdf} />
+        </div>
       )}
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
