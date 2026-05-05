@@ -1807,6 +1807,7 @@ class CircuitInputNew(BaseModel):
     is_dedicated: bool = False
     room: Optional[str] = None
     rccb_group: Optional[str] = None
+    level: Optional[str] = None      # e.g. "etaj_1", "mansarda", "parter"
 
 
 class PowerSummaryNew(BaseModel):
@@ -1846,6 +1847,57 @@ def _next_plansa_nr(pinfo: dict) -> int:
     import re as _re
     m = _re.search(r"\d+", pn)
     return int(m.group()) + 1 if m else 3
+
+
+# ── Floor detection ──────────────────────────────────────────────────────────
+# Ordered: most specific first; checked against combined "level + room + id" text
+_FLOOR_PATTERNS: List[tuple] = [
+    ("ETAJ2",    ["ETAJ 2", "ETAJ2", "ET.2", " E2 ", "E2-", "-E2", "/E2", "E2/",
+                  "NIVEL 2", "FLOOR 2"]),
+    ("ETAJ1",    ["ETAJ 1", "ETAJ1", "ET.1", " E1 ", "E1-", "-E1", "/E1", "E1/",
+                  "NIVEL 1", "FLOOR 1"]),
+    ("MANSARDA", ["MANSARDA", "MANSARD", " MAN ", "MAN-", "-MAN", "/MAN",
+                  "MANS-", " MANS "]),
+    ("DEMISOL",  ["DEMISOL", "DEMIS ", " DEM ", "DEM-", " DS ", "DS-", "-DS",
+                  "/DS", "DS/"]),
+    ("SUBSOL",   ["SUBSOL", " SS ", "SS-", "-SS", "/SS", "SS/",
+                  "SUB-", " SUB "]),
+]
+
+_FLOOR_INFO: dict = {
+    "ETAJ1":    ("ETAJ 1",   "TES-E1",  "TABLOU ELECTRIC SECUNDAR ETAJ 1"),
+    "ETAJ2":    ("ETAJ 2",   "TES-E2",  "TABLOU ELECTRIC SECUNDAR ETAJ 2"),
+    "MANSARDA": ("MANSARDA", "TES-MAN", "TABLOU ELECTRIC SECUNDAR MANSARDA"),
+    "DEMISOL":  ("DEMISOL",  "TES-DS",  "TABLOU ELECTRIC SECUNDAR DEMISOL"),
+    "SUBSOL":   ("SUBSOL",   "TES-SS",  "TABLOU ELECTRIC SECUNDAR SUBSOL"),
+}
+
+_FLOOR_ORDER = ["ETAJ1", "ETAJ2", "MANSARDA", "DEMISOL", "SUBSOL"]
+_BREAKER_SIZES = [10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125]
+OVERFLOW_LIMIT = 16
+
+
+def _detect_floor(level: Optional[str], room: Optional[str], cid: str = "") -> str:
+    """Return canonical floor key: PARTER / ETAJ1 / ETAJ2 / MANSARDA / DEMISOL / SUBSOL."""
+    txt = " " + " ".join(p.upper() for p in [level or "", room or "", cid or ""] if p) + " "
+    for floor_key, patterns in _FLOOR_PATTERNS:
+        if any(p in txt for p in patterns):
+            return floor_key
+    return "PARTER"
+
+
+def _breaker_for_current(ia: float) -> int:
+    for a in _BREAKER_SIZES:
+        if a >= ia * 1.25:
+            return a
+    return 125
+
+
+def _feeder_cable(ia: float) -> str:
+    for max_a, size in [(16, "2.5"), (25, "4"), (35, "6"), (50, "10"), (63, "16"), (80, "25")]:
+        if ia <= max_a:
+            return f"CYY-F 5×{size}mmp"
+    return "CYY-F 5×35mmp"
 
 
 def _get_tect_circuits(equipment: Optional[EquipmentInfoNew]) -> List[dict]:
@@ -2239,76 +2291,140 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
     except ImportError:
         raise RuntimeError("reportlab not installed")
 
-    PW, PH = A3[1], A3[0]
-    ps     = req.power_summary
-    pinfo  = req.project_info or {}
-    equip  = req.equipment or EquipmentInfoNew()
-    rgrps  = req.panel.rccb_groups or []
+    PW, PH  = A3[1], A3[0]
+    ps      = req.power_summary
+    pinfo   = req.project_info or {}
+    equip   = req.equipment or EquipmentInfoNew()
+    rgrps   = req.panel.rccb_groups or []
     has_spd = req.panel.has_spd
     is_tri  = "Trifazat" in (ps.connection or "")
-    results = []
-    start_n = _next_plansa_nr(pinfo)
+    base_n  = _next_plansa_nr(pinfo)
+    results: list = []
 
     all_ckts = [c.model_dump() for c in req.circuits if c.type != "date"]
 
-    # TEG (main panel, up to 28 circuits)
-    teg_ckts = all_ckts[:28]
-    tes_ckts = all_ckts[28:]
-    buf = io.BytesIO()
-    cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
-    _draw_schema_page(cv, "TEG", "TABLOU ELECTRIC GENERAL",
-                      f"IE.{start_n}", teg_ckts, pinfo, ps,
-                      rgrps, has_spd,
-                      "CYABY 5×10mmp / De la BMPT" if is_tri
-                      else "CYY-F 3×10mmp / De la BMPT", is_tri)
-    cv.save()
-    results.append({
-        "name": "TEG", "plansa_nr": f"IE.{start_n}",
-        "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
-    })
+    # ── Group circuits by floor ──────────────────────────────────────────────
+    by_floor: dict = {}
+    for c in all_ckts:
+        fl = _detect_floor(c.get("level"), c.get("room"), c.get("id", ""))
+        by_floor.setdefault(fl, []).append(c)
 
-    # TES (overflow panel, circuits 29+)
-    if tes_ckts:
-        start_n += 1
-        buf = io.BytesIO()
-        cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
-        tes_ps = PowerSummaryNew(
-            installed_kw=sum(c.get("power_w",0) for c in tes_ckts)/1000,
-            absorbed_kw=sum(c.get("power_w",0) for c in tes_ckts)/1000*0.7,
-            current_a=sum(c.get("power_w",0) for c in tes_ckts)/230/0.92,
-            main_breaker_a=40, connection="Monofazat 230V+N+PE",
-            simultaneity_ks=ps.simultaneity_ks,
-        )
-        _draw_schema_page(cv, "TES", "TABLOU ELECTRIC SECUNDAR",
-                          f"IE.{start_n}", tes_ckts, pinfo, tes_ps,
-                          [], False, "CYY-F 5×6mmp / De la TEG", False)
-        cv.save()
-        results.append({
-            "name": "TES", "plansa_nr": f"IE.{start_n}",
-            "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
+    # Circuits on PARTER go to TEG; everything else gets a TES panel.
+    # Fallback: if no floor info at all, all circuits are PARTER.
+    tes_floors  = [f for f in _FLOOR_ORDER if f in by_floor]
+    parter_ckts = by_floor.get("PARTER", all_ckts if not tes_floors else [])
+
+    # ── Build feeder circuits TEG → each TES panel ──────────────────────────
+    feeder_circuits: list = []
+    tes_panel_meta: dict  = {}   # floor → {ckts, feeder_id, main_breaker_a, cable}
+
+    for floor in tes_floors:
+        tes_ckts   = by_floor[floor]
+        total_pw_w = sum(c.get("power_w", 0) for c in tes_ckts)
+        ks         = ps.simultaneity_ks or 0.7
+        total_ia   = total_pw_w * ks / (230 * 0.92)
+        brk        = _breaker_for_current(total_ia)
+        cable      = _feeder_cable(total_ia)
+        _, tes_name, _ = _FLOOR_INFO[floor]
+        fid = f"F-{tes_name[4:]}"   # "F-E1", "F-E2", "F-MAN", "F-DS", "F-SS"
+
+        feeder_circuits.append({
+            "id": fid, "type": "dedicat",
+            "description": f"ALIM. {tes_name}",
+            "power_w": total_pw_w * ks,
+            "breaker_a": brk, "breaker_type": "MCB-1P-C",
+            "cable_type": cable, "pozare": "IPEY 25mm",
+            "outlets": 0, "lighting_points": 0,
+            "is_bathroom": False, "is_dedicated": True,
         })
+        tes_panel_meta[floor] = {
+            "ckts": tes_ckts, "feeder_id": fid,
+            "main_breaker_a": brk, "cable": cable,
+        }
 
-    # TE-CT (heating panel, if equipment present)
+    teg_ckts = parter_ckts + feeder_circuits
+
+    # ── Helper: render one logical panel (with auto A/B overflow split) ──────
+    def _render(name, desc, ie_nr, ckts, p_ps, p_rgrps, p_spd, p_cable, p_tri):
+        chunks = (
+            [ckts[i:i + OVERFLOW_LIMIT] for i in range(0, len(ckts), OVERFLOW_LIMIT)]
+            if len(ckts) > OVERFLOW_LIMIT else [ckts]
+        )
+        for part, chunk in enumerate(chunks):
+            suffix = chr(ord("A") + part) if len(chunks) > 1 else ""
+            p_name = f"{name}{'-' + suffix if suffix else ''}"
+            p_nr   = f"{ie_nr}{suffix}"
+            chunk_pw = sum(c.get("power_w", 0) for c in chunk)
+            u = 400 * (3 ** 0.5) * 0.9 if p_tri else 230 * 0.92
+            chunk_ps = PowerSummaryNew(
+                installed_kw    = chunk_pw / 1000,
+                absorbed_kw     = chunk_pw / 1000 * p_ps.simultaneity_ks,
+                current_a       = chunk_pw / 1000 * 1000 / u,
+                main_breaker_a  = p_ps.main_breaker_a,
+                connection      = p_ps.connection,
+                simultaneity_ks = p_ps.simultaneity_ks,
+            ) if len(chunks) > 1 else p_ps
+            buf = io.BytesIO()
+            cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
+            _draw_schema_page(
+                cv, p_name, desc, p_nr, chunk, pinfo, chunk_ps,
+                p_rgrps if part == 0 else [],
+                p_spd   if part == 0 else False,
+                p_cable if part == 0 else f"Continuare {name}-{chr(ord('A') + part - 1)}",
+                p_tri,
+            )
+            cv.save()
+            results.append({
+                "name": p_name, "plansa_nr": p_nr,
+                "pdf_base64": "data:application/pdf;base64,"
+                              + base64.b64encode(buf.getvalue()).decode(),
+            })
+
+    # ── 1. TEG — always (PARTER + feeders to TES panels) ────────────────────
+    _render(
+        "TEG", "TABLOU ELECTRIC GENERAL",
+        f"IE.{base_n}", teg_ckts, ps, rgrps, has_spd,
+        "CYABY 5×10mmp / De la BMPT" if is_tri else "CYY-F 3×10mmp / De la BMPT",
+        is_tri,
+    )
+    next_n = base_n + 1
+
+    # ── 2. TE-CT — if thermal equipment present (always IE.4) ─────────────
     needs_tect = equip.boiler_acm or equip.pdc or equip.pompe_circulatie or equip.ventilatie_hrv
     if needs_tect:
-        start_n += 1
-        tect_c = _get_tect_circuits(equip)
-        tect_pi_w = sum(c.get("power_w", 0) for c in tect_c)
+        tect_c  = _get_tect_circuits(equip)
+        tect_pw = sum(c.get("power_w", 0) for c in tect_c)
         tect_ps = PowerSummaryNew(
-            installed_kw=tect_pi_w/1000, absorbed_kw=tect_pi_w/1000,
-            current_a=tect_pi_w/230/0.92, main_breaker_a=32,
+            installed_kw=tect_pw / 1000, absorbed_kw=tect_pw / 1000,
+            current_a=tect_pw / 230 / 0.92, main_breaker_a=32,
             connection="Monofazat 230V+N+PE", simultaneity_ks=1.0,
         )
-        buf = io.BytesIO()
-        cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
-        _draw_schema_page(cv, "TE-CT", "TABLOU ELECTRIC CENTRALA TERMICA",
-                          f"IE.{start_n}", tect_c, pinfo, tect_ps,
-                          [], False, "CYY-F 5×4mmp / De la TEG", False)
-        cv.save()
-        results.append({
-            "name": "TE-CT", "plansa_nr": f"IE.{start_n}",
-            "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
-        })
+        _render("TE-CT", "TABLOU ELECTRIC CENTRALA TERMICA",
+                f"IE.{next_n}", tect_c, tect_ps, [], False,
+                "CYY-F 5×4mmp / De la TEG", False)
+        next_n += 1
+
+    # ── 3. TES-En — one per detected floor above PARTER (IE.5+) ─────────────
+    for floor in tes_floors:
+        meta             = tes_panel_meta[floor]
+        _, tes_name, tes_desc = _FLOOR_INFO[floor]
+        tes_ckts         = meta["ckts"]
+        tes_pw           = sum(c.get("power_w", 0) for c in tes_ckts)
+        tes_ps           = PowerSummaryNew(
+            installed_kw    = tes_pw / 1000,
+            absorbed_kw     = tes_pw / 1000 * ps.simultaneity_ks,
+            current_a       = tes_pw / 230 / 0.92,
+            main_breaker_a  = meta["main_breaker_a"],
+            connection      = "Monofazat 230V+N+PE",
+            simultaneity_ks = ps.simultaneity_ks,
+        )
+        _render(
+            tes_name, tes_desc,
+            f"IE.{next_n}", tes_ckts, tes_ps, [], False,
+            f"{meta['cable']} / De la TEG, Circuit {meta['feeder_id']}",
+            False,
+        )
+        next_n += 1
 
     return results
 
