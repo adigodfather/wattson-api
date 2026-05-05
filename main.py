@@ -246,7 +246,7 @@ def calc_extra_equipment_circuits(
                 "id": f"C_BOILER_{tag}", "panel": panel,
                 "usage": f"Boiler ACM — {eq.name}",
                 "type": "boiler", "breaker_a": 16,
-                "cable": "3x2,5 mm² NYM", "rcd_30ma": True,
+                "cable": "3x2,5 mm² CYY-F", "rcd_30ma": True,
                 "notes": "Circuit dedicat boiler ACM, MCB 16A, RCCB 30mA.",
             })
         elif eq.type == "ac":
@@ -254,7 +254,7 @@ def calc_extra_equipment_circuits(
                 "id": f"C_AC_{tag}", "panel": panel,
                 "usage": f"Aer condiționat — {eq.name}",
                 "type": "ac", "breaker_a": 16,
-                "cable": "3x2,5 mm² NYM", "rcd_30ma": True,
+                "cable": "3x2,5 mm² CYY-F", "rcd_30ma": True,
                 "notes": "Circuit dedicat AC, MCB 16A, RCCB 30mA.",
             })
         elif eq.type == "hrv":
@@ -262,7 +262,7 @@ def calc_extra_equipment_circuits(
                 "id": f"C_HRV_{tag}", "panel": panel,
                 "usage": f"Ventilație HRV — {eq.name}",
                 "type": "hrv", "breaker_a": 10,
-                "cable": "3x1,5 mm² NYM",
+                "cable": "3x1,5 mm² CYY-F",
                 "notes": "Circuit ventilație cu recuperare căldură, MCB 10A.",
             })
         elif eq.type == "ev_charger":
@@ -271,16 +271,16 @@ def calc_extra_equipment_circuits(
                     "id": f"C_EV_{tag}", "panel": panel,
                     "usage": f"Stație EV — {eq.name}",
                     "type": "ev_charger", "phase": "trifazat", "breaker_a": 16,
-                    "cable": "5x6 mm² NYM", "rcd_30ma": True,
-                    "notes": "Stație EV trifazată: MCB 3P 16A, RCCB 3P 25A/30mA, NYM 5x6.",
+                    "cable": "5x6 mm² CYY-F", "rcd_30ma": True,
+                    "notes": "Stație EV trifazată: MCB 3P 16A, RCCB 3P 25A/30mA, CYY-F 5x6.",
                 })
             else:
                 circuits.append({
                     "id": f"C_EV_{tag}", "panel": panel,
                     "usage": f"Stație EV — {eq.name}",
                     "type": "ev_charger", "breaker_a": 32,
-                    "cable": "3x6 mm² NYM", "rcd_30ma": True,
-                    "notes": "Stație EV monofazată: MCB 32A, RCCB 30mA, NYM 3x6.",
+                    "cable": "3x6 mm² CYY-F", "rcd_30ma": True,
+                    "notes": "Stație EV monofazată: MCB 32A, RCCB 30mA, CYY-F 3x6.",
                 })
         elif eq.type == "solar":
             if eq.phase == "tri":
@@ -288,16 +288,16 @@ def calc_extra_equipment_circuits(
                     "id": f"C_PV_{tag}", "panel": panel,
                     "usage": f"Invertor FV — {eq.name}",
                     "type": "solar", "breaker_a": 20,
-                    "cable": "5x4 mm² NYM",
-                    "notes": "Invertor fotovoltaic trifazat: MCB 2P 20A, NYM 5x4.",
+                    "cable": "5x4 mm² CYY-F",
+                    "notes": "Invertor fotovoltaic trifazat: MCB 2P 20A, CYY-F 5x4.",
                 })
             else:
                 circuits.append({
                     "id": f"C_PV_{tag}", "panel": panel,
                     "usage": f"Invertor FV — {eq.name}",
                     "type": "solar", "breaker_a": 20,
-                    "cable": "3x4 mm² NYM",
-                    "notes": "Invertor fotovoltaic monofazat: MCB 2P 20A, NYM 3x4.",
+                    "cable": "3x4 mm² CYY-F",
+                    "notes": "Invertor fotovoltaic monofazat: MCB 2P 20A, CYY-F 3x4.",
                 })
         elif eq.type == "internet":
             pass  # No power circuit needed
@@ -530,9 +530,9 @@ def build_circuits_teg(data: ProjectData) -> List[dict]:
     if has_bathroom:
         circuits.append({
             "id": "TEG_MSR1", "panel": "TEG", "usage": "Masina spalat rufe",
-            "type": "prize", "breaker_a": 16, "cable": "3x2,5 mm² CYYF",
-            "rcd_30ma": True, "afdd": True,
-            "notes": "Circuit dedicat masina de spalat rufe.",
+            "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 IP44",
+            "rcd_10ma": True, "afdd": True,
+            "notes": "Circuit dedicat masina de spalat rufe, RCCB 10mA zona umeda (I7-2011).",
         })
     return circuits
 
@@ -557,7 +557,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "lux": 150, "notes": f"Coridor/hol {room.name}, 100-150 lux.",
             })
             idx_ilm += 1
@@ -567,14 +567,14 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat sala {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "lux": 400, "notes": f"Sala/aula {room.name}, 300-500 lux.",
             })
             idx_ilm += 1
             circuits.append({
                 "id": f"C_FRT_{idx_frt:02d}", "panel": "TG",
                 "usage": f"Forta scena {room.name}",
-                "type": "forta", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "forta", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                 "notes": f"Circuit forta scena/echipamente {room.name}, MCB 16A.",
             })
             idx_frt += 1
@@ -584,7 +584,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "lux": 500, "notes": f"Birou/oficiu {room.name}, 500 lux.",
             })
             idx_ilm += 1
@@ -593,7 +593,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
                 circuits.append({
                     "id": f"C_PRZ_{idx_prz:02d}", "panel": "TG",
                     "usage": f"Prize {room.name}",
-                    "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                    "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                     "rcd_30ma": True, "notes": f"Prize birou {room.name}, h=0.30m, 1 priza/mp.",
                 })
                 idx_prz += 1
@@ -603,9 +603,9 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_IP44_{idx_ip44:02d}", "panel": "TG",
                 "usage": f"Circuit umed {room.name}",
-                "type": "ip44", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "ip44", "breaker_a": 16, "cable": "CYY-F 3x2,5 IP44",
                 "rcd_10ma": True, "ip": "IP44",
-                "notes": f"Grup sanitar {room.name}: IP44, RCCB 10mA, priza IP44 la h=1.20m.",
+                "notes": f"Grup sanitar {room.name}: CYY-F IP44, RCCB 10mA, priza IP44 la h=1.20m.",
             })
             idx_ip44 += 1
             total_power_w += 500
@@ -614,7 +614,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_FRT_{idx_frt:02d}", "panel": "TG",
                 "usage": f"Forta bucatarie {room.name}",
-                "type": "forta", "phase": "tri", "breaker_a": 32, "cable": "NYM 5x4 mm²",
+                "type": "forta", "phase": "tri", "breaker_a": 32, "cable": "CYY-F 5x4 mm²",
                 "notes": f"Bucatarie publica {room.name}: trifazat 32A, hota, echipamente.",
             })
             idx_frt += 1
@@ -624,14 +624,14 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "lux": 100, "notes": f"Depozit/magazie {room.name}, 100 lux.",
             })
             idx_ilm += 1
             circuits.append({
                 "id": f"C_PRZ_{idx_prz:02d}", "panel": "TG",
                 "usage": f"Priza forta {room.name}",
-                "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                 "notes": f"1 priza forta {room.name}.",
             })
             idx_prz += 1
@@ -641,7 +641,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "notes": f"Iluminat general {room.name}.",
             })
             idx_ilm += 1
@@ -651,7 +651,7 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
         circuits.append({
             "id": "C_IL_EV", "panel": "TG",
             "usage": "Iluminat evacuare",
-            "type": "iluminat_evacuare", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+            "type": "iluminat_evacuare", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
             "notes": "Iluminat de evacuare cu baterie backup, circuit separat. Obligatoriu P118.",
         })
 
@@ -690,7 +690,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat hala {room.name}",
-                "type": "iluminat", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "iluminat", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                 "ip": ip_zone, "lux": 300,
                 "notes": f"Corpuri industriale {ip_zone}, 300 lux. {room.name}.",
             })
@@ -699,7 +699,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
                 circuits.append({
                     "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
                     "usage": f"Prize forta 16A {room.name}",
-                    "type": "prize_forta", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                    "type": "prize_forta", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                     "notes": f"Prize forta monofazat, max 6 prize/circuit. {room.name}.",
                 })
                 idx_f16 += 1
@@ -716,7 +716,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat depozit {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "ip": "IP44", "lux": 150,
                 "notes": f"Iluminat depozit IP44, 150 lux. {room.name}.",
             })
@@ -724,7 +724,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
                 "usage": f"Prize forta {room.name}",
-                "type": "prize_forta", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "prize_forta", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                 "notes": f"Prize forta dispersate depozit {room.name}.",
             })
             idx_f16 += 1
@@ -743,14 +743,14 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat birou {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "notes": f"Birou industrial {room.name} – standard rezidential.",
             })
             idx_ilm += 1
             circuits.append({
                 "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
                 "usage": f"Prize birou {room.name}",
-                "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+                "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
                 "rcd_30ma": True, "notes": f"Prize birou {room.name}.",
             })
             idx_f16 += 1
@@ -763,7 +763,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             circuits.append({
                 "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
                 "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
                 "notes": f"Iluminat {room.name}.",
             })
             idx_ilm += 1
@@ -877,17 +877,17 @@ def calc_bloc_circuits(data: ProjectData) -> List[dict]:
 
     circuits.append({
         "id": "C_ILM_COM", "panel": "TGB", "usage": "Iluminat comun scari",
-        "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+        "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
         "notes": "Iluminat scari/holuri comune cu senzor de miscare, MCB 10A.",
     })
     circuits.append({
         "id": "C_ILM_SUB", "panel": "TGB", "usage": "Iluminat subsol/parcare",
-        "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+        "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
         "notes": "Iluminat subsol si parcare, MCB 10A.",
     })
     circuits.append({
         "id": "C_PRIZE_COM", "panel": "TGB", "usage": "Prize comune",
-        "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+        "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
         "rcd_30ma": True,
         "notes": "Prize curierat, curatenie, intretinere.",
     })
@@ -944,24 +944,24 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
     circuits.append({
         "id": "C_ILM_GEN", "panel": "TC",
         "usage": "Iluminat general",
-        "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+        "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
         "lux": 500, "notes": "Iluminat general spatiu comercial, 500 lux.",
     })
 
     if any(k in btype for k in ["magazin", "retail", "comercial"]):
         circuits.append({
             "id": "C_VITRINE", "panel": "TC", "usage": "Iluminat vitrine",
-            "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+            "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
             "notes": "Circuit iluminat vitrine, dimabil, separat de iluminatul general.",
         })
         circuits.append({
             "id": "C_CASA", "panel": "TC", "usage": "Casa de marcat + UPS",
-            "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+            "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
             "notes": "Circuit dedicat casa de marcat + UPS mic, MCB 16A.",
         })
         circuits.append({
             "id": "C_PRZ_COM", "panel": "TC", "usage": "Prize comerciale generale",
-            "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+            "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
             "rcd_30ma": True, "notes": "Prize generale spatiu comercial, RCCB 30mA.",
         })
 
@@ -973,12 +973,12 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
         })
         circuits.append({
             "id": "C_SALON", "panel": "TC", "usage": "Iluminat + prize salon",
-            "type": "mixt", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+            "type": "mixt", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
             "notes": "Salon restaurant: iluminat + prize, ambiant dimabil.",
         })
         circuits.append({
             "id": "C_TERASA", "panel": "TC", "usage": "Terasa (IP44)",
-            "type": "ip44", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+            "type": "ip44", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
             "ip": "IP44", "rcd_30ma": True, "notes": "Circuit terasa exterior IP44, RCCB 30mA.",
         })
 
@@ -987,12 +987,12 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
         circuits.append({
             "id": "C_CAMERE", "panel": "TC",
             "usage": f"Circuite camere hotel ({room_count} camere)",
-            "type": "prize", "breaker_a": 12, "cable": "NYM 3x2,5 mm²",
+            "type": "prize", "breaker_a": 12, "cable": "CYY-F 3x2,5 mm²",
             "notes": f"{room_count} camere × 12A. Fiecare camera pe MCB dedicat prin tablou etaj.",
         })
         circuits.append({
             "id": "C_RECEPTIE", "panel": "TC", "usage": "Receptie + back-office",
-            "type": "prize", "breaker_a": 20, "cable": "NYM 3x2,5 mm²",
+            "type": "prize", "breaker_a": 20, "cable": "CYY-F 3x2,5 mm²",
             "notes": "Receptie hotel: prize, calculator, imprimanta, casa.",
         })
         circuits.append({
@@ -1010,19 +1010,19 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
         })
         circuits.append({
             "id": "C_CIRCULATII", "panel": "TG", "usage": "Circulatii + iluminat comun",
-            "type": "iluminat", "breaker_a": 40, "cable": "NYM 3x10 mm²",
+            "type": "iluminat", "breaker_a": 40, "cable": "CYY-F 3x10 mm²",
             "notes": "Iluminat circulatii mall, coridoare, zone comune.",
         })
         circuits.append({
             "id": "C_PARCARE", "panel": "TG", "usage": "Parcare",
-            "type": "iluminat", "breaker_a": 20, "cable": "NYM 3x4 mm²", "ip": "IP44",
+            "type": "iluminat", "breaker_a": 20, "cable": "CYY-F 3x4 mm²", "ip": "IP44",
             "notes": "Iluminat parcare IP44, senzori de miscare.",
         })
 
     if not any(k in btype for k in ["magazin", "retail", "restaurant", "bar", "hotel", "mall", "comercial"]):
         circuits.append({
             "id": "C_PRZ_COM", "panel": "TC", "usage": "Prize spatiu comercial",
-            "type": "prize", "breaker_a": 16, "cable": "NYM 3x2,5 mm²",
+            "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
             "rcd_30ma": True, "notes": "Prize generale spatiu comercial, RCCB 30mA.",
         })
 
