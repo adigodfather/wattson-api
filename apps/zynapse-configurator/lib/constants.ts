@@ -189,4 +189,18 @@ export interface ProjectResult {
   ai_notes?: string;
   annotated_plan_base64?: string | null;
   schema_monofilara_pdf?: string | null;
+  project_info?: {
+    titlu_proiect?: string;
+    beneficiar?: string;
+    amplasament?: string;
+    sef_proiect?: string;
+    proiect_nr?: string;
+    data?: string;
+    faza?: string;
+    plansa_nr?: string;
+  } | null;
+  project_name?: string;
+  beneficiary?: string;
+  address?: string;
+  designer?: string;
 }

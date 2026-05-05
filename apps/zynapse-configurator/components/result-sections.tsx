@@ -218,6 +218,38 @@ export function MetricCard({ value, label, color }: { value: string | number; la
   );
 }
 
+/* ─── Project info card (cartus data) ─── */
+export function ProjectInfoCard({ info }: { info: NonNullable<ProjectResult["project_info"]> }) {
+  const rows: { label: string; value: string | undefined }[] = [
+    { label: "Titlu proiect", value: info.titlu_proiect },
+    { label: "Beneficiar", value: info.beneficiar },
+    { label: "Amplasament", value: info.amplasament },
+    { label: "Șef proiect", value: info.sef_proiect },
+    { label: "Nr. proiect", value: info.proiect_nr },
+    { label: "Data", value: info.data },
+    { label: "Faza", value: info.faza },
+    { label: "Planșă", value: info.plansa_nr },
+  ].filter(r => r.value);
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="rounded-xl mb-4 px-4 py-3"
+      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+      <p className="text-[10px] font-semibold tracking-widest uppercase mb-2.5 m-0"
+        style={{ color: "#545870" }}>Date proiect (cartus)</p>
+      <div className="grid gap-y-1.5 gap-x-4" style={{ gridTemplateColumns: "auto 1fr" }}>
+        {rows.map(({ label, value }) => (
+          <>
+            <span key={`l-${label}`} className="text-[11px]" style={{ color: "#545870" }}>{label}</span>
+            <span key={`v-${label}`} className="text-[11px] font-medium" style={{ color: "#C8CAD6" }}>{value}</span>
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Full result panel (reused on /projects/[id]) ─── */
 export function ProjectResultPanel({ result, projectName }: { result: ProjectResult; projectName?: string }) {
   const exportJSON = () => {
@@ -233,7 +265,7 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
       <div className="flex justify-between items-center mb-5">
         <div>
           <h2 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>
-            {result.project_id || projectName}
+            {result.project_name || result.project_id || projectName}
           </h2>
           <p className="text-[12px] mt-0.5 m-0" style={{ color: "#545870" }}>
             Zona climatică {result.climate_zone}
@@ -258,6 +290,8 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
         <MetricCard value={result.circuits_all?.length || 0} label="Circuite totale" color="#3ECFA0" />
         <MetricCard value={result.rooms?.length || 0} label="Camere" color="#ED93B1" />
       </div>
+
+      {result.project_info && <ProjectInfoCard info={result.project_info} />}
 
       {result.annotated_plan_base64 && (
         <AnnotatedPlanSection src={result.annotated_plan_base64} />

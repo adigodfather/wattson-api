@@ -174,6 +174,7 @@ class ProjectData(BaseModel):
     apartments_per_floor: Optional[int] = None
     has_elevator: bool = False
     has_fire_pump: bool = False
+    project_info: Optional[dict] = None
 
 
 # -------------------------------------------------
@@ -1050,6 +1051,7 @@ def build_memoriu(
     b = data.building
     h = data.heating
     cat_label = CATEGORY_LABELS.get(building_category, building_category.title())
+    pi = data.project_info or {}
 
     # Height regime
     levels_str = data.levels_string or b.levels or "P"
@@ -1070,7 +1072,18 @@ def build_memoriu(
 
     # ── 1. DATE GENERALE ──────────────────────────────────────────────────────
     lines.append("1. DATE GENERALE")
-    lines.append(f"Proiect: {data.project_id}")
+    titlu = pi.get("titlu_proiect") or data.project_id
+    lines.append(f"Titlu proiect: {titlu}")
+    if pi.get("proiect_nr"):
+        lines.append(f"Nr. proiect: {pi['proiect_nr']}")
+    if pi.get("beneficiar"):
+        lines.append(f"Beneficiar: {pi['beneficiar']}")
+    if pi.get("amplasament"):
+        lines.append(f"Amplasament: {pi['amplasament']}")
+    if pi.get("faza"):
+        lines.append(f"Faza: {pi['faza']}")
+    if pi.get("data"):
+        lines.append(f"Data: {pi['data']}")
     lines.append(f"Tip cladire: {b.type}, categorie: {cat_label}.")
     lines.append(f"Regim de inaltime: {levels_str}")
     lines.append(f"Numar niveluri: {num_levels}")
@@ -1237,6 +1250,9 @@ def build_memoriu(
             lines.append("")
 
     lines.append("Toate circuitele vor fi verificate si dimensionate definitiv conform normativelor in vigoare.")
+    if pi.get("sef_proiect"):
+        lines.append("")
+        lines.append(f"Intocmit: {pi['sef_proiect']}")
     return "\n".join(lines)
 
 
@@ -1310,9 +1326,15 @@ def calc_electric(data: ProjectData):
         circuits_secondary=circuits_te_ct if circuits_te_ct else None,
     )
 
+    _pi = data.project_info or {}
     return {
         "project_id": data.project_id,
         "status": "success",
+        "project_info": _pi,
+        "project_name": _pi.get("titlu_proiect") or data.project_id,
+        "beneficiary": _pi.get("beneficiar", ""),
+        "address": _pi.get("amplasament", ""),
+        "designer": _pi.get("sef_proiect", ""),
         "building_category": building_category,
         "climate_zone": climate_zone,
         "climate_source": data.building.climate_source,
