@@ -189,6 +189,7 @@ export interface ProjectResult {
   ai_notes?: string;
   annotated_plan_base64?: string | null;
   schema_monofilara_pdf?: string | null;
+  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string }> | null;
   project_info?: {
     titlu_proiect?: string;
     beneficiar?: string;

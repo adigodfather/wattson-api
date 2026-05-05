@@ -1788,23 +1788,539 @@ def generate_schema_b64(req: GenerateSchemaRequest):
     return {"schema_monofilara_pdf": f"data:application/pdf;base64,{encoded}"}
 
 
-@app.post("/generate-schema")
-def generate_schema(req: GenerateSchemaRequest):
-    from fastapi.responses import Response as FastAPIResponse
+# -------------------------------------------------
+#  MULTI-SCHEMA ENGINE (POST /generate-schema)
+# -------------------------------------------------
+
+class CircuitInputNew(BaseModel):
+    id: str = ""
+    type: str = "prize"
+    description: str = ""
+    power_w: float = 0
+    breaker_a: int = 16
+    breaker_type: str = "MCB-1P-C"
+    cable_type: str = "CYY-F 3x2.5"
+    pozare: str = "IPEY 18mm"
+    outlets: int = 0
+    lighting_points: int = 0
+    is_bathroom: bool = False
+    is_dedicated: bool = False
+    room: Optional[str] = None
+    rccb_group: Optional[str] = None
+
+
+class PowerSummaryNew(BaseModel):
+    installed_kw: float = 0
+    absorbed_kw: float = 0
+    current_a: float = 0
+    main_breaker_a: int = 63
+    connection: str = "Monofazat 230V+N+PE"
+    simultaneity_ks: float = 0.7
+    main_breaker_type: Optional[str] = None
+
+
+class PanelInfoNew(BaseModel):
+    rccb_groups: List[dict] = []
+    has_spd: bool = True
+    name: Optional[str] = None
+
+
+class EquipmentInfoNew(BaseModel):
+    boiler_acm: bool = False
+    aer_conditionat: bool = False
+    pdc: bool = False
+    pompe_circulatie: bool = False
+    ventilatie_hrv: bool = False
+
+
+class GenerateSchemaMultiRequest(BaseModel):
+    project_info: Optional[dict] = None
+    power_summary: PowerSummaryNew = PowerSummaryNew()
+    panel: PanelInfoNew = PanelInfoNew()
+    circuits: List[CircuitInputNew] = []
+    equipment: Optional[EquipmentInfoNew] = None
+
+
+def _next_plansa_nr(pinfo: dict) -> int:
+    pn = pinfo.get("plansa_nr", "") or ""
+    import re as _re
+    m = _re.search(r"\d+", pn)
+    return int(m.group()) + 1 if m else 3
+
+
+def _get_tect_circuits(equipment: Optional[EquipmentInfoNew]) -> List[dict]:
+    if not equipment:
+        return []
+    c_list, n = [], 1
+
+    def _add(**kw):
+        nonlocal n
+        c_list.append({"id": f"C{n}", **kw})
+        n += 1
+
+    _add(type="iluminat", description="ILUMINAT CT", power_w=150,
+         breaker_a=10, breaker_type="MCB-1P-B",
+         cable_type="CYY-F 3x1.5", pozare="IPEY 16mm", lighting_points=2)
+    if equipment.pdc:
+        _add(type="dedicat", description="ALIM. PDC", power_w=5000,
+             breaker_a=16, breaker_type="MCB-3P-C",
+             cable_type="CYY-F 5x2.5", pozare="IPEY 25mm")
+    if equipment.pdc or equipment.pompe_circulatie:
+        _add(type="dedicat", description="ALIM. POMPE CIRCULATIE", power_w=500,
+             breaker_a=16, breaker_type="MCB-1P-C",
+             cable_type="CYY-F 3x2.5", pozare="IPEY 18mm")
+    _add(type="dedicat", description="ALIM. AUTOMATIZARE", power_w=300,
+         breaker_a=16, breaker_type="MCB-1P-C",
+         cable_type="CYY-F 3x2.5", pozare="IPEY 18mm")
+    if equipment.boiler_acm:
+        _add(type="dedicat", description="PRIZA BOILER TERMOELECTRIC", power_w=2000,
+             breaker_a=16, breaker_type="MCB-1P-C",
+             cable_type="CYY-F 3x2.5 IP44", pozare="IPEY 18mm", is_bathroom=True)
+    _add(type="prize", description="PRIZA LUCRU CT", power_w=920,
+         breaker_a=16, breaker_type="MCB-1P-C",
+         cable_type="CYY-F 3x2.5", pozare="IPEY 18mm", outlets=2, is_bathroom=True)
+    return c_list
+
+
+def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
+                      circuits, pinfo, ps, rccb_groups,
+                      has_spd, main_cable, is_trifazat):
+    """Draw one complete A3-landscape electrical single-line schema page."""
     try:
-        pdf_bytes = _build_schema_pdf(req)
-    except RuntimeError as e:
-        return {"error": str(e)}
-    tablou_name = req.tablou.name.replace(" ", "-").replace("/", "-").lower()
-    return FastAPIResponse(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="schema-monofilara-{tablou_name}.pdf"'
-            ),
-        },
-    )
+        from reportlab.lib.pagesizes import A3
+        from reportlab.lib.colors import HexColor, black, white
+    except ImportError:
+        raise RuntimeError("reportlab not installed")
+
+    PW, PH = A3[1], A3[0]   # ~1190 × 842 pt (landscape)
+    N = len(circuits)
+
+    # ── Layout constants ────────────────────────────────────────────────────
+    TITLE_W = 382; TITLE_H = 252
+    TITLE_X  = PW - 12 - TITLE_W           # ≈ 796
+    TABLE_X  = 12
+    TABLE_W  = TITLE_X - TABLE_X - 6       # ≈ 778
+    TABLE_H  = 252; TABLE_Y = 12
+    SCHEMA_BOT = TABLE_Y + TABLE_H + 7     # ≈ 271
+    SCHEMA_TOP = PH - 10                   # ≈ 832
+    HDR_H    = 50
+    HDR_BOT  = SCHEMA_TOP - HDR_H         # ≈ 782
+    BUS_Y    = SCHEMA_BOT + 165           # ≈ 436
+    BRANCH_BOT = SCHEMA_BOT + 8          # ≈ 279
+    BRANCH_TOP = BUS_Y - 22              # ≈ 414
+    BUS_X_S  = 115; BUS_X_E = PW - 12   # ≈ 1178
+    BRK_X    = 65
+    SPACING  = (BUS_X_E - BUS_X_S) / max(N, 1)
+
+    # ── Colors ─────────────────────────────────────────────────────────────
+    CGRAY_L = HexColor("#E5E7EB"); CGRAY_M = HexColor("#9CA3AF")
+    CGRAY_D = HexColor("#374151"); CBUSBAR = HexColor("#1E293B")
+    CHDR_BG = HexColor("#1E3A5F"); CBLUE   = HexColor("#1D4ED8")
+    CAMBER  = HexColor("#D97706"); CGREEN  = HexColor("#15803D")
+
+    # ── Helpers ─────────────────────────────────────────────────────────────
+    def rtext(x, y, txt, fs, angle=-90, bold=False, col=None):
+        cv.saveState()
+        cv.setFont("Helvetica-Bold" if bold else "Helvetica", fs)
+        cv.setFillColor(col or CGRAY_D)
+        cv.translate(x, y); cv.rotate(angle)
+        cv.drawCentredString(0, 0, str(txt))
+        cv.restoreState()
+
+    def mcb_sym(x, cy, w=14, h=22, n_poles=1):
+        tw = w + max(n_poles - 1, 0) * 5
+        cv.setFillColor(white); cv.setStrokeColor(black); cv.setLineWidth(0.8)
+        cv.rect(x - tw/2, cy - h/2, tw, h, fill=1, stroke=1)
+        cv.setLineWidth(0.6)
+        cv.line(x - tw/2 + 1, cy + h/2 - 2, x + tw/2 - 1, cy - h/2 + 2)
+        if n_poles >= 3:
+            for k in range(1, n_poles):
+                xk = x - tw/2 + k * tw / n_poles
+                cv.line(xk, cy - h/2, xk, cy + h/2)
+
+    def rccb_sym(x, cy):
+        mcb_sym(x, cy + 8)
+        cv.setFillColor(white); cv.setStrokeColor(black); cv.setLineWidth(0.8)
+        cv.circle(x, cy - 6, 6, fill=1, stroke=1)
+        cv.setFont("Helvetica-Bold", 6); cv.setFillColor(black)
+        cv.drawCentredString(x, cy - 7.5, "Δ")
+
+    def load_sym(x, y, ctype, outlets=0, lpts=0):
+        cv.setLineWidth(0.7)
+        if ctype == "iluminat":
+            r = 9
+            cv.setStrokeColor(CBLUE); cv.setFillColor(white)
+            cv.circle(x, y, r, fill=1, stroke=1)
+            cv.setStrokeColor(CBLUE)
+            cv.line(x - r*.7, y + r*.7, x + r*.7, y - r*.7)
+            cv.line(x - r*.7, y - r*.7, x + r*.7, y + r*.7)
+            if lpts:
+                cv.setFont("Helvetica", 5.5); cv.setFillColor(CBLUE)
+                cv.drawCentredString(x, y - r - 5, f"{lpts}LL")
+        elif ctype == "prize":
+            r = 6
+            cv.setFillColor(CAMBER); cv.setStrokeColor(CAMBER)
+            cv.circle(x, y, r, fill=1, stroke=1)
+            if outlets:
+                cv.setFont("Helvetica", 5.5); cv.setFillColor(CAMBER)
+                cv.drawCentredString(x, y - r - 5, f"{outlets}LP")
+        else:
+            cv.setStrokeColor(CGREEN)
+            cv.line(x, y + 8, x, y - 3)
+            cv.line(x - 5, y + 2, x, y - 7)
+            cv.line(x + 5, y + 2, x, y - 7)
+
+    def cell(x, y, w, h, txt, fs=7, align='l', bold=False, col=None):
+        cv.setFont("Helvetica-Bold" if bold else "Helvetica", fs)
+        cv.setFillColor(col or CGRAY_D)
+        ty = y + h / 2 - fs * 0.35
+        s = str(txt)
+        if align == 'c':   cv.drawCentredString(x + w/2, ty, s)
+        elif align == 'r': cv.drawRightString(x + w - 2, ty, s)
+        else:              cv.drawString(x + 2, ty, s)
+
+    # ── Page border ─────────────────────────────────────────────────────────
+    cv.setFillColor(white); cv.rect(0, 0, PW, PH, fill=1, stroke=0)
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(1.0)
+    cv.rect(8, 8, PW - 16, PH - 16, fill=0, stroke=1)
+
+    # ── 1. Header block (top-left) ──────────────────────────────────────────
+    cv.setFillColor(CHDR_BG); cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.8)
+    cv.rect(12, HDR_BOT, 215, HDR_H, fill=1, stroke=1)
+    cv.setFont("Helvetica-Bold", 8); cv.setFillColor(white)
+    cv.drawString(17, HDR_BOT + 37, f"Pi = {ps.installed_kw:.1f} kW")
+    cv.drawString(17, HDR_BOT + 26, f"Pa = {ps.absorbed_kw:.1f} kW")
+    cv.drawString(17, HDR_BOT + 15, f"Ia = {ps.current_a:.1f} A  /  {ps.main_breaker_a}A")
+    cv.setFont("Helvetica", 7); cv.setFillColor(HexColor("#93C5FD"))
+    cv.drawString(17, HDR_BOT + 5, ps.connection[:38])
+
+    # ── 2. Panel title ──────────────────────────────────────────────────────
+    cv.setFont("Helvetica-Bold", 13); cv.setFillColor(CGRAY_D)
+    cv.drawCentredString(PW / 2, HDR_BOT + 28, f"{panel_name} — {panel_desc}")
+    cv.setFont("Helvetica", 8); cv.setFillColor(CGRAY_M)
+    cv.drawCentredString(PW / 2, HDR_BOT + 14, (pinfo.get("titlu_proiect") or "")[:72])
+    cv.setStrokeColor(CGRAY_M); cv.setLineWidth(0.5)
+    cv.line(12, HDR_BOT - 2, PW - 12, HDR_BOT - 2)
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(1.5)
+    cv.line(12, HDR_BOT - 4, PW - 12, HDR_BOT - 4)
+
+    # ── 3. Main breaker ─────────────────────────────────────────────────────
+    MCB_MAIN_CY = BUS_Y + 78
+    cv.setStrokeColor(black); cv.setLineWidth(1.5)
+    cv.line(BRK_X, HDR_BOT - 8, BRK_X, MCB_MAIN_CY + 13)
+    mcb_sym(BRK_X, MCB_MAIN_CY, w=16, h=24, n_poles=3 if is_trifazat else 1)
+    if has_spd:
+        cv.setFillColor(HexColor("#FEF3C7")); cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.7)
+        cv.rect(BRK_X - 14, MCB_MAIN_CY + 28, 28, 16, fill=1, stroke=1)
+        cv.setFont("Helvetica-Bold", 6); cv.setFillColor(CGRAY_D)
+        cv.drawCentredString(BRK_X, MCB_MAIN_CY + 35, "SPD T2")
+    cv.setFont("Helvetica-Bold", 6.5); cv.setFillColor(CGRAY_D)
+    cv.drawCentredString(BRK_X, MCB_MAIN_CY + 18, "C0")
+    cv.setFont("Helvetica", 5.5)
+    cv.drawCentredString(BRK_X, MCB_MAIN_CY - 17,
+                         f"{'3P+N' if is_trifazat else '1P+N'}, {ps.main_breaker_a}A C")
+    rtext(BRK_X - 24, BUS_Y + 38, main_cable, 5, angle=90, col=CGRAY_M)
+    cv.setStrokeColor(black); cv.setLineWidth(1.5)
+    cv.line(BRK_X, MCB_MAIN_CY - 12, BRK_X, BUS_Y)
+    cv.setFillColor(black); cv.circle(BRK_X, BUS_Y, 3, fill=1)
+
+    # ── 4. Busbar ───────────────────────────────────────────────────────────
+    cv.setStrokeColor(CBUSBAR); cv.setLineWidth(3.5)
+    cv.line(BUS_X_S, BUS_Y, BUS_X_E, BUS_Y)
+    cv.setFont("Helvetica-Bold", 6); cv.setFillColor(CBUSBAR)
+    cv.drawString(BUS_X_S, BUS_Y + 5, "400V" if is_trifazat else "230V")
+    cv.setStrokeColor(HexColor("#2563EB")); cv.setLineWidth(1.2)
+    cv.setDash([4, 2]); cv.line(BUS_X_S, BUS_Y - 9, BUS_X_E, BUS_Y - 9); cv.setDash()
+    cv.setFont("Helvetica", 5); cv.setFillColor(HexColor("#2563EB"))
+    cv.drawString(BUS_X_S, BUS_Y - 15, "N")
+    cv.setStrokeColor(HexColor("#16A34A")); cv.setLineWidth(1.2)
+    cv.line(BUS_X_S, BUS_Y - 17, BUS_X_E, BUS_Y - 17)
+    cv.setFont("Helvetica", 5); cv.setFillColor(HexColor("#16A34A"))
+    cv.drawString(BUS_X_S, BUS_Y - 23, "PE")
+
+    # ── 5. RCCB groups (above busbar) ───────────────────────────────────────
+    ckt_ids = [ckt.get("id", f"C{i+1}") for i, ckt in enumerate(circuits)]
+    for grp in rccb_groups:
+        gids  = grp.get("circuits", [])
+        g_a   = grp.get("rating_a", 40)
+        g_ma  = grp.get("sensitivity_ma", 30)
+        gi    = [i for i, cid in enumerate(ckt_ids) if cid in gids]
+        if not gi:
+            continue
+        xf = BUS_X_S + (gi[0]  + 0.5) * SPACING
+        xl = BUS_X_S + (gi[-1] + 0.5) * SPACING
+        xm = (xf + xl) / 2
+        RY = BUS_Y + 32
+        cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.6)
+        cv.line(xf, BUS_Y + 3, xf, RY)
+        cv.line(xl, BUS_Y + 3, xl, RY)
+        cv.line(xf, RY, xl, RY)
+        cv.setFillColor(white); cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.7)
+        cv.rect(xm - 12, RY + 2, 24, 13, fill=1, stroke=1)
+        cv.circle(xm, RY + 21, 5, fill=1, stroke=1)
+        cv.setFont("Helvetica", 5); cv.setFillColor(CGRAY_D)
+        cv.drawCentredString(xm, RY + 6, "Δ")
+        cv.setFont("Helvetica", 5.5)
+        cv.drawCentredString(xm, RY + 29, f"{g_a}A/{g_ma}mA")
+
+    # ── 6. Circuit branches ─────────────────────────────────────────────────
+    PHASES = ["R", "S", "T"]
+    ph_idx = 0
+    for i, ckt in enumerate(circuits):
+        xc    = BUS_X_S + (i + 0.5) * SPACING
+        ctype = ckt.get("type", "prize")
+        is3p  = "3P" in ckt.get("breaker_type", "")
+        ba    = ckt.get("breaker_a", 16)
+        hrccb = ckt.get("is_bathroom", False)
+        cid   = ckt.get("id", f"C{i+1}")
+        desc  = (ckt.get("description", "") or "")
+        ol    = ckt.get("outlets", 0)
+        lp    = ckt.get("lighting_points", 0)
+        ph    = "RST" if is3p else PHASES[ph_idx % 3]
+        if not is3p:
+            ph_idx += 1
+
+        # Phase label (above busbar, rotated)
+        rtext(xc, BUS_Y + 14, f"{i+1}({ph})", 5.5, angle=-90, col=CGRAY_D)
+        rtext(xc, BUS_Y - 6,  f"{ba}A-{'400V' if is3p else '230V'}", 4.5,
+              angle=-90, col=CGRAY_M)
+
+        MCB_CY = BRANCH_BOT + (BRANCH_TOP - BRANCH_BOT) * 0.68
+        LOAD_Y = BRANCH_BOT + 20
+
+        cv.setStrokeColor(black); cv.setLineWidth(0.8)
+        cv.line(xc, BUS_Y - 24, xc, MCB_CY + 13)
+        if hrccb:
+            rccb_sym(xc, MCB_CY)
+        else:
+            mcb_sym(xc, MCB_CY, n_poles=3 if is3p else 1)
+        cv.line(xc, MCB_CY - (18 if hrccb else 12), xc, LOAD_Y + 13)
+        load_sym(xc, LOAD_Y, ctype, outlets=ol, lpts=lp)
+        rtext(xc, BRANCH_BOT + 5, f"{cid} {desc[:18]}", 5,
+              angle=-90, col=CGRAY_D)
+
+    # ── 7. Data table ───────────────────────────────────────────────────────
+    COLS = [("Nr.", 45), ("Destinatie", 185), ("Pi kW", 74), ("Ia A", 70),
+            ("Protectie", 118), ("Cablu", 135), ("Pozare", 0)]
+    COLS[-1] = (COLS[-1][0], TABLE_W - sum(w for _, w in COLS[:-1]))
+    HDR_ROW_H = 13
+    avail = TABLE_H - HDR_ROW_H - 2
+    RH = min(11.5, avail / max(len(circuits), 1))
+
+    cx0 = TABLE_X
+    for cname, cw in COLS:
+        cv.setFillColor(CGRAY_L); cv.setStrokeColor(CGRAY_M); cv.setLineWidth(0.4)
+        cv.rect(cx0, TABLE_Y + TABLE_H - HDR_ROW_H, cw, HDR_ROW_H, fill=1, stroke=1)
+        cell(cx0, TABLE_Y + TABLE_H - HDR_ROW_H, cw, HDR_ROW_H, cname,
+             7, 'c', bold=True, col=CGRAY_D)
+        cx0 += cw
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.8)
+    cv.rect(TABLE_X, TABLE_Y, TABLE_W, TABLE_H, fill=0, stroke=1)
+
+    for i, ckt in enumerate(circuits):
+        ry = TABLE_Y + TABLE_H - HDR_ROW_H - (i + 1) * RH
+        if ry < TABLE_Y:
+            break
+        cv.setFillColor(HexColor("#F9FAFB") if i % 2 else white)
+        cv.setStrokeColor(CGRAY_M); cv.setLineWidth(0.35)
+        cv.rect(TABLE_X, ry, TABLE_W, RH, fill=1, stroke=1)
+        fs = min(7.0, RH * 0.62)
+        ba = ckt.get("breaker_a", 16)
+        is3p = "3P" in ckt.get("breaker_type", "")
+        pw_kw = ckt.get("power_w", 0) / 1000
+        u = 400 * (3 ** 0.5) * 0.9 if is3p else 230 * 0.92
+        ia = pw_kw * 1000 / u if pw_kw else 0
+        prot = f"MCB {'3P' if is3p else '1P'}+N {ba}A C 6kA"
+        if ckt.get("is_bathroom"):
+            prot += "+RCD30"
+        row = [
+            (ckt.get("id", f"C{i+1}"), 'c'),
+            ((ckt.get("description", "") or "")[:34], 'l'),
+            (f"{pw_kw:.2f}", 'c'), (f"{ia:.2f}", 'c'),
+            (prot[:22], 'l'),
+            ((ckt.get("cable_type", "") or "")[:22], 'l'),
+            ((ckt.get("pozare", "") or "")[:20], 'l'),
+        ]
+        cx0 = TABLE_X
+        for (val, al), (_, cw) in zip(row, COLS):
+            cell(cx0, ry, cw, RH, val, fs, al)
+            cx0 += cw
+
+    # ── 8. Title block (cartus) ─────────────────────────────────────────────
+    TX, TY_, TW, TH_ = TITLE_X, TABLE_Y, TITLE_W, TITLE_H
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(1.5)
+    cv.rect(TX, TY_, TW, TH_, fill=0, stroke=1)
+    cv.setLineWidth(0.4); cv.setStrokeColor(CGRAY_M)
+    cv.rect(TX + 2, TY_ + 2, TW - 4, TH_ - 4, fill=0, stroke=1)
+    NR = 8; rh_t = TH_ / NR
+    col1 = TX + TW * 0.38; col2 = col1 + TW * 0.34
+    for r_ in range(1, NR):
+        cv.setLineWidth(0.3); cv.setStrokeColor(CGRAY_M)
+        cv.line(TX + 2, TY_ + r_ * rh_t, TX + TW - 2, TY_ + r_ * rh_t)
+    for xd in [col1, col2]:
+        cv.line(xd, TY_ + 2, xd, TY_ + TH_ - 2)
+
+    def tcell(c1, c2, c3, row_from_top, bold1=False):
+        ry_ = TY_ + (NR - 1 - row_from_top) * rh_t
+        cell(TX+2, ry_, col1-TX-2, rh_t, c1, 6.5, 'c', bold=bold1,
+             col=HexColor("#1E40AF") if bold1 and row_from_top == 1 else CGRAY_D)
+        cell(col1, ry_, col2-col1, rh_t, c2, 6, 'l', col=CGRAY_D)
+        cell(col2, ry_, TX+TW-col2-2, rh_t, c3, 6, 'l', col=CGRAY_D)
+
+    pi = pinfo
+    tcell("PROIECTANT DE SPECIALITATE", "INSTALATII ELECTRICE",
+          f"Plansa nr.: {plansa_nr}", 0, bold1=True)
+    tcell("INSTAUDITOR SRL", f"Sef proiect: {pi.get('sef_proiect','')}",
+          f"Faza: {pi.get('faza','DTAC')}", 1, bold1=True)
+    tcell("",                 f"Proiectant: {pi.get('sef_proiect','')}",
+          "Scara: 1:___", 2)
+    tcell("DATE DE CONTACT:", f"Desenat: {pi.get('sef_proiect','')}",
+          f"Data: {pi.get('data','')}", 3)
+    tcell("",                 "Verificat: ______________",
+          f"Nr.: {pi.get('proiect_nr','')}", 4)
+
+    # Full-width rows (beneficiar, adresa, titlu)
+    for row_idx, label, key, bold in [
+        (5, "Beneficiar:", "beneficiar", False),
+        (6, "Adresa:",     "amplasament", False),
+        (7, "",            "titlu_proiect", True),
+    ]:
+        ry_ = TY_ + (NR - 1 - row_idx) * rh_t
+        val = pi.get(key, "") or ""
+        txt = (f"{label} {val}" if label else val)[:62]
+        cell(TX+2, ry_, TW-4, rh_t, txt, 7 if bold else 6.5, 'c' if bold else 'l',
+             bold=bold, col=CGRAY_D)
+    # Extra separator before bottom row
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(0.8)
+    cv.line(TX+2, TY_ + rh_t, TX+TW-2, TY_ + rh_t)
+
+    # ── 9. Legend ────────────────────────────────────────────────────────────
+    LX = PW - 200; LY_ = BUS_Y + 65
+    LW = 185; LH = min(90, HDR_BOT - LY_ - 5)
+    if LH > 30:
+        cv.setFillColor(HexColor("#FAFAFA")); cv.setStrokeColor(CGRAY_M)
+        cv.setLineWidth(0.5); cv.rect(LX, LY_, LW, LH, fill=1, stroke=1)
+        cv.setFont("Helvetica-Bold", 6.5); cv.setFillColor(CGRAY_D)
+        cv.drawString(LX + 3, LY_ + LH - 9, "LEGENDA:")
+        for j, (sym, txt) in enumerate([
+            ("□/diag",  "Disjunctor TM (MCB)"),
+            ("□+○Δ",    "Prot. diferentiala (RCCB)"),
+            ("⊗",       "Corp iluminat (LL)"),
+            ("●",       "Priza 230V (LP)"),
+            ("↓",       "Receptor dedicat"),
+        ]):
+            yy = LY_ + LH - 20 - j * 13
+            if yy < LY_ + 4:
+                break
+            cv.setFont("Helvetica-Bold", 7); cv.drawString(LX + 3, yy, sym)
+            cv.setFont("Helvetica", 6.5); cv.drawString(LX + 28, yy, txt)
+
+    # ── 10. Nota ─────────────────────────────────────────────────────────────
+    nota_y = SCHEMA_BOT - 1
+    nota_h = SCHEMA_BOT - (TABLE_Y + TABLE_H) - 3
+    if nota_h > 7:
+        cv.setFont("Helvetica", 5.5); cv.setFillColor(CGRAY_M)
+        ks = getattr(ps, 'simultaneity_ks', 0.7)
+        cv.drawString(TABLE_X + 2, nota_y - 6,
+                      f"Nota 1: NORMATIV I7/2011 Tabel 3.5 — ku = {ks}. "
+                      "Protectiile vor fi verificate si inlocuite daca nivelul de "
+                      "scurt-circuit difera de cel de calcul.")
+
+    # ── Watermark ────────────────────────────────────────────────────────────
+    cv.setFont("Helvetica", 5); cv.setFillColor(CGRAY_M)
+    cv.drawRightString(TITLE_X - 10, TABLE_Y + 2,
+                       "Generat automat · ZYNAPSE v4.0 · I7-2011 · zynapse.ro")
+
+
+def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
+    try:
+        from reportlab.pdfgen import canvas as rl_canvas
+        from reportlab.lib.pagesizes import A3
+    except ImportError:
+        raise RuntimeError("reportlab not installed")
+
+    PW, PH = A3[1], A3[0]
+    ps     = req.power_summary
+    pinfo  = req.project_info or {}
+    equip  = req.equipment or EquipmentInfoNew()
+    rgrps  = req.panel.rccb_groups or []
+    has_spd = req.panel.has_spd
+    is_tri  = "Trifazat" in (ps.connection or "")
+    results = []
+    start_n = _next_plansa_nr(pinfo)
+
+    all_ckts = [c.model_dump() for c in req.circuits if c.type != "date"]
+
+    # TEG (main panel, up to 28 circuits)
+    teg_ckts = all_ckts[:28]
+    tes_ckts = all_ckts[28:]
+    buf = io.BytesIO()
+    cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
+    _draw_schema_page(cv, "TEG", "TABLOU ELECTRIC GENERAL",
+                      f"IE.{start_n}", teg_ckts, pinfo, ps,
+                      rgrps, has_spd,
+                      "CYABY 5×10mmp / De la BMPT" if is_tri
+                      else "CYY-F 3×10mmp / De la BMPT", is_tri)
+    cv.save()
+    results.append({
+        "name": "TEG", "plansa_nr": f"IE.{start_n}",
+        "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
+    })
+
+    # TES (overflow panel, circuits 29+)
+    if tes_ckts:
+        start_n += 1
+        buf = io.BytesIO()
+        cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
+        tes_ps = PowerSummaryNew(
+            installed_kw=sum(c.get("power_w",0) for c in tes_ckts)/1000,
+            absorbed_kw=sum(c.get("power_w",0) for c in tes_ckts)/1000*0.7,
+            current_a=sum(c.get("power_w",0) for c in tes_ckts)/230/0.92,
+            main_breaker_a=40, connection="Monofazat 230V+N+PE",
+            simultaneity_ks=ps.simultaneity_ks,
+        )
+        _draw_schema_page(cv, "TES", "TABLOU ELECTRIC SECUNDAR",
+                          f"IE.{start_n}", tes_ckts, pinfo, tes_ps,
+                          [], False, "CYY-F 5×6mmp / De la TEG", False)
+        cv.save()
+        results.append({
+            "name": "TES", "plansa_nr": f"IE.{start_n}",
+            "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
+        })
+
+    # TE-CT (heating panel, if equipment present)
+    needs_tect = equip.boiler_acm or equip.pdc or equip.pompe_circulatie or equip.ventilatie_hrv
+    if needs_tect:
+        start_n += 1
+        tect_c = _get_tect_circuits(equip)
+        tect_pi_w = sum(c.get("power_w", 0) for c in tect_c)
+        tect_ps = PowerSummaryNew(
+            installed_kw=tect_pi_w/1000, absorbed_kw=tect_pi_w/1000,
+            current_a=tect_pi_w/230/0.92, main_breaker_a=32,
+            connection="Monofazat 230V+N+PE", simultaneity_ks=1.0,
+        )
+        buf = io.BytesIO()
+        cv  = rl_canvas.Canvas(buf, pagesize=(PW, PH))
+        _draw_schema_page(cv, "TE-CT", "TABLOU ELECTRIC CENTRALA TERMICA",
+                          f"IE.{start_n}", tect_c, pinfo, tect_ps,
+                          [], False, "CYY-F 5×4mmp / De la TEG", False)
+        cv.save()
+        results.append({
+            "name": "TE-CT", "plansa_nr": f"IE.{start_n}",
+            "pdf_base64": "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
+        })
+
+    return results
+
+
+@app.post("/generate-schema")
+def generate_schema_multi(req: GenerateSchemaMultiRequest):
+    """Multi-panel schema monofilara. Returns JSON with base64 PDFs per panel."""
+    try:
+        schemas = _generate_multi_schema(req)
+    except Exception as e:
+        return {"error": str(e), "schemas": []}
+    return {"schemas": schemas}
 
 
 @app.get("/health")

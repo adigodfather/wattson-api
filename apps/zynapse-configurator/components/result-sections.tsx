@@ -136,7 +136,7 @@ export function MemoriuSection({ text }: { text: string }) {
 }
 
 /* ─── Schema monofilară download button ─── */
-export function SchemaDownloadButton({ base64Pdf }: { base64Pdf: string }) {
+export function SchemaDownloadButton({ base64Pdf, label = "Schemă monofilară PDF", fileName = "schema-monofilara.pdf" }: { base64Pdf: string; label?: string; fileName?: string }) {
   const handleDownload = () => {
     const raw = base64Pdf.includes(",") ? base64Pdf.split(",")[1] : base64Pdf;
     const byteStr = atob(raw);
@@ -147,7 +147,7 @@ export function SchemaDownloadButton({ base64Pdf }: { base64Pdf: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "schema-monofilara.pdf";
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -164,8 +164,27 @@ export function SchemaDownloadButton({ base64Pdf }: { base64Pdf: string }) {
       onMouseOver={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.22)")}
       onMouseOut={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.12)")}
     >
-      <span style={{ fontSize: 15 }}>⬇</span> Schemă monofilară PDF
+      <span style={{ fontSize: 15 }}>⬇</span> {label}
     </button>
+  );
+}
+
+/* ─── Multi-schema download cards ─── */
+export function SchemasSection({ schemas }: { schemas: NonNullable<ProjectResult["schemas"]> }) {
+  if (!schemas?.length) return null;
+  return (
+    <ResultSection title="Scheme monofilare" count={schemas.length} defaultOpen>
+      <div className="flex flex-col gap-2 mt-3">
+        {schemas.map((s, i) => (
+          <SchemaDownloadButton
+            key={i}
+            base64Pdf={s.pdf_base64}
+            label={`${s.name}${s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""} PDF`}
+            fileName={`schema-${s.name.toLowerCase().replace(/\s+/g, "-")}.pdf`}
+          />
+        ))}
+      </div>
+    </ResultSection>
   );
 }
 
@@ -296,11 +315,13 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
       {result.annotated_plan_base64 && (
         <AnnotatedPlanSection src={result.annotated_plan_base64} />
       )}
-      {result.schema_monofilara_pdf && (
+      {result.schemas?.length ? (
+        <SchemasSection schemas={result.schemas} />
+      ) : result.schema_monofilara_pdf ? (
         <div className="mb-3">
           <SchemaDownloadButton base64Pdf={result.schema_monofilara_pdf} />
         </div>
-      )}
+      ) : null}
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
       <RoomsList rooms={result.rooms} />
