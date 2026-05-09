@@ -1901,6 +1901,38 @@ def _feeder_cable(ia: float) -> str:
     return "CYY-F 5×35mmp"
 
 
+def _sort_and_number_circuits(circuits: List[dict]) -> List[dict]:
+    """Sort in I7-2011 order, renumber C1…Cn, append REZERVA at end."""
+    def _key(c):
+        t    = c.get("type", "prize")
+        bath = c.get("is_bathroom", False)
+        pw   = c.get("power_w", 0)
+        room = (c.get("room") or "").lower()
+        if t == "iluminat" and not bath: return (0, room, 0)
+        if t == "prize"    and not bath: return (1, room, 0)
+        if t == "dedicat":               return (2, "", -pw)
+        if t == "prize"    and bath:     return (3, room, 0)
+        if t == "iluminat" and bath:     return (4, room, 0)
+        return (5, room, 0)
+
+    out = [dict(c) for c in sorted(circuits, key=_key)]
+    for i, c in enumerate(out):
+        c["id"] = f"C{i + 1}"
+
+    max_ba = max((c.get("breaker_a", 16) for c in out), default=16)
+    rez_ba = max(10, round(max_ba * 0.3 / 10) * 10)
+    out.append({
+        "id": f"C{len(out) + 1}", "type": "rezerva",
+        "description": "REZERVA", "power_w": 0,
+        "breaker_a": rez_ba, "breaker_type": "MCB-1P-C",
+        "cable_type": "—", "pozare": "—",
+        "outlets": 0, "lighting_points": 0,
+        "is_bathroom": False, "is_dedicated": False,
+        "room": None, "rccb_group": None,
+    })
+    return out
+
+
 # ── Page format registry ─────────────────────────────────────────────────────
 # max_circuits: how many branches fit on one page of this format
 _PAGE_FMT_INFO: dict = {
@@ -1966,7 +1998,7 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
                       circuits, pinfo, ps, rccb_groups,
                       has_spd, main_cable, is_trifazat,
                       pw: float = None, ph: float = None):
-    """Draw one electrical single-line schema page. pw/ph in pt (landscape orientation)."""
+    """Draw one electrical single-line schema page — Romanian DTAC/PT style, I7-2011."""
     try:
         from reportlab.lib.pagesizes import A3
         from reportlab.lib.colors import HexColor, black, white
@@ -1981,21 +2013,22 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
 
     def s(v): return v * sc   # scale a point value
 
-    # Fixed-size corner blocks — physical size constant across all formats (120mm × 80mm)
+    # Fixed-size corner blocks (120mm × 80mm cartus, 80mm × 55mm legenda)
     _MM     = 72 / 25.4
     TITLE_W = round(120 * _MM)   # 340 pt
     TITLE_H = round(80  * _MM)   # 227 pt
     LGD_W   = round(80  * _MM)   # 227 pt
-    LGD_H   = round(60  * _MM)   # 170 pt
+    LGD_H   = round(55  * _MM)   # 156 pt
 
     # Scaled layout constants
     MARGIN     = s(12)
     TITLE_X    = PW - MARGIN - TITLE_W
     TABLE_X    = MARGIN
     TABLE_W    = TITLE_X - TABLE_X - s(6)
-    TABLE_H    = TITLE_H               # data table matches title-block height
+    TABLE_H    = TITLE_H
     TABLE_Y    = MARGIN
-    SCHEMA_BOT = TABLE_Y + TABLE_H + s(7)
+    NOTA_H     = s(16)
+    SCHEMA_BOT = TABLE_Y + TABLE_H + NOTA_H
     SCHEMA_TOP = PH - s(10)
     HDR_H      = s(50)
     HDR_BOT    = SCHEMA_TOP - HDR_H
@@ -2007,7 +2040,7 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     BRK_X      = s(65)
     SPACING    = (BUS_X_E - BUS_X_S) / max(N, 1)
 
-    # Scaled font sizes (hard minimums keep text readable on small formats)
+    # Scaled font sizes
     FS_PANEL = max(7.0, 13.0 * sc)
     FS_HDR   = max(5.0,  8.0 * sc)
     FS_SUBT  = max(4.5,  7.0 * sc)
@@ -2021,7 +2054,15 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     CGRAY_L = HexColor("#E5E7EB"); CGRAY_M = HexColor("#9CA3AF")
     CGRAY_D = HexColor("#374151"); CBUSBAR = HexColor("#1E293B")
     CHDR_BG = HexColor("#1E3A5F"); CBLUE   = HexColor("#1D4ED8")
-    CAMBER  = HexColor("#D97706"); CGREEN  = HexColor("#15803D")
+    CAMBER  = HexColor("#B45309"); CGREEN  = HexColor("#15803D")
+    CREZV   = HexColor("#6B7280")
+
+    def _ckt_color(ctype, is_bath=False):
+        if ctype == "iluminat":                           return CBLUE
+        if ctype == "prize" and is_bath:                  return HexColor("#7C3AED")
+        if ctype == "prize":                              return CAMBER
+        if ctype in ("dedicat", "forta", "alimentare"):   return CGREEN
+        return CREZV
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     def rtext(x, y, txt, fs, angle=-90, bold=False, col=None):
@@ -2051,64 +2092,91 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
         cv.setFont("Helvetica-Bold", max(3.5, s(6))); cv.setFillColor(black)
         cv.drawCentredString(x, cy - s(7.5), "Δ")
 
-    def load_sym(x, y, ctype, outlets=0, lpts=0):
-        cv.setLineWidth(s(0.7))
-        if ctype == "iluminat":
+    def load_sym(x, y, ctype, is_bath=False, outlets=0, lpts=0):
+        """Load-end symbol per I7-2011: ⊗ iluminat, ● prize, ↓ dedicat, □-- rezerva."""
+        col = _ckt_color(ctype, is_bath)
+        cv.setLineWidth(s(0.9))
+        if ctype == "rezerva":
+            r = s(7)
+            cv.setFillColor(HexColor("#F3F4F6")); cv.setStrokeColor(CREZV)
+            cv.setDash([s(3), s(2)])
+            cv.rect(x - r, y - r, 2 * r, 2 * r, fill=1, stroke=1)
+            cv.setDash()
+        elif ctype == "iluminat":
             r = s(9)
-            cv.setStrokeColor(CBLUE); cv.setFillColor(white)
+            cv.setStrokeColor(col); cv.setFillColor(white)
             cv.circle(x, y, r, fill=1, stroke=1)
-            cv.setStrokeColor(CBLUE)
-            cv.line(x - r*.7, y + r*.7, x + r*.7, y - r*.7)
-            cv.line(x - r*.7, y - r*.7, x + r*.7, y + r*.7)
+            cv.setLineWidth(s(0.9))
+            cv.line(x - r * .68, y + r * .68, x + r * .68, y - r * .68)
+            cv.line(x + r * .68, y + r * .68, x - r * .68, y - r * .68)
+            if is_bath:
+                cv.setFont("Helvetica-Bold", max(3.0, s(5.5))); cv.setFillColor(col)
+                cv.drawCentredString(x + r + s(4), y + s(2), "S")
             if lpts:
-                cv.setFont("Helvetica", max(3.5, s(5.5))); cv.setFillColor(CBLUE)
-                cv.drawCentredString(x, y - r - s(5), f"{lpts}LL")
+                cv.setFont("Helvetica", max(3.0, s(5.0))); cv.setFillColor(col)
+                cv.drawCentredString(x, y - r - s(5), f"{lpts}b")
         elif ctype == "prize":
-            r = s(6)
-            cv.setFillColor(CAMBER); cv.setStrokeColor(CAMBER)
+            r = s(7) if is_bath else s(6)
+            cv.setFillColor(col); cv.setStrokeColor(col)
             cv.circle(x, y, r, fill=1, stroke=1)
-            if outlets:
-                cv.setFont("Helvetica", max(3.5, s(5.5))); cv.setFillColor(CAMBER)
-                cv.drawCentredString(x, y - r - s(5), f"{outlets}LP")
-        else:
-            cv.setStrokeColor(CGREEN)
+            if is_bath:
+                cv.setFont("Helvetica-Bold", max(2.5, s(4.5))); cv.setFillColor(white)
+                cv.drawCentredString(x, y - s(1.5), "IP")
+                cv.setFont("Helvetica", max(2.5, s(4.0))); cv.setFillColor(col)
+                cv.drawCentredString(x, y - r - s(5), "IP44")
+            elif outlets:
+                cv.setFont("Helvetica", max(3.0, s(5.0))); cv.setFillColor(col)
+                cv.drawCentredString(x, y - r - s(5), f"{outlets}p")
+        else:   # dedicat / forta / alimentare — downward arrow ↓
+            cv.setStrokeColor(col); cv.setFillColor(col)
+            cv.setLineWidth(s(1.2))
             cv.line(x, y + s(8), x, y - s(3))
-            cv.line(x - s(5), y + s(2), x, y - s(7))
-            cv.line(x + s(5), y + s(2), x, y - s(7))
+            pth = cv.beginPath()
+            pth.moveTo(x, y - s(10))
+            pth.lineTo(x - s(5), y - s(3))
+            pth.lineTo(x + s(5), y - s(3))
+            pth.close()
+            cv.drawPath(pth, fill=1, stroke=0)
 
-    def cell(x, y, w, h, txt, fs=7, align='l', bold=False, col=None):
+    def tbl_cell(x, y, w, h, txt, fs=7, align='l', bold=False, col=None):
         fs = max(3.5, fs)
         cv.setFont("Helvetica-Bold" if bold else "Helvetica", fs)
         cv.setFillColor(col or CGRAY_D)
-        ty  = y + h / 2 - fs * 0.35
-        t   = str(txt)
-        if align == 'c':   cv.drawCentredString(x + w/2, ty, t)
-        elif align == 'r': cv.drawRightString(x + w - s(2), ty, t)
-        else:              cv.drawString(x + s(2), ty, t)
+        ty = y + h / 2 - fs * 0.35
+        pad = s(2.5)
+        t = str(txt)
+        if align == 'c':   cv.drawCentredString(x + w / 2, ty, t)
+        elif align == 'r': cv.drawRightString(x + w - pad, ty, t)
+        else:              cv.drawString(x + pad, ty, t)
 
-    # ── Page border ──────────────────────────────────────────────────────────
+    # ── Page ─────────────────────────────────────────────────────────────────
     cv.setFillColor(white); cv.rect(0, 0, PW, PH, fill=1, stroke=0)
-    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(1.0)
-    cv.rect(s(8), s(8), PW - s(16), PH - s(16), fill=0, stroke=1)
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(1.2))
+    cv.rect(s(7), s(7), PW - s(14), PH - s(14), fill=0, stroke=1)
+    cv.setLineWidth(s(0.4)); cv.setStrokeColor(CGRAY_M)
+    cv.rect(s(10), s(10), PW - s(20), PH - s(20), fill=0, stroke=1)
 
     # ── 1. Header block (top-left) ───────────────────────────────────────────
     HDR_W = s(215)
     cv.setFillColor(CHDR_BG); cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.8))
     cv.rect(MARGIN, HDR_BOT, HDR_W, HDR_H, fill=1, stroke=1)
     cv.setFont("Helvetica-Bold", FS_HDR); cv.setFillColor(white)
-    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.74, f"Pi = {ps.installed_kw:.1f} kW")
-    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.52, f"Pa = {ps.absorbed_kw:.1f} kW")
-    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.30,
-                  f"Ia = {ps.current_a:.1f} A  /  {ps.main_breaker_a}A")
+    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.78,
+                  f"Pi = {ps.installed_kw:.2f} kW    Pa = {ps.absorbed_kw:.2f} kW")
+    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.55,
+                  f"Ia = {ps.current_a:.2f} A    MCB {ps.main_breaker_a}A")
     cv.setFont("Helvetica", FS_CONN); cv.setFillColor(HexColor("#93C5FD"))
-    cv.drawString(MARGIN + s(5), HDR_BOT + s(5), ps.connection[:38])
+    cv.drawString(MARGIN + s(5), HDR_BOT + HDR_H * 0.28, ps.connection[:40])
+    cv.setFont("Helvetica", max(3.5, FS_CONN - 1)); cv.setFillColor(HexColor("#93C5FD"))
+    cv.drawString(MARGIN + s(5), HDR_BOT + s(5),
+                  f"ku={ps.simultaneity_ks:.2f}")
 
     # ── 2. Panel title ────────────────────────────────────────────────────────
     cv.setFont("Helvetica-Bold", FS_PANEL); cv.setFillColor(CGRAY_D)
-    cv.drawCentredString(PW / 2, HDR_BOT + HDR_H * 0.55, f"{panel_name} — {panel_desc}")
+    cv.drawCentredString(PW / 2, HDR_BOT + HDR_H * 0.55, f"{panel_name}  —  {panel_desc}")
     cv.setFont("Helvetica", FS_SUBT); cv.setFillColor(CGRAY_M)
     cv.drawCentredString(PW / 2, HDR_BOT + HDR_H * 0.28,
-                         (pinfo.get("titlu_proiect") or "")[:72])
+                         (pinfo.get("titlu_proiect") or "")[:80])
     cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.5))
     cv.line(MARGIN, HDR_BOT - s(2), PW - MARGIN, HDR_BOT - s(2))
     cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(1.5))
@@ -2169,7 +2237,7 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
         cv.line(xf, RY, xl, RY)
         cv.setFillColor(white); cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.7))
         cv.rect(xm - s(12), RY + s(2), s(24), s(13), fill=1, stroke=1)
-        cv.circle(xm, RY + s(21), s(5), fill=1, stroke=1)
+        cv.circle(xm, RY + s(21), s(5), fill=0, stroke=1)
         cv.setFont("Helvetica", max(3.5, s(5))); cv.setFillColor(CGRAY_D)
         cv.drawCentredString(xm, RY + s(6), "Δ")
         cv.setFont("Helvetica", max(3.5, s(5.5)))
@@ -2179,162 +2247,230 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     PHASES = ["R", "S", "T"]
     ph_idx = 0
     for i, ckt in enumerate(circuits):
-        xc    = BUS_X_S + (i + 0.5) * SPACING
-        ctype = ckt.get("type", "prize")
-        is3p  = "3P" in ckt.get("breaker_type", "")
-        ba    = ckt.get("breaker_a", 16)
-        hrccb = ckt.get("is_bathroom", False)
-        cid   = ckt.get("id", f"C{i+1}")
-        desc  = (ckt.get("description", "") or "")
-        ol    = ckt.get("outlets", 0)
-        lp    = ckt.get("lighting_points", 0)
-        ph    = "RST" if is3p else PHASES[ph_idx % 3]
+        xc     = BUS_X_S + (i + 0.5) * SPACING
+        ctype  = ckt.get("type", "prize")
+        is3p   = "3P" in ckt.get("breaker_type", "")
+        ba     = ckt.get("breaker_a", 16)
+        is_b   = ckt.get("is_bathroom", False)
+        cid    = ckt.get("id", f"C{i+1}")
+        desc   = (ckt.get("description", "") or "")
+        ol     = ckt.get("outlets", 0)
+        lp     = ckt.get("lighting_points", 0)
+        ph     = "RST" if is3p else PHASES[ph_idx % 3]
         if not is3p: ph_idx += 1
+        is_rez = ctype == "rezerva"
+        col    = _ckt_color(ctype, is_b)
 
-        rtext(xc, BUS_Y + s(14), f"{i+1}({ph})", FS_LBL,   angle=-90, col=CGRAY_D)
-        rtext(xc, BUS_Y - s(6),  f"{ba}A-{'400V' if is3p else '230V'}",
-              max(3.5, s(4.5)), angle=-90, col=CGRAY_M)
+        # Phase + branch-number label above busbar (rotated -90°)
+        rtext(xc, BUS_Y + s(14), f"{cid}({ph})", FS_LBL, angle=-90, col=CGRAY_D)
+        # Breaker rating just below busbar
+        rtext(xc, BUS_Y - s(6),
+              f"{ba}A", max(3.5, s(4.5)), angle=-90, col=CGRAY_M)
 
         MCB_CY = BRANCH_BOT + (BRANCH_TOP - BRANCH_BOT) * 0.68
         LOAD_Y = BRANCH_BOT + s(20)
 
-        cv.setStrokeColor(black); cv.setLineWidth(s(0.8))
-        cv.line(xc, BUS_Y - s(24), xc, MCB_CY + s(13))
-        if hrccb:
+        # Dashed branch line for rezerva
+        lw = s(0.8)
+        cv.setStrokeColor(col); cv.setLineWidth(lw)
+        if is_rez: cv.setDash([s(3), s(2)])
+        cv.line(xc, BUS_Y - s(24), xc, MCB_CY + (s(24) if is_b else s(14)))
+        cv.setDash()
+
+        # Breaker symbol
+        if is_b and not is_rez:
             rccb_sym(xc, MCB_CY)
         else:
             mcb_sym(xc, MCB_CY, n_poles=3 if is3p else 1)
-        cv.line(xc, MCB_CY - (s(18) if hrccb else s(12)), xc, LOAD_Y + s(13))
-        load_sym(xc, LOAD_Y, ctype, outlets=ol, lpts=lp)
-        rtext(xc, BRANCH_BOT + s(5), f"{cid} {desc[:18]}", FS_SM,
-              angle=-90, col=CGRAY_D)
 
-    # ── 7. Data table ─────────────────────────────────────────────────────────
-    COLS = [("Nr.", s(45)), ("Destinatie", s(185)), ("Pi kW", s(74)), ("Ia A", s(70)),
-            ("Protectie", s(118)), ("Cablu", s(135)), ("Pozare", 0)]
-    COLS[-1] = (COLS[-1][0], TABLE_W - sum(w for _, w in COLS[:-1]))
+        # Line from breaker to load
+        cv.setStrokeColor(col); cv.setLineWidth(lw)
+        if is_rez: cv.setDash([s(3), s(2)])
+        cv.line(xc, MCB_CY - (s(18) if is_b else s(12)), xc, LOAD_Y + s(13))
+        cv.setDash()
+
+        load_sym(xc, LOAD_Y, ctype, is_bath=is_b, outlets=ol, lpts=lp)
+
+        # Circuit ID + description rotated -90° at branch bottom
+        rtext(xc, BRANCH_BOT + s(5), f"{cid} {desc[:16]}", FS_SM,
+              angle=-90, col=CREZV if is_rez else CGRAY_D)
+
+    # ── 7. Data table — 7 columns, C0 row, circuit rows ──────────────────────
+    # Column proportions: Nr.6 / Destinatie22 / Pi12 / Ia12 / Protectie22 / Cablu14 / Pozare12
+    _PCT  = [6, 22, 12, 12, 22, 14, 12]
+    _HDRS = ["Nr.", "Destinatie", "Pi kW", "Ia A", "Protectie", "Cablu", "Pozare"]
+    _CWS  = [p_ / 100 * TABLE_W for p_ in _PCT]
+
     HDR_ROW_H = s(13)
-    avail = TABLE_H - HDR_ROW_H - s(2)
-    RH    = min(s(11.5), avail / max(len(circuits), 1))
+    # Reserve space for C0 row + all circuit rows
+    DATA_ROWS = len(circuits) + 1   # +1 for C0
+    avail = TABLE_H - HDR_ROW_H - s(1)
+    RH = min(s(11.5), avail / max(DATA_ROWS, 1))
+    RH = max(RH, s(5))
 
-    cx0 = TABLE_X
-    for cname, cw in COLS:
-        cv.setFillColor(CGRAY_L); cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.4))
-        cv.rect(cx0, TABLE_Y + TABLE_H - HDR_ROW_H, cw, HDR_ROW_H, fill=1, stroke=1)
-        cell(cx0, TABLE_Y + TABLE_H - HDR_ROW_H, cw, HDR_ROW_H, cname,
-             FS_TBL, 'c', bold=True, col=CGRAY_D)
-        cx0 += cw
+    # Table outer border
     cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.8))
     cv.rect(TABLE_X, TABLE_Y, TABLE_W, TABLE_H, fill=0, stroke=1)
 
+    def _draw_row(vals_aligns, y, rh, bg):
+        x0 = TABLE_X
+        for j, ((val, al), cw) in enumerate(zip(vals_aligns, _CWS)):
+            cv.setFillColor(bg); cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.3))
+            cv.rect(x0, y, cw, rh, fill=1, stroke=1)
+            tbl_cell(x0, y, cw, rh, val, FS_TBL, al)
+            x0 += cw
+
+    # Header row
+    hdr_y = TABLE_Y + TABLE_H - HDR_ROW_H
+    x0 = TABLE_X
+    for hdr, cw in zip(_HDRS, _CWS):
+        cv.setFillColor(CGRAY_L); cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.4))
+        cv.rect(x0, hdr_y, cw, HDR_ROW_H, fill=1, stroke=1)
+        tbl_cell(x0, hdr_y, cw, HDR_ROW_H, hdr, FS_TBL, 'c', bold=True)
+        x0 += cw
+
+    # C0 row (main breaker / intreruptor general)
+    c0_y = hdr_y - RH
+    _u0  = 400 * (3 ** 0.5) * 0.9 if is_trifazat else 230 * 0.92
+    _ia0 = ps.current_a
+    _p0  = f"MCB {'3P' if is_trifazat else '1P'} {ps.main_breaker_a}A C 10kA"
+    _draw_row([
+        ("C0", 'c'), ("Intreruptor general", 'l'),
+        (f"{ps.installed_kw:.2f}", 'c'), (f"{_ia0:.2f}", 'c'),
+        (_p0[:24], 'l'), ((main_cable or "—")[:22], 'l'), ("—", 'c'),
+    ], c0_y, RH, HexColor("#EFF6FF"))
+    # Highlight C0 ID cell with panel color
+    cv.setFillColor(CHDR_BG)
+    cv.rect(TABLE_X, c0_y, _CWS[0], RH, fill=1, stroke=0)
+    tbl_cell(TABLE_X, c0_y, _CWS[0], RH, "C0", FS_TBL, 'c', bold=True, col=white)
+
+    # Circuit rows
     for i, ckt in enumerate(circuits):
-        ry = TABLE_Y + TABLE_H - HDR_ROW_H - (i + 1) * RH
+        ry = c0_y - (i + 1) * RH
         if ry < TABLE_Y: break
-        cv.setFillColor(HexColor("#F9FAFB") if i % 2 else white)
-        cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.35))
-        cv.rect(TABLE_X, ry, TABLE_W, RH, fill=1, stroke=1)
-        fs_row = min(FS_TBL, RH * 0.62)
+        bg     = HexColor("#F9FAFB") if i % 2 == 0 else white
         ba_r   = ckt.get("breaker_a", 16)
         is3p_r = "3P" in ckt.get("breaker_type", "")
+        is_b_r = ckt.get("is_bathroom", False)
         pw_kw  = ckt.get("power_w", 0) / 1000
         u_r    = 400 * (3 ** 0.5) * 0.9 if is3p_r else 230 * 0.92
-        ia_r   = pw_kw * 1000 / u_r if pw_kw else 0
-        prot   = f"MCB {'3P' if is3p_r else '1P'}+N {ba_r}A C 6kA"
-        if ckt.get("is_bathroom"): prot += "+RCD30"
-        row = [
+        ia_r   = pw_kw * 1000 / u_r if pw_kw > 0 else 0
+        ct_r   = ckt.get("type", "prize")
+        is_rez_r = ct_r == "rezerva"
+        if is_rez_r:
+            prot_r = "—"
+        else:
+            prot_r = f"MCB {'3P' if is3p_r else '1P'}+N {ba_r}A C"
+            if is_b_r: prot_r += " RCD30"
+        _draw_row([
             (ckt.get("id", f"C{i+1}"), 'c'),
-            ((ckt.get("description", "") or "")[:34], 'l'),
-            (f"{pw_kw:.2f}", 'c'), (f"{ia_r:.2f}", 'c'),
-            (prot[:22], 'l'),
+            ((ckt.get("description", "") or "")[:36], 'l'),
+            (f"{pw_kw:.2f}" if not is_rez_r else "—", 'c'),
+            (f"{ia_r:.2f}"  if not is_rez_r else "—", 'c'),
+            (prot_r[:24], 'l'),
             ((ckt.get("cable_type", "") or "")[:22], 'l'),
-            ((ckt.get("pozare", "") or "")[:20], 'l'),
-        ]
-        cx0 = TABLE_X
-        for (val, al), (_, cw) in zip(row, COLS):
-            cell(cx0, ry, cw, RH, val, fs_row, al)
-            cx0 += cw
+            ((ckt.get("pozare", "") or "")[:18], 'l'),
+        ], ry, RH, bg)
+        # Color-coded ID cell
+        cv.setFillColor(_ckt_color(ct_r, is_b_r) if not is_rez_r else CREZV)
+        cv.rect(TABLE_X, ry, _CWS[0], RH, fill=1, stroke=0)
+        tbl_cell(TABLE_X, ry, _CWS[0], RH,
+                 ckt.get("id", f"C{i+1}"), FS_TBL, 'c', bold=True, col=white)
 
-    # ── 8. Title block (cartus) — fixed 120mm × 80mm at bottom-right ─────────
+    # ── 8. Cartus — fixed 120mm × 80mm, bottom-right ─────────────────────────
     TX, TY_, TW, TH_ = TITLE_X, TABLE_Y, TITLE_W, TITLE_H
+    # Double border
     cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(1.5))
     cv.rect(TX, TY_, TW, TH_, fill=0, stroke=1)
     cv.setLineWidth(s(0.4)); cv.setStrokeColor(CGRAY_M)
-    cv.rect(TX + s(2), TY_ + s(2), TW - s(4), TH_ - s(4), fill=0, stroke=1)
-    NR   = 8; rh_t = TH_ / NR
-    col1 = TX + TW * 0.38; col2 = col1 + TW * 0.34
-    for r_ in range(1, NR):
-        cv.setLineWidth(s(0.3)); cv.setStrokeColor(CGRAY_M)
-        cv.line(TX + s(2), TY_ + r_ * rh_t, TX + TW - s(2), TY_ + r_ * rh_t)
-    for xd in [col1, col2]:
-        cv.line(xd, TY_ + s(2), xd, TY_ + TH_ - s(2))
+    cv.rect(TX + s(2.5), TY_ + s(2.5), TW - s(5), TH_ - s(5), fill=0, stroke=1)
 
-    def tcell(c1, c2, c3, row_from_top, bold1=False):
-        ry_ = TY_ + (NR - 1 - row_from_top) * rh_t
-        cell(TX+s(2), ry_, col1-TX-s(2), rh_t, c1, FS_CART, 'c', bold=bold1,
-             col=HexColor("#1E40AF") if bold1 and row_from_top == 1 else CGRAY_D)
-        cell(col1, ry_, col2-col1, rh_t, c2, max(4.0, FS_CART - 0.5), 'l', col=CGRAY_D)
-        cell(col2, ry_, TX+TW-col2-s(2), rh_t, c3, max(4.0, FS_CART - 0.5), 'l', col=CGRAY_D)
+    NR = 8; rh_t = TH_ / NR
+    col1 = TX + TW * 0.38; col2 = TX + TW * 0.72
+    cv.setStrokeColor(CGRAY_M); cv.setLineWidth(s(0.3))
+    for r_ in range(1, NR):
+        cv.line(TX + s(2.5), TY_ + r_ * rh_t, TX + TW - s(2.5), TY_ + r_ * rh_t)
+    cv.line(col1, TY_ + s(2.5), col1, TY_ + TH_ - s(2.5))
+    cv.line(col2, TY_ + s(2.5), col2, TY_ + TH_ - s(2.5))
+
+    def _tcell(txt, x, y, w, h, bold=False, center=False, col_=None):
+        tbl_cell(x + s(2), y + s(1), w - s(4), h - s(2), txt, FS_CART,
+                 'c' if center else 'l', bold=bold, col=col_ or CGRAY_D)
 
     pi = pinfo
-    tcell("PROIECTANT DE SPECIALITATE", "INSTALATII ELECTRICE",
-          f"Plansa nr.: {plansa_nr}", 0, bold1=True)
-    tcell("INSTAUDITOR SRL", f"Sef proiect: {pi.get('sef_proiect','')}",
-          f"Faza: {pi.get('faza','DTAC')}", 1, bold1=True)
-    tcell("",                 f"Proiectant: {pi.get('sef_proiect','')}",
-          "Scara: 1:___", 2)
-    tcell("DATE DE CONTACT:", f"Desenat: {pi.get('sef_proiect','')}",
-          f"Data: {pi.get('data','')}", 3)
-    tcell("",                 "Verificat: ______________",
-          f"Nr.: {pi.get('proiect_nr','')}", 4)
-    for row_idx, label, key, bold in [
-        (5, "Beneficiar:", "beneficiar", False),
-        (6, "Adresa:",     "amplasament", False),
-        (7, "",            "titlu_proiect", True),
-    ]:
-        ry_ = TY_ + (NR - 1 - row_idx) * rh_t
-        val  = pi.get(key, "") or ""
-        txt  = (f"{label} {val}" if label else val)[:62]
-        cell(TX+s(2), ry_, TW-s(4), rh_t, txt,
-             max(5.0, FS_CART + 0.5) if bold else FS_CART,
-             'c' if bold else 'l', bold=bold, col=CGRAY_D)
-    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.8))
-    cv.line(TX+s(2), TY_ + rh_t, TX+TW-s(2), TY_ + rh_t)
 
-    # ── 9. Legend — fixed 80mm × 60mm at top-right of schema area ────────────
+    def trow(c1, c2, c3, rft, b1=False):
+        ry_ = TY_ + (NR - 1 - rft) * rh_t
+        _tcell(c1[:22],  TX,   ry_, col1 - TX, rh_t, bold=b1, col_=CHDR_BG if b1 else CGRAY_D)
+        _tcell(c2[:28],  col1, ry_, col2 - col1, rh_t)
+        _tcell(c3[:20],  col2, ry_, TX + TW - col2, rh_t)
+
+    # Row 0: highlighted project title (full width)
+    cv.setFillColor(HexColor("#EFF6FF"))
+    cv.rect(TX + s(2.5), TY_ + s(2.5), TW - s(5), rh_t - s(2.5), fill=1, stroke=0)
+    cv.setFont("Helvetica-Bold", max(5.0, FS_CART + 0.5)); cv.setFillColor(CBUSBAR)
+    cv.drawCentredString(TX + TW / 2,
+                         TY_ + rh_t / 2 - (FS_CART + 0.5) * 0.38,
+                         (pi.get("titlu_proiect") or "SCHEMA MONOFILARA")[:60])
+
+    trow("Beneficiar:", (pi.get("beneficiar") or "")[:40], "", 1)
+    trow("Amplasament:", (pi.get("amplasament") or "")[:40], "", 2)
+    trow("Proiectant:", (pi.get("sef_proiect") or "")[:26],
+         f"Nr.: {pi.get('proiect_nr', '')}", 3)
+    trow("Verificat: ____________", f"Faza: {pi.get('faza', 'DTAC')}",
+         f"Pl.: {plansa_nr}", 4)
+    trow("Data:", pi.get("data", "")[:22], "Scara: 1:___", 5)
+    trow("PROIECT", "INSTALATII ELECTRICE", "", 6, b1=True)
+    trow("ZYNAPSE v4", "I7-2011  NP 061-2002", "", 7, b1=True)
+
+    cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.8))
+    cv.line(TX + s(2.5), TY_ + rh_t, TX + TW - s(2.5), TY_ + rh_t)
+
+    # ── 9. Legenda — fixed 80mm × 55mm, double border, right of schema ────────
     LX   = PW - MARGIN - LGD_W
     LY_L = HDR_BOT - s(5) - LGD_H
-    if LY_L > BUS_Y + s(60):   # only draw when there's enough vertical room
+    if LY_L > BUS_Y + s(55):
+        # Double border
         cv.setFillColor(HexColor("#FAFAFA")); cv.setStrokeColor(CGRAY_M)
-        cv.setLineWidth(s(0.5)); cv.rect(LX, LY_L, LGD_W, LGD_H, fill=1, stroke=1)
+        cv.setLineWidth(s(0.6)); cv.rect(LX, LY_L, LGD_W, LGD_H, fill=1, stroke=1)
+        cv.setLineWidth(s(0.3))
+        cv.rect(LX + s(2), LY_L + s(2), LGD_W - s(4), LGD_H - s(4), fill=0, stroke=1)
         cv.setFont("Helvetica-Bold", max(4.5, s(6.5))); cv.setFillColor(CGRAY_D)
-        cv.drawString(LX + s(3), LY_L + LGD_H - s(9), "LEGENDA:")
-        row_h = (LGD_H - s(12)) / 5
-        for j, (sym, txt) in enumerate([
-            ("□/diag",  "Disjunctor TM (MCB)"),
-            ("□+○Δ",    "Prot. diferentiala (RCCB)"),
-            ("⊗",       "Corp iluminat (LL)"),
-            ("●",       "Priza 230V (LP)"),
-            ("↓",       "Receptor dedicat"),
-        ]):
-            yy = LY_L + LGD_H - s(12) - j * row_h
+        cv.drawString(LX + s(5), LY_L + LGD_H - s(9), "LEGENDA")
+        lgd_items = [
+            ("MCB",    CGRAY_D, "Disjunctor TM (MCB-C)"),
+            ("RCCB",   CGRAY_D, "Prot. diferentiala"),
+            ("⊗", CBLUE,   "Corp iluminat (LL)"),
+            ("●", CAMBER,  "Priza 230V (LP)"),
+            ("↓", CGREEN,  "Receptor dedicat"),
+            ("□--", CREZV, "Rezerva circuit"),
+        ]
+        item_h = (LGD_H - s(12)) / max(len(lgd_items), 1)
+        for j, (sym, scol, txt) in enumerate(lgd_items):
+            yy = LY_L + LGD_H - s(12) - j * item_h
             if yy < LY_L + s(4): break
-            cv.setFont("Helvetica-Bold", max(4.0, s(7))); cv.drawString(LX + s(3), yy, sym)
-            cv.setFont("Helvetica",      max(4.0, s(6.5))); cv.drawString(LX + s(28), yy, txt)
+            cv.setFont("Helvetica-Bold", max(3.5, s(7))); cv.setFillColor(scol)
+            cv.drawString(LX + s(5), yy, sym)
+            cv.setFont("Helvetica", max(3.5, s(6))); cv.setFillColor(CGRAY_D)
+            cv.drawString(LX + s(28), yy, txt)
 
-    # ── 10. Nota ──────────────────────────────────────────────────────────────
-    nota_y = SCHEMA_BOT - s(1)
-    nota_h = nota_y - (TABLE_Y + TABLE_H)
-    if nota_h > s(7):
-        cv.setFont("Helvetica", max(3.5, s(5.5))); cv.setFillColor(CGRAY_M)
-        ks = getattr(ps, 'simultaneity_ks', 0.7)
-        cv.drawString(TABLE_X + s(2), nota_y - s(6),
-                      f"Nota 1: NORMATIV I7/2011 Tabel 3.5 — ku = {ks}. "
-                      "Protectiile vor fi verificate si inlocuite daca nivelul de "
-                      "scurt-circuit difera de cel de calcul.")
+    # ── 10. Nota (2 lines) ────────────────────────────────────────────────────
+    nota_top = SCHEMA_BOT - s(1)
+    ks = getattr(ps, 'simultaneity_ks', 0.7)
+    cv.setFont("Helvetica", max(3.5, s(5.5))); cv.setFillColor(CGRAY_M)
+    cv.drawString(TABLE_X + s(2), nota_top - s(6),
+                  f"Nota 1: I7-2011 Tab. 3.5 — ku={ks:.2f}. "
+                  "Protectiile se verifica si se inlocuiesc daca nivelul Isc "
+                  "difera de cel de calcul.")
+    if NOTA_H > s(13):
+        cv.drawString(TABLE_X + s(2), nota_top - s(12),
+                      "Nota 2: Executantul va respecta prevederile I7-2011, "
+                      "SR EN 60364, Legea 10/1995 si legislatia in vigoare la "
+                      "data executiei lucrarii.")
 
     # ── Watermark ─────────────────────────────────────────────────────────────
     cv.setFont("Helvetica", max(3.5, s(5))); cv.setFillColor(CGRAY_M)
-    cv.drawRightString(TITLE_X - s(10), TABLE_Y + s(2),
+    cv.drawRightString(TITLE_X - s(8), TABLE_Y + s(2),
                        "Generat automat · ZYNAPSE v4.0 · I7-2011 · zynapse.ro")
 
 
@@ -2401,6 +2537,16 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
 
     # ── Helper: render one logical panel (with auto A/B overflow split) ──────
     def _render(name, desc, ie_nr, ckts, p_ps, p_rgrps, p_spd, p_cable, p_tri):
+        # Sort & number circuits; rebuild RCCB groups from per-circuit rccb_group field
+        ckts = _sort_and_number_circuits(ckts)
+        _rgrp_map: dict = {}
+        for _c in ckts:
+            _gn = _c.get("rccb_group")
+            if _gn:
+                _rgrp_map.setdefault(_gn, []).append(_c["id"])
+        if _rgrp_map:
+            p_rgrps = [{"circuits": ids, "rating_a": 40, "sensitivity_ma": 30}
+                       for ids in _rgrp_map.values()]
         # Per-panel format: A2+A3 gives TEG→A2, others→A3; explicit overrides auto
         if req_fmt == "A2+A3":
             fmt = "A2" if name == "TEG" else "A3"
