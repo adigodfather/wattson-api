@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,6 +10,7 @@ import base64
 import io
 import time as _time
 import logging
+import json
 from datetime import datetime
 
 logging.basicConfig(
@@ -2789,14 +2790,33 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
 
 
 @app.post("/generate-schema")
-def generate_schema_multi(req: GenerateSchemaMultiRequest):
+async def generate_schema_multi(raw_request: Request, req: GenerateSchemaMultiRequest):
     """Multi-panel schema monofilara. Returns JSON with base64 PDFs per panel."""
     _t0 = _time.time()
 
-    logger.info("=== GENERATE SCHEMA REQUEST ===")
+    # ── Raw body inspection ────────────────────────────────────────────────────
+    try:
+        raw_body = await raw_request.body()
+        raw_json = json.loads(raw_body)
+        logger.info(f"=== RAW REQUEST KEYS: {list(raw_json.keys())}")
+        logger.info(f"=== circuits in raw: {len(raw_json.get('circuits', []))}")
+        logger.info(f"=== user_id in raw: {repr(raw_json.get('user_id'))}")
+        logger.info(f"=== project_info in raw: {bool(raw_json.get('project_info'))}")
+        for k, v in raw_json.items():
+            if isinstance(v, list):
+                logger.info(f"  {k}: list[{len(v)}]")
+            elif isinstance(v, dict):
+                logger.info(f"  {k}: dict{list(v.keys())}")
+            else:
+                logger.info(f"  {k}: {repr(v)[:80]}")
+    except Exception as e:
+        logger.error(f"=== RAW LOG ERROR: {e}")
+
+    # ── Parsed model ───────────────────────────────────────────────────────────
+    logger.info("=== PARSED DATA ===")
     logger.info(f"user_id: {repr(req.user_id)}")
-    logger.info(f"circuits count: {len(req.circuits or [])}")
-    logger.info(f"project_info: {bool(req.project_info)}")
+    logger.info(f"circuits: {len(req.circuits or [])}")
+    logger.info(f"bom: {len(req.bom or [])}")
     logger.info(f"building_type: {repr(req.building_type)}")
 
     try:
