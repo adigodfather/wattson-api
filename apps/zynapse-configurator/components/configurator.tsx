@@ -12,6 +12,7 @@ import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase";
 import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection,
+  SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard,
 } from "@/components/result-sections";
 
 const WEBHOOK_URL = "/api/generate";
@@ -20,7 +21,8 @@ const PROGRESS_STEPS = [
   "Se encodează planșele...",
   "Se trimite la n8n...",
   "Claude Vision analizează planșa...",
-  "Se calculează circuitele...",
+  "Se calculează circuitele electrice...",
+  "Se generează schema monofilară...",
   "Se salvează proiectul...",
 ];
 
@@ -943,6 +945,20 @@ export function ZynapseConfigurator() {
               <MetricCard value={result!.circuits_all?.length || 0} label="Circuite totale" color="#3ECFA0" />
               <MetricCard value={result!.rooms?.length || 0} label="Camere" color="#ED93B1" />
             </div>
+
+            {result!.project_info && <ProjectInfoCard info={result!.project_info} />}
+
+            {result!.annotated_plan_base64 && (
+              <AnnotatedPlanSection src={result!.annotated_plan_base64} />
+            )}
+
+            {result!.schemas?.length ? (
+              <SchemasSection schemas={result!.schemas} />
+            ) : result!.schema_monofilara_pdf ? (
+              <div className="mb-3">
+                <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} />
+              </div>
+            ) : null}
 
             <CircuitTable circuits={result!.circuits_te_ct} title="TE-CT — Cameră tehnică" />
             <CircuitTable circuits={result!.circuits_teg} title="TEG — Tablou general" />

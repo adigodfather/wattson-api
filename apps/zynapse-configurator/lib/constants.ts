@@ -204,4 +204,11 @@ export interface ProjectResult {
   beneficiary?: string;
   address?: string;
   designer?: string;
+  bom?: Array<{
+    category: string;
+    item: string;
+    quantity: number;
+    unit: string;
+    notes?: string;
+  }> | null;
 }
