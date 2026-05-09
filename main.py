@@ -1363,6 +1363,10 @@ def build_memoriu(
 @app.post("/calc-electric")
 def calc_electric(data: ProjectData):
     _t0 = _time.time()
+    logger.info("=== CALC REQUEST START ===")
+    logger.info(f"user_id in request: {repr(data.user_id)}")
+    logger.info(f"building_type in request: {repr(getattr(data.building, 'type', None))}")
+    logger.info(f"building_category in request: {repr(data.building_category)}")
     climate_zone = resolve_climate_zone_from_data(data)
     building_category = data.building_category or detect_building_category(data.building.type)
 
