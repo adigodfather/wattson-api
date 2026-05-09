@@ -189,7 +189,18 @@ export interface ProjectResult {
   ai_notes?: string;
   annotated_plan_base64?: string | null;
   schema_monofilara_pdf?: string | null;
-  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string }> | null;
+  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string; page_format?: string }> | null;
+  // n8n response fields — parallel to FastAPI circuits_all / heating_circuits
+  circuits?: Circuit[];
+  power_summary?: {
+    installed_kw?: number;
+    absorbed_kw?: number;
+    current_a?: number;
+    main_breaker_a?: number;
+    connection?: string;
+    simultaneity_ks?: number;
+  };
+  output_phase?: string;
   project_info?: {
     titlu_proiect?: string;
     beneficiar?: string;

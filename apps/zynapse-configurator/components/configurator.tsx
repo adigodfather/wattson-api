@@ -609,6 +609,19 @@ export function ZynapseConfigurator() {
     }
   };
 
+  const downloadPDF = (base64Data: string, filename: string) => {
+    const base64 = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
+    const byteChars = atob(base64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
   const isLoading = status === "loading";
   const hasResult = !!result;
 
@@ -908,44 +921,47 @@ export function ZynapseConfigurator() {
         {/* ── Results / Empty state ── */}
         {hasResult ? (
           <div className="zy-slide-in">
+
+            {/* Header */}
             <div className="flex justify-between items-center mb-5">
               <div>
-                <h2 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>{result!.project_id}</h2>
+                <h2 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>
+                  {result!.project_info?.titlu_proiect || result!.project_name || result!.project_id}
+                </h2>
                 <p className="text-[12px] mt-0.5 m-0" style={{ color: "#545870" }}>
-                  Proiect finalizat · Zona climatică {result!.climate_zone}
+                  {result!.project_info?.beneficiar || result!.beneficiary || ""}
+                  {(result!.climate_zone) && ` · Zona climatică ${result!.climate_zone}`}
                   {result!.levels_string && ` · ${result!.levels_string}`}
+                  {result!.output_phase && ` · ${result!.output_phase}`}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button onClick={handleDownloadPDF} disabled={pdfLoading}
-                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
-                  style={{
-                    background: pdfLoading ? "rgba(55,138,221,0.05)" : "rgba(55,138,221,0.12)",
-                    border: "1px solid rgba(55,138,221,0.3)",
-                    color: pdfLoading ? "#545870" : "#5BB8F5",
-                    cursor: pdfLoading ? "not-allowed" : "pointer",
-                  }}>
-                  {pdfLoading ? "Se generează..." : "Descarcă PDF"}
-                </button>
-                <button onClick={exportJSON}
-                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
-                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-                  onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
-                  Export JSON
-                </button>
-              </div>
+              <button onClick={exportJSON}
+                className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+                Export JSON
+              </button>
             </div>
 
+            {/* Metric cards — use power_summary (n8n) with fallback to heating_circuits (FastAPI) */}
             <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
-              {result!.heating_circuits?.pdc && (
-                <>
-                  <MetricCard value={`${result!.heating_circuits.pdc.power_kw_thermal} kW`} label="Putere termică PDC" color="#EF9F27" />
-                  <MetricCard value={`${result!.heating_circuits.pdc.breaker_a}A`} label="Protecție PDC" color="#5BB8F5" />
-                </>
+              {result!.power_summary?.installed_kw != null && (
+                <MetricCard value={`${result!.power_summary.installed_kw} kW`} label="Putere instalată" color="#EF9F27" />
               )}
-              <MetricCard value={result!.circuits_all?.length || 0} label="Circuite totale" color="#3ECFA0" />
-              <MetricCard value={result!.rooms?.length || 0} label="Camere" color="#ED93B1" />
+              {result!.power_summary?.absorbed_kw != null && (
+                <MetricCard value={`${result!.power_summary.absorbed_kw} kW`} label="Putere absorbită" color="#5BB8F5" />
+              )}
+              {result!.heating_circuits?.pdc && (
+                <MetricCard value={`${result!.heating_circuits.pdc.power_kw_thermal} kW`} label="Putere termică PDC" color="#EF9F27" />
+              )}
+              <MetricCard
+                value={(result!.circuits?.length || result!.circuits_all?.length || 0)}
+                label="Circuite totale" color="#3ECFA0"
+              />
+              {result!.rooms?.length != null && result!.rooms.length > 0 && (
+                <MetricCard value={result!.rooms.length} label="Camere" color="#ED93B1" />
+              )}
             </div>
 
             {result!.project_info && <ProjectInfoCard info={result!.project_info} />}
@@ -954,18 +970,158 @@ export function ZynapseConfigurator() {
               <AnnotatedPlanSection src={result!.annotated_plan_base64} />
             )}
 
+            {/* Schema downloads — works for both n8n and FastAPI responses */}
             {result!.schemas?.length ? (
-              <SchemasSection schemas={result!.schemas} />
+              <div className="rounded-xl mb-3 overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div className="px-5 py-3.5 flex items-center gap-2.5 text-sm font-semibold border-b"
+                  style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
+                  Scheme monofilare
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
+                    {result!.schemas.length}
+                  </span>
+                </div>
+                <div className="px-5 pb-4 flex flex-col gap-2 mt-3">
+                  {result!.schemas.map((s, i) => (
+                    <button key={i}
+                      onClick={() => downloadPDF(
+                        s.pdf_base64,
+                        `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`
+                      )}
+                      className="w-full py-2.5 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150 flex items-center justify-between gap-2 px-3"
+                      style={{ background: "rgba(21,128,61,0.12)", border: "1px solid rgba(21,128,61,0.28)", color: "#4ADE80" }}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.22)")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.12)")}>
+                      <span>{s.name}{s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}{s.page_format ? ` (${s.page_format})` : ""}</span>
+                      <span style={{ fontSize: 15 }}>⬇</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : result!.schema_monofilara_pdf ? (
               <div className="mb-3">
                 <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} />
               </div>
             ) : null}
 
-            <CircuitTable circuits={result!.circuits_te_ct} title="TE-CT — Cameră tehnică" />
-            <CircuitTable circuits={result!.circuits_teg} title="TEG — Tablou general" />
+            {/* Circuits — use circuits (n8n) with fallback to circuits_te_ct/teg (FastAPI) */}
+            {(() => {
+              const allCircuits = result!.circuits?.length
+                ? result!.circuits
+                : [...(result!.circuits_te_ct || []), ...(result!.circuits_teg || [])];
+              return allCircuits.length > 0 ? (
+                <div className="rounded-xl mb-3 overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <details>
+                    <summary className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold cursor-pointer list-none"
+                      style={{ color: "#C8CAD6" }}>
+                      Circuite electrice
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
+                        {allCircuits.length}
+                      </span>
+                      {result!.power_summary?.installed_kw != null && (
+                        <span className="ml-auto text-[11px]" style={{ color: "#545870" }}>
+                          Pi={result!.power_summary.installed_kw} kW · Pa={result!.power_summary.absorbed_kw} kW
+                        </span>
+                      )}
+                    </summary>
+                    <div className="overflow-x-auto px-5 pb-4 border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                      <table className="w-full border-collapse text-sm mt-3">
+                        <thead>
+                          <tr>
+                            {["Nr.", "Destinație", "Tip", "Protecție", "Cablu"].map(h => (
+                              <th key={h} className="text-left px-2 py-2 text-[10px] font-semibold tracking-widest uppercase"
+                                style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allCircuits.map((c, i) => {
+                            const ctype = String((c as any).type || "");
+                            return (
+                              <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                                <td className="px-2 py-2">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold"
+                                    style={{
+                                      background: ctype === "iluminat" ? "rgba(59,130,246,0.15)"
+                                        : ctype === "prize" ? "rgba(245,158,11,0.15)"
+                                        : "rgba(34,197,94,0.15)",
+                                      color: ctype === "iluminat" ? "#93C5FD"
+                                        : ctype === "prize" ? "#FCD34D"
+                                        : "#86EFAC",
+                                    }}>{c.id}</span>
+                                </td>
+                                <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{c.usage || String((c as any).description || "")}</td>
+                                <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{ctype}</td>
+                                <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{c.breaker_a}A</td>
+                                <td className="px-2 py-2 text-[11px]" style={{ color: "#8B8FA8", fontFamily: "'JetBrains Mono', monospace" }}>
+                                  {c.cable || String((c as any).cable_type || "")}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                </div>
+              ) : null;
+            })()}
+
+            {/* BOM */}
+            {result!.bom?.length ? (
+              <div className="rounded-xl mb-3 overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <details>
+                  <summary className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold cursor-pointer list-none"
+                    style={{ color: "#C8CAD6" }}>
+                    Listă materiale
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
+                      {result!.bom.length}
+                    </span>
+                  </summary>
+                  <div className="overflow-x-auto px-5 pb-4 border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                    <table className="w-full border-collapse text-sm mt-3">
+                      <thead>
+                        <tr>
+                          {["Articol", "Cant.", "UM", "Observații"].map(h => (
+                            <th key={h} className="text-left px-2 py-2 text-[10px] font-semibold tracking-widest uppercase"
+                              style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result!.bom.map((b, i) => (
+                          <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                            <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || (b as any).articol}</td>
+                            <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? (b as any).cant}</td>
+                            <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || (b as any).um}</td>
+                            <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || (b as any).obs || ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </div>
+            ) : null}
+
             <RoomsList rooms={result!.rooms} />
             <MemoriuSection text={result!.memoriu_tehnic} />
+
+            {/* Debug JSON */}
+            <details className="mt-4">
+              <summary className="text-[11px] cursor-pointer select-none"
+                style={{ color: "#3A3D50" }}>Debug: JSON complet</summary>
+              <pre className="mt-2 p-3 rounded-lg text-[10px] overflow-auto max-h-72 m-0"
+                style={{ background: "rgba(0,0,0,0.4)", color: "#545870", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
+                {JSON.stringify(result, null, 2)}
+              </pre>
+            </details>
+
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 440, padding: "0 40px" }}>
