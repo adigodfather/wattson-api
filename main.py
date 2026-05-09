@@ -8,6 +8,67 @@ import math
 import os
 import base64
 import io
+import time as _time
+import logging
+from datetime import datetime
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+try:
+    from supabase_client import (
+        save_project, save_project_file, log_action,
+        get_norme_prize, get_norme_iluminat, get_norme_alimentari,
+        get_reguli_cablu, get_reguli_protectie, get_tip_cladire,
+        get_app_setting,
+    )
+    _SUPABASE_AVAILABLE = True
+except Exception:
+    _SUPABASE_AVAILABLE = False
+
+    def save_project(*a, **kw): return kw.get("project_data", {}).get("project_id", "")
+    def save_project_file(*a, **kw): pass
+    def log_action(*a, **kw): pass
+    def get_norme_prize(): return {}
+    def get_norme_iluminat(): return {}
+    def get_norme_alimentari(): return {}
+    def get_reguli_cablu(): return {}
+    def get_reguli_protectie(): return {}
+    def get_tip_cladire(cod): return {}
+    def get_app_setting(key, default=None): return default
+
+
+def safe_log(user_id, actiune, **kwargs):
+    try:
+        log_action(user_id, actiune, **kwargs)
+    except Exception as e:
+        logger.error("[audit_log] Failed to log %r: %s", actiune, e)
+
+
+BUILDING_TYPE_MAP = {
+    "residential": "locuinta",
+    "apartment":   "bloc",
+    "office":      "birouri",
+    "commercial":  "comercial",
+    "industrial":  "industrial",
+    "cultural":    "cultural",
+    "school":      "scoala",
+    "healthcare":  "sanatate",
+    "sports":      "sport",
+    "restaurant":  "restaurant",
+    # already Romanian
+    "locuinta":    "locuinta",
+    "bloc":        "bloc",
+    "birouri":     "birouri",
+    "comercial":   "comercial",
+    "scoala":      "scoala",
+    "sanatate":    "sanatate",
+    "sport":       "sport",
+}
+
 
 app = FastAPI(
     title="ZYNAPSE Core API",
@@ -22,6 +83,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger.info("=== ZYNAPSE STARTUP ===")
+logger.info(f"SUPABASE_URL set: {bool(os.environ.get('SUPABASE_URL'))}")
+logger.info(f"SUPABASE_SERVICE_KEY set: {bool(os.environ.get('SUPABASE_SERVICE_KEY'))}")
+logger.info(f"ANTHROPIC_API_KEY set: {bool(os.environ.get('ANTHROPIC_API_KEY'))}")
 
 # -------------------------------------------------
 #  CONSTANTE
@@ -175,6 +241,7 @@ class ProjectData(BaseModel):
     has_elevator: bool = False
     has_fire_pump: bool = False
     project_info: Optional[dict] = None
+    user_id: Optional[str] = None
 
 
 # -------------------------------------------------
@@ -1263,6 +1330,7 @@ def build_memoriu(
 
 @app.post("/calc-electric")
 def calc_electric(data: ProjectData):
+    _t0 = _time.time()
     climate_zone = resolve_climate_zone_from_data(data)
     building_category = data.building_category or detect_building_category(data.building.type)
 
@@ -1327,7 +1395,7 @@ def calc_electric(data: ProjectData):
     )
 
     _pi = data.project_info or {}
-    return {
+    response = {
         "project_id": data.project_id,
         "status": "success",
         "project_info": _pi,
@@ -1352,6 +1420,38 @@ def calc_electric(data: ProjectData):
         "circuits_all": circuits_all,
         "memoriu_tehnic": memoriu,
     }
+
+    # Map building_type to Romanian for Supabase
+    _btype_raw = (
+        getattr(data, "building_type", None)
+        or (data.building.type if data.building else None)
+        or (data.project_info or {}).get("tip_cladire")
+        or "cultural"
+    )
+    response["tip_cladire_ro"] = BUILDING_TYPE_MAP.get(
+        (_btype_raw or "").lower(), _btype_raw or "cultural"
+    )
+
+    _durata_ms = int((_time.time() - _t0) * 1000)
+    _supabase_project_id: Optional[str] = None
+    if data.user_id:
+        try:
+            _supabase_project_id = save_project(data.user_id, response)
+            response["supabase_project_id"] = _supabase_project_id
+            response["saved"] = True
+        except Exception as e:
+            logger.error("[save_project] Failed: %s", e)
+            response["saved"] = False
+    else:
+        response["saved"] = False
+    safe_log(
+        user_id=data.user_id,
+        actiune="calc-electric",
+        proiect_id=_supabase_project_id or data.project_id,
+        durata_ms=_durata_ms,
+        succes=True,
+    )
+    return response
 
 
 # -------------------------------------------------
@@ -1841,6 +1941,8 @@ class GenerateSchemaMultiRequest(BaseModel):
     circuits: List[CircuitInputNew] = []
     equipment: Optional[EquipmentInfoNew] = None
     page_format: Optional[str] = None   # "A4"/"A3"/"A2"/"A1"/"A2+A3" or None=auto
+    user_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 def _next_plansa_nr(pinfo: dict) -> int:
@@ -2643,16 +2745,73 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
 @app.post("/generate-schema")
 def generate_schema_multi(req: GenerateSchemaMultiRequest):
     """Multi-panel schema monofilara. Returns JSON with base64 PDFs per panel."""
+    _t0 = _time.time()
     try:
         schemas = _generate_multi_schema(req)
     except Exception as e:
+        safe_log(
+            user_id=req.user_id,
+            actiune="generate-schema",
+            proiect_id=req.project_id,
+            durata_ms=int((_time.time() - _t0) * 1000),
+            succes=False,
+            eroare=str(e),
+        )
         return {"error": str(e), "schemas": []}
+
+    _durata_ms = int((_time.time() - _t0) * 1000)
+
+    if req.project_id and schemas:
+        for s in schemas:
+            try:
+                save_project_file(
+                    project_id=req.project_id,
+                    tip="schema_monofilara",
+                    pdf_base64=s.get("pdf_base64", ""),
+                    plansa_nr=s.get("plansa_nr"),
+                    page_format=s.get("page_format"),
+                )
+            except Exception as e:
+                logger.error("[save_project_file] Failed: %s", e)
+
+    safe_log(
+        user_id=req.user_id,
+        actiune="generate-schema",
+        proiect_id=req.project_id,
+        durata_ms=_durata_ms,
+        succes=True,
+    )
     return {"schemas": schemas}
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "version": "4.0.0"}
+async def health():
+    import os
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+    sb_ok = False
+    sb_err = None
+
+    if not url or not key:
+        sb_err = f"missing: url={bool(url)} key={bool(key)}"
+    else:
+        try:
+            from supabase import create_client
+            c = create_client(url, key)
+            r = c.table("app_settings").select("key").limit(1).execute()
+            sb_ok = True
+        except Exception as e:
+            sb_err = str(e)
+
+    return {
+        "status": "ok",
+        "version": "4.0.0",
+        "supabase": sb_ok,
+        "supabase_error": sb_err,
+        "env_url": bool(url),
+        "env_key": bool(key),
+    }
 
 
 # -------------------------------------------------

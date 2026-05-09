@@ -515,6 +515,8 @@ export function ZynapseConfigurator() {
       const payload: Record<string, unknown> = {
         plan_base64: base64,
         plan_type: files[0].type || "image/jpeg",
+        user_id: user?.id || "",
+        user_email: user?.email || "",
         ...form,
         // Climate — use Vision-detected values from previous run, or defaults
         climate_zone: autoDetected?.climate_zone || "II",
