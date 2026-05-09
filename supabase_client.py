@@ -148,8 +148,12 @@ def save_project(user_id: str, project_data: dict) -> str:
         logger.error("[save_project] Supabase client not initialised")
         return str(uuid.uuid4())
 
-    # Circuits — prefer circuits_all (FastAPI response key), fall back to circuits
-    circuits = project_data.get("circuits_all") or project_data.get("circuits", [])
+    # Try "circuits" first (n8n response key), then "circuits_all" (FastAPI direct)
+    circuits = (
+        project_data.get("circuits")
+        or project_data.get("circuits_all")
+        or []
+    )
     if not isinstance(circuits, list):
         circuits = []
     logger.info(f"circuits count: {len(circuits)}")
