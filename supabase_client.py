@@ -139,49 +139,68 @@ def get_tip_cladire(cod: str) -> dict:
 # ── Project persistence ───────────────────────────────────────────────────────
 
 def save_project(user_id: str, project_data: dict) -> str:
+    logger.info("=== SAVE PROJECT ===")
+    logger.info(f"user_id: {repr(user_id)}")
+    logger.info(f"project_data keys: {list(project_data.keys())}")
+
     sb = _sb()
     if sb is None:
+        logger.error("[save_project] Supabase client not initialised")
         return str(uuid.uuid4())
 
-    # Extract circuits — may be a list at root level
+    # Circuits — prefer circuits_all (FastAPI response key), fall back to circuits
     circuits = project_data.get("circuits_all") or project_data.get("circuits", [])
-    if isinstance(circuits, dict):
-        circuits = list(circuits.values())
+    if not isinstance(circuits, list):
+        circuits = []
+    logger.info(f"circuits count: {len(circuits)}")
 
+    # BOM
     bom = project_data.get("bom", [])
+    if not isinstance(bom, list):
+        bom = []
+
     power_summary = project_data.get("power_summary", {})
     project_info = project_data.get("project_info") or {}
+    logger.info(f"project_info keys: {list(project_info.keys())}")
 
+    # Building type — try multiple field names
     tip_cladire = (
         project_data.get("tip_cladire_ro")
         or project_data.get("building_type")
+        or project_data.get("buildingType")
         or project_info.get("tip_cladire")
         or "cultural"
     )
-    faza = (
+    logger.info(f"tip_cladire resolved: {repr(tip_cladire)}")
+
+    # Faza — strip "+PT" compound values, keep just first part
+    faza_raw = (
         project_data.get("output_phase")
         or project_data.get("phase")
         or project_info.get("faza")
         or "DTAC"
     )
+    faza = faza_raw.split("+")[0] if "+" in str(faza_raw) else faza_raw
+    logger.info(f"faza resolved: {repr(faza)}")
 
-    logger.info("[save_project] user_id: %s", user_id)
-    logger.info("[save_project] circuits count: %d", len(circuits))
-    logger.info("[save_project] tip_cladire: %s", tip_cladire)
-    logger.info("[save_project] faza: %s", faza)
+    payload = {
+        "user_id": user_id,
+        "project_info": project_info,
+        "power_summary": power_summary,
+        "circuits": circuits,
+        "bom": bom,
+        "tip_cladire_ro": tip_cladire,
+        "faza": faza,
+        "status": "completed",
+    }
+
+    logger.info(f"inserting payload with {len(circuits)} circuits")
 
     try:
-        result = sb.table("projects").insert({
-            "user_id": user_id,
-            "project_info": project_info,
-            "power_summary": power_summary,
-            "circuits": circuits,
-            "bom": bom,
-            "tip_cladire_ro": tip_cladire,
-            "faza": faza,
-            "status": "completed",
-        }).execute()
-        return result.data[0]["id"]
+        result = sb.table("projects").insert(payload).execute()
+        project_id = result.data[0]["id"]
+        logger.info(f"saved project_id: {project_id}")
+        return project_id
     except Exception as e:
         logger.error("[save_project] Supabase error: %s", e)
         return project_data.get("project_id", str(uuid.uuid4()))

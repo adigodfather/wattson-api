@@ -1428,9 +1428,16 @@ def calc_electric(data: ProjectData):
         or (data.project_info or {}).get("tip_cladire")
         or "cultural"
     )
-    response["tip_cladire_ro"] = BUILDING_TYPE_MAP.get(
-        (_btype_raw or "").lower(), _btype_raw or "cultural"
-    )
+    _tip_ro = BUILDING_TYPE_MAP.get((_btype_raw or "").lower(), _btype_raw or "cultural")
+    response["tip_cladire_ro"] = _tip_ro
+
+    logger.info("=== CALC REQUEST ===")
+    logger.info(f"user_id received: {repr(data.user_id)}")
+    logger.info(f"building_type raw: {repr(_btype_raw)}")
+    logger.info(f"tip_cladire_ro mapped: {repr(_tip_ro)}")
+    logger.info(f"circuits_all count: {len(response.get('circuits_all', []))}")
+    logger.info(f"circuits_teg count: {len(response.get('circuits_teg', []))}")
+    logger.info(f"response keys: {list(response.keys())}")
 
     _durata_ms = int((_time.time() - _t0) * 1000)
     _supabase_project_id: Optional[str] = None
