@@ -1987,6 +1987,8 @@ class GenerateSchemaMultiRequest(BaseModel):
     page_format: Optional[str] = None   # "A4"/"A3"/"A2"/"A1"/"A2+A3" or None=auto
     user_id: Optional[str] = None
     project_id: Optional[str] = None
+    bom: Optional[list] = None
+    building_type: Optional[str] = None
 
 
 def _next_plansa_nr(pinfo: dict) -> int:
@@ -2790,6 +2792,13 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
 def generate_schema_multi(req: GenerateSchemaMultiRequest):
     """Multi-panel schema monofilara. Returns JSON with base64 PDFs per panel."""
     _t0 = _time.time()
+
+    logger.info("=== GENERATE SCHEMA REQUEST ===")
+    logger.info(f"user_id: {repr(req.user_id)}")
+    logger.info(f"circuits count: {len(req.circuits or [])}")
+    logger.info(f"project_info: {bool(req.project_info)}")
+    logger.info(f"building_type: {repr(req.building_type)}")
+
     try:
         schemas = _generate_multi_schema(req)
     except Exception as e:
@@ -2804,13 +2813,35 @@ def generate_schema_multi(req: GenerateSchemaMultiRequest):
         return {"error": str(e), "schemas": []}
 
     _durata_ms = int((_time.time() - _t0) * 1000)
+    saved_project_id: Optional[str] = req.project_id
 
-    if req.project_id and schemas:
+    if req.user_id:
+        try:
+            # Circuits are Pydantic models — convert to plain dicts for storage
+            circuits_list = [
+                c.model_dump() if hasattr(c, "model_dump") else dict(c)
+                for c in (req.circuits or [])
+            ]
+            project_data = {
+                "circuits":      circuits_list,
+                "circuits_all":  circuits_list,
+                "bom":           req.bom or [],
+                "power_summary": req.power_summary.model_dump() if req.power_summary else {},
+                "project_info":  req.project_info or {},
+                "building_type": req.building_type or "cultural",
+                "output_phase":  (req.project_info or {}).get("faza") or "DTAC",
+            }
+            saved_project_id = save_project(req.user_id, project_data)
+            logger.info(f"project saved: {saved_project_id}")
+        except Exception as e:
+            logger.error("[save_project] Failed: %s", e)
+
+    if saved_project_id and schemas:
         for s in schemas:
             try:
                 save_project_file(
-                    project_id=req.project_id,
-                    tip="schema_monofilara",
+                    project_id=saved_project_id,
+                    tip=f"schema_{s.get('name', 'monofilara').lower().replace(' ', '_')}",
                     pdf_base64=s.get("pdf_base64", ""),
                     plansa_nr=s.get("plansa_nr"),
                     page_format=s.get("page_format"),
@@ -2821,11 +2852,15 @@ def generate_schema_multi(req: GenerateSchemaMultiRequest):
     safe_log(
         user_id=req.user_id,
         actiune="generate-schema",
-        proiect_id=req.project_id,
+        proiect_id=saved_project_id,
         durata_ms=_durata_ms,
         succes=True,
     )
-    return {"schemas": schemas}
+    return {
+        "schemas": schemas,
+        "saved": bool(saved_project_id and req.user_id),
+        "project_id": saved_project_id,
+    }
 
 
 @app.get("/health")
