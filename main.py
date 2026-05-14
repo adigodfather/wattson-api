@@ -595,17 +595,32 @@ def build_circuits_teg(data: ProjectData) -> List[dict]:
     has_kitchen = any(r.function == "kitchen" for r in data.rooms)
     has_bathroom = any(r.function == "bathroom" for r in data.rooms)
 
-    num_light = max(1, math.ceil(total_area / 60.0))
-    for i in range(num_light):
+    # I7-2011: max 0.7 kW/circuit; case → min 2 circuite, apartament mic → 1 e suficient
+    p_il_total_kw = total_area * 10.0 / 1000.0  # 10 W/m² LED standard
+    if p_il_total_kw <= 0.7:
+        num_il = 1
+    else:
+        num_il = max(2, math.ceil(p_il_total_kw / 0.7))
+    p_il_per_kw = round(p_il_total_kw / num_il, 3)
+    il_mcb = 16 if p_il_per_kw > 0.7 else 10
+    _IL_LABELS = [
+        "Iluminat general nivel 1 (parter + camere comune)",
+        "Iluminat general nivel 2 (dormitoare + etaj)",
+        "Iluminat tehnic (subsol, pod, exterior)",
+    ]
+    for i in range(num_il):
+        label = _IL_LABELS[i] if i < len(_IL_LABELS) else f"Iluminat general nivel {i + 1}"
         circuits.append({
-            "id": f"TEG_L{i+1}", "panel": "TEG", "usage": "Iluminat interior",
-            "type": "iluminat", "breaker_a": 10, "cable": "3x1,5 mm² CYYF",
-            "notes": "Circuit iluminat general.",
+            "id": f"C_IL_{i + 1}", "panel": "TEG",
+            "usage": label,
+            "type": "iluminat", "breaker_a": il_mcb, "cable": "NYM 3x1,5 mm²",
+            "power_kw": p_il_per_kw,
+            "notes": f"I7-2011: max 0.7 kW/circuit. {p_il_per_kw} kW, MCB {il_mcb}A, NYM 3x1,5 mm².",
         })
     circuits.append({
-        "id": "TEG_EX1", "panel": "TEG", "usage": "Iluminat exterior",
-        "type": "iluminat", "breaker_a": 10, "cable": "3x1,5 mm² CYYF",
-        "notes": "Aplice LED cu senzor crepuscular la intrari / terase.",
+        "id": "C_IL_EX", "panel": "TEG", "usage": "Iluminat exterior",
+        "type": "iluminat", "breaker_a": 10, "cable": "NYM 3x1,5 mm²",
+        "notes": "Aplice LED cu senzor crepuscular la intrari/terase, MCB 10A.",
     })
     num_sockets = max(1, math.ceil(total_area / 40.0))
     for i in range(num_sockets):
@@ -645,33 +660,46 @@ def build_circuits_teg(data: ProjectData) -> List[dict]:
 
 def calc_public_circuits(data: ProjectData) -> List[dict]:
     circuits = []
-    idx_ilm = idx_prz = idx_frt = idx_ip44 = 1
+    idx_prz = idx_frt = idx_ip44 = 1
     total_power_w = 0.0
-    has_evacuation_zone = False
 
-    for room in data.rooms:
-        func = room.function
-        area = room.area_m2
+    # Grupare camere pe zone functionale (I7-2011 / SR EN 12464-1)
+    zone_sal = [r for r in data.rooms if r.function == "hall"]
+    zone_cir = [r for r in data.rooms if r.function in ["corridor", "circulation"]]
+    zone_bir = [r for r in data.rooms if r.function == "office"]
+    zone_san = [r for r in data.rooms if r.function == "sanitary"]
+    zone_dep = [r for r in data.rooms if r.function in ["storage", "technical/storage"]]
+    zone_buc = [r for r in data.rooms if r.function == "kitchen_pub"]
+    zone_oth = [r for r in data.rooms if r.function not in (
+        "hall", "corridor", "circulation", "office", "sanitary",
+        "storage", "technical/storage", "kitchen_pub",
+    )]
 
-        if func in ["corridor", "circulation"]:
-            has_evacuation_zone = True
-            circuits.append({
-                "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "lux": 150, "notes": f"Coridor/hol {room.name}, 100-150 lux.",
+    def _il_circuits(zone_id, usage, rooms, w_per_m2, lux, note_suffix):
+        """Creeaza circuite de iluminat grupate, max 0.7 kW/circuit."""
+        p_w = sum(r.area_m2 * w_per_m2 for r in rooms)
+        n = max(1, math.ceil(p_w / 700))
+        p_per = round(p_w / n / 1000, 3)
+        mcb = 16 if p_per > 0.7 else 10
+        result = []
+        for i in range(n):
+            sfx = f"_{i + 1}" if n > 1 else ""
+            result.append({
+                "id": f"{zone_id}{sfx}", "panel": "TG",
+                "usage": usage,
+                "type": "iluminat", "breaker_a": mcb, "cable": "CYY-F 3x1,5 mm²",
+                "lux": lux, "power_kw": p_per,
+                "notes": f"{note_suffix} {p_per} kW, MCB {mcb}A. Circuit {i + 1}/{n}.",
             })
-            idx_ilm += 1
-            total_power_w += area * 15
+        return result, p_w
 
-        elif func == "hall":
-            circuits.append({
-                "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat sala {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "lux": 400, "notes": f"Sala/aula {room.name}, 300-500 lux.",
-            })
-            idx_ilm += 1
+    # Zone SAL — sali (15 W/m², 300-500 lux)
+    if zone_sal:
+        il, pw = _il_circuits("C_IL_SAL", "Iluminat sali", zone_sal, 15, 400,
+                               "Sali publice, 300-500 lux.")
+        circuits.extend(il)
+        total_power_w += pw
+        for room in zone_sal:
             circuits.append({
                 "id": f"C_FRT_{idx_frt:02d}", "panel": "TG",
                 "usage": f"Forta scena {room.name}",
@@ -679,56 +707,63 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
                 "notes": f"Circuit forta scena/echipamente {room.name}, MCB 16A.",
             })
             idx_frt += 1
-            total_power_w += area * 40 + 3000
+            total_power_w += room.area_m2 * 40 + 3000
 
-        elif func == "office":
-            circuits.append({
-                "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "lux": 500, "notes": f"Birou/oficiu {room.name}, 500 lux.",
-            })
-            idx_ilm += 1
-            num_prz = max(1, math.ceil(area / 30))
+    # Zone CIR — circulatii si holuri (8 W/m², 100-150 lux)
+    if zone_cir:
+        il, pw = _il_circuits("C_IL_CIR", "Iluminat circulatii si holuri", zone_cir, 8, 150,
+                               "Circulatii/holuri, 100-150 lux.")
+        circuits.extend(il)
+        total_power_w += pw
+
+    # Zone BIR — birouri (12 W/m², 500 lux)
+    if zone_bir:
+        il, pw = _il_circuits("C_IL_BIR", "Iluminat birouri si oficii", zone_bir, 12, 500,
+                               "Birouri/oficii, 500 lux.")
+        circuits.extend(il)
+        total_power_w += pw
+        for room in zone_bir:
+            num_prz = max(1, math.ceil(room.area_m2 / 30))
             for _ in range(num_prz):
                 circuits.append({
                     "id": f"C_PRZ_{idx_prz:02d}", "panel": "TG",
                     "usage": f"Prize {room.name}",
                     "type": "prize", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
-                    "rcd_30ma": True, "notes": f"Prize birou {room.name}, h=0.30m, 1 priza/mp.",
+                    "rcd_30ma": True,
+                    "notes": f"Prize birou {room.name}, h=0.30m, 1 priza/3mp.",
                 })
                 idx_prz += 1
-            total_power_w += area * 80
+            total_power_w += room.area_m2 * 80
 
-        elif func == "sanitary":
+    # Zone SAN — sanitar IP44 (10 W/m²) — 1 circuit iluminat comun + priza per incapere
+    if zone_san:
+        p_san_w = sum(r.area_m2 * 10 for r in zone_san)
+        p_san_kw = round(p_san_w / 1000, 3)
+        circuits.append({
+            "id": "C_IL_SAN", "panel": "TG",
+            "usage": "Iluminat sanitar IP44",
+            "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm² IP44",
+            "lux": 200, "power_kw": p_san_kw, "ip": "IP44",
+            "notes": f"Grupuri sanitare, IP44, 200 lux, RCCB 10mA. {p_san_kw} kW.",
+        })
+        for room in zone_san:
             circuits.append({
                 "id": f"C_IP44_{idx_ip44:02d}", "panel": "TG",
                 "usage": f"Circuit umed {room.name}",
                 "type": "ip44", "breaker_a": 16, "cable": "CYY-F 3x2,5 IP44",
                 "rcd_10ma": True, "ip": "IP44",
-                "notes": f"Grup sanitar {room.name}: CYY-F IP44, RCCB 10mA, priza IP44 la h=1.20m.",
+                "notes": f"Grup sanitar {room.name}: CYY-F IP44, RCCB 10mA, priza IP44 h=1.20m.",
             })
             idx_ip44 += 1
-            total_power_w += 500
+        total_power_w += p_san_w + len(zone_san) * 500
 
-        elif func == "kitchen_pub":
-            circuits.append({
-                "id": f"C_FRT_{idx_frt:02d}", "panel": "TG",
-                "usage": f"Forta bucatarie {room.name}",
-                "type": "forta", "phase": "tri", "breaker_a": 32, "cable": "CYY-F 5x4 mm²",
-                "notes": f"Bucatarie publica {room.name}: trifazat 32A, hota, echipamente.",
-            })
-            idx_frt += 1
-            total_power_w += 15000
-
-        elif func in ["storage", "technical/storage"]:
-            circuits.append({
-                "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "lux": 100, "notes": f"Depozit/magazie {room.name}, 100 lux.",
-            })
-            idx_ilm += 1
+    # Zone DEP — depozite/magazii (8 W/m², 100 lux)
+    if zone_dep:
+        il, pw = _il_circuits("C_IL_DEP", "Iluminat depozite si magazii", zone_dep, 8, 100,
+                               "Depozite/magazii, 100 lux.")
+        circuits.extend(il)
+        total_power_w += pw
+        for room in zone_dep:
             circuits.append({
                 "id": f"C_PRZ_{idx_prz:02d}", "panel": "TG",
                 "usage": f"Priza forta {room.name}",
@@ -736,25 +771,33 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
                 "notes": f"1 priza forta {room.name}.",
             })
             idx_prz += 1
-            total_power_w += area * 10 + 500
+            total_power_w += room.area_m2 * 10 + 500
 
-        else:
-            circuits.append({
-                "id": f"C_ILM_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "notes": f"Iluminat general {room.name}.",
-            })
-            idx_ilm += 1
-            total_power_w += area * 15
-
-    if has_evacuation_zone:
+    # Zone BUC — bucatarie publica
+    for room in zone_buc:
         circuits.append({
-            "id": "C_IL_EV", "panel": "TG",
-            "usage": "Iluminat evacuare",
-            "type": "iluminat_evacuare", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-            "notes": "Iluminat de evacuare cu baterie backup, circuit separat. Obligatoriu P118.",
+            "id": f"C_FRT_{idx_frt:02d}", "panel": "TG",
+            "usage": f"Forta bucatarie {room.name}",
+            "type": "forta", "phase": "tri", "breaker_a": 32, "cable": "CYY-F 5x4 mm²",
+            "notes": f"Bucatarie publica {room.name}: trifazat 32A, hota, echipamente.",
         })
+        idx_frt += 1
+        total_power_w += 15000
+
+    # Zone OTH — alte incaperi (10 W/m²)
+    if zone_oth:
+        il, pw = _il_circuits("C_IL_GEN", "Iluminat general", zone_oth, 10, 300,
+                               "Iluminat general, 300 lux.")
+        circuits.extend(il)
+        total_power_w += pw
+
+    # C_IL_EV — obligatoriu pentru orice cladire publica (P118-99)
+    circuits.append({
+        "id": "C_IL_EV", "panel": "TG",
+        "usage": "Iluminat evacuare",
+        "type": "iluminat_evacuare", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
+        "notes": "Iluminat de evacuare cu baterie backup, circuit dedicat. Obligatoriu P118-99.",
+    })
 
     total_power_kw = total_power_w / 1000.0
     is_three_phase = total_power_kw > 15
@@ -779,23 +822,21 @@ def calc_public_circuits(data: ProjectData) -> List[dict]:
 
 def calc_industrial_circuits(data: ProjectData) -> List[dict]:
     circuits = []
-    idx_ilm = idx_f16 = idx_f32 = idx_mot = 1
+    idx_f16 = idx_f32 = idx_mot = 1
     total_power_kw = 0.0
     ip_zone = data.ip_zone if data.ip_zone not in ("IP20", "") else "IP65"
+
+    # Colectam ariile per zona pentru iluminat grupat
+    hal_prod_rooms = []   # production
+    hal_dep_rooms = []    # warehouse
+    bir_rooms = []        # office + birou industrial
 
     for room in data.rooms:
         func = room.function
         area = room.area_m2
 
         if func == "production":
-            circuits.append({
-                "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat hala {room.name}",
-                "type": "iluminat", "breaker_a": 16, "cable": "CYY-F 3x2,5 mm²",
-                "ip": ip_zone, "lux": 300,
-                "notes": f"Corpuri industriale {ip_zone}, 300 lux. {room.name}.",
-            })
-            idx_ilm += 1
+            hal_prod_rooms.append(room)
             for _ in range(max(1, math.ceil(area / 60))):
                 circuits.append({
                     "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
@@ -814,14 +855,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             total_power_kw += area * 0.3 + area * 0.06
 
         elif func == "warehouse":
-            circuits.append({
-                "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat depozit {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "ip": "IP44", "lux": 150,
-                "notes": f"Iluminat depozit IP44, 150 lux. {room.name}.",
-            })
-            idx_ilm += 1
+            hal_dep_rooms.append(room)
             circuits.append({
                 "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
                 "usage": f"Prize forta {room.name}",
@@ -841,13 +875,7 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             total_power_kw += 7.5
 
         elif func in ["office", "office_ind", "day", "night", "bathroom", "kitchen"]:
-            circuits.append({
-                "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat birou {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "notes": f"Birou industrial {room.name} – standard rezidential.",
-            })
-            idx_ilm += 1
+            bir_rooms.append(room)
             circuits.append({
                 "id": f"C_PRZ_F16_{idx_f16:02d}", "panel": "TG",
                 "usage": f"Prize birou {room.name}",
@@ -861,13 +889,56 @@ def calc_industrial_circuits(data: ProjectData) -> List[dict]:
             pass  # Camera electrica — nu necesita circuite proprii
 
         else:
-            circuits.append({
-                "id": f"C_ILM_HAL_{idx_ilm:02d}", "panel": "TG",
-                "usage": f"Iluminat {room.name}",
-                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-                "notes": f"Iluminat {room.name}.",
+            hal_prod_rooms.append(room)  # incaperi neidentificate → zona hala
+
+    # ── Iluminat HAL productie: corp 150W, max 4 corpuri/circuit = 0.6 kW/circuit
+    # (1 corp/25m², deci max 100m²/circuit)
+    if hal_prod_rooms:
+        total_hal_area = sum(r.area_m2 for r in hal_prod_rooms)
+        n_hal = max(1, math.ceil(total_hal_area / 100.0))
+        p_hal_kw = round(total_hal_area * 150 / 25 / 1000 / n_hal, 3)
+        mcb_hal = 16 if p_hal_kw > 0.6 else 10
+        for i in range(n_hal):
+            circuits.insert(0, {
+                "id": f"C_IL_HAL_{i + 1:02d}", "panel": "TG",
+                "usage": f"Iluminat hala productie",
+                "type": "iluminat", "breaker_a": mcb_hal, "cable": "CYY-F 3x2,5 mm²",
+                "ip": ip_zone, "lux": 300, "power_kw": p_hal_kw,
+                "notes": (
+                    f"Corpuri industriale 150W {ip_zone}, 300 lux, max 4 corpuri/circuit. "
+                    f"{p_hal_kw} kW. Circuit {i + 1}/{n_hal}."
+                ),
             })
-            idx_ilm += 1
+
+    # ── Iluminat DEP depozit: corp 58W LED IP44, max 12 corpuri/circuit ≈ 0.7 kW
+    if hal_dep_rooms:
+        total_dep_area = sum(r.area_m2 for r in hal_dep_rooms)
+        n_dep = max(1, math.ceil(total_dep_area * 6 / 700))  # 6 W/m²
+        p_dep_kw = round(total_dep_area * 6 / 1000 / n_dep, 3)
+        for i in range(n_dep):
+            sfx = f"_{i + 1:02d}" if n_dep > 1 else ""
+            circuits.insert(0, {
+                "id": f"C_IL_DEP{sfx}", "panel": "TG",
+                "usage": "Iluminat depozit",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
+                "ip": "IP44", "lux": 150, "power_kw": p_dep_kw,
+                "notes": f"Depozit IP44, 150 lux. {p_dep_kw} kW. Circuit {i + 1}/{n_dep}.",
+            })
+
+    # ── Iluminat BIR birou industrial: 10 W/m², max 0.7 kW/circuit
+    if bir_rooms:
+        total_bir_area = sum(r.area_m2 for r in bir_rooms)
+        n_bir = max(1, math.ceil(total_bir_area * 10 / 700))
+        p_bir_kw = round(total_bir_area * 10 / 1000 / n_bir, 3)
+        for i in range(n_bir):
+            sfx = f"_{i + 1:02d}" if n_bir > 1 else ""
+            circuits.insert(0, {
+                "id": f"C_IL_BIR{sfx}", "panel": "TG",
+                "usage": "Iluminat birou industrial",
+                "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
+                "lux": 500, "power_kw": p_bir_kw,
+                "notes": f"Birou industrial, 500 lux. {p_bir_kw} kW. Circuit {i + 1}/{n_bir}.",
+            })
 
     # Motoare electrice → tablou motoare (TM)
     motor_circuits = []
@@ -976,13 +1047,25 @@ def calc_bloc_circuits(data: ProjectData) -> List[dict]:
             "notes": f"Tablou etaj {f}: {apts_per_floor} apartamente, MCB {te_mcb}A.",
         })
 
+    # Iluminat comun parter — 1 circuit
     circuits.append({
-        "id": "C_ILM_COM", "panel": "TGB", "usage": "Iluminat comun scari",
+        "id": "C_IL_COM_P", "panel": "TGB", "usage": "Iluminat comun parter",
         "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
-        "notes": "Iluminat scari/holuri comune cu senzor de miscare, MCB 10A.",
+        "notes": "Iluminat hol intrare + scara parter, senzor miscare, MCB 10A.",
     })
+    # Iluminat comun etaje — 1 circuit per 3 etaje
+    n_etaj_circuits = max(1, math.ceil(floors / 3))
+    for g in range(n_etaj_circuits):
+        floor_start = g * 3 + 1
+        floor_end = min(floor_start + 2, floors)
+        circuits.append({
+            "id": f"C_IL_COM_E{g + 1:02d}", "panel": "TGB",
+            "usage": f"Iluminat comun etaje {floor_start}-{floor_end}",
+            "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
+            "notes": f"Iluminat scari/holuri comune etaje {floor_start}-{floor_end}, senzor miscare, MCB 10A.",
+        })
     circuits.append({
-        "id": "C_ILM_SUB", "panel": "TGB", "usage": "Iluminat subsol/parcare",
+        "id": "C_IL_COM_SUB", "panel": "TGB", "usage": "Iluminat subsol/parcare",
         "type": "iluminat", "breaker_a": 10, "cable": "CYY-F 3x1,5 mm²",
         "notes": "Iluminat subsol si parcare, MCB 10A.",
     })
@@ -1014,7 +1097,7 @@ def calc_bloc_circuits(data: ProjectData) -> List[dict]:
         "type": "tablou_apartament", "breaker_a": 25, "cable": "NYY 3x6 mm²",
         "notes": (
             f"Model TA: MCB principal 25A. "
-            f"Circuite interne: iluminat 3x10A, prize 3x16A, bucatarie 2x20A, baie 16A."
+            f"Circuite interne: iluminat 2x10A (C_IL_1+C_IL_2), prize 3x16A, bucatarie 2x20A, baie 16A."
         ),
     })
 
