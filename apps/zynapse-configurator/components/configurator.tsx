@@ -535,6 +535,12 @@ export function ZynapseConfigurator() {
         ...(form.building_category === "industrial" && motors.length > 0 ? { motors } : {}),
       };
 
+      console.log("PAYLOAD TRIMIS:", JSON.stringify({
+        building_category: form.building_category,
+        building_subtype: form.building_subtype,
+        building_type: form.building?.type
+      }, null, 2));
+
       setStepIndex(2);
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
