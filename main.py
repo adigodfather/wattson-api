@@ -1,3 +1,4 @@
+# redeploy v4.1 — lighting fix
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -608,9 +609,8 @@ def calculate_lighting_circuits(rooms, building_category, levels_string=None):
         # Numarul de circuite: max 0.7kW fiecare, minim 1
         num_circuits = max(1, math.ceil(total_power_kw / 0.7))
 
-        # La case si apartamente: MAXIM 2 circuite indiferent de marime
-        if building_category == "rezidential":
-            num_circuits = min(num_circuits, 2)
+        # La ORICE cladire rezidentiala: MAXIM 2 circuite
+        num_circuits = min(num_circuits, 2)
 
         power_per_circuit = round(total_power_kw / num_circuits, 3)
 
@@ -1484,7 +1484,9 @@ def calc_electric(data: ProjectData):
     logger.info(f"building_type in request: {repr(getattr(data.building, 'type', None))}")
     logger.info(f"building_category in request: {repr(data.building_category)}")
     climate_zone = resolve_climate_zone_from_data(data)
-    building_category = data.building_category or detect_building_category(data.building.type)
+    building_category = (data.building_category or "").strip() or detect_building_category(data.building.type)
+    if not building_category:
+        building_category = "rezidential"
 
     pdc_power_kw = calc_pdc_power_kw(data.building, data.heating, climate_zone)
     pdc_phase = data.heating.pdc_phase or "tri"
