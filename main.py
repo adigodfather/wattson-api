@@ -2,7 +2,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from schema_generator import (
+    SchemaRequest as SchemaRequestV2,
+    generate_schema_pdf,
+    build_sample_request,
+)
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
@@ -2067,14 +2072,18 @@ def _build_schema_pdf(req: GenerateSchemaRequest) -> bytes:
 
 
 @app.post("/generate-schema-b64")
-def generate_schema_b64(req: GenerateSchemaRequest):
-    """Returns schema as base64-encoded PDF inside JSON — for n8n integration."""
+def generate_schema_b64(request: SchemaRequestV2):
+    """Varianta base64 pentru n8n / clienti JSON-only. Schema v2 panoramica."""
     try:
-        pdf_bytes = _build_schema_pdf(req)
-    except RuntimeError as e:
-        return {"error": str(e)}
-    encoded = base64.b64encode(pdf_bytes).decode()
-    return {"schema_monofilara_pdf": f"data:application/pdf;base64,{encoded}"}
+        pdf_bytes = generate_schema_pdf(request)
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(pdf_bytes).decode('utf-8'),
+            "filename": f"{request.tablou_nume}_schema_monofilara.pdf",
+            "size_bytes": len(pdf_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # -------------------------------------------------
@@ -2970,34 +2979,47 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
 
 
 @app.post("/generate-schema")
-async def generate_schema_multi(raw_request: Request, req: GenerateSchemaMultiRequest):
-    """Multi-panel schema monofilara. Returns JSON with base64 PDFs per panel."""
-    _t0 = _time.time()
-
-    # ── Raw body inspection ────────────────────────────────────────────────────
+def generate_schema(request: SchemaRequestV2):
+    """
+    Genereaza schema electrica monofilara in format panoramic v2.
+    Inaltime fixa 297mm, latime variabila (420/594/841mm).
+    Multi-page pentru >18 circuite.
+    """
     try:
-        raw_body = await raw_request.body()
-        raw_json = json.loads(raw_body)
-        logger.info(f"=== RAW REQUEST KEYS: {list(raw_json.keys())}")
-        logger.info(f"=== circuits in raw: {len(raw_json.get('circuits', []))}")
-        logger.info(f"=== user_id in raw: {repr(raw_json.get('user_id'))}")
-        logger.info(f"=== project_info in raw: {bool(raw_json.get('project_info'))}")
-        for k, v in raw_json.items():
-            if isinstance(v, list):
-                logger.info(f"  {k}: list[{len(v)}]")
-            elif isinstance(v, dict):
-                logger.info(f"  {k}: dict{list(v.keys())}")
-            else:
-                logger.info(f"  {k}: {repr(v)[:80]}")
+        pdf_bytes = generate_schema_pdf(request)
+        filename = f"{request.tablou_nume}_schema_monofilara.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'}
+        )
     except Exception as e:
-        logger.error(f"=== RAW LOG ERROR: {e}")
+        return {"success": False, "error": str(e)}
 
-    # ── Parsed model ───────────────────────────────────────────────────────────
-    logger.info("=== PARSED DATA ===")
-    logger.info(f"user_id: {repr(req.user_id)}")
-    logger.info(f"circuits: {len(req.circuits or [])}")
-    logger.info(f"bom: {len(req.bom or [])}")
-    logger.info(f"building_type: {repr(req.building_type)}")
+
+@app.get("/generate-schema/test")
+def generate_schema_test():
+    """
+    Endpoint de testare cu date hardcoded (31 circuite, 2 pagini A1).
+    Deschide direct in browser: https://wattson-api.onrender.com/generate-schema/test
+    """
+    try:
+        sample = build_sample_request()
+        pdf_bytes = generate_schema_pdf(sample)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'inline; filename="test_schema.pdf"'}
+        )
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# kept for internal reference — no longer exposed as endpoint
+def _generate_schema_multi_legacy(req: GenerateSchemaMultiRequest):
+    """Legacy multi-panel generator. Not exposed. Use /generate-schema (v2) instead."""
+    _t0 = _time.time()
+    logger.info(f"legacy multi-schema: user_id={repr(req.user_id)}, circuits={len(req.circuits or [])}")
 
     try:
         schemas = _generate_multi_schema(req)
