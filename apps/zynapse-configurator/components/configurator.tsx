@@ -449,6 +449,7 @@ export function ZynapseConfigurator() {
 
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('circuits');
 
   const update = (key: keyof FormData, val: string | boolean | number) =>
     setForm(prev => ({ ...prev, [key]: val }));
@@ -537,8 +538,7 @@ export function ZynapseConfigurator() {
 
       console.log("PAYLOAD TRIMIS:", JSON.stringify({
         building_category: form.building_category,
-        building_subtype: form.building_subtype,
-        building_type: form.building?.type
+        building_type: form.building_type,
       }, null, 2));
 
       setStepIndex(2);
@@ -550,6 +550,7 @@ export function ZynapseConfigurator() {
 
       setStepIndex(3);
       const data: ProjectResult = await res.json();
+      console.log("WEBHOOK RESPONSE:", data);
       if ((data as any).status === "error") throw new Error((data as any).error || "Eroare necunoscută");
 
       // Extract auto-detected values
@@ -970,163 +971,234 @@ export function ZynapseConfigurator() {
               )}
             </div>
 
-            {result!.project_info && <ProjectInfoCard info={result!.project_info} />}
+            {/* ── Tab bar ── */}
+            <div className="flex gap-1 mb-4 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              {[
+                { id: 'circuits', label: 'Circuite' },
+                { id: 'bom',      label: 'Materiale' },
+                { id: 'schemas',  label: 'Scheme' },
+                { id: 'plan',     label: 'Planșă' },
+                { id: 'memoriu',  label: 'Memoriu' },
+              ].map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                  className="flex-1 py-2 px-3 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer transition-all duration-150"
+                  style={{
+                    background: activeTab === tab.id ? "rgba(55,138,221,0.18)" : "transparent",
+                    border: activeTab === tab.id ? "1px solid rgba(55,138,221,0.35)" : "1px solid transparent",
+                    color: activeTab === tab.id ? "#5BB8F5" : "#545870",
+                  }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-            {result!.annotated_plan_base64 && (
-              <AnnotatedPlanSection src={result!.annotated_plan_base64} />
+            {/* ── Tab: Circuite ── */}
+            {activeTab === 'circuits' && (
+              <div>
+                {result!.project_info && <ProjectInfoCard info={result!.project_info} />}
+
+                {(() => {
+                  const allCircuits = result!.circuits?.length
+                    ? result!.circuits
+                    : [...(result!.circuits_te_ct || []), ...(result!.circuits_teg || [])];
+                  return allCircuits.length > 0 ? (
+                    <div className="rounded-xl mb-3 overflow-hidden"
+                      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold border-b"
+                        style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
+                        Circuite electrice
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                          style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
+                          {allCircuits.length}
+                        </span>
+                        {result!.power_summary?.installed_kw != null && (
+                          <span className="ml-auto text-[11px]" style={{ color: "#545870" }}>
+                            Pi={result!.power_summary.installed_kw} kW · Pa={result!.power_summary.absorbed_kw} kW
+                          </span>
+                        )}
+                      </div>
+                      <div className="overflow-x-auto px-5 pb-4">
+                        <table className="w-full border-collapse text-sm mt-3">
+                          <thead>
+                            <tr>
+                              {["Nr.", "Destinație", "Tip", "Protecție", "Cablu"].map(h => (
+                                <th key={h} className="text-left px-2 py-2 text-[10px] font-semibold tracking-widest uppercase"
+                                  style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allCircuits.map((c, i) => {
+                              const ctype = String((c as any).type || "");
+                              return (
+                                <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                                  <td className="px-2 py-2">
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold"
+                                      style={{
+                                        background: ctype === "iluminat" ? "rgba(59,130,246,0.15)"
+                                          : ctype === "prize" ? "rgba(245,158,11,0.15)"
+                                          : "rgba(34,197,94,0.15)",
+                                        color: ctype === "iluminat" ? "#93C5FD"
+                                          : ctype === "prize" ? "#FCD34D"
+                                          : "#86EFAC",
+                                      }}>{c.id}</span>
+                                  </td>
+                                  <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{c.usage || String((c as any).description || "")}</td>
+                                  <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{ctype}</td>
+                                  <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{c.breaker_a}A</td>
+                                  <td className="px-2 py-2 text-[11px]" style={{ color: "#8B8FA8", fontFamily: "'JetBrains Mono', monospace" }}>
+                                    {c.cable || String((c as any).cable_type || "")}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Niciun circuit în răspuns.</p>
+                  );
+                })()}
+
+                <RoomsList rooms={result!.rooms} />
+              </div>
             )}
 
-            {/* Schema downloads — works for both n8n and FastAPI responses */}
-            {result!.schemas?.length ? (
-              <div className="rounded-xl mb-3 overflow-hidden"
-                style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div className="px-5 py-3.5 flex items-center gap-2.5 text-sm font-semibold border-b"
-                  style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
-                  Scheme monofilare
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
-                    {result!.schemas.length}
-                  </span>
-                </div>
-                <div className="px-5 pb-4 flex flex-col gap-2 mt-3">
-                  {result!.schemas.map((s, i) => (
-                    <button key={i}
-                      onClick={() => downloadPDF(
-                        s.pdf_base64,
-                        `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`
-                      )}
-                      className="w-full py-2.5 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150 flex items-center justify-between gap-2 px-3"
-                      style={{ background: "rgba(21,128,61,0.12)", border: "1px solid rgba(21,128,61,0.28)", color: "#4ADE80" }}
-                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.22)")}
-                      onMouseOut={(e) => (e.currentTarget.style.background = "rgba(21,128,61,0.12)")}>
-                      <span>{s.name}{s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}{s.page_format ? ` (${s.page_format})` : ""}</span>
-                      <span style={{ fontSize: 15 }}>⬇</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : result!.schema_monofilara_pdf ? (
-              <div className="mb-3">
-                <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} />
-              </div>
-            ) : null}
-
-            {/* Circuits — use circuits (n8n) with fallback to circuits_te_ct/teg (FastAPI) */}
-            {(() => {
-              const allCircuits = result!.circuits?.length
-                ? result!.circuits
-                : [...(result!.circuits_te_ct || []), ...(result!.circuits_teg || [])];
-              return allCircuits.length > 0 ? (
-                <div className="rounded-xl mb-3 overflow-hidden"
-                  style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                  <details>
-                    <summary className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold cursor-pointer list-none"
-                      style={{ color: "#C8CAD6" }}>
-                      Circuite electrice
+            {/* ── Tab: Materiale (BOM) ── */}
+            {activeTab === 'bom' && (
+              <div>
+                {result!.bom?.length ? (
+                  <div className="rounded-xl mb-3 overflow-hidden"
+                    style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold border-b"
+                      style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
+                      Listă materiale
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
                         style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
-                        {allCircuits.length}
+                        {result!.bom.length}
                       </span>
-                      {result!.power_summary?.installed_kw != null && (
-                        <span className="ml-auto text-[11px]" style={{ color: "#545870" }}>
-                          Pi={result!.power_summary.installed_kw} kW · Pa={result!.power_summary.absorbed_kw} kW
-                        </span>
-                      )}
-                    </summary>
-                    <div className="overflow-x-auto px-5 pb-4 border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                    </div>
+                    <div className="overflow-x-auto px-5 pb-4">
                       <table className="w-full border-collapse text-sm mt-3">
                         <thead>
                           <tr>
-                            {["Nr.", "Destinație", "Tip", "Protecție", "Cablu"].map(h => (
+                            {["Categorie", "Articol", "Cant.", "UM", "Observații"].map(h => (
                               <th key={h} className="text-left px-2 py-2 text-[10px] font-semibold tracking-widest uppercase"
                                 style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {allCircuits.map((c, i) => {
-                            const ctype = String((c as any).type || "");
-                            return (
-                              <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
-                                <td className="px-2 py-2">
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold"
-                                    style={{
-                                      background: ctype === "iluminat" ? "rgba(59,130,246,0.15)"
-                                        : ctype === "prize" ? "rgba(245,158,11,0.15)"
-                                        : "rgba(34,197,94,0.15)",
-                                      color: ctype === "iluminat" ? "#93C5FD"
-                                        : ctype === "prize" ? "#FCD34D"
-                                        : "#86EFAC",
-                                    }}>{c.id}</span>
-                                </td>
-                                <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{c.usage || String((c as any).description || "")}</td>
-                                <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{ctype}</td>
-                                <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{c.breaker_a}A</td>
-                                <td className="px-2 py-2 text-[11px]" style={{ color: "#8B8FA8", fontFamily: "'JetBrains Mono', monospace" }}>
-                                  {c.cable || String((c as any).cable_type || "")}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {result!.bom.map((b, i) => (
+                            <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.category || ""}</td>
+                              <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || (b as any).articol}</td>
+                              <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? (b as any).cant}</td>
+                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || (b as any).um}</td>
+                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || (b as any).obs || ""}</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
-                  </details>
-                </div>
-              ) : null;
-            })()}
-
-            {/* BOM */}
-            {result!.bom?.length ? (
-              <div className="rounded-xl mb-3 overflow-hidden"
-                style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <details>
-                  <summary className="px-5 py-3.5 flex items-center gap-2 text-sm font-semibold cursor-pointer list-none"
-                    style={{ color: "#C8CAD6" }}>
-                    Listă materiale
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                      style={{ background: "rgba(255,255,255,0.07)", color: "#8B8FA8" }}>
-                      {result!.bom.length}
-                    </span>
-                  </summary>
-                  <div className="overflow-x-auto px-5 pb-4 border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-                    <table className="w-full border-collapse text-sm mt-3">
-                      <thead>
-                        <tr>
-                          {["Articol", "Cant.", "UM", "Observații"].map(h => (
-                            <th key={h} className="text-left px-2 py-2 text-[10px] font-semibold tracking-widest uppercase"
-                              style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result!.bom.map((b, i) => (
-                          <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
-                            <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || (b as any).articol}</td>
-                            <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? (b as any).cant}</td>
-                            <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || (b as any).um}</td>
-                            <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || (b as any).obs || ""}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </div>
+                ) : (
+                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nicio listă de materiale în răspuns.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Tab: Scheme monofilare ── */}
+            {activeTab === 'schemas' && (
+              <div>
+                {result!.schemas?.length ? (
+                  <div className="flex flex-col gap-4">
+                    {result!.schemas.map((s, i) => (
+                      <div key={i} className="rounded-xl overflow-hidden"
+                        style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div className="px-5 py-3 flex items-center justify-between border-b"
+                          style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                          <span className="text-sm font-semibold" style={{ color: "#C8CAD6" }}>
+                            {s.name}{s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}{s.page_format ? ` (${s.page_format})` : ""}
+                          </span>
+                          <button
+                            onClick={() => downloadPDF(
+                              s.pdf_base64,
+                              `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`
+                            )}
+                            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer"
+                            style={{ background: "rgba(21,128,61,0.12)", border: "1px solid rgba(21,128,61,0.28)", color: "#4ADE80" }}>
+                            ⬇ Descarcă PDF
+                          </button>
+                        </div>
+                        <iframe
+                          src={`data:application/pdf;base64,${s.pdf_base64}`}
+                          className="w-full"
+                          style={{ height: 600, border: "none" }}
+                          title={s.name}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : result!.schema_monofilara_pdf ? (
+                  <div className="rounded-xl overflow-hidden"
+                    style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="px-5 py-3 border-b flex justify-end" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                      <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} />
+                    </div>
+                    <iframe
+                      src={`data:application/pdf;base64,${result!.schema_monofilara_pdf}`}
+                      className="w-full"
+                      style={{ height: 600, border: "none" }}
+                      title="Schema monofilară"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nicio schemă monofilară în răspuns.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Tab: Planșă adnotată ── */}
+            {activeTab === 'plan' && (
+              <div>
+                {(result!.annotated_plan_base64 || result!.plan_annotated_base64) ? (
+                  <div className="rounded-xl overflow-hidden"
+                    style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="px-5 py-3 text-sm font-semibold border-b"
+                      style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
+                      Planșă adnotată
+                    </div>
+                    <div className="p-4">
+                      <img
+                        src={`data:image/png;base64,${result!.annotated_plan_base64 || result!.plan_annotated_base64}`}
+                        alt="Planșă adnotată"
+                        className="w-full rounded-lg"
+                        style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nicio planșă adnotată în răspuns.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Tab: Memoriu tehnic ── */}
+            {activeTab === 'memoriu' && (
+              <div>
+                <MemoriuSection text={result!.memoriu_tehnic} />
+                <details className="mt-4">
+                  <summary className="text-[11px] cursor-pointer select-none"
+                    style={{ color: "#3A3D50" }}>Debug: JSON complet</summary>
+                  <pre className="mt-2 p-3 rounded-lg text-[10px] overflow-auto max-h-72 m-0"
+                    style={{ background: "rgba(0,0,0,0.4)", color: "#545870", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
+                    {JSON.stringify(result, null, 2)}
+                  </pre>
                 </details>
               </div>
-            ) : null}
-
-            <RoomsList rooms={result!.rooms} />
-            <MemoriuSection text={result!.memoriu_tehnic} />
-
-            {/* Debug JSON */}
-            <details className="mt-4">
-              <summary className="text-[11px] cursor-pointer select-none"
-                style={{ color: "#3A3D50" }}>Debug: JSON complet</summary>
-              <pre className="mt-2 p-3 rounded-lg text-[10px] overflow-auto max-h-72 m-0"
-                style={{ background: "rgba(0,0,0,0.4)", color: "#545870", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
-                {JSON.stringify(result, null, 2)}
-              </pre>
-            </details>
+            )}
 
           </div>
         ) : (
