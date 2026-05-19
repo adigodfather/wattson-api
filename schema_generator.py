@@ -51,6 +51,18 @@ def _register_fonts():
 
 FONT, FONT_BOLD = _register_fonts()
 
+# =============================================================================
+# CULORI (pentru linii faza — schema ramane lizibila si in B&W)
+# =============================================================================
+COLOR_PHASE_R       = HexColor('#c0392b')
+COLOR_PHASE_S       = HexColor('#2c3e50')
+COLOR_PHASE_T       = HexColor('#1a1a1a')
+COLOR_NEUTRAL       = HexColor('#2980b9')
+COLOR_PE            = HexColor('#27ae60')
+COLOR_GREY          = HexColor('#888888')
+COLOR_LIGHT_GREY    = HexColor('#dddddd')
+COLOR_BUS_HIGHLIGHT = HexColor('#1a1a1a')
+
 
 # =============================================================================
 # CONSTANTE LAYOUT
@@ -240,6 +252,87 @@ def draw_rect(c, x_mm, y_top_mm, w, h, stroke_width=0.4,
         c.rect(x_mm * mm, rl_y, w * mm, h * mm, stroke=1, fill=0)
 
 
+# =============================================================================
+# SIMBOLURI ELECTRICE
+# =============================================================================
+
+def draw_mcb_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=18, line1="", line2=""):
+    """Box MCB cu text intern pe 2 linii."""
+    x = cx_mm - w_mm / 2
+    draw_rect(c, x, y_top_mm, w_mm, h_mm, stroke_width=0.5)
+    # Diagonal break line (simbol contactor)
+    draw_line(c, cx_mm - 1.5, y_top_mm + 3, cx_mm + 1.5, y_top_mm + 6,
+              width=0.6)
+    # Pivot dot
+    c.setFillColor(black)
+    c.circle(cx_mm * mm, to_y(y_top_mm + 3), 0.4 * mm, stroke=0, fill=1)
+    if line1:
+        draw_text(c, cx_mm, y_top_mm + h_mm - 7, line1,
+                  font=FONT_BOLD, size=7, anchor="center")
+    if line2:
+        draw_text(c, cx_mm, y_top_mm + h_mm - 2, line2,
+                  size=7, anchor="center")
+
+
+def draw_rccb_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=12, label="30mA"):
+    """Box RCCB compact (sub MCB), cand circuitul are RCCB individual."""
+    x = cx_mm - w_mm / 2
+    draw_rect(c, x, y_top_mm, w_mm, h_mm, stroke_width=0.5)
+    p = c.beginPath()
+    side = 1.8
+    p.moveTo((cx_mm - side) * mm, to_y(y_top_mm + 6))
+    p.lineTo((cx_mm + side) * mm, to_y(y_top_mm + 6))
+    p.lineTo(cx_mm * mm, to_y(y_top_mm + 3))
+    p.close()
+    c.setStrokeColor(black)
+    c.setLineWidth(0.5)
+    c.drawPath(p, stroke=1, fill=0)
+    draw_text(c, cx_mm, y_top_mm + h_mm - 2, label,
+              size=6, anchor="center")
+
+
+def draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=3):
+    """corps de iluminat (cerc cu x)."""
+    c.setStrokeColor(black)
+    c.setLineWidth(0.6)
+    c.circle(cx_mm * mm, to_y(cy_top_mm), r_mm * mm, stroke=1, fill=0)
+    d = r_mm * 0.7
+    c.line((cx_mm - d) * mm, to_y(cy_top_mm - d),
+           (cx_mm + d) * mm, to_y(cy_top_mm + d))
+    c.line((cx_mm - d) * mm, to_y(cy_top_mm + d),
+           (cx_mm + d) * mm, to_y(cy_top_mm - d))
+
+
+def draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2.5):
+    """Priza 230V (disc plin)."""
+    c.setFillColor(black)
+    c.circle(cx_mm * mm, to_y(cy_top_mm), r_mm * mm, stroke=0, fill=1)
+
+
+def draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=3):
+    """Receptor dedicat (triunghi cu linie jos)."""
+    c.setStrokeColor(black)
+    c.setLineWidth(0.6)
+    p = c.beginPath()
+    p.moveTo((cx_mm - size_mm) * mm, to_y(cy_top_mm - size_mm / 2))
+    p.lineTo((cx_mm + size_mm) * mm, to_y(cy_top_mm - size_mm / 2))
+    p.lineTo(cx_mm * mm, to_y(cy_top_mm + size_mm * 1.3))
+    p.close()
+    c.drawPath(p, stroke=1, fill=0)
+    draw_line(c, cx_mm, cy_top_mm - size_mm * 1.5,
+              cx_mm, cy_top_mm - size_mm / 2 - 0.5, width=0.7)
+
+
+def draw_load_symbol(c, cx_mm, cy_top_mm, tip_consumator: str):
+    tip = (tip_consumator or "").lower()
+    if tip == "iluminat":
+        draw_lamp_symbol(c, cx_mm, cy_top_mm)
+    elif tip == "priza":
+        draw_socket_symbol(c, cx_mm, cy_top_mm)
+    else:
+        draw_dedicated_symbol(c, cx_mm, cy_top_mm)
+
+
 def wrap_text(text: str, max_chars: int = 12, max_lines: int = 2) -> List[str]:
     if not text:
         return [""]
@@ -261,6 +354,65 @@ def wrap_text(text: str, max_chars: int = 12, max_lines: int = 2) -> List[str]:
                 lines[-1] = lines[-1] + "…"
             break
     return lines
+
+
+# =============================================================================
+# HELPERS — formatare continut text
+# =============================================================================
+
+def format_protection_short(protectie: str) -> tuple:
+    """Imparte protectia in 2 linii scurte pentru afisare in box MCB.
+
+    Exemple:
+      'MCB 1P+N 10A C 30mA' -> ('MCB 1P+N 10A', 'C 30mA')
+      'MCB 3P+N 40A C 10kA' -> ('MCB 3P+N 40A', 'C 10kA')
+      'MCB 1P+N 16A C'      -> ('MCB 1P+N 16A', 'C')
+    """
+    parts = (protectie or "").split()
+    if len(parts) <= 1:
+        return protectie or "", ""
+    amp_idx = -1
+    for i, p in enumerate(parts):
+        if p.endswith('A') and any(ch.isdigit() for ch in p):
+            amp_idx = i
+            break
+    if 0 < amp_idx < len(parts) - 1:
+        return " ".join(parts[:amp_idx + 1]), " ".join(parts[amp_idx + 1:])
+    mid = len(parts) // 2
+    return " ".join(parts[:mid]), " ".join(parts[mid:])
+
+
+def format_quantity(circuit) -> str:
+    """Eticheta cantitate sub simbolul de consumator."""
+    qty = max(1, circuit.cantitate or 1)
+    tip = (circuit.tip_consumator or "").lower()
+    if tip == "iluminat":
+        return f"{qty} LL"
+    if tip == "priza":
+        return f"{qty} LP"
+    return "1 receptor" if qty == 1 else f"{qty} receptori"
+
+
+def is_trifazat(racord: str) -> bool:
+    return "tri" in (racord or "").lower()
+
+
+def get_phase_label(circuit, idx: int) -> str:
+    """Eticheta faza deasupra coloanei: '1(R)', '12(S)' etc."""
+    nr_clean = (circuit.nr or f"C{idx}").lstrip("C")
+    fasa = (circuit.fasa or "R").upper()
+    return f"{nr_clean}({fasa})"
+
+
+def phase_color(fasa: str):
+    f = (fasa or "R").upper()
+    if "R" in f:
+        return COLOR_PHASE_R
+    if "S" in f:
+        return COLOR_PHASE_S
+    if "T" in f:
+        return COLOR_PHASE_T
+    return COLOR_BUS_HIGHLIGHT
 
 
 # =============================================================================
@@ -313,6 +465,258 @@ def draw_header(c, width_mm: float, request: SchemaRequest,
 # SCHEMA AREA (stub — populat în Pasul 3b)
 # =============================================================================
 
+# =============================================================================
+# MAIN BREAKER (zona stanga)
+# =============================================================================
+
+MAIN_BREAKER_WIDTH_MM = 60
+SCHEMA_X_PADDING = 6
+BUS_Y_TOP = 38
+BUS_LINE_SPACING = 3
+MCB_Y_TOP = 60
+MCB_HEIGHT = 18
+RCCB_Y_TOP = 80
+RCCB_HEIGHT = 12
+CABLE_TEXT_Y_TOP = 95
+LOAD_SYMBOL_Y = 128
+QUANTITY_Y = 138
+DESTINATION_Y = 146
+
+
+def draw_main_breaker(c, x_left_mm, width_mm, request):
+    """Deseneaza blocul main breaker C0 pe stanga schemei."""
+    cx = x_left_mm + width_mm / 2
+    mb = request.main_breaker
+    trifaz = is_trifazat(request.racord)
+
+    draw_text(c, cx, 32, mb.cablu_alim or "", size=8, anchor="center")
+    draw_text(c, cx, 35.5, mb.sursa or "", size=7, anchor="center",
+              color=COLOR_GREY)
+
+    conductors = [('R', COLOR_PHASE_R)] + (
+        [('S', COLOR_PHASE_S), ('T', COLOR_PHASE_T)] if trifaz else []
+    ) + [('N', COLOR_NEUTRAL)]
+
+    spacing = 3
+    total = (len(conductors) - 1) * spacing
+    start_x = cx - total / 2
+    for i, (phase, color) in enumerate(conductors):
+        lx = start_x + i * spacing
+        draw_line(c, lx, 39, lx, 58, width=1.2, color=color)
+
+    mb_w = 40
+    mb_h = 16
+    mb_y = 58
+    draw_rect(c, cx - mb_w / 2, mb_y, mb_w, mb_h, stroke_width=0.7)
+    draw_text(c, cx, mb_y + 6, mb.cod or "C0",
+              font=FONT_BOLD, size=11, anchor="center")
+    draw_text(c, cx, mb_y + 12, mb.tip or "",
+              size=7, anchor="center")
+
+    if mb.has_spd:
+        spd_y = mb_y + mb_h + 2
+        draw_rect(c, cx - mb_w / 2, spd_y, mb_w, 10, stroke_width=0.5)
+        draw_text(c, cx, spd_y + 6, f"SPD {mb.spd_type or 'Tip 2'}",
+                  size=8, anchor="center")
+        below = spd_y + 10
+    else:
+        below = mb_y + mb_h
+
+    draw_line(c, cx, below + 1, cx, 100, width=1)
+
+    draw_text(c, cx, 110, f"Pi = {request.pi_total_kw:.2f} kW",
+              size=7, anchor="center")
+    draw_text(c, cx, 114, f"Pa = {request.pa_total_kw:.2f} kW",
+              size=7, anchor="center")
+    draw_text(c, cx, 118, f"Ia = {request.ia_total_a:.2f} A",
+              size=7, anchor="center", font=FONT_BOLD)
+    draw_text(c, cx, 124, f"ku = {request.ku:.2f}",
+              size=7, anchor="center", color=COLOR_GREY)
+
+
+# =============================================================================
+# BUS BARS (zona centrala sus)
+# =============================================================================
+
+def draw_bus_bars(c, x_start, x_end, racord: str):
+    """Bare orizontale de distributie (R/S/T/N sau L/N)."""
+    trifaz = is_trifazat(racord)
+    if trifaz:
+        bars = [('R', COLOR_PHASE_R), ('S', COLOR_PHASE_S),
+                ('T', COLOR_PHASE_T), ('N', COLOR_NEUTRAL)]
+    else:
+        bars = [('L', COLOR_PHASE_R), ('N', COLOR_NEUTRAL)]
+
+    for i, (label, color) in enumerate(bars):
+        y = BUS_Y_TOP + i * BUS_LINE_SPACING
+        draw_line(c, x_start, y, x_end, y, width=0.8, color=color)
+        draw_text(c, x_start - 1.5, y + 1, label,
+                  size=7, anchor="right", color=color)
+
+
+# =============================================================================
+# RCCB GROUP BRACKETS
+# =============================================================================
+
+def draw_rccb_brackets(c, page_circuits, columns_x, rccb_groups):
+    """Deseneaza brackets orizontale deasupra grupelor de circuite
+    care impart un RCCB comun."""
+    if not rccb_groups or not page_circuits:
+        return
+
+    bus_bottom = BUS_Y_TOP + 3 * BUS_LINE_SPACING + 2
+    groups_to_indices = {}
+    for i, circuit in enumerate(page_circuits):
+        gid = circuit.rccb_group
+        if gid:
+            groups_to_indices.setdefault(gid, []).append(i)
+
+    groups_by_id = {g.id: g for g in rccb_groups}
+
+    bracket_y = bus_bottom + 1.5
+    bracket_drop = 2
+
+    for gid, indices in groups_to_indices.items():
+        x1 = columns_x[indices[0]] - 4
+        x2 = columns_x[indices[-1]] + 4
+        draw_line(c, x1, bracket_y, x1, bracket_y + bracket_drop, width=0.5)
+        draw_line(c, x1, bracket_y, x2, bracket_y, width=0.5)
+        draw_line(c, x2, bracket_y, x2, bracket_y + bracket_drop, width=0.5)
+        rccb = groups_by_id.get(gid)
+        if rccb:
+            label = rccb.tip
+            if rccb.description:
+                label += f" — {rccb.description}"
+            draw_text(c, (x1 + x2) / 2, bracket_y - 1, label,
+                      size=7, anchor="center")
+
+
+# =============================================================================
+# RESERVE INDICATOR (zona dreapta)
+# =============================================================================
+
+def draw_reserve_indicator(c, x_start, x_end, y_top, y_bottom):
+    """Box punctat cu 'REZERVA 30%' pe partea dreapta a schemei."""
+    w = x_end - x_start
+    h = y_bottom - y_top
+    if w < 15:
+        return
+    draw_rect(c, x_start, y_top, w, h, stroke_width=0.4, stroke=COLOR_GREY)
+    cx = x_start + w / 2
+    draw_text(c, cx, y_top + 8,  "REZERVA",   font=FONT_BOLD, size=8, anchor="center")
+    draw_text(c, cx, y_top + 13, "30%",        font=FONT_BOLD, size=9, anchor="center")
+    draw_text(c, cx, y_top + 22, "3 plecari",  size=7, anchor="center", color=COLOR_GREY)
+    draw_text(c, cx, y_top + 27, "libere",     size=7, anchor="center", color=COLOR_GREY)
+    draw_text(c, cx, y_top + 40, "extindere",  size=7, anchor="center", color=COLOR_GREY)
+    draw_text(c, cx, y_top + 45, "viitoare",   size=7, anchor="center", color=COLOR_GREY)
+
+
+# =============================================================================
+# COLOANA CIRCUIT INDIVIDUAL
+# =============================================================================
+
+def draw_circuit_column(c, cx_mm: float, col_width_mm: float, circuit, idx: int):
+    """Deseneaza o coloana completa pentru un circuit."""
+    draw_line(c, cx_mm, 44, cx_mm, MCB_Y_TOP, width=0.5)
+
+    fasa_color = phase_color(circuit.fasa)
+    draw_text(c, cx_mm, 36, get_phase_label(circuit, idx),
+              font=FONT_BOLD, size=7.5, anchor="center", color=fasa_color)
+
+    line1, line2 = format_protection_short(circuit.protectie)
+    mcb_w = min(col_width_mm - 4, 24)
+    draw_mcb_box(c, cx_mm, MCB_Y_TOP, w_mm=mcb_w, h_mm=MCB_HEIGHT,
+                 line1=line1, line2=line2)
+
+    bottom_mcb = MCB_Y_TOP + MCB_HEIGHT
+
+    if circuit.has_rccb_individual:
+        rccb_y = bottom_mcb + 2
+        draw_line(c, cx_mm, bottom_mcb, cx_mm, rccb_y, width=0.5)
+        draw_rccb_box(c, cx_mm, rccb_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT,
+                      label="30mA")
+        cable_start = rccb_y + RCCB_HEIGHT
+    else:
+        cable_start = bottom_mcb
+
+    draw_line(c, cx_mm, cable_start, cx_mm, CABLE_TEXT_Y_TOP - 2, width=0.5)
+
+    draw_text(c, cx_mm, CABLE_TEXT_Y_TOP,     circuit.cablu or "", size=7, anchor="center")
+    draw_text(c, cx_mm, CABLE_TEXT_Y_TOP + 4, circuit.tub   or "", size=7, anchor="center",
+              color=COLOR_GREY)
+
+    draw_line(c, cx_mm, CABLE_TEXT_Y_TOP + 8, cx_mm, LOAD_SYMBOL_Y - 4, width=0.5)
+
+    draw_load_symbol(c, cx_mm, LOAD_SYMBOL_Y, circuit.tip_consumator)
+
+    draw_text(c, cx_mm, QUANTITY_Y, format_quantity(circuit),
+              font=FONT_BOLD, size=8, anchor="center")
+
+    max_chars = max(8, int(col_width_mm / 1.5))
+    dest_lines = wrap_text(circuit.destinatie or "", max_chars=max_chars, max_lines=2)
+    cy = DESTINATION_Y
+    for line in dest_lines:
+        draw_text(c, cx_mm, cy, line, size=7, anchor="center")
+        cy += 4
+
+
+# =============================================================================
+# SCHEMA FULL (v3b) + helper
+# =============================================================================
+
+def request_page_count(request) -> int:
+    """Nr. de pagini necesare pentru request-ul curent."""
+    n = len(request.circuits)
+    layout = pick_layout(n, request.format_preference)
+    return layout["n_pages"]
+
+
+def draw_schema_full(c, width_mm: float, request,
+                     page_circuits, page_num: int):
+    """Versiunea completa: main breaker + bus + brackets + coloane + rezerva."""
+    if not page_circuits:
+        draw_text(c, width_mm / 2, 95, "Nicio plecare pe aceasta pagina",
+                  size=9, anchor="center", color=COLOR_GREY)
+        return
+
+    mb_x = SCHEMA_X_PADDING
+    mb_w = MAIN_BREAKER_WIDTH_MM
+    draw_main_breaker(c, mb_x, mb_w, request)
+
+    reserve_w = 30
+    circuits_x_start = mb_x + mb_w + 4
+    circuits_x_end   = width_mm - SCHEMA_X_PADDING - reserve_w - 2
+
+    n = len(page_circuits)
+    available = circuits_x_end - circuits_x_start
+    col_width = available / n
+    columns_x = [circuits_x_start + col_width * (i + 0.5) for i in range(n)]
+
+    bus_start = mb_x + mb_w / 2 + 2
+    bus_end   = circuits_x_end
+    draw_bus_bars(c, bus_start, bus_end, request.racord)
+
+    draw_rccb_brackets(c, page_circuits, columns_x, request.rccb_groups)
+
+    for i, x in enumerate(columns_x):
+        fasa = (page_circuits[i].fasa or "R").upper()
+        bus_y_target = BUS_Y_TOP
+        if "S" in fasa and "R" not in fasa:
+            bus_y_target = BUS_Y_TOP + BUS_LINE_SPACING
+        elif "T" in fasa and "R" not in fasa and "S" not in fasa:
+            bus_y_target = BUS_Y_TOP + 2 * BUS_LINE_SPACING
+        c.setFillColor(black)
+        c.circle(x * mm, to_y(bus_y_target), 0.5 * mm, stroke=0, fill=1)
+
+    for i, circuit in enumerate(page_circuits):
+        draw_circuit_column(c, columns_x[i], col_width, circuit, i + 1)
+
+    if page_num == request_page_count(request):
+        draw_reserve_indicator(c, circuits_x_end + 2,
+                               width_mm - SCHEMA_X_PADDING,
+                               BUS_Y_TOP, DESTINATION_Y + 8)
+
+
 def draw_schema_stub(c, width_mm: float, circuits: List[Circuit]):
     """Stub gri pentru zona schemei. Înlocuit în Pasul 3b."""
     y_start = 30
@@ -327,6 +731,55 @@ def draw_schema_stub(c, width_mm: float, circuits: List[Circuit]):
               size=8, anchor="center", color=HexColor('#999999'))
 
 
+def draw_table_full(c, width_mm: float, page_circuits):
+    """Tabel date cu 5 coloane: Nr | Pi(kW) | Ia(A) | Cablu | Tub."""
+    y_start = 162
+    h = TABLE_HEIGHT_MM
+    x_start = SCHEMA_X_PADDING
+    w = width_mm - 2 * SCHEMA_X_PADDING
+
+    draw_rect(c, x_start, y_start, w, h, stroke_width=0.6)
+
+    header_h = 5
+    draw_rect(c, x_start, y_start, w, header_h,
+              stroke_width=0.3, fill=HexColor('#f5f5f5'))
+
+    col_pct = [0.08, 0.10, 0.10, 0.36, 0.36]
+    col_w = [w * p for p in col_pct]
+    col_x = [x_start]
+    for cw in col_w[:-1]:
+        col_x.append(col_x[-1] + cw)
+
+    headers = ['Nr.', 'Pi (kW)', 'Ia (A)', 'Cablu / conductor', 'Tub protectie']
+    for x, cw, lbl in zip(col_x, col_w, headers):
+        draw_text(c, x + cw / 2, y_start + 3.5, lbl,
+                  font=FONT_BOLD, size=8, anchor="center")
+
+    for x in col_x[1:]:
+        draw_line(c, x, y_start, x, y_start + h, width=0.3)
+
+    n = len(page_circuits)
+    if n == 0:
+        return
+    max_rows = min(n, 18)
+    row_h = (h - header_h) / max_rows
+
+    for i, circuit in enumerate(page_circuits[:max_rows]):
+        ry = y_start + header_h + i * row_h
+        if i > 0:
+            draw_line(c, x_start, ry, x_start + w, ry,
+                      width=0.15, color=COLOR_LIGHT_GREY)
+        cy = ry + row_h - 2
+        draw_text(c, col_x[0] + col_w[0] / 2, cy, circuit.nr or "—",
+                  size=7, anchor="center", font=FONT_BOLD)
+        draw_text(c, col_x[1] + col_w[1] / 2, cy, f"{circuit.pi_kw:.2f}",
+                  size=7, anchor="center")
+        draw_text(c, col_x[2] + col_w[2] / 2, cy, f"{circuit.ia_a:.2f}",
+                  size=7, anchor="center")
+        draw_text(c, col_x[3] + 2, cy, circuit.cablu or "—", size=7)
+        draw_text(c, col_x[4] + 2, cy, circuit.tub   or "—", size=7)
+
+
 def draw_table_stub(c, width_mm: float, circuits: List[Circuit]):
     y_start = 162
     h = TABLE_HEIGHT_MM
@@ -335,6 +788,50 @@ def draw_table_stub(c, width_mm: float, circuits: List[Circuit]):
     draw_text(c, width_mm / 2, y_start + h / 2,
               f"[ Tabel date — Nr / Pi / Ia / Cablu / Tub — {len(circuits)} rânduri ]",
               size=9, anchor="center", color=HexColor('#888888'))
+
+
+def draw_legend_notes_full(c, width_mm: float):
+    y_start = 214
+    h = LEGEND_NOTES_HEIGHT_MM
+
+    # ---- LEGENDA (stanga, ~32% latime) ----
+    leg_w = width_mm * 0.32
+    leg_x = SCHEMA_X_PADDING
+    draw_rect(c, leg_x, y_start, leg_w, h, stroke_width=0.5)
+    draw_text(c, leg_x + leg_w / 2, y_start + 4, "LEGENDA",
+              font=FONT_BOLD, size=9, anchor="center")
+    draw_line(c, leg_x, y_start + 6, leg_x + leg_w, y_start + 6, width=0.2)
+
+    ly = y_start + 10
+    draw_mcb_box(c, leg_x + 7, ly - 1, w_mm=10, h_mm=6, line1="", line2="")
+    draw_text(c, leg_x + 16, ly + 1.5, "MCB — disjunctor termo-magnetic", size=7)
+    ly += 5
+    draw_rccb_box(c, leg_x + 7, ly - 1, w_mm=10, h_mm=6, label="")
+    draw_text(c, leg_x + 16, ly + 1.5, "RCCB — protectie diferentiala", size=7)
+    ly += 5
+    draw_lamp_symbol(c, leg_x + 7, ly, r_mm=2.2)
+    draw_text(c, leg_x + 16, ly + 1, "LL — corp de iluminat 230V", size=7)
+    ly += 5
+    draw_socket_symbol(c, leg_x + 7, ly, r_mm=1.8)
+    draw_text(c, leg_x + 16, ly + 1, "LP — priza 230V", size=7)
+
+    # ---- NOTE (dreapta, restul) ----
+    notes_x = leg_x + leg_w + 4
+    notes_w = width_mm - SCHEMA_X_PADDING - notes_x
+    draw_rect(c, notes_x, y_start, notes_w, h, stroke_width=0.5)
+    draw_text(c, notes_x + notes_w / 2, y_start + 4, "NOTE",
+              font=FONT_BOLD, size=9, anchor="center")
+    draw_line(c, notes_x, y_start + 6, notes_x + notes_w, y_start + 6, width=0.2)
+    ny = y_start + 10
+    notes = [
+        "Nota 1: I7-2011 Tab. 3.5 — coeficient de utilizare ku conform tip cladire.",
+        "Nota 2: Executantul va respecta I7-2011, SR EN 60364, Legea 10/1995.",
+        "Nota 3: Protectiile se reverifica daca Isc difera de cel de calcul.",
+        "Nota 4: Toate prizele din bai se conecteaza la RCCB tip A 10mA.",
+    ]
+    for note in notes:
+        draw_text(c, notes_x + 3, ny, note, size=7)
+        ny += 4
 
 
 def draw_legend_notes_stub(c, width_mm: float):
@@ -518,9 +1015,9 @@ def generate_schema_pdf(request: SchemaRequest) -> bytes:
         c.setPageSize(page_size)
         draw_page_frame(c, layout["width_mm"])
         draw_header(c, layout["width_mm"], request, idx, layout["n_pages"])
-        draw_schema_stub(c, layout["width_mm"], page_circuits)        # 3b
-        draw_table_stub(c, layout["width_mm"], page_circuits)         # 3b
-        draw_legend_notes_stub(c, layout["width_mm"])                  # 3b
+        draw_schema_full(c, layout["width_mm"], request, page_circuits, idx)
+        draw_table_full(c, layout["width_mm"], page_circuits)
+        draw_legend_notes_full(c, layout["width_mm"])
         draw_cartouche(c, layout["width_mm"], request)
         c.showPage()
 
