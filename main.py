@@ -2229,10 +2229,11 @@ def _sort_and_number_circuits(circuits: List[dict]) -> List[dict]:
 # ── Page format registry ─────────────────────────────────────────────────────
 # max_circuits: how many branches fit on one page of this format
 _PAGE_FMT_INFO: dict = {
-    "A4": {"max_circuits": 10},
-    "A3": {"max_circuits": 18},
-    "A2": {"max_circuits": 30},
-    "A1": {"max_circuits": 50},
+    "A4": {"max_circuits": 8},
+    "A3": {"max_circuits": 14},
+    "A2": {"max_circuits": 22},
+    "A1": {"max_circuits": 35},
+    "A0": {"max_circuits": 55},
 }
 
 
@@ -2247,8 +2248,8 @@ def _auto_page_format(n: int) -> str:
 
 def _page_size_pt(fmt: str) -> tuple:
     """Return (width_pt, height_pt) for landscape orientation."""
-    from reportlab.lib.pagesizes import A4, A3, A2, A1
-    _m = {"A4": A4, "A3": A3, "A2": A2, "A1": A1}
+    from reportlab.lib.pagesizes import A4, A3, A2, A1, A0
+    _m = {"A4": A4, "A3": A3, "A2": A2, "A1": A1, "A0": A0}
     p = _m.get(fmt.upper(), A3)
     return p[1], p[0]   # landscape: larger dim is width
 
@@ -2332,16 +2333,17 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     BUS_X_E    = PW - MARGIN
     BRK_X      = s(65)
     SPACING    = (BUS_X_E - BUS_X_S) / max(N, 1)
+    SPACING    = max(SPACING, s(35))
 
     # Scaled font sizes
     FS_PANEL = max(7.0, 13.0 * sc)
     FS_HDR   = max(5.0,  8.0 * sc)
     FS_SUBT  = max(4.5,  7.0 * sc)
     FS_CONN  = max(4.0,  7.0 * sc)
-    FS_LBL   = max(4.0,  5.5 * sc)
-    FS_SM    = max(3.5,  5.0 * sc)
-    FS_CART  = max(4.5,  6.5 * sc)
-    FS_TBL   = max(5.0,  7.0 * sc)
+    FS_LBL   = max(5.5,  7.5 * sc)
+    FS_SM    = max(4.5,  6.5 * sc)
+    FS_CART  = max(6.0,  8.0 * sc)
+    FS_TBL   = max(7.0,  9.0 * sc)
 
     # ── Colors ──────────────────────────────────────────────────────────────
     CGRAY_L = HexColor("#E5E7EB"); CGRAY_M = HexColor("#9CA3AF")
@@ -2432,15 +2434,45 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
             cv.drawPath(pth, fill=1, stroke=0)
 
     def tbl_cell(x, y, w, h, txt, fs=7, align='l', bold=False, col=None):
+        """Cell with text wrapping on up to 3 lines to avoid overlap."""
         fs = max(3.5, fs)
         cv.setFont("Helvetica-Bold" if bold else "Helvetica", fs)
         cv.setFillColor(col or CGRAY_D)
-        ty = y + h / 2 - fs * 0.35
         pad = s(2.5)
+        avail_w = w - pad * 2
         t = str(txt)
-        if align == 'c':   cv.drawCentredString(x + w / 2, ty, t)
-        elif align == 'r': cv.drawRightString(x + w - pad, ty, t)
-        else:              cv.drawString(x + pad, ty, t)
+        char_w = fs * 0.55
+        max_chars = max(1, int(avail_w / char_w))
+
+        lines = []
+        words = t.split()
+        current = ""
+        for word in words:
+            candidate = (current + " " + word).strip() if current else word
+            if len(candidate) <= max_chars:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = word[:max_chars]
+                if len(lines) >= 2:
+                    break
+        if current and len(lines) < 3:
+            lines.append(current)
+        if not lines:
+            lines = [t[:max_chars]]
+
+        line_h = fs * 1.15
+        total_h = line_h * len(lines)
+        start_y = y + (h - total_h) / 2 + line_h * 0.75
+        for i, line in enumerate(lines):
+            ly = start_y + (len(lines) - 1 - i) * line_h
+            if align == 'c':
+                cv.drawCentredString(x + w / 2, ly, line)
+            elif align == 'r':
+                cv.drawRightString(x + w - pad, ly, line)
+            else:
+                cv.drawString(x + pad, ly, line)
 
     # ── Page ─────────────────────────────────────────────────────────────────
     cv.setFillColor(white); cv.rect(0, 0, PW, PH, fill=1, stroke=0)
@@ -2594,12 +2626,12 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     _HDRS = ["Nr.", "Destinatie", "Pi kW", "Ia A", "Protectie", "Cablu", "Pozare"]
     _CWS  = [p_ / 100 * TABLE_W for p_ in _PCT]
 
-    HDR_ROW_H = s(13)
+    HDR_ROW_H = s(18)
     # Reserve space for C0 row + all circuit rows
     DATA_ROWS = len(circuits) + 1   # +1 for C0
     avail = TABLE_H - HDR_ROW_H - s(1)
-    RH = min(s(11.5), avail / max(DATA_ROWS, 1))
-    RH = max(RH, s(5))
+    RH = min(s(22), avail / max(DATA_ROWS, 1))
+    RH = max(RH, s(10))
 
     # Table outer border
     cv.setStrokeColor(CGRAY_D); cv.setLineWidth(s(0.8))
@@ -2657,12 +2689,12 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
             if is_b_r: prot_r += " RCD30"
         _draw_row([
             (ckt.get("id", f"C{i+1}"), 'c'),
-            ((ckt.get("description", "") or "")[:36], 'l'),
+            (ckt.get("description", "") or "", 'l'),
             (f"{pw_kw:.2f}" if not is_rez_r else "—", 'c'),
             (f"{ia_r:.2f}"  if not is_rez_r else "—", 'c'),
-            (prot_r[:24], 'l'),
-            ((ckt.get("cable_type", "") or "")[:22], 'l'),
-            ((ckt.get("pozare", "") or "")[:18], 'l'),
+            (prot_r, 'l'),
+            (ckt.get("cable_type", "") or "", 'l'),
+            (ckt.get("pozare", "") or "", 'l'),
         ], ry, RH, bg)
         # Color-coded ID cell
         cv.setFillColor(_ckt_color(ct_r, is_b_r) if not is_rez_r else CREZV)
@@ -2843,6 +2875,10 @@ def _generate_multi_schema(req: GenerateSchemaMultiRequest) -> list:
         # Per-panel format: A2+A3 gives TEG→A2, others→A3; explicit overrides auto
         if req_fmt == "A2+A3":
             fmt = "A2" if name == "TEG" else "A3"
+        elif req_fmt == "A1+A3":
+            fmt = "A1" if name == "TEG" else "A3"
+        elif req_fmt == "A0+A3":
+            fmt = "A0" if name == "TEG" else "A3"
         elif req_fmt in _PAGE_FMT_INFO:
             fmt = req_fmt
         else:

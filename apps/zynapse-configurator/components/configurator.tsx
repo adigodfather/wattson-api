@@ -450,6 +450,7 @@ export function ZynapseConfigurator() {
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
+  const [pageFormat, setPageFormat] = useState<string>('');
 
   const update = (key: keyof FormData, val: string | boolean | number) =>
     setForm(prev => ({ ...prev, [key]: val }));
@@ -545,7 +546,7 @@ export function ZynapseConfigurator() {
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, ...(pageFormat ? { page_format: pageFormat } : {}) }),
       });
 
       setStepIndex(3);
@@ -883,6 +884,28 @@ export function ZynapseConfigurator() {
             placeholder="Garaj încălzit, anexe, specificații speciale..." rows={3}
             className="w-full px-3.5 py-2.5 rounded-lg text-sm font-[inherit] outline-none"
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9", resize: "vertical" }} />
+
+          {/* Format planșe schemă */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 6, color: 'rgba(255,255,255,0.7)' }}>
+              Format planșe schemă
+            </label>
+            <select
+              value={pageFormat}
+              onChange={(e) => setPageFormat(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-lg text-sm font-[inherit] outline-none"
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: '#E2E4E9',
+              }}>
+              <option value="">Auto (recomandat)</option>
+              <option value="A3">A3 standard</option>
+              <option value="A2+A3">A2 (TEG) + A3 (restul)</option>
+              <option value="A1+A3">A1 (TEG mare) + A3</option>
+              <option value="A0+A3">A0 (TEG XL) + A3</option>
+            </select>
+          </div>
 
           {/* 10. Submit */}
           <button onClick={handleSubmit} disabled={!canSubmit || isLoading}
