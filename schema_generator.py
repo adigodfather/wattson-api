@@ -68,7 +68,17 @@ COLOR_BUS_HIGHLIGHT = HexColor('#1a1a1a')
 # CONSTANTE LAYOUT
 # =============================================================================
 
-PAGE_HEIGHT_MM = 297  # fix — A3 short edge
+# Page height — updated at runtime based on chosen format
+_page_height_mm: int = 297
+
+
+def set_page_height(h_mm: int):
+    global _page_height_mm
+    _page_height_mm = h_mm
+
+
+def get_page_height() -> int:
+    return _page_height_mm
 
 MARGIN_MM = 6
 HEADER_HEIGHT_MM = 22       # y: 6 → 28
@@ -159,26 +169,34 @@ class SchemaRequest(BaseModel):
 # =============================================================================
 
 def pick_layout(n_circuits: int, preference: str = "auto") -> Dict:
+    """Single-page layout. Pick width based on circuit count; enable rotated
+    text for dense configurations so all circuits fit on one sheet."""
     if preference == "A3":
-        width, cap = 420, 7
+        width = 420
+        rotated = n_circuits > 7
     elif preference == "A2":
-        width, cap = 594, 12
+        width = 594
+        rotated = n_circuits > 12
     elif preference == "A1":
-        width, cap = 841, 18
-    else:
+        width = 841
+        rotated = n_circuits > 22
+    else:  # auto
         if n_circuits <= 7:
-            width, cap = 420, 7
-        elif n_circuits <= 12:
-            width, cap = 594, 12
+            width, rotated = 420, False
+        elif n_circuits <= 18:
+            width, rotated = 420, True
+        elif n_circuits <= 30:
+            width, rotated = 594, True
         else:
-            width, cap = 841, 18
+            width, rotated = 841, True
 
-    n_pages = max(1, (n_circuits + cap - 1) // cap)
+    # Always a single page — never split
+    cap = max(1, n_circuits)
     return {
         "width_mm": width,
-        "height_mm": PAGE_HEIGHT_MM,
         "circuits_per_page": cap,
-        "n_pages": n_pages,
+        "n_pages": 1,
+        "rotated_text": rotated,
     }
 
 
@@ -186,12 +204,37 @@ def split_circuits(circuits: List[Circuit], cap: int) -> List[List[Circuit]]:
     return [circuits[i:i + cap] for i in range(0, len(circuits), cap)]
 
 
+def get_zones() -> Dict:
+    """Return y_start / y_end (mm, from top) for every page zone.
+    Heights are fixed fractions of the page — cartouche & legend anchor
+    to the bottom, schema expands to fill remaining space.
+    """
+    h = _page_height_mm
+    cartouche_h = 49
+    legend_h    = 28
+    table_h     = 50
+    bottom_gap  = 4
+
+    cart_y   = h - bottom_gap - cartouche_h
+    legend_y = cart_y - 2 - legend_h
+    table_y  = legend_y - 2 - table_h
+    schema_y = 30
+
+    return {
+        "header":    {"y_start": 6,        "y_end": 28},
+        "schema":    {"y_start": schema_y, "y_end": table_y - 2},
+        "table":     {"y_start": table_y,  "y_end": legend_y - 2},
+        "legend":    {"y_start": legend_y, "y_end": cart_y - 2},
+        "cartouche": {"y_start": cart_y,   "y_end": h - bottom_gap},
+    }
+
+
 # =============================================================================
 # COORDINATE HELPERS (top-down mm → ReportLab bottom-up points)
 # =============================================================================
 
 def to_y(y_top_mm: float) -> float:
-    return (PAGE_HEIGHT_MM - y_top_mm) * mm
+    return (_page_height_mm - y_top_mm) * mm
 
 
 # =============================================================================
@@ -228,6 +271,19 @@ def draw_text(c, x_mm, y_top_mm, text, font=FONT, size=8,
         c.drawRightString(x_mm * mm, to_y(y_top_mm), text_str)
     else:
         c.drawString(x_mm * mm, to_y(y_top_mm), text_str)
+
+
+def draw_text_rotated(c, x_mm, y_top_mm, text, font=FONT, size=7,
+                      color=black, angle=90):
+    """Draw text rotated `angle` degrees around (x_mm, y_top_mm).
+    Default 90° = bottom-to-top, suitable for narrow circuit columns."""
+    c.saveState()
+    c.translate(x_mm * mm, to_y(y_top_mm))
+    c.rotate(angle)
+    c.setFont(font, size)
+    c.setFillColor(color)
+    c.drawString(0, 0, str(text) if text is not None else "")
+    c.restoreState()
 
 
 def draw_line(c, x1, y1, x2, y2, width=0.4, color=black, dash=None):
@@ -420,24 +476,21 @@ def phase_color(fasa: str):
 # =============================================================================
 
 def draw_page_frame(c, width_mm: float):
-    draw_rect(c, 3, 3, width_mm - 6, PAGE_HEIGHT_MM - 6, stroke_width=0.8)
-    draw_rect(c, 5, 5, width_mm - 10, PAGE_HEIGHT_MM - 10, stroke_width=0.3)
+    h = get_page_height()
+    draw_rect(c, 3, 3, width_mm - 6, h - 6, stroke_width=0.8)
+    draw_rect(c, 5, 5, width_mm - 10, h - 10, stroke_width=0.3)
 
 
 # =============================================================================
 # HEADER
 # =============================================================================
 
-def draw_header(c, width_mm: float, request: SchemaRequest,
-                page_num: int, n_pages: int):
+def draw_header(c, width_mm: float, request: SchemaRequest):
     y_base = 10
     # LEFT
-    draw_text(c, 10, y_base, f"Pi = {request.pi_total_kw:.2f} kW",
-              size=9, font=FONT)
-    draw_text(c, 10, y_base + 5, f"Pa = {request.pa_total_kw:.2f} kW",
-              size=9, font=FONT)
-    draw_text(c, 10, y_base + 10, f"Ia = {request.ia_total_a:.2f} A",
-              size=9, font=FONT)
+    draw_text(c, 10, y_base,      f"Pi = {request.pi_total_kw:.2f} kW", size=9, font=FONT)
+    draw_text(c, 10, y_base + 5,  f"Pa = {request.pa_total_kw:.2f} kW", size=9, font=FONT)
+    draw_text(c, 10, y_base + 10, f"Ia = {request.ia_total_a:.2f} A",   size=9, font=FONT)
     # CENTER
     cx = width_mm / 2
     draw_text(c, cx, y_base + 1,
@@ -449,14 +502,13 @@ def draw_header(c, width_mm: float, request: SchemaRequest,
     if request.cartus_proiect.amplasament:
         draw_text(c, cx, y_base + 14, request.cartus_proiect.amplasament,
                   size=8, anchor="center")
-    # RIGHT
+    # RIGHT — show plansa_nr instead of "Pagina X din Y"
     rx = width_mm - 10
-    draw_text(c, rx, y_base, request.racord, size=9, anchor="right")
-    draw_text(c, rx, y_base + 5, f"ku = {request.ku:.2f} · I7-2011",
-              size=9, anchor="right")
-    if n_pages > 1:
-        draw_text(c, rx, y_base + 10, f"Pagina {page_num} din {n_pages}",
-                  size=9, anchor="right")
+    draw_text(c, rx, y_base,     request.racord, size=9, anchor="right")
+    draw_text(c, rx, y_base + 5, f"ku = {request.ku:.2f} · I7-2011", size=9, anchor="right")
+    plansa = request.cartus_proiect.plansa_nr
+    if plansa:
+        draw_text(c, rx, y_base + 10, f"Planșa: {plansa}", size=9, anchor="right")
     # Underline
     draw_line(c, 6, 28, width_mm - 6, 28, width=0.3)
 
@@ -477,10 +529,35 @@ MCB_Y_TOP = 60
 MCB_HEIGHT = 18
 RCCB_Y_TOP = 80
 RCCB_HEIGHT = 12
-CABLE_TEXT_Y_TOP = 95
-LOAD_SYMBOL_Y = 128
-QUANTITY_Y = 138
-DESTINATION_Y = 146
+
+
+def get_circuit_y_coords(rotated: bool, schema_zone: Dict) -> Dict:
+    """Return Y positions (mm from top) for elements in a circuit column.
+    When rotated=True the destination text is drawn vertically so we need
+    more vertical runway — extend cable/load/dest positions downward."""
+    s = schema_zone["y_start"]
+    e = schema_zone["y_end"]
+    if rotated:
+        cable_y  = s + 55
+        load_y   = s + 75
+        qty_y    = s + 86
+        dest_y   = s + 96
+        dest_end = e - 4
+    else:
+        cable_y  = s + 65
+        load_y   = s + 95
+        qty_y    = s + 106
+        dest_y   = s + 114
+        dest_end = e - 2
+    return {
+        "mcb_y_top":   MCB_Y_TOP,
+        "rccb_offset": 2,
+        "cable_y":     cable_y,
+        "load_y":      load_y,
+        "qty_y":       qty_y,
+        "dest_y":      dest_y,
+        "dest_end":    dest_end,
+    }
 
 
 def draw_main_breaker(c, x_left_mm, width_mm, request):
@@ -615,69 +692,92 @@ def draw_reserve_indicator(c, x_start, x_end, y_top, y_bottom):
 # COLOANA CIRCUIT INDIVIDUAL
 # =============================================================================
 
-def draw_circuit_column(c, cx_mm: float, col_width_mm: float, circuit, idx: int):
-    """Deseneaza o coloana completa pentru un circuit."""
-    draw_line(c, cx_mm, 44, cx_mm, MCB_Y_TOP, width=0.5)
+def draw_circuit_column(c, cx_mm: float, col_width_mm: float, circuit, idx: int,
+                        rotated: bool = False, coords: Dict = None):
+    """Draw one complete circuit column. When rotated=True destination and
+    cable text are rendered vertically to fit narrow columns."""
+    if coords is None:
+        # Fallback to old fixed coords when called without zone info
+        coords = {
+            "mcb_y_top": MCB_Y_TOP, "rccb_offset": 2,
+            "cable_y": 95, "load_y": 128, "qty_y": 138,
+            "dest_y": 146, "dest_end": 158,
+        }
+
+    bus_y = BUS_Y_TOP + 4
+    draw_line(c, cx_mm, bus_y, cx_mm, coords["mcb_y_top"], width=0.5)
 
     fasa_color = phase_color(circuit.fasa)
-    draw_text(c, cx_mm, 36, get_phase_label(circuit, idx),
+    draw_text(c, cx_mm, BUS_Y_TOP - 4, get_phase_label(circuit, idx),
               font=FONT_BOLD, size=7.5, anchor="center", color=fasa_color)
 
     line1, line2 = format_protection_short(circuit.protectie)
-    mcb_w = min(col_width_mm - 4, 24)
-    draw_mcb_box(c, cx_mm, MCB_Y_TOP, w_mm=mcb_w, h_mm=MCB_HEIGHT,
+    mcb_w = min(col_width_mm - 2, 22)
+    draw_mcb_box(c, cx_mm, coords["mcb_y_top"], w_mm=mcb_w, h_mm=MCB_HEIGHT,
                  line1=line1, line2=line2)
 
-    bottom_mcb = MCB_Y_TOP + MCB_HEIGHT
+    bottom_mcb = coords["mcb_y_top"] + MCB_HEIGHT
 
     if circuit.has_rccb_individual:
-        rccb_y = bottom_mcb + 2
+        rccb_y = bottom_mcb + coords["rccb_offset"]
         draw_line(c, cx_mm, bottom_mcb, cx_mm, rccb_y, width=0.5)
-        draw_rccb_box(c, cx_mm, rccb_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT,
-                      label="30mA")
+        draw_rccb_box(c, cx_mm, rccb_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT, label="30mA")
         cable_start = rccb_y + RCCB_HEIGHT
     else:
         cable_start = bottom_mcb
 
-    draw_line(c, cx_mm, cable_start, cx_mm, CABLE_TEXT_Y_TOP - 2, width=0.5)
+    cable_y = coords["cable_y"]
+    draw_line(c, cx_mm, cable_start, cx_mm, cable_y - 2, width=0.5)
 
-    draw_text(c, cx_mm, CABLE_TEXT_Y_TOP,     circuit.cablu or "", size=7, anchor="center")
-    draw_text(c, cx_mm, CABLE_TEXT_Y_TOP + 4, circuit.tub   or "", size=7, anchor="center",
-              color=COLOR_GREY)
+    if rotated:
+        draw_text_rotated(c, cx_mm + 2, cable_y, circuit.cablu or "", size=6)
+        draw_text_rotated(c, cx_mm + 2, cable_y + 10, circuit.tub or "",
+                          size=6, color=COLOR_GREY)
+    else:
+        draw_text(c, cx_mm, cable_y,     circuit.cablu or "", size=7, anchor="center")
+        draw_text(c, cx_mm, cable_y + 4, circuit.tub   or "", size=7, anchor="center",
+                  color=COLOR_GREY)
 
-    draw_line(c, cx_mm, CABLE_TEXT_Y_TOP + 8, cx_mm, LOAD_SYMBOL_Y - 4, width=0.5)
+    load_y = coords["load_y"]
+    draw_line(c, cx_mm, cable_y + (14 if rotated else 8), cx_mm, load_y - 4, width=0.5)
+    draw_load_symbol(c, cx_mm, load_y, circuit.tip_consumator)
 
-    draw_load_symbol(c, cx_mm, LOAD_SYMBOL_Y, circuit.tip_consumator)
+    qty_y = coords["qty_y"]
+    draw_text(c, cx_mm, qty_y, format_quantity(circuit),
+              font=FONT_BOLD, size=7 if rotated else 8, anchor="center")
 
-    draw_text(c, cx_mm, QUANTITY_Y, format_quantity(circuit),
-              font=FONT_BOLD, size=8, anchor="center")
-
-    max_chars = max(8, int(col_width_mm / 1.5))
-    dest_lines = wrap_text(circuit.destinatie or "", max_chars=max_chars, max_lines=2)
-    cy = DESTINATION_Y
-    for line in dest_lines:
-        draw_text(c, cx_mm, cy, line, size=7, anchor="center")
-        cy += 4
+    dest_y = coords["dest_y"]
+    dest_end = coords["dest_end"]
+    if rotated:
+        # Destination text rotated 90° — one long string going upward
+        dest = circuit.destinatie or ""
+        draw_text_rotated(c, cx_mm + 2, dest_y, dest, size=7)
+    else:
+        max_chars = max(8, int(col_width_mm / 1.5))
+        dest_lines = wrap_text(circuit.destinatie or "", max_chars=max_chars, max_lines=2)
+        cy = dest_y
+        for line in dest_lines:
+            if cy + 4 > dest_end:
+                break
+            draw_text(c, cx_mm, cy, line, size=7, anchor="center")
+            cy += 4
 
 
 # =============================================================================
-# SCHEMA FULL (v3b) + helper
+# SCHEMA FULL (v3b-fix) — single-page with optional rotated text
 # =============================================================================
 
-def request_page_count(request) -> int:
-    """Nr. de pagini necesare pentru request-ul curent."""
-    n = len(request.circuits)
-    layout = pick_layout(n, request.format_preference)
-    return layout["n_pages"]
-
-
-def draw_schema_full(c, width_mm: float, request,
-                     page_circuits, page_num: int):
-    """Versiunea completa: main breaker + bus + brackets + coloane + rezerva."""
+def draw_schema_full(c, width_mm: float, request, page_circuits,
+                     layout: Dict, zones: Dict):
+    """Main breaker + bus + brackets + circuit columns + reserve box.
+    layout['rotated_text'] controls whether labels are drawn vertically."""
     if not page_circuits:
         draw_text(c, width_mm / 2, 95, "Nicio plecare pe aceasta pagina",
                   size=9, anchor="center", color=COLOR_GREY)
         return
+
+    rotated = layout.get("rotated_text", False)
+    schema_zone = zones["schema"]
 
     mb_x = SCHEMA_X_PADDING
     mb_w = MAIN_BREAKER_WIDTH_MM
@@ -708,13 +808,14 @@ def draw_schema_full(c, width_mm: float, request,
         c.setFillColor(black)
         c.circle(x * mm, to_y(bus_y_target), 0.5 * mm, stroke=0, fill=1)
 
+    coords = get_circuit_y_coords(rotated, schema_zone)
     for i, circuit in enumerate(page_circuits):
-        draw_circuit_column(c, columns_x[i], col_width, circuit, i + 1)
+        draw_circuit_column(c, columns_x[i], col_width, circuit, i + 1,
+                            rotated=rotated, coords=coords)
 
-    if page_num == request_page_count(request):
-        draw_reserve_indicator(c, circuits_x_end + 2,
-                               width_mm - SCHEMA_X_PADDING,
-                               BUS_Y_TOP, DESTINATION_Y + 8)
+    draw_reserve_indicator(c, circuits_x_end + 2,
+                           width_mm - SCHEMA_X_PADDING,
+                           BUS_Y_TOP, schema_zone["y_end"] - 2)
 
 
 def draw_schema_stub(c, width_mm: float, circuits: List[Circuit]):
@@ -731,10 +832,14 @@ def draw_schema_stub(c, width_mm: float, circuits: List[Circuit]):
               size=8, anchor="center", color=HexColor('#999999'))
 
 
-def draw_table_full(c, width_mm: float, page_circuits):
+def draw_table_full(c, width_mm: float, page_circuits, zones: Dict = None):
     """Tabel date cu 5 coloane: Nr | Pi(kW) | Ia(A) | Cablu | Tub."""
-    y_start = 162
-    h = TABLE_HEIGHT_MM
+    if zones:
+        y_start = zones["table"]["y_start"]
+        h = zones["table"]["y_end"] - y_start
+    else:
+        y_start = 162
+        h = 50
     x_start = SCHEMA_X_PADDING
     w = width_mm - 2 * SCHEMA_X_PADDING
 
@@ -790,9 +895,13 @@ def draw_table_stub(c, width_mm: float, circuits: List[Circuit]):
               size=9, anchor="center", color=HexColor('#888888'))
 
 
-def draw_legend_notes_full(c, width_mm: float):
-    y_start = 214
-    h = LEGEND_NOTES_HEIGHT_MM
+def draw_legend_notes_full(c, width_mm: float, zones: Dict = None):
+    if zones:
+        y_start = zones["legend"]["y_start"]
+        h = zones["legend"]["y_end"] - y_start
+    else:
+        y_start = 214
+        h = 28
 
     # ---- LEGENDA (stanga, ~32% latime) ----
     leg_w = width_mm * 0.32
@@ -865,15 +974,19 @@ def draw_legend_notes_stub(c, width_mm: float):
 # CARTOUCHE (full implementation in 3a — to be tested)
 # =============================================================================
 
-def draw_cartouche(c, width_mm: float, request: SchemaRequest):
+def draw_cartouche(c, width_mm: float, request: SchemaRequest, zones: Dict = None):
     """
     Cartus jos pe toata latimea. Trei zone:
       [STANGA] Logo + date firma         (latime 80mm)
       [CENTRU] Proiectant / Beneficiar   (latime flexibila)
       [DREAPTA] Faza / Plansa / Data     (latime 70mm)
     """
-    y_start = 244
-    h = CARTOUCHE_HEIGHT_MM
+    if zones:
+        y_start = zones["cartouche"]["y_start"]
+        h = zones["cartouche"]["y_end"] - y_start
+    else:
+        y_start = 244
+        h = CARTOUCHE_HEIGHT_MM
     x = 6
     w = width_mm - 12
 
@@ -1001,25 +1114,26 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest):
 # =============================================================================
 
 def generate_schema_pdf(request: SchemaRequest) -> bytes:
-    """Generate the schema PDF, returning raw bytes."""
+    """Generate the schema PDF as a single page, returning raw bytes."""
     n_circuits = len(request.circuits)
     layout = pick_layout(n_circuits, request.format_preference)
-    pages = split_circuits(request.circuits, layout["circuits_per_page"]) \
-        if request.circuits else [[]]
+
+    # Set the runtime page height (always 297mm — panoramic short edge)
+    set_page_height(297)
+    zones = get_zones()
 
     buf = BytesIO()
-    page_size = (layout["width_mm"] * mm, PAGE_HEIGHT_MM * mm)
+    page_size = (layout["width_mm"] * mm, _page_height_mm * mm)
     c = canvas.Canvas(buf, pagesize=page_size)
 
-    for idx, page_circuits in enumerate(pages, start=1):
-        c.setPageSize(page_size)
-        draw_page_frame(c, layout["width_mm"])
-        draw_header(c, layout["width_mm"], request, idx, layout["n_pages"])
-        draw_schema_full(c, layout["width_mm"], request, page_circuits, idx)
-        draw_table_full(c, layout["width_mm"], page_circuits)
-        draw_legend_notes_full(c, layout["width_mm"])
-        draw_cartouche(c, layout["width_mm"], request)
-        c.showPage()
+    draw_page_frame(c, layout["width_mm"])
+    draw_header(c, layout["width_mm"], request)
+    draw_schema_full(c, layout["width_mm"], request,
+                     request.circuits or [], layout, zones)
+    draw_table_full(c, layout["width_mm"], request.circuits or [], zones)
+    draw_legend_notes_full(c, layout["width_mm"], zones)
+    draw_cartouche(c, layout["width_mm"], request, zones)
+    c.showPage()
 
     c.save()
     return buf.getvalue()
