@@ -21,6 +21,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 try:
+    from pdf2image import convert_from_bytes
+    _PDF_AVAILABLE = True
+except ImportError:
+    _PDF_AVAILABLE = False
+
+try:
     from supabase_client import (
         save_project, save_project_file, log_action,
         get_norme_prize, get_norme_iluminat, get_norme_alimentari,
@@ -1647,12 +1653,29 @@ def annotate_plan(req: AnnotatePlanRequest):
     except ImportError:
         return {"error": "Pillow not installed"}
 
-    # Decode image
+    # Decode image / PDF
     b64 = req.plan_base64
     if "," in b64:
         b64 = b64.split(",", 1)[1]
     img_bytes = base64.b64decode(b64)
-    img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+
+    is_pdf = img_bytes[:4] == b"%PDF" or "pdf" in (req.plan_type or "").lower()
+    if is_pdf:
+        if not _PDF_AVAILABLE:
+            return {"error": "pdf2image not installed", "annotated_plan_base64": None}
+        try:
+            pages = convert_from_bytes(img_bytes, dpi=150, first_page=1, last_page=1)
+            if not pages:
+                return {"error": "PDF empty", "annotated_plan_base64": None}
+            img = pages[0].convert("RGBA")
+        except Exception as e:
+            return {"error": f"PDF conversion failed: {str(e)}", "annotated_plan_base64": None}
+    else:
+        try:
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+        except Exception as e:
+            return {"error": f"Image decode failed: {str(e)}", "annotated_plan_base64": None}
+
     draw = ImageDraw.Draw(img, "RGBA")
 
     for room in req.rooms_with_circuits:
