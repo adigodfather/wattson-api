@@ -664,6 +664,14 @@ export function ZynapseConfigurator() {
             onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
             Proiectele mele
           </Link>
+          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
+          <Link href="/settings"
+            className="text-sm font-medium transition-colors duration-150"
+            style={{ color: "#8B8FA8", textDecoration: "none" }}
+            onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
+            onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
+            Setări firmă
+          </Link>
         </div>
         <div className="flex items-center gap-3">
           <StatusBadge status={status} />
