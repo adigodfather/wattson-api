@@ -345,15 +345,27 @@ def draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=3, color=None):
     c.setStrokeColor(black)
 
 
-def draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2.5):
-    """Simbol priza 2P+E (Schuko) — semicerc deschis in sus (IEC 60617)."""
+def draw_socket_symbol(c, cx_mm, cy_top_mm, w_mm=5, h_mm=3):
+    """Simbol priza 2P+E — oval albastru deschis cu 2 puncte negre (contacte L+N)."""
+    x1 = (cx_mm - w_mm / 2) * mm
+    y1 = to_y(cy_top_mm + h_mm / 2)
+    x2 = (cx_mm + w_mm / 2) * mm
+    y2 = to_y(cy_top_mm - h_mm / 2)
+
+    c.setFillColor(HexColor('#aed6f1'))
+    c.setStrokeColor(HexColor('#2874a6'))
+    c.setLineWidth(0.5)
+    c.ellipse(x1, y1, x2, y2, stroke=1, fill=1)
+
+    dot_offset_x = w_mm * 0.25
+    dot_r = 0.4
+    c.setFillColor(black)
     c.setStrokeColor(black)
-    c.setLineWidth(0.7)
-    x1 = (cx_mm - r_mm) * mm
-    y1 = to_y(cy_top_mm + r_mm)
-    x2 = (cx_mm + r_mm) * mm
-    y2 = to_y(cy_top_mm - r_mm)
-    c.arc(x1, y1, x2, y2, 180, 180)  # semicerc deschis in sus
+    c.circle((cx_mm - dot_offset_x) * mm, to_y(cy_top_mm), dot_r * mm, stroke=0, fill=1)
+    c.circle((cx_mm + dot_offset_x) * mm, to_y(cy_top_mm), dot_r * mm, stroke=0, fill=1)
+
+    c.setStrokeColor(black)
+    c.setFillColor(black)
 
 
 def draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=3):
@@ -423,7 +435,7 @@ def draw_load_symbol(c, cx_mm, cy_top_mm, circuit):
         draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=2.5,
                          color=HexColor('#c0392b'))
     elif tip == "priza":
-        draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2.5)
+        draw_socket_symbol(c, cx_mm, cy_top_mm)
     elif tip in ("sub_tablou", "subtablou", "tablou", "sub-tablou", "te"):
         c1 = circuit.sub_tablou_color1 or "#00bfff"
         c2 = circuit.sub_tablou_color2 or "#ff69b4"
@@ -753,12 +765,15 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     else:
         below_rccb = bottom_mcb
 
-    # Cablu line vertical simpla (fara text — detaliile sunt in tabel)
-    cable_end_y = 122  # mai aproape de simbol (load_y=125)
+    # Cablu vertical — pentru priza intra in mijlocul ovalului
+    load_y = 125
+    if (circuit.tip_consumator or "").lower() == "priza":
+        cable_end_y = load_y      # intra fix in centrul ovalului
+    else:
+        cable_end_y = 122         # se opreste la marginea simbolului
     draw_line(c, cx_mm, below_rccb, cx_mm, cable_end_y, width=0.4)
 
-    # Load symbol cu culoare specifica tipului
-    load_y = 125
+    # Load symbol desenat DUPA cablu — fill-ul ovalului acopera linia din interior
     draw_load_symbol(c, cx_mm, load_y, circuit)
 
     # Cantitate sub simbol: "12 LL", "5 LP", "1 receptor"
@@ -971,7 +986,7 @@ def draw_legend_notes_full(c, width_mm: float, zones: Dict = None):
     draw_lamp_symbol(c, leg_x + 7, ly, r_mm=2.2, color=HexColor('#c0392b'))
     draw_text(c, leg_x + 16, ly + 1, "LL — corp de iluminat 230V", size=7)
     ly += 5
-    draw_socket_symbol(c, leg_x + 7, ly, r_mm=1.8)
+    draw_socket_symbol(c, leg_x + 7, ly, w_mm=4, h_mm=2.5)
     draw_text(c, leg_x + 16, ly + 1, "LP — priza 230V", size=7)
     ly += 5
     draw_subtablou_symbol(c, leg_x + 7, ly, w_mm=6, h_mm=3.5,
