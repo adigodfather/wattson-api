@@ -196,25 +196,25 @@ def split_circuits(circuits: List[Circuit], cap: int) -> List[List[Circuit]]:
 
 
 def get_zones(page_height_mm: int) -> Dict:
-    """Y-uri zone. Footer = legenda+note (stanga) + cartus (dreapta) in paralel."""
+    """Y-uri zone — cu gaps de 5-8mm intre ele pentru aerisire."""
     if page_height_mm <= 297:
-        # A3
+        # A3 — gap-uri mici (5mm) pentru ca pagina e stramta
         return {
             "schema_top": 30,
             "schema_bottom": 150,
-            "table_top": 153,
-            "table_bottom": 215,
-            "footer_top": 218,
+            "table_top": 155,
+            "table_bottom": 210,
+            "footer_top": 215,
             "footer_bottom": 293,
         }
     else:
-        # A2
+        # A2 — schema mai mare, gap-uri de 8mm
         return {
             "schema_top": 30,
-            "schema_bottom": 150,
-            "table_top": 153,
-            "table_bottom": 295,
-            "footer_top": 298,
+            "schema_bottom": 160,
+            "table_top": 168,
+            "table_bottom": 280,
+            "footer_top": 288,
             "footer_bottom": page_height_mm - 4,
         }
 
@@ -975,8 +975,8 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
               font=FONT_BOLD, size=9, anchor="center")
     draw_line(c, leg_x, y_start + 6, leg_x + leg_w, y_start + 6, width=0.2)
 
-    ly = y_start + 11
-    row_spacing = 6
+    ly = y_start + 14
+    row_spacing = 9
 
     draw_mcb_box(c, leg_x + 8, ly - 1.5, w_mm=10, h_mm=6,
                  line1="", line2="", font_size=5)
@@ -1059,27 +1059,29 @@ def draw_legend_notes_stub(c, width_mm: float):
 def draw_cartouche(c, width_mm: float, request: SchemaRequest,
                    y_start: int = 244, y_end: int = 293,
                    x_override=None, w_override=None):
-    """Cartus cu 3 zone: logo+firma | proiectant+beneficiar | meta.
-    Cu x_override si w_override poate fi plasat oricunde pe pagina."""
+    """Cartus cu 3 zone:
+      [STANGA]  Logo (mic) + date firma
+      [CENTRU]  TITLU SCHEMA (chenar sus) + Proiectant + Beneficiar
+      [DREAPTA] Faza / Plansa / Proiect / Data / Scara
+    """
     h = y_end - y_start
     x = x_override if x_override is not None else 6
     w = w_override if w_override is not None else (width_mm - 12)
 
     draw_rect(c, x, y_start, w, h, stroke_width=0.7)
 
-    # Latimi proportionale (33% logo+firma, 30% meta, restul centru)
-    left_w  = w * 0.33
-    right_w = w * 0.30
+    left_w   = w * 0.33
+    right_w  = w * 0.30
     center_w = w - left_w - right_w
 
-    # ----- ZONA STANGA: Logo + firma -----
+    # ===== ZONA STANGA: Logo (mic) + Firma =====
     draw_rect(c, x, y_start, left_w, h, stroke_width=0.3)
 
-    firma = request.cartus_firma
-    logo_h = min(18, h * 0.30)
-    logo_w = left_w - 8
-    logo_x = x + 4
-    logo_y = y_start + 3
+    firma  = request.cartus_firma
+    logo_h = 12
+    logo_w = min(left_w - 12, 45)
+    logo_x = x + (left_w - logo_w) / 2
+    logo_y = y_start + 4
 
     logo = fetch_logo(firma.firma_logo_url)
     if logo:
@@ -1093,25 +1095,25 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
                       color=HexColor('#999999'))
     else:
         draw_text(c, x + left_w / 2, logo_y + logo_h / 2 + 1,
-                  "[ LOGO ]", font=FONT_BOLD, size=10, anchor="center",
+                  "[ LOGO ]", font=FONT_BOLD, size=9, anchor="center",
                   color=HexColor('#bbbbbb'))
 
-    fy = y_start + logo_h + 6
+    fy = y_start + logo_h + 8
     fx_center = x + left_w / 2
     if firma.firma_nume:
         draw_text(c, fx_center, fy, firma.firma_nume,
                   font=FONT_BOLD, size=8, anchor="center")
-    fy += 4
+    fy += 5
     if firma.firma_cui or firma.firma_reg_com:
         line = " · ".join(filter(None, [firma.firma_cui, firma.firma_reg_com]))
         draw_text(c, fx_center, fy, line, size=7, anchor="center")
-    fy += 4
+    fy += 4.5
     if firma.firma_tel:
         draw_text(c, fx_center, fy, f"tel: {firma.firma_tel}", size=7, anchor="center")
-    fy += 4
+    fy += 4.5
     if firma.firma_email:
         draw_text(c, fx_center, fy, firma.firma_email, size=7, anchor="center")
-    fy += 4
+    fy += 4.5
     if firma.firma_adresa:
         addr_lines = wrap_text(firma.firma_adresa, max_chars=32, max_lines=2)
         for line in addr_lines:
@@ -1119,7 +1121,7 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
                 draw_text(c, fx_center, fy, line, size=7, anchor="center")
                 fy += 4
 
-    # ----- ZONA DREAPTA: Faza / Plansa / Data / Scara -----
+    # ===== ZONA DREAPTA: Meta =====
     right_x = x + w - right_w
     draw_rect(c, right_x, y_start, right_w, h, stroke_width=0.3)
 
@@ -1141,16 +1143,25 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
             draw_line(c, right_x, ry + row_h, right_x + right_w, ry + row_h,
                       width=0.2, color=HexColor('#cccccc'))
 
-    # ----- ZONA CENTRU: Proiectant + Beneficiar -----
+    # ===== ZONA CENTRU: Titlu chenar + Proiectant + Beneficiar =====
     center_x = x + left_w
     draw_rect(c, center_x, y_start, center_w, h, stroke_width=0.3)
 
-    cy = y_start + 4
+    # Titlu in chenar (sus, cu fundal gri deschis)
+    title_h = 11
+    draw_rect(c, center_x + 2, y_start + 3, center_w - 4, title_h,
+              stroke_width=0.5, fill=HexColor('#f0f0f0'))
+    draw_text(c, center_x + center_w / 2, y_start + 10,
+              f"SCHEMA ELECTRICA MONOFILARA - {request.tablou_nume}",
+              font=FONT_BOLD, size=9, anchor="center")
+
+    cy = y_start + title_h + 8
     draw_text(c, center_x + 3, cy, "PROIECTANT INSTALATII ELECTRICE",
               font=FONT_BOLD, size=8)
     draw_line(c, center_x, cy + 1, center_x + center_w, cy + 1,
               width=0.2, color=HexColor('#cccccc'))
-    cy += 5
+    cy += 6
+
     role_rows = [
         ("Sef proiect:", proiect.sef_proiect or firma.proiectant_nume or "-"),
         ("Proiectat:",   firma.proiectant_nume or "-"),
@@ -1158,25 +1169,21 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
     ]
     for label, value in role_rows:
         draw_text(c, center_x + 3, cy, label, size=8)
-        draw_text(c, center_x + 26, cy, value, font=FONT_BOLD, size=8)
-        cy += 4.5
+        draw_text(c, center_x + 28, cy, value, font=FONT_BOLD, size=8)
+        cy += 5
 
     draw_line(c, center_x, cy + 1, center_x + center_w, cy + 1,
               width=0.3, color=HexColor('#999999'))
-    cy += 5
+    cy += 6
 
     draw_text(c, center_x + 3, cy, "Beneficiar:", size=8)
-    draw_text(c, center_x + 26, cy, proiect.beneficiar or "-", font=FONT_BOLD, size=8)
-    cy += 4.5
+    draw_text(c, center_x + 28, cy, proiect.beneficiar or "-", font=FONT_BOLD, size=8)
+    cy += 5
     draw_text(c, center_x + 3, cy, "Amplasament:", size=8)
-    draw_text(c, center_x + 26, cy, (proiect.amplasament or "-")[:60], size=8)
-    cy += 4.5
+    draw_text(c, center_x + 28, cy, (proiect.amplasament or "-")[:60], size=8)
+    cy += 5
     draw_text(c, center_x + 3, cy, "Titlu proiect:", size=8)
-    draw_text(c, center_x + 26, cy, (proiect.titlu_proiect or "-")[:60], size=8)
-
-    draw_text(c, center_x + center_w / 2, y_start + h - 4,
-              f"SCHEMA ELECTRICA MONOFILARA - {request.tablou_nume}",
-              font=FONT_BOLD, size=10, anchor="center")
+    draw_text(c, center_x + 28, cy, (proiect.titlu_proiect or "-")[:60], size=8)
 
 
 # =============================================================================
