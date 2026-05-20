@@ -126,10 +126,12 @@ class Circuit(BaseModel):
     protectie: str = ""
     cablu: str = ""
     tub: str = ""
-    tip_consumator: str = "iluminat"   # "iluminat" | "priza" | "dedicat"
+    tip_consumator: str = "iluminat"   # "iluminat" | "priza" | "dedicat" | "sub_tablou"
     cantitate: int = 1
     rccb_group: Optional[str] = None
     has_rccb_individual: bool = False
+    sub_tablou_color1: Optional[str] = None  # ex: "#00bfff"
+    sub_tablou_color2: Optional[str] = None  # ex: "#ff69b4"
 
 
 class MainBreaker(BaseModel):
@@ -344,9 +346,14 @@ def draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=3, color=None):
 
 
 def draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2.5):
-    """Priza 230V (disc plin)."""
-    c.setFillColor(black)
-    c.circle(cx_mm * mm, to_y(cy_top_mm), r_mm * mm, stroke=0, fill=1)
+    """Simbol priza 2P+E (Schuko) — semicerc deschis in sus (IEC 60617)."""
+    c.setStrokeColor(black)
+    c.setLineWidth(0.7)
+    x1 = (cx_mm - r_mm) * mm
+    y1 = to_y(cy_top_mm + r_mm)
+    x2 = (cx_mm + r_mm) * mm
+    y2 = to_y(cy_top_mm - r_mm)
+    c.arc(x1, y1, x2, y2, 180, 180)  # semicerc deschis in sus
 
 
 def draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=3):
@@ -363,14 +370,65 @@ def draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=3):
               cx_mm, cy_top_mm - size_mm / 2 - 0.5, width=0.7)
 
 
-def draw_load_symbol(c, cx_mm, cy_top_mm, tip_consumator: str):
-    tip = (tip_consumator or "").lower()
+def draw_subtablou_symbol(c, cx_mm, cy_top_mm, w_mm=8, h_mm=5,
+                          color1="#00bfff", color2="#ff69b4"):
+    """Simbol sub-tablou (TE-CT, DCCS+NVR etc) — dreptunghi cu 2 triunghiuri
+    dreptunghice colorate pe diagonala."""
+    x_left  = cx_mm - w_mm / 2
+    x_right = cx_mm + w_mm / 2
+    y_top    = cy_top_mm - h_mm / 2
+    y_bottom = cy_top_mm + h_mm / 2
+
+    x_l = x_left  * mm
+    x_r = x_right * mm
+    y_t = to_y(y_top)
+    y_b = to_y(y_bottom)
+
+    # Triunghi 1: stanga-sus (top-left, top-right, bottom-left)
+    p1 = c.beginPath()
+    p1.moveTo(x_l, y_t)
+    p1.lineTo(x_r, y_t)
+    p1.lineTo(x_l, y_b)
+    p1.close()
+    c.setFillColor(HexColor(color1))
+    c.setStrokeColor(black)
+    c.setLineWidth(0.4)
+    c.drawPath(p1, stroke=0, fill=1)
+
+    # Triunghi 2: dreapta-jos (top-right, bottom-right, bottom-left)
+    p2 = c.beginPath()
+    p2.moveTo(x_r, y_t)
+    p2.lineTo(x_r, y_b)
+    p2.lineTo(x_l, y_b)
+    p2.close()
+    c.setFillColor(HexColor(color2))
+    c.drawPath(p2, stroke=0, fill=1)
+
+    # Outer border
+    c.setStrokeColor(black)
+    c.setFillColor(black)  # reset fill
+    c.setLineWidth(0.5)
+    c.rect(x_l, y_b, (x_right - x_left) * mm, (y_bottom - y_top) * mm,
+           stroke=1, fill=0)
+
+    # Diagonal separator
+    c.setLineWidth(0.3)
+    c.line(x_l, y_b, x_r, y_t)
+
+
+def draw_load_symbol(c, cx_mm, cy_top_mm, circuit):
+    """Dispatch pe tip_consumator. Accepta circuit intreg pentru culori."""
+    tip = (circuit.tip_consumator or "").lower()
     if tip == "iluminat":
-        # Iluminat = simbol ROȘU (convenție Zynapse / INSTAUDITOR)
         draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=2.5,
                          color=HexColor('#c0392b'))
     elif tip == "priza":
-        draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2)
+        draw_socket_symbol(c, cx_mm, cy_top_mm, r_mm=2.5)
+    elif tip in ("sub_tablou", "subtablou", "tablou", "sub-tablou", "te"):
+        c1 = circuit.sub_tablou_color1 or "#00bfff"
+        c2 = circuit.sub_tablou_color2 or "#ff69b4"
+        draw_subtablou_symbol(c, cx_mm, cy_top_mm, w_mm=8, h_mm=5,
+                              color1=c1, color2=c2)
     else:
         draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=2.5)
 
@@ -432,6 +490,8 @@ def format_quantity(circuit) -> str:
         return f"{qty} LL"
     if tip == "priza":
         return f"{qty} LP"
+    if tip in ("sub_tablou", "subtablou", "tablou", "sub-tablou", "te"):
+        return ""  # destinatia apare in tabel; nimic sub simbol
     return "1 receptor" if qty == 1 else f"{qty} receptori"
 
 
@@ -440,10 +500,18 @@ def is_trifazat(racord: str) -> bool:
 
 
 def get_phase_label(circuit, idx: int) -> str:
-    """Eticheta faza deasupra coloanei: '1(R)', '12(S)' etc."""
+    """Eticheta faza deasupra coloanei. Trifazat → 'R,S,T'."""
     nr_clean = (circuit.nr or f"C{idx}").lstrip("C")
-    fasa = (circuit.fasa or "R").upper()
-    return f"{nr_clean}({fasa})"
+    fasa_raw = (circuit.fasa or "R").upper().replace(" ", "").replace(",", "")
+
+    if fasa_raw in ("RST", "TRIFAZAT", "TRI", "3F"):
+        fasa_display = "R,S,T"
+    elif len(fasa_raw) > 1 and all(ch in "RSTN" for ch in fasa_raw):
+        fasa_display = ",".join(fasa_raw)
+    else:
+        fasa_display = fasa_raw
+
+    return f"{nr_clean}({fasa_display})"
 
 
 def phase_color(fasa: str):
@@ -685,13 +753,13 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     else:
         below_rccb = bottom_mcb
 
-    # Cablu line vertical simplă (fără text — detaliile sunt în tabel)
-    cable_end_y = 118
+    # Cablu line vertical simpla (fara text — detaliile sunt in tabel)
+    cable_end_y = 122  # mai aproape de simbol (load_y=125)
     draw_line(c, cx_mm, below_rccb, cx_mm, cable_end_y, width=0.4)
 
-    # Load symbol cu culoare specifică tipului
+    # Load symbol cu culoare specifica tipului
     load_y = 125
-    draw_load_symbol(c, cx_mm, load_y, circuit.tip_consumator)
+    draw_load_symbol(c, cx_mm, load_y, circuit)
 
     # Cantitate sub simbol: "12 LL", "5 LP", "1 receptor"
     draw_text(c, cx_mm, 134, format_quantity(circuit),
@@ -905,6 +973,10 @@ def draw_legend_notes_full(c, width_mm: float, zones: Dict = None):
     ly += 5
     draw_socket_symbol(c, leg_x + 7, ly, r_mm=1.8)
     draw_text(c, leg_x + 16, ly + 1, "LP — priza 230V", size=7)
+    ly += 5
+    draw_subtablou_symbol(c, leg_x + 7, ly, w_mm=6, h_mm=3.5,
+                          color1="#00bfff", color2="#ff69b4")
+    draw_text(c, leg_x + 16, ly + 1, "Sub-tablou (TE-CT, anexe, etc.)", size=7)
 
     # ---- NOTE (dreapta, restul) ----
     notes_x = leg_x + leg_w + 4
@@ -1152,20 +1224,24 @@ def build_sample_request() -> SchemaRequest:
             rccb_group="block_2",
         ))
     circuits += [
-        Circuit(nr="C29", fasa="R", destinatie="Panouri fotovoltaice",
-                pi_kw=5.0, ia_a=21.7,
-                protectie="MCB 1P+N 20A C",
-                cablu="CYY-F 3x4 mmp",
-                tub="tub IPEY d25 mm",
-                tip_consumator="dedicat", cantitate=1),
-        Circuit(nr="C30", fasa="S", destinatie="Boiler ACM",
+        Circuit(nr="C29", fasa="R", destinatie="DCCS+NVR — Distributie control",
+                pi_kw=0.5, ia_a=2.17,
+                protectie="MCB 1P+N 10A B 6kA 30mA",
+                cablu="CYY-F 3x1.5 mmp",
+                tub="tub IPEY d16 mm",
+                tip_consumator="sub_tablou", cantitate=1,
+                sub_tablou_color1="#00bfff",
+                sub_tablou_color2="#ff69b4"),
+        Circuit(nr="C30", fasa="RST", destinatie="TE-CT — Tablou Camera Tehnica",
+                pi_kw=16.34, ia_a=22.95,
+                protectie="MCB 3P+N 25A B 10kA",
+                cablu="CYY-F 5x4 mmp",
+                tub="tub IPEY d32 mm",
+                tip_consumator="sub_tablou", cantitate=1,
+                sub_tablou_color1="#ffffff",
+                sub_tablou_color2="#3498db"),
+        Circuit(nr="C31", fasa="T", destinatie="Boiler ACM",
                 pi_kw=3.0, ia_a=13.04,
-                protectie="MCB 1P+N 16A C",
-                cablu="CYY-F 3x2.5 mmp",
-                tub="tub IPEY d20 mm",
-                tip_consumator="dedicat", cantitate=1),
-        Circuit(nr="C31", fasa="T", destinatie="Ventilatie cu recuperare",
-                pi_kw=1.5, ia_a=6.52,
                 protectie="MCB 1P+N 16A C",
                 cablu="CYY-F 3x2.5 mmp",
                 tub="tub IPEY d20 mm",
