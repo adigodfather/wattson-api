@@ -17,6 +17,37 @@ import {
 
 const WEBHOOK_URL = "/api/generate";
 
+/* ─── Cartuș types ─── */
+type CartusFirma = {
+  firma_nume: string;
+  firma_cui: string;
+  firma_reg_com: string;
+  firma_tel: string;
+  firma_email: string;
+  firma_adresa: string;
+  firma_logo_url: string;
+  proiectant_nume: string;
+  desenator_nume: string;
+};
+
+type CartusProiect = {
+  beneficiar: string;
+  amplasament: string;
+  titlu_proiect: string;
+  numar_proiect: string;
+  data_proiect: string;
+  faza: string;
+  plansa_nr: string;
+  scara: string;
+  sef_proiect: string;
+};
+
+const EMPTY_CARTUS_FIRMA: CartusFirma = {
+  firma_nume: '', firma_cui: '', firma_reg_com: '', firma_tel: '',
+  firma_email: '', firma_adresa: '', firma_logo_url: '',
+  proiectant_nume: '', desenator_nume: '',
+};
+
 const PROGRESS_STEPS = [
   "Se encodează planșele...",
   "Se trimite la n8n...",
@@ -451,6 +482,16 @@ export function ZynapseConfigurator() {
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
   const [pageFormat, setPageFormat] = useState<string>('');
+  const [cartusProiectInput, setCartusProiectInput] = useState({
+    beneficiar: '',
+    amplasament: '',
+    titlu_proiect: '',
+    numar_proiect: '',
+    faza: 'DTAC+PT',
+    plansa_nr: 'IE.4',
+    scara: '—',
+    sef_proiect: '',
+  });
 
   const update = (key: keyof FormData, val: string | boolean | number) =>
     setForm(prev => ({ ...prev, [key]: val }));
@@ -490,6 +531,47 @@ export function ZynapseConfigurator() {
     update("building_category", v);
     update("building_type", "");
   };
+
+  async function fetchCartusFirma(): Promise<CartusFirma> {
+    const supabase = createClient();
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (!u) return EMPTY_CARTUS_FIRMA;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('firma_nume,firma_cui,firma_reg_com,firma_tel,firma_email,firma_adresa,firma_logo_url,proiectant_nume,desenator_nume')
+      .eq('id', u.id)
+      .single();
+    if (error || !data) {
+      console.warn('[Zynapse] Nu s-a putut citi profile pentru cartuș:', error?.message);
+      return EMPTY_CARTUS_FIRMA;
+    }
+    return {
+      firma_nume:       data.firma_nume       ?? '',
+      firma_cui:        data.firma_cui        ?? '',
+      firma_reg_com:    data.firma_reg_com    ?? '',
+      firma_tel:        data.firma_tel        ?? '',
+      firma_email:      data.firma_email      ?? '',
+      firma_adresa:     data.firma_adresa     ?? '',
+      firma_logo_url:   data.firma_logo_url   ?? '',
+      proiectant_nume:  data.proiectant_nume  ?? '',
+      desenator_nume:   data.desenator_nume   ?? '',
+    };
+  }
+
+  function buildCartusProiect(): CartusProiect {
+    const today = new Date().toISOString().split('T')[0];
+    return {
+      beneficiar:    cartusProiectInput.beneficiar    || '',
+      amplasament:   cartusProiectInput.amplasament   || '',
+      titlu_proiect: cartusProiectInput.titlu_proiect || '',
+      numar_proiect: cartusProiectInput.numar_proiect || '',
+      data_proiect:  today,
+      faza:          cartusProiectInput.faza          || 'DTAC+PT',
+      plansa_nr:     cartusProiectInput.plansa_nr     || 'IE.4',
+      scara:         cartusProiectInput.scara         || '—',
+      sef_proiect:   cartusProiectInput.sef_proiect   || '',
+    };
+  }
 
   const handleSubmit = async () => {
     if (!canSubmit || status === "loading") return;
@@ -542,11 +624,19 @@ export function ZynapseConfigurator() {
         building_type: form.building_type,
       }, null, 2));
 
+      const cartus_firma = await fetchCartusFirma();
+      const cartus_proiect = buildCartusProiect();
+
       setStepIndex(2);
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, ...(pageFormat ? { page_format: pageFormat } : {}) }),
+        body: JSON.stringify({
+          ...payload,
+          cartus_firma,
+          cartus_proiect,
+          ...(pageFormat ? { page_format: pageFormat } : {}),
+        }),
       });
 
       setStepIndex(3);
@@ -913,6 +1003,36 @@ export function ZynapseConfigurator() {
               <option value="A1+A3">A1 (TEG mare) + A3</option>
               <option value="A0+A3">A0 (TEG XL) + A3</option>
             </select>
+          </div>
+
+          {/* Date proiect (cartuș) */}
+          <SectionLabel>Date proiect</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <TextField label="Beneficiar" value={cartusProiectInput.beneficiar}
+              onChange={v => setCartusProiectInput(p => ({ ...p, beneficiar: v }))} placeholder="ex: Popescu Ion" />
+            <TextField label="Amplasament" value={cartusProiectInput.amplasament}
+              onChange={v => setCartusProiectInput(p => ({ ...p, amplasament: v }))} placeholder="ex: str. Unirii 1, Cluj" />
+          </div>
+          <TextField label="Titlu proiect" value={cartusProiectInput.titlu_proiect}
+            onChange={v => setCartusProiectInput(p => ({ ...p, titlu_proiect: v }))} placeholder="ex: Instalație electrică casă P+M" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <TextField label="Nr. proiect" value={cartusProiectInput.numar_proiect}
+              onChange={v => setCartusProiectInput(p => ({ ...p, numar_proiect: v }))} placeholder="ex: 042/2025" />
+            <TextField label="Șef proiect" value={cartusProiectInput.sef_proiect}
+              onChange={v => setCartusProiectInput(p => ({ ...p, sef_proiect: v }))} placeholder="ex: ing. Ionescu M." />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <SelectField label="Fază" value={cartusProiectInput.faza}
+              onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))}
+              options={[
+                { value: "SF", label: "SF" }, { value: "DALI", label: "DALI" },
+                { value: "DTAC+PT", label: "DTAC+PT" }, { value: "PT", label: "PT" },
+                { value: "DE", label: "DE" },
+              ]} />
+            <TextField label="Planșa nr." value={cartusProiectInput.plansa_nr}
+              onChange={v => setCartusProiectInput(p => ({ ...p, plansa_nr: v }))} placeholder="IE.4" />
+            <TextField label="Scară" value={cartusProiectInput.scara}
+              onChange={v => setCartusProiectInput(p => ({ ...p, scara: v }))} placeholder="—" />
           </div>
 
           {/* 10. Submit */}
