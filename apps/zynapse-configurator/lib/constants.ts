@@ -69,13 +69,15 @@ export interface ExtraEquipment {
   type: string;
   name: string;
   power_kw: number;
-  phase: string;  // "mono" | "tri" | "none"
+  phase: string;   // "mono" | "tri" | "none"
+  phases?: number; // 1 | 3 — derivat din `phase` pentru backend (auto-select PDC / cuptor)
 }
 
 export const EXTRA_EQUIPMENT_DEFAULTS: {
-  type: string; label: string; icon: string; default_kw: number; default_phase: string;
+  type: string; label: string; icon: string; default_kw: number; default_phase: string; panel_target?: string;
 }[] = [
-  { type: "boiler",     label: "Boiler ACM",                             icon: "🛁", default_kw: 2,   default_phase: "mono" },
+  { type: "boiler",          label: "Boiler ACM",                             icon: "🛁", default_kw: 2,   default_phase: "mono" },
+  { type: "cuptor_electric", label: "Cuptor electric",                        icon: "🍳", default_kw: 2,   default_phase: "mono", panel_target: "TEG" },
   { type: "ac",         label: "Aer condiționat",                        icon: "❄️", default_kw: 2.5, default_phase: "mono" },
   { type: "hrv",        label: "Ventilație cu recuperare căldură (HRV)", icon: "🌀", default_kw: 0.2, default_phase: "mono" },
   { type: "internet",   label: "Rețea date / Internet (prize RJ45)",     icon: "🌐", default_kw: 0,   default_phase: "none" },

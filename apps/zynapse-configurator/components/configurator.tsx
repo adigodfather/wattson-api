@@ -590,10 +590,12 @@ export function ZynapseConfigurator() {
             name: e.label,
             power_kw: equipment[e.type].power_kw,
             phase: equipment[e.type].phase,
+            // numeric phases pentru backend (mono/none → 1, tri → 3)
+            phases: equipment[e.type].phase === "tri" ? 3 : 1,
           })),
         ...customEquipment
           .filter(e => e.name.trim())
-          .map(e => ({ type: "custom", ...e })),
+          .map(e => ({ type: "custom", ...e, phases: e.phase === "tri" ? 3 : 1 })),
       ];
 
       const payload: Record<string, unknown> = {
