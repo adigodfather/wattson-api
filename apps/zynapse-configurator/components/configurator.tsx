@@ -598,6 +598,27 @@ export function ZynapseConfigurator() {
           .map(e => ({ type: "custom", ...e, phases: e.phase === "tri" ? 3 : 1 })),
       ];
 
+      // Mapare heating_type frontend → heating_system pentru backend n8n.
+      // Backend-ul citește wb.heating_system.enabled + source_category (heating_type e ignorat).
+      // Cheile = valorile REALE din HEATING_GENERATION (lib/constants.ts).
+      // Doar pdc_aer / pdc_geo / centrala_electrica activează TE-CT (vezi TECT_CATEGORIES în n8n);
+      // centrala_gaz / termoficare → circuit dedicat în TEG, fără TE-CT; "existing" → fără sistem nou.
+      const HEATING_TYPE_TO_CATEGORY: Record<string, string> = {
+        pdc_air_water: "pdc_aer",            // Pompă de căldură aer-apă
+        pdc_ground_water: "pdc_geo",         // Pompă de căldură sol-apă (geotermală)
+        electric_boiler: "centrala_electrica", // Centrală electrică
+        gas_boiler: "centrala_gaz",          // Centrală pe gaz
+        district_heating: "termoficare",     // Termoficare (rețea urbană)
+      };
+
+      const heatingCategory = HEATING_TYPE_TO_CATEGORY[form.heating_type] || null;
+      const heatingSystem = heatingCategory ? {
+        enabled: true,
+        source_category: heatingCategory,
+        phases: form.power_phase === "tri" ? 3 : 1,
+        rezistenta_backup: false,
+      } : null;
+
       const payload: Record<string, unknown> = {
         plan_base64: base64,
         plan_type: files[0].type || "image/jpeg",
@@ -614,6 +635,7 @@ export function ZynapseConfigurator() {
         floors_above_ground: manualFloors,
         power_phase: form.power_phase,
         heating_type: form.heating_type,
+        heating_system: heatingSystem,
         heating_distribution: form.heating_distribution,
         extra_equipment,
         ...(form.building_type === "bloc_locuinte" && form.floors ? { floors: parseInt(form.floors) } : {}),
