@@ -16,6 +16,7 @@ from typing import List, Optional, Dict
 from io import BytesIO
 import base64
 import os
+import re
 import requests
 
 from pydantic import BaseModel, Field
@@ -694,9 +695,15 @@ def draw_rccb_brackets(c, page_circuits, columns_x, rccb_groups):
         draw_line(c, x2, bracket_y, x2, bracket_y + bracket_drop, width=0.5)
         rccb = groups_by_id.get(gid)
         if rccb:
-            label = rccb.tip
-            if rccb.description:
-                label += f" — {rccb.description}"
+            # FIX 7: eticheta scurta pe magistrala — doar sensibilitate + tip
+            # (ex. "30mA tip A"), fara identificator de grup/descriere,
+            # ca sa nu se suprapuna peste firele circuitelor.
+            src = rccb.tip or ""
+            m_sens = re.search(r"(\d+)\s*mA", src)
+            label = f"{m_sens.group(1)}mA" if m_sens else "30mA"
+            m_tip = re.search(r"tip\s*([A-Za-z]+)", src)
+            if m_tip:
+                label += f" tip {m_tip.group(1).upper()}"
             draw_text(c, (x1 + x2) / 2, bracket_y - 1, label,
                       size=7, anchor="center")
 
