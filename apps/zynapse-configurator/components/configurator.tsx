@@ -14,6 +14,7 @@ import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard,
 } from "@/components/result-sections";
+import CartusConfirmModal from "./CartusConfirmModal";
 
 const WEBHOOK_URL = "/api/generate";
 
@@ -37,8 +38,6 @@ type CartusProiect = {
   numar_proiect: string;
   data_proiect: string;
   faza: string;
-  plansa_nr: string;
-  scara: string;
   sef_proiect: string;
 };
 
@@ -482,16 +481,21 @@ export function ZynapseConfigurator() {
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
   const [pageFormat, setPageFormat] = useState<string>('');
-  const [cartusProiectInput, setCartusProiectInput] = useState({
+  const [cartusProiectInput, setCartusProiectInput] = useState<CartusProiect>({
     beneficiar: '',
     amplasament: '',
     titlu_proiect: '',
     numar_proiect: '',
     faza: 'DTAC+PT',
-    plansa_nr: 'IE.4',
-    scara: '—',
     sef_proiect: '',
+    data_proiect: '',
   });
+
+  // Vision cartuș flow state
+  const [visionCartusLoading, setVisionCartusLoading] = useState(false);
+  const [showCartusModal, setShowCartusModal] = useState(false);
+  const [cartusConfirmed, setCartusConfirmed] = useState(false);
+  const visionAnalyzedRef = useRef<string | null>(null);
 
   const update = (key: keyof FormData, val: string | boolean | number) =>
     setForm(prev => ({ ...prev, [key]: val }));
@@ -518,13 +522,61 @@ export function ZynapseConfigurator() {
     form.heating_type &&
     files.length > 0
   );
-  const canSubmit = formReady && !isAtLimit;
+  const canSubmit = formReady && !isAtLimit && cartusConfirmed;
 
   useEffect(() => {
     if (!saveMessage) return;
     const t = setTimeout(() => setSaveMessage(null), 4000);
     return () => clearTimeout(t);
   }, [saveMessage]);
+
+  // Vision cartuș: când userul încarcă primul plan, analizează automat cartușul.
+  useEffect(() => {
+    const file = files[0];
+    if (!file) {
+      // Plan eliminat → resetează flow-ul cartuș
+      visionAnalyzedRef.current = null;
+      setCartusConfirmed(false);
+      return;
+    }
+    // Cheie unică per fișier ca să nu re-analizăm același plan
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (visionAnalyzedRef.current === key) return;
+    visionAnalyzedRef.current = key;
+
+    let cancelled = false;
+    (async () => {
+      setVisionCartusLoading(true);
+      setCartusConfirmed(false);
+      try {
+        const fd = new FormData();
+        fd.append('plan', file);
+        const res = await fetch('/api/vision-cartus', { method: 'POST', body: fd });
+        if (res.ok && !cancelled) {
+          const cartus = await res.json();
+          setCartusProiectInput({
+            titlu_proiect: cartus.titlu_proiect || '',
+            beneficiar:    cartus.beneficiar    || '',
+            amplasament:   cartus.amplasament   || '',
+            sef_proiect:   cartus.sef_proiect   || '',
+            numar_proiect: cartus.numar_proiect || '',
+            data_proiect:  cartus.data_proiect  || '',
+            faza:          cartus.faza          || 'DTAC+PT',
+          });
+        }
+        // Dacă Vision eșuează → câmpurile rămân cele curente/goale; userul completează manual
+      } catch (e) {
+        console.error('[Vision Cartus] Failed:', e);
+      } finally {
+        if (!cancelled) {
+          setVisionCartusLoading(false);
+          setShowCartusModal(true); // Modal apare automat (succes sau eșec)
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [files]);
 
   // Reset subtype when category changes
   const handleCategoryChange = (v: string) => {
@@ -559,17 +611,12 @@ export function ZynapseConfigurator() {
   }
 
   function buildCartusProiect(): CartusProiect {
-    const today = new Date().toISOString().split('T')[0];
+    // Fallback data_proiect ca MM.YYYY (format cartuș) dacă userul nu a completat
+    const now = new Date();
+    const mmYyyy = `${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`;
     return {
-      beneficiar:    cartusProiectInput.beneficiar    || '',
-      amplasament:   cartusProiectInput.amplasament   || '',
-      titlu_proiect: cartusProiectInput.titlu_proiect || '',
-      numar_proiect: cartusProiectInput.numar_proiect || '',
-      data_proiect:  today,
-      faza:          cartusProiectInput.faza          || 'DTAC+PT',
-      plansa_nr:     cartusProiectInput.plansa_nr     || 'IE.4',
-      scara:         cartusProiectInput.scara         || '—',
-      sef_proiect:   cartusProiectInput.sef_proiect   || '',
+      ...cartusProiectInput,
+      data_proiect: cartusProiectInput.data_proiect || mmYyyy,
     };
   }
 
@@ -749,6 +796,29 @@ export function ZynapseConfigurator() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E" }}>
+
+      {/* ── Vision cartuș: loading overlay global ── */}
+      {visionCartusLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mb-4"></div>
+            <h2 className="text-2xl font-bold text-white mb-2">Se analizează planul...</h2>
+            <p className="text-gray-400">Vision AI extrage datele din cartuș (10-30 secunde)</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vision cartuș: modal confirmare ── */}
+      <CartusConfirmModal
+        isOpen={showCartusModal}
+        initialData={cartusProiectInput}
+        onConfirm={(data) => {
+          setCartusProiectInput(data);
+          setCartusConfirmed(true);
+          setShowCartusModal(false);
+        }}
+        onCancel={() => setShowCartusModal(false)}
+      />
 
       {/* ── Header ── */}
       <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
@@ -1007,57 +1077,25 @@ export function ZynapseConfigurator() {
             className="w-full px-3.5 py-2.5 rounded-lg text-sm font-[inherit] outline-none"
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9", resize: "vertical" }} />
 
-          {/* Format planșe schemă */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, marginBottom: 6, color: 'rgba(255,255,255,0.7)' }}>
-              Format planșe schemă
-            </label>
-            <select
-              value={pageFormat}
-              onChange={(e) => setPageFormat(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-lg text-sm font-[inherit] outline-none"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                color: '#E2E4E9',
-              }}>
-              <option value="">Auto (recomandat)</option>
-              <option value="A3">A3 standard</option>
-              <option value="A2+A3">A2 (TEG) + A3 (restul)</option>
-              <option value="A1+A3">A1 (TEG mare) + A3</option>
-              <option value="A0+A3">A0 (TEG XL) + A3</option>
-            </select>
-          </div>
-
-          {/* Date proiect (cartuș) */}
-          <SectionLabel>Date proiect</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <TextField label="Beneficiar" value={cartusProiectInput.beneficiar}
-              onChange={v => setCartusProiectInput(p => ({ ...p, beneficiar: v }))} placeholder="ex: Popescu Ion" />
-            <TextField label="Amplasament" value={cartusProiectInput.amplasament}
-              onChange={v => setCartusProiectInput(p => ({ ...p, amplasament: v }))} placeholder="ex: str. Unirii 1, Cluj" />
-          </div>
-          <TextField label="Titlu proiect" value={cartusProiectInput.titlu_proiect}
-            onChange={v => setCartusProiectInput(p => ({ ...p, titlu_proiect: v }))} placeholder="ex: Instalație electrică casă P+M" />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <TextField label="Nr. proiect" value={cartusProiectInput.numar_proiect}
-              onChange={v => setCartusProiectInput(p => ({ ...p, numar_proiect: v }))} placeholder="ex: 042/2025" />
-            <TextField label="Șef proiect" value={cartusProiectInput.sef_proiect}
-              onChange={v => setCartusProiectInput(p => ({ ...p, sef_proiect: v }))} placeholder="ex: ing. Ionescu M." />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <SelectField label="Fază" value={cartusProiectInput.faza}
-              onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))}
-              options={[
-                { value: "SF", label: "SF" }, { value: "DALI", label: "DALI" },
-                { value: "DTAC+PT", label: "DTAC+PT" }, { value: "PT", label: "PT" },
-                { value: "DE", label: "DE" },
-              ]} />
-            <TextField label="Planșa nr." value={cartusProiectInput.plansa_nr}
-              onChange={v => setCartusProiectInput(p => ({ ...p, plansa_nr: v }))} placeholder="IE.4" />
-            <TextField label="Scară" value={cartusProiectInput.scara}
-              onChange={v => setCartusProiectInput(p => ({ ...p, scara: v }))} placeholder="—" />
-          </div>
+          {/* Cartuș: confirmat automat din Vision (vezi modalul). Rezumat compact + re-editare */}
+          {cartusConfirmed && (
+            <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", borderRadius: 12,
+              background: "rgba(29,158,117,0.08)", border: "1px solid rgba(29,158,117,0.25)" }}>
+              <div className="flex items-center justify-between gap-2">
+                <div style={{ fontSize: 13, color: "#E2E4E9" }}>
+                  <strong>{cartusProiectInput.titlu_proiect || "Proiect"}</strong>
+                  <span style={{ color: "#8B8FA8" }}>
+                    {" "}· {cartusProiectInput.faza}{cartusProiectInput.numar_proiect ? ` · ${cartusProiectInput.numar_proiect}` : ""}
+                  </span>
+                </div>
+                <button type="button" onClick={() => setShowCartusModal(true)}
+                  className="text-[12px] font-semibold"
+                  style={{ color: "#5BB8F5", background: "none", border: "none", cursor: "pointer" }}>
+                  Editează
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 10. Submit */}
           <button onClick={handleSubmit} disabled={!canSubmit || isLoading}
