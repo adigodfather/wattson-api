@@ -365,6 +365,25 @@ def draw_socket_symbol(c, cx_mm, cy_top_mm, w_mm=5, h_mm=3):
     c.setFillColor(black)
 
 
+def draw_wifi_symbol(c, cx_mm, cy_top_mm, size_mm=4):
+    """Simbol WiFi: 3 arcuri concentrice + punct centru (receptor retea date).
+    Centrat pe (cx_mm, cy_top_mm). size_mm = raza arcului exterior."""
+    cx = cx_mm * mm
+    cy = to_y(cy_top_mm)
+    c.setStrokeColor(black)
+    c.setFillColor(black)
+    # Punct centru (umplut)
+    c.circle(cx, cy, 0.6 * mm, stroke=0, fill=1)
+    # 3 arcuri concentrice care se deschid in sus (mic -> mare)
+    c.setLineWidth(0.6)
+    for frac in (0.4, 0.7, 1.0):
+        r = size_mm * frac * mm
+        c.arc(cx - r, cy - r, cx + r, cy + r, startAng=30, extent=120)
+    # Reset pentru elementele urmatoare
+    c.setStrokeColor(black)
+    c.setFillColor(black)
+
+
 def draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=3):
     """Receptor dedicat (triunghi cu linie jos)."""
     c.setStrokeColor(black)
@@ -439,7 +458,14 @@ def draw_load_symbol(c, cx_mm, cy_top_mm, circuit):
         draw_subtablou_symbol(c, cx_mm, cy_top_mm, w_mm=8, h_mm=5,
                               color1=c1, color2=c2)
     else:
-        draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=2.5)
+        # Circuit Internet / Retea date → simbol WiFi dedicat
+        dest_lower = (circuit.destinatie or "").lower()
+        is_internet = ("retea date" in dest_lower or "internet" in dest_lower
+                       or "router" in dest_lower or "wifi" in dest_lower)
+        if is_internet:
+            draw_wifi_symbol(c, cx_mm, cy_top_mm, size_mm=3)
+        else:
+            draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=2.5)
 
 
 def wrap_text(text: str, max_chars: int = 12, max_lines: int = 2) -> List[str]:
@@ -1009,6 +1035,10 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
 
     draw_dedicated_symbol(c, leg_x + 8, ly, size_mm=2.2)
     draw_text(c, leg_x + 18, ly + 1, "Receptor dedicat (boiler, AC, EV, etc.)", size=7)
+    ly += row_spacing
+
+    draw_wifi_symbol(c, leg_x + 8, ly, size_mm=2.2)
+    draw_text(c, leg_x + 18, ly + 1, "Receptor retea date (WiFi/Internet)", size=7)
 
     # ----- NOTE -----
     draw_rect(c, notes_x, y_start, notes_w, h, stroke_width=0.5)
