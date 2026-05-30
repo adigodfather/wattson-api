@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/", "/login", "/register", "/reset-password", "/auth/callback"];
+const PUBLIC_ROUTES = ["/", "/login", "/register", "/reset-password", "/auth/callback",
+  // API server-to-server (apelate de n8n, fără cookie) — protejate cu x-zynapse-key în route
+  "/api/vision-rooms"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

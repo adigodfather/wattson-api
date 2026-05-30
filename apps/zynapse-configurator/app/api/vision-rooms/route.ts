@@ -159,6 +159,17 @@ async function analyzePlan(
 }
 
 export async function POST(request: NextRequest) {
+  // Protecție server-to-server: ruta e exclusă din middleware-ul de auth (n8n n-are cookie),
+  // așa că o protejăm cu un secret header. Se aplică DOAR dacă ZYNAPSE_INTERNAL_KEY e setat
+  // (altfel ar bloca testarea înainte de configurare). Setează cheia în Vercel + n8n.
+  const internalKey = process.env.ZYNAPSE_INTERNAL_KEY;
+  if (internalKey) {
+    const provided = request.headers.get("x-zynapse-key");
+    if (provided !== internalKey) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     // Cheia trebuie setată în Vercel env vars (Project Settings → Environment Variables).
