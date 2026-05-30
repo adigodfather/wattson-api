@@ -719,19 +719,19 @@ def draw_rccb_brackets(c, page_circuits, columns_x, rccb_groups):
         draw_line(c, x1, bracket_y, x1, bracket_y + bracket_drop, width=0.5)
         draw_line(c, x1, bracket_y, x2, bracket_y, width=0.5)
         draw_line(c, x2, bracket_y, x2, bracket_y + bracket_drop, width=0.5)
-        rccb = groups_by_id.get(gid)
-        if rccb:
-            # FIX 7: eticheta scurta pe magistrala — doar sensibilitate + tip
-            # (ex. "30mA tip A"), fara identificator de grup/descriere,
-            # ca sa nu se suprapuna peste firele circuitelor.
-            src = rccb.tip or ""
-            m_sens = re.search(r"(\d+)\s*mA", src)
-            label = f"{m_sens.group(1)}mA" if m_sens else "30mA"
-            m_tip = re.search(r"tip\s*([A-Za-z]+)", src)
-            if m_tip:
-                label += f" tip {m_tip.group(1).upper()}"
-            draw_text(c, (x1 + x2) / 2, bracket_y - 1, label,
-                      size=7, anchor="center")
+        # DEPRECATED — eliminat per polish UX: eticheta text RCCB ("30mA tip A")
+        # de pe magistrala se suprapunea vizual. Pastram doar bracket-ul (liniile
+        # de mai sus). Simbolul ∆ 30mA ramane sub breaker (draw_rccb_box).
+        # rccb = groups_by_id.get(gid)
+        # if rccb:
+        #     src = rccb.tip or ""
+        #     m_sens = re.search(r"(\d+)\s*mA", src)
+        #     label = f"{m_sens.group(1)}mA" if m_sens else "30mA"
+        #     m_tip = re.search(r"tip\s*([A-Za-z]+)", src)
+        #     if m_tip:
+        #         label += f" tip {m_tip.group(1).upper()}"
+        #     draw_text(c, (x1 + x2) / 2, bracket_y - 1, label,
+        #               size=7, anchor="center")
 
 
 # =============================================================================
@@ -777,8 +777,12 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     # Linia verticală principală — de la bus la MCB
     draw_line(c, cx_mm, 44, cx_mm, MCB_Y_TOP, width=0.4)
 
-    # Box MCB
-    line1, line2 = format_protection_short(circuit.protectie)
+    # Box MCB — pe schema afisam fara prefixul "MCB " (ramane "1P+N 16A C").
+    # Tabelul de jos pastreaza formatul complet "MCB 1P+N 16A C" (neschimbat).
+    protectie_schema = circuit.protectie or ""
+    if protectie_schema.startswith("MCB "):
+        protectie_schema = protectie_schema.replace("MCB ", "", 1)
+    line1, line2 = format_protection_short(protectie_schema)
     mcb_w = min(col_width_mm - 1, 14)
     draw_mcb_box(c, cx_mm, MCB_Y_TOP, w_mm=mcb_w, h_mm=MCB_HEIGHT,
                  line1=line1, line2=line2, font_size=fs_mcb)
@@ -1115,8 +1119,9 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
     draw_rect(c, x, y_start, left_w, h, stroke_width=0.3)
 
     firma  = request.cartus_firma
-    logo_h = 12
-    logo_w = min(left_w - 12, 45)
+    # Polish: logo mai mare (height-constrained, preserveAspectRatio).
+    logo_h = 18
+    logo_w = min(left_w - 8, 60)
     logo_x = x + (left_w - logo_w) / 2
     logo_y = y_start + 4
 
@@ -1135,12 +1140,13 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
                   "[ LOGO ]", font=FONT_BOLD, size=9, anchor="center",
                   color=HexColor('#bbbbbb'))
 
-    fy = y_start + logo_h + 8
+    fy = y_start + logo_h + 9
     fx_center = x + left_w / 2
     if firma.firma_nume:
+        # Polish: nume firma mai mare + bold (size 9)
         draw_text(c, fx_center, fy, firma.firma_nume,
-                  font=FONT_BOLD, size=8, anchor="center")
-    fy += 5
+                  font=FONT_BOLD, size=9, anchor="center")
+    fy += 5.5
     if firma.firma_cui or firma.firma_reg_com:
         line = " · ".join(filter(None, [firma.firma_cui, firma.firma_reg_com]))
         draw_text(c, fx_center, fy, line, size=7, anchor="center")
@@ -1216,11 +1222,21 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
     draw_text(c, center_x + 3, cy, "Beneficiar:", size=8)
     draw_text(c, center_x + 28, cy, proiect.beneficiar or "-", font=FONT_BOLD, size=8)
     cy += 5
+
+    # Polish: amplasament + titlu cu text wrap (max 2 randuri) in loc de trunchiere [:60]
+    val_x = center_x + 28
+    val_max_chars = max(18, int((center_w - 30) / 1.5))  # ~1.5mm per char la size 8
+
     draw_text(c, center_x + 3, cy, "Amplasament:", size=8)
-    draw_text(c, center_x + 28, cy, (proiect.amplasament or "-")[:60], size=8)
+    for j, line in enumerate(wrap_text(proiect.amplasament or "-", max_chars=val_max_chars, max_lines=2)):
+        draw_text(c, val_x, cy + j * 4, line, size=8)
+        if j > 0:
+            cy += 4
     cy += 5
+
     draw_text(c, center_x + 3, cy, "Titlu proiect:", size=8)
-    draw_text(c, center_x + 28, cy, (proiect.titlu_proiect or "-")[:60], size=8)
+    for j, line in enumerate(wrap_text(proiect.titlu_proiect or "-", max_chars=val_max_chars, max_lines=2)):
+        draw_text(c, val_x, cy + j * 4, line, size=8)
 
 
 # =============================================================================
