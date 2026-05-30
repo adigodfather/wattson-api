@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS,
+  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -15,6 +15,7 @@ import {
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard,
 } from "@/components/result-sections";
 import CartusConfirmModal from "./CartusConfirmModal";
+import MultiFileDropZone from "./MultiFileDropZone";
 
 const WEBHOOK_URL = "/api/generate";
 
@@ -160,86 +161,62 @@ function Toggle({ label, checked, onChange, description }: {
   );
 }
 
-/* ─── Drop zone ─── */
-function DropZone({ files, setFiles }: { files: File[]; setFiles: React.Dispatch<React.SetStateAction<File[]>> }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-
-  const addFiles = useCallback((incoming: File[]) => {
-    const valid = incoming.filter(f => f.type.startsWith("image/") || f.type === "application/pdf");
-    if (valid.length) setFiles(prev => [...prev, ...valid]);
-  }, [setFiles]);
-
-  return (
-    <div className="mb-5">
-      <label className="block text-[12px] font-semibold tracking-wide mb-1.5" style={{ color: "#8B8FA8" }}>
-        Planșe arhitectură
-      </label>
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)); }}
-        onClick={() => inputRef.current?.click()}
-        className="rounded-xl py-7 px-5 text-center cursor-pointer transition-all duration-200"
-        style={{
-          border: `2px dashed ${dragging ? "#378ADD" : "rgba(255,255,255,0.1)"}`,
-          background: dragging ? "rgba(55,138,221,0.05)" : "rgba(255,255,255,0.02)",
-        }}>
-        <input ref={inputRef} type="file" multiple accept="image/*,.pdf" className="hidden"
-          onChange={(e) => addFiles(Array.from(e.target.files || []))} />
-        <div className="mb-2.5">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="mx-auto opacity-30">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <polyline points="17,8 12,3 7,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-        </div>
-        <div className="text-sm" style={{ color: "#8B8FA8" }}>
-          {dragging ? "Eliberează pentru a adăuga" : "Trage planșele sau click pentru selectare"}
-        </div>
-        <div className="text-[11px] mt-1" style={{ color: "#545870" }}>PDF, JPG, PNG — parter, etaj, mansardă</div>
-      </div>
-      {files.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-2">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <span style={{ color: f.type.startsWith("image/") ? "#5BB8F5" : "#3ECFA0" }}>
-                {f.type.startsWith("image/") ? "IMG" : "PDF"}
-              </span>
-              <span className="max-w-[140px] truncate" style={{ color: "#C8CAD6" }}>{f.name}</span>
-              <span style={{ color: "#545870" }}>{(f.size / 1024).toFixed(0)}KB</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); setFiles(prev => prev.filter((_, j) => j !== i)); }}
-                style={{ background: "none", border: "none", color: "#545870", cursor: "pointer", padding: 0 }}
-                className="ml-0.5 text-base leading-none"
-                onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-                onMouseOut={(e) => (e.currentTarget.style.color = "#545870")}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+/* ─── Drop zone ─── (înlocuit de MultiFileDropZone în Epic 3.11) */
 
 /* ─── Building category cards (PAS 1) ─── */
+/* Epic 3.11: doar "rezidential" e activ; restul disabled cu badge "Curând". */
 function CategoryCards({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3">
       {BUILDING_CATEGORIES_3.map(c => {
         const selected = value === c.value;
+        const enabled = c.value === "rezidential";
         return (
-          <button key={c.value} type="button" onClick={() => onChange(c.value)}
-            className="rounded-xl p-3 text-center cursor-pointer transition-all duration-150 font-[inherit]"
+          <button key={c.value} type="button" disabled={!enabled}
+            onClick={() => enabled && onChange(c.value)}
+            title={enabled ? undefined : "Disponibil curând"}
+            className="rounded-xl p-3 text-center transition-all duration-150 font-[inherit]"
             style={{
               background: selected ? "rgba(55,138,221,0.08)" : "rgba(255,255,255,0.02)",
               border: selected ? "1.5px solid rgba(55,138,221,0.5)" : "1px solid rgba(255,255,255,0.07)",
               outline: "none",
+              cursor: enabled ? "pointer" : "not-allowed",
+              opacity: enabled ? 1 : 0.4,
             }}>
             <div style={{ fontSize: 22, marginBottom: 4 }}>{c.icon}</div>
             <div className="text-[12px] font-bold" style={{ color: selected ? "#5BB8F5" : "#C8CAD6" }}>{c.label}</div>
-            <div className="text-[10px] mt-1 leading-tight" style={{ color: "#545870" }}>{c.desc}</div>
+            {enabled ? (
+              <div className="text-[10px] mt-1 leading-tight" style={{ color: "#545870" }}>{c.desc}</div>
+            ) : (
+              <div className="text-[10px] mt-1 font-semibold" style={{ color: "#C9A227" }}>Curând</div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Faza proiect chips (Epic 3.11) — doar DTAC activ ─── */
+function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-3 gap-2 mb-3.5">
+      {FAZA_PROIECT_OPTIONS.map(opt => {
+        const isSel = value === opt.value;
+        return (
+          <button key={opt.value} type="button" disabled={!opt.enabled}
+            onClick={() => opt.enabled && onChange(opt.value)}
+            title={"tooltip" in opt ? opt.tooltip : undefined}
+            className="rounded-lg py-2.5 px-2 text-center transition-all duration-150 font-[inherit]"
+            style={{
+              background: isSel ? "rgba(55,138,221,0.1)" : "rgba(255,255,255,0.02)",
+              border: isSel ? "1px solid rgba(55,138,221,0.4)" : "1px solid rgba(255,255,255,0.06)",
+              color: isSel ? "#5BB8F5" : "#C8CAD6",
+              cursor: opt.enabled ? "pointer" : "not-allowed",
+              opacity: opt.enabled ? 1 : 0.4,
+            }}>
+            <div className="text-[12px] font-bold">{opt.label}</div>
+            {!opt.enabled && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: "#C9A227" }}>Curând</div>}
           </button>
         );
       })}
@@ -522,7 +499,11 @@ export function ZynapseConfigurator() {
     form.heating_type &&
     files.length > 0
   );
-  const canSubmit = formReady && !isAtLimit && cartusConfirmed;
+  // Epic 3.11: butonul Generează e activ când formularul de bază e complet (fără cartuș —
+  // cartușul se confirmă în popup-ul declanșat de Generează). canSubmit (cu cartuș confirmat)
+  // gateează rularea efectivă a backend-ului.
+  const canSubmitBasic = formReady && !isAtLimit;
+  const canSubmit = canSubmitBasic && cartusConfirmed;
 
   useEffect(() => {
     if (!saveMessage) return;
@@ -530,52 +511,14 @@ export function ZynapseConfigurator() {
     return () => clearTimeout(t);
   }, [saveMessage]);
 
-  // Vision cartuș: când userul încarcă primul plan, analizează automat cartușul.
+  // Epic 3.11: Vision NU mai rulează la upload. Rulează doar la click pe "Generează"
+  // (vezi handleGenerate). Aici doar resetăm confirmarea cartușului dacă se schimbă planurile.
   useEffect(() => {
-    const file = files[0];
-    if (!file) {
-      // Plan eliminat → resetează flow-ul cartuș
-      visionAnalyzedRef.current = null;
+    const key = files.map(f => `${f.name}:${f.size}:${f.lastModified}`).join("|");
+    if (visionAnalyzedRef.current !== key) {
+      visionAnalyzedRef.current = key;
       setCartusConfirmed(false);
-      return;
     }
-    // Cheie unică per fișier ca să nu re-analizăm același plan
-    const key = `${file.name}:${file.size}:${file.lastModified}`;
-    if (visionAnalyzedRef.current === key) return;
-    visionAnalyzedRef.current = key;
-
-    let cancelled = false;
-    (async () => {
-      setVisionCartusLoading(true);
-      setCartusConfirmed(false);
-      try {
-        const fd = new FormData();
-        fd.append('plan', file);
-        const res = await fetch('/api/vision-cartus', { method: 'POST', body: fd });
-        if (res.ok && !cancelled) {
-          const cartus = await res.json();
-          setCartusProiectInput({
-            titlu_proiect: cartus.titlu_proiect || '',
-            beneficiar:    cartus.beneficiar    || '',
-            amplasament:   cartus.amplasament   || '',
-            sef_proiect:   cartus.sef_proiect   || '',
-            numar_proiect: cartus.numar_proiect || '',
-            data_proiect:  cartus.data_proiect  || '',
-            faza:          cartus.faza          || 'DTAC+PT',
-          });
-        }
-        // Dacă Vision eșuează → câmpurile rămân cele curente/goale; userul completează manual
-      } catch (e) {
-        console.error('[Vision Cartus] Failed:', e);
-      } finally {
-        if (!cancelled) {
-          setVisionCartusLoading(false);
-          setShowCartusModal(true); // Modal apare automat (succes sau eșec)
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
   }, [files]);
 
   // Reset subtype when category changes
@@ -620,8 +563,42 @@ export function ZynapseConfigurator() {
     };
   }
 
-  const handleSubmit = async () => {
-    if (!canSubmit || status === "loading") return;
+  // Epic 3.11: pas 1 — la click pe "Generează", rulează Vision pe primul plan (parter),
+  // apoi deschide modalul de confirmare cartuș. Dacă cartușul e deja confirmat, sare direct
+  // la backend (permite re-generare fără a re-rula Vision).
+  const handleGenerate = async () => {
+    if (!canSubmitBasic || status === "loading" || visionCartusLoading) return;
+    if (cartusConfirmed) { void runBackend(); return; }
+
+    setVisionCartusLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("plan", files[0]); // primul plan = parter
+      const res = await fetch("/api/vision-cartus", { method: "POST", body: fd });
+      if (res.ok) {
+        const cartus = await res.json();
+        setCartusProiectInput({
+          titlu_proiect: cartus.titlu_proiect || "",
+          beneficiar:    cartus.beneficiar    || "",
+          amplasament:   cartus.amplasament   || "",
+          sef_proiect:   cartus.sef_proiect   || "",
+          numar_proiect: cartus.numar_proiect || "",
+          data_proiect:  cartus.data_proiect  || "",
+          faza:          cartus.faza          || "DTAC+PT",
+        });
+      }
+      // Dacă Vision eșuează → câmpurile rămân goale; userul le completează în modal.
+    } catch (e) {
+      console.error("[Vision Cartus] Failed:", e);
+    } finally {
+      setVisionCartusLoading(false);
+      setShowCartusModal(true); // modal apare automat (succes sau eșec)
+    }
+  };
+
+  // Epic 3.11: pas 2 — după confirmarea cartușului, rulează efectiv backend-ul.
+  const runBackend = async () => {
+    if (status === "loading") return;
     setStatus("loading"); setError(null); setResult(null); setStepIndex(0);
 
     try {
@@ -802,13 +779,13 @@ export function ZynapseConfigurator() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mb-4"></div>
-            <h2 className="text-2xl font-bold text-white mb-2">Se analizează planul...</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Se analizează planurile...</h2>
             <p className="text-gray-400">Vision AI extrage datele din cartuș (10-30 secunde)</p>
           </div>
         </div>
       )}
 
-      {/* ── Vision cartuș: modal confirmare ── */}
+      {/* ── Vision cartuș: modal confirmare → la confirm rulează backend-ul ── */}
       <CartusConfirmModal
         isOpen={showCartusModal}
         initialData={cartusProiectInput}
@@ -816,6 +793,7 @@ export function ZynapseConfigurator() {
           setCartusProiectInput(data);
           setCartusConfirmed(true);
           setShowCartusModal(false);
+          void runBackend();
         }}
         onCancel={() => setShowCartusModal(false)}
       />
@@ -909,8 +887,8 @@ export function ZynapseConfigurator() {
             </div>
           )}
 
-          {/* 1. Upload */}
-          <DropZone files={files} setFiles={setFiles} />
+          {/* 1. Upload (Epic 3.11: multi-plan cu etichete Parter/Etaj/Mansardă) */}
+          <MultiFileDropZone files={files} onChange={setFiles} maxFiles={3} />
 
           {/* Auto-detect badge (shows after successful result) */}
           {autoDetected && (
@@ -928,6 +906,11 @@ export function ZynapseConfigurator() {
           <SectionLabel>Identificare proiect</SectionLabel>
           <TextField label="Numele proiectului" value={form.project_id}
             onChange={v => update("project_id", v)} placeholder="ex: Casa Popescu P+M 160mp" required />
+
+          {/* Faza proiect (Epic 3.11) — bound la cartusProiectInput.faza */}
+          <SectionLabel>Faza proiect</SectionLabel>
+          <FazaProiectChips value={cartusProiectInput.faza}
+            onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))} />
 
           {/* 3. Tip clădire PAS1 + PAS2 */}
           <SectionLabel>Tip clădire</SectionLabel>
@@ -1097,18 +1080,18 @@ export function ZynapseConfigurator() {
             </div>
           )}
 
-          {/* 10. Submit */}
-          <button onClick={handleSubmit} disabled={!canSubmit || isLoading}
+          {/* 10. Submit — Epic 3.11: declanșează Vision pe primul plan, apoi modal cartuș */}
+          <button onClick={handleGenerate} disabled={!canSubmitBasic || isLoading || visionCartusLoading}
             className="w-full mt-5 py-3.5 px-6 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
             style={{
-              background: canSubmit && !isLoading ? "linear-gradient(135deg, #378ADD 0%, #1D9E75 100%)" : "rgba(255,255,255,0.05)",
+              background: canSubmitBasic && !isLoading ? "linear-gradient(135deg, #378ADD 0%, #1D9E75 100%)" : "rgba(255,255,255,0.05)",
               border: "none",
-              color: canSubmit ? "#fff" : "#545870",
-              cursor: canSubmit && !isLoading ? "pointer" : "not-allowed",
+              color: canSubmitBasic ? "#fff" : "#545870",
+              cursor: canSubmitBasic && !isLoading && !visionCartusLoading ? "pointer" : "not-allowed",
               opacity: isLoading ? 0.75 : 1,
-              boxShadow: canSubmit && !isLoading ? "0 0 24px rgba(55,138,221,0.25)" : "none",
+              boxShadow: canSubmitBasic && !isLoading ? "0 0 24px rgba(55,138,221,0.25)" : "none",
             }}>
-            {isLoading ? "Se procesează..." : "Generează proiect electric"}
+            {visionCartusLoading ? "Se analizează planurile..." : isLoading ? "Se procesează..." : "Generează proiect electric"}
           </button>
 
           {isLoading && (
