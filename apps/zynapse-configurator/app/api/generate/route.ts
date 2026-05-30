@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 
+// Faza B.1: payload multi-etaj (până la 3 planuri base64) + N PDF-uri în răspuns.
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
 export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
 

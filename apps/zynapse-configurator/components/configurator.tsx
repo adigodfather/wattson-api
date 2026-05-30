@@ -604,6 +604,16 @@ export function ZynapseConfigurator() {
     try {
       setStepIndex(0);
       const base64 = await fileToBase64(files[0]);
+      // Faza B.1: encodează TOATE planurile (parter/etaj/mansardă) pentru backend multi-etaj.
+      // Non-breaking: plan_base64 (parter) rămâne pentru flow-ul JSON existent; backend-ul
+      // actual ignoră plan_floors_base64 până la Faza B.2.
+      const planFloorsBase64 = await Promise.all(
+        files.map(async (f) => ({
+          base64: await fileToBase64(f),
+          plan_type: f.type || "image/jpeg",
+          filename: f.name,
+        }))
+      );
 
       setStepIndex(1);
       const extra_equipment: ExtraEquipment[] = [
@@ -646,6 +656,11 @@ export function ZynapseConfigurator() {
       const payload: Record<string, unknown> = {
         plan_base64: base64,
         plan_type: files[0].type || "image/jpeg",
+        // Faza B.1: multi-etaj — index 0 = parter, 1 = etaj, 2 = mansardă (ordinea din UI)
+        plan_floors_base64: planFloorsBase64,
+        floors_count: files.length,
+        has_etaj: files.length >= 2,
+        has_mansarda: files.length >= 3,
         user_id: user?.id || "",
         user_email: user?.email || "",
         ...form,
