@@ -131,6 +131,8 @@ class Circuit(BaseModel):
     cantitate: int = 1
     rccb_group: Optional[str] = None
     has_rccb_individual: bool = False
+    rccb_ma: Optional[int] = 30
+    has_afdd: Optional[bool] = False
     sub_tablou_color1: Optional[str] = None  # ex: "#00bfff"
     sub_tablou_color2: Optional[str] = None  # ex: "#ff69b4"
 
@@ -963,8 +965,13 @@ def draw_table_full(c, width_mm: float, page_circuits,
         # 4. Ia
         draw_text(c, col_x[3] + col_w[3] / 2, cy, f"{circuit.ia_a:.2f}",
                   size=font_size, anchor="center")
-        # 5. Protectie
+        # 5. Protectie — MCB + RCCB (+ AFDD) inline pe o linie
         prot = circuit.protectie or "-"
+        if getattr(circuit, 'has_rccb_individual', False):
+            rccb_ma = getattr(circuit, 'rccb_ma', 30) or 30
+            prot += f"; RCCB {rccb_ma}mA tip A"
+        if getattr(circuit, 'has_afdd', False):
+            prot += "; AFDD"
         max_prot_chars = int(col_w[4] / (font_size * 0.20))
         if len(prot) > max_prot_chars:
             prot = prot[:max_prot_chars - 1] + "..."
