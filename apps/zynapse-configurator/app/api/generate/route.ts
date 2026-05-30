@@ -24,8 +24,20 @@ export async function POST(req: NextRequest) {
       body,
     });
 
-    const data = await upstream.json();
-    return NextResponse.json(data, { status: upstream.status });
+    // Citim ca text mai întâi, ca să nu crăpăm pe HTML (ex. pagină 504 de la reverse-proxy n8n)
+    const text = await upstream.text();
+    try {
+      const data = JSON.parse(text);
+      return NextResponse.json(data, { status: upstream.status });
+    } catch {
+      console.error("[/api/generate] Backend returned non-JSON:", text.slice(0, 500));
+      return NextResponse.json({
+        error: "Backend timeout sau eroare de procesare",
+        details: `HTTP ${upstream.status} — răspuns non-JSON (probabil timeout reverse-proxy n8n)`,
+        preview: text.slice(0, 200),
+        recommendation: "Încearcă cu mai puține planuri sau contactează administratorul",
+      }, { status: 502 });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upstream request failed";
     return NextResponse.json({ error: message }, { status: 502 });

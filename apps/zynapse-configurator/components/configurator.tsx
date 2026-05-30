@@ -654,13 +654,14 @@ export function ZynapseConfigurator() {
       } : null;
 
       const payload: Record<string, unknown> = {
-        plan_base64: base64,
-        plan_type: files[0].type || "image/jpeg",
-        // Faza B.1: multi-etaj — index 0 = parter, 1 = etaj, 2 = mansardă (ordinea din UI)
+        // Faza B.1/B.2: multi-etaj — index 0 = parter, 1 = etaj, 2 = mansardă (ordinea din UI)
         plan_floors_base64: planFloorsBase64,
         floors_count: files.length,
         has_etaj: files.length >= 2,
         has_mansarda: files.length >= 3,
+        // plan_base64 (legacy) — trimis DOAR pentru 1 plan (ramura Vision veche).
+        // La multi-plan e redundant (parter e deja în plan_floors_base64[0]) → evită duplicarea.
+        ...(files.length === 1 ? { plan_base64: base64, plan_type: files[0].type || "image/jpeg" } : {}),
         user_id: user?.id || "",
         user_email: user?.email || "",
         ...form,
