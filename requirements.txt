@@ -5,6 +5,7 @@ python-multipart==0.0.20
 Pillow==10.4.0
 reportlab==4.2.5
 supabase==2.15.1
+python-docx==1.1.2
 pdf2image
 pypdfium2
 requests>=2.31

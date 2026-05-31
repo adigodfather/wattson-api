@@ -8,6 +8,7 @@ from schema_generator import (
     generate_schema_pdf,
     build_sample_request,
 )
+from memoriu_generator import build_memoriu_docx
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
@@ -3113,6 +3114,59 @@ async def health():
         "env_url": bool(url),
         "env_key": bool(key),
     }
+
+
+# -------------------------------------------------
+#  MEMORIU TEHNIC (.docx)  —  POST /generate-memoriu
+# -------------------------------------------------
+
+class MemoriuCartusProiect(BaseModel):
+    beneficiar: str = ""
+    titlu_proiect: str = ""
+    amplasament: str = ""
+    numar_proiect: str = ""
+    faza: str = ""
+
+
+class MemoriuCartusFirma(BaseModel):
+    firma_nume: str = ""
+    firma_reg_com: str = ""
+    firma_cui: str = ""
+    firma_tel: str = ""
+    firma_email: str = ""
+    firma_atestat: str = ""
+    firma_logo_url: str = ""
+    sef_proiect: str = ""
+    proiectant_nume: str = ""
+
+
+class MemoriuPlansa(BaseModel):
+    nr: str = ""
+    titlu: str = ""
+
+
+class GenerateMemoriuRequest(BaseModel):
+    cartus_proiect: MemoriuCartusProiect = MemoriuCartusProiect()
+    cartus_firma: MemoriuCartusFirma = MemoriuCartusFirma()
+    planse: List[MemoriuPlansa] = []
+
+
+@app.post("/generate-memoriu")
+def generate_memoriu(request: GenerateMemoriuRequest):
+    """Genereaza memoriul tehnic instalatii electrice ca .docx, returnat base64.
+    Acelasi pattern ca /generate-schema-b64 (erori cu status 200 pentru n8n)."""
+    try:
+        docx_bytes = build_memoriu_docx(request.model_dump())
+        numar = (request.cartus_proiect.numar_proiect or "proiect").strip()
+        safe_numar = numar.replace("/", "-").replace(" ", "_") or "proiect"
+        return {
+            "success": True,
+            "docx_base64": base64.b64encode(docx_bytes).decode("utf-8"),
+            "filename": f"Memoriu_Tehnic_{safe_numar}.docx",
+            "size_bytes": len(docx_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # -------------------------------------------------
