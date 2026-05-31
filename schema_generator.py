@@ -56,8 +56,8 @@ FONT, FONT_BOLD = _register_fonts()
 # CULORI (pentru linii faza — schema ramane lizibila si in B&W)
 # =============================================================================
 COLOR_PHASE_R       = HexColor('#c0392b')
-COLOR_PHASE_S       = HexColor('#2c3e50')
-COLOR_PHASE_T       = HexColor('#1a1a1a')
+COLOR_PHASE_S       = HexColor('#1a1a1a')   # negru (faza S)
+COLOR_PHASE_T       = HexColor('#00b300')   # verde tipator (faza T)
 COLOR_NEUTRAL       = HexColor('#2980b9')
 COLOR_PE            = HexColor('#27ae60')
 COLOR_GREY          = HexColor('#888888')
@@ -776,8 +776,17 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     draw_text(c, cx_mm, 36, get_phase_label(circuit, idx),
               font=FONT_BOLD, size=fs_small, anchor="center", color=fasa_color)
 
-    # Linia verticală principală — de la bus la MCB
-    draw_line(c, cx_mm, 44, cx_mm, MCB_Y_TOP, width=0.4)
+    # Linia verticală principală — de la bara fazei până la MCB, colorată per fază
+    _fasa = (circuit.fasa or "R").upper()
+    if "R" in _fasa:
+        _bus_y = BUS_Y_TOP                          # R -> 38
+    elif "S" in _fasa:
+        _bus_y = BUS_Y_TOP + BUS_LINE_SPACING       # S -> 41
+    elif "T" in _fasa:
+        _bus_y = BUS_Y_TOP + 2 * BUS_LINE_SPACING   # T -> 44
+    else:
+        _bus_y = BUS_Y_TOP
+    draw_line(c, cx_mm, _bus_y, cx_mm, MCB_Y_TOP, width=0.4, color=phase_color(circuit.fasa))
 
     # Box MCB — pe schema afisam fara prefixul "MCB " (ramane "1P+N 16A C").
     # Tabelul de jos pastreaza formatul complet "MCB 1P+N 16A C" (neschimbat).
