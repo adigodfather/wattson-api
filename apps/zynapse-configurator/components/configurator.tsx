@@ -1372,27 +1372,40 @@ export function ZynapseConfigurator() {
               </div>
             )}
 
-            {/* ── Tab: Planșă adnotată ── */}
+            {/* ── Tab: Planșe (arhitectură cu cartuș Zynapse) ── */}
             {activeTab === 'plan' && (
               <div>
-                {(result!.annotated_plan_base64 || result!.plan_annotated_base64) ? (
-                  <div className="rounded-xl overflow-hidden"
-                    style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <div className="px-5 py-3 text-sm font-semibold border-b"
-                      style={{ color: "#C8CAD6", borderColor: "rgba(255,255,255,0.04)" }}>
-                      Planșă adnotată
-                    </div>
-                    <div className="p-4">
-                      <img
-                        src={`data:image/png;base64,${result!.annotated_plan_base64 || result!.plan_annotated_base64}`}
-                        alt="Planșă adnotată"
-                        className="w-full rounded-lg"
-                        style={{ border: "1px solid rgba(255,255,255,0.06)" }}
-                      />
-                    </div>
+                {result!.planuri?.length ? (
+                  <div className="flex flex-col gap-4">
+                    {result!.planuri.map((p, i) => (
+                      <div key={i} className="rounded-xl overflow-hidden"
+                        style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div className="px-5 py-3 flex items-center justify-between border-b"
+                          style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                          <span className="text-sm font-semibold" style={{ color: "#C8CAD6" }}>
+                            {p.plansa_nr ? `${p.plansa_nr} — ` : ""}{p.name}
+                          </span>
+                          <button
+                            onClick={() => downloadPDF(
+                              p.pdf_base64,
+                              p.filename || `Plan-${p.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`
+                            )}
+                            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer"
+                            style={{ background: "rgba(21,128,61,0.12)", border: "1px solid rgba(21,128,61,0.28)", color: "#4ADE80" }}>
+                            ⬇ Descarcă PDF
+                          </button>
+                        </div>
+                        <iframe
+                          src={`data:application/pdf;base64,${p.pdf_base64}`}
+                          className="w-full"
+                          style={{ height: 600, border: "none" }}
+                          title={p.name}
+                        />
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nicio planșă adnotată în răspuns.</p>
+                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există planuri.</p>
                 )}
               </div>
             )}

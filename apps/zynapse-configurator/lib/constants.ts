@@ -211,6 +211,13 @@ export interface ProjectResult {
   schema_pdf?: string | null;
   schema_monofilara_pdf?: string | null;
   schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string; page_format?: string }> | null;
+  // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
+  planuri?: Array<{
+    name: string; plansa_nr: string; pdf_base64: string;
+    description?: string; filename?: string; size_bytes?: number;
+    type?: string; panel?: string | null; expanded?: boolean;
+  }> | null;
+  has_planuri?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
   memoriu_filename?: string;
