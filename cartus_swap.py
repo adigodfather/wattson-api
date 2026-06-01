@@ -294,7 +294,7 @@ def swap_cartus_plan(data: dict) -> dict:
                  if w[0] >= tx0 and w[1] >= ty0 and w[3] <= cy0 + 2]
         tx1_mijloc = max((w[2] for w in banda), default=tx1)
         # plafoneaza ca sa NU atingi rama/chenarul planului din dreapta
-        tx1_mijloc = min(tx1_mijloc + 4.0, W * 0.95)
+        tx1_mijloc = min(tx1_mijloc + 4.0, W * 0.96)
         # a) STANGA: pana jos la H-2, doar pana la marginea stanga a cartusului (cx0-2)
         rs = (tx0, ty0, min(tx1, cx0 - 2.0), H - 2.0)
         # b) MIJLOC: de la marginea stanga a cartusului pana la tx1_mijloc, doar pana la cy0-2
