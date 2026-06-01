@@ -211,6 +211,10 @@ export interface ProjectResult {
   schema_pdf?: string | null;
   schema_monofilara_pdf?: string | null;
   schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string; page_format?: string }> | null;
+  // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
+  memoriu_docx_base64?: string | null;
+  memoriu_filename?: string;
+  memoriu_size_bytes?: number;
   // n8n response fields — parallel to FastAPI circuits_all / heating_circuits
   circuits?: Circuit[];
   power_summary?: {

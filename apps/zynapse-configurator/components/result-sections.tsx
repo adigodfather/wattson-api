@@ -135,6 +135,42 @@ export function MemoriuSection({ text }: { text: string }) {
   );
 }
 
+/* ─── Memoriu tehnic (.docx) download button ─── */
+export function MemoriuDocxButton({ base64Docx, label = "Descarcă Memoriu tehnic (.docx)", fileName = "Memoriu_Tehnic.docx" }: { base64Docx: string; label?: string; fileName?: string }) {
+  const handleDownload = () => {
+    const raw = base64Docx.includes(",") ? base64Docx.split(",")[1] : base64Docx;
+    const byteStr = atob(raw);
+    const ab = new ArrayBuffer(byteStr.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+    const blob = new Blob([ab], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <button
+      onClick={handleDownload}
+      className="w-full py-2.5 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150 flex items-center justify-center gap-2"
+      style={{
+        background: "rgba(55,138,221,0.12)",
+        border: "1px solid rgba(55,138,221,0.28)",
+        color: "#60A5FA",
+      }}
+      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.22)")}
+      onMouseOut={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.12)")}
+    >
+      <span style={{ fontSize: 15 }}>⬇</span> {label}
+    </button>
+  );
+}
+
 /* ─── Schema monofilară download button ─── */
 export function SchemaDownloadButton({ base64Pdf, label = "Schemă monofilară PDF", fileName = "schema-monofilara.pdf" }: { base64Pdf: string; label?: string; fileName?: string }) {
   const handleDownload = () => {

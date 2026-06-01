@@ -11,7 +11,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase";
 import {
-  MetricCard, CircuitTable, RoomsList, MemoriuSection,
+  MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard,
 } from "@/components/result-sections";
 import CartusConfirmModal from "./CartusConfirmModal";
@@ -1400,6 +1400,18 @@ export function ZynapseConfigurator() {
             {/* ── Tab: Memoriu tehnic ── */}
             {activeTab === 'memoriu' && (
               <div>
+                {result!.memoriu_docx_base64 ? (
+                  <div className="mb-4">
+                    <MemoriuDocxButton
+                      base64Docx={result!.memoriu_docx_base64}
+                      fileName={result!.memoriu_filename || `Memoriu_Tehnic_${(result!.project_id || "proiect")}.docx`}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-center py-8" style={{ color: "#545870" }}>
+                    Memoriul tehnic nu a fost generat pentru acest proiect.
+                  </p>
+                )}
                 <MemoriuSection text={result!.memoriu_tehnic} />
                 <details className="mt-4">
                   <summary className="text-[11px] cursor-pointer select-none"
