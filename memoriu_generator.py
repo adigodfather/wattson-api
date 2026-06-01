@@ -79,6 +79,20 @@ def _set_table_fixed(table):
     tbl_pr.append(layout)
 
 
+def set_table_borders(table):
+    """Chenare negre vizibile pe toate laturile (tblBorders XML)."""
+    tbl_pr = table._tbl.tblPr
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement("w:{}".format(edge))
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), "8")        # ~1pt
+        el.set(qn("w:space"), "0")
+        el.set(qn("w:color"), "000000")
+        borders.append(el)
+    tbl_pr.append(borders)
+
+
 def _blank(doc, n=1):
     for _ in range(n):
         doc.add_paragraph()
@@ -146,6 +160,7 @@ def _add_info_table(doc, rows, bg=CELL_BG_GREY):
         p_right = c_right.paragraphs[0]
         _set_run_font(p_right.add_run(value), size=11, bold=True)
 
+    set_table_borders(table)  # chenare vizibile (coperta + fisa proiectului)
     return table
 
 
@@ -454,15 +469,28 @@ def _page_memoriu(doc, cp, cf):
         else:
             _add_para(doc, text)
 
-    # Semnatura finala (dinamic din cartus_firma), aliniata dreapta
+    # Semnatura finala in tabel cu chenar (dinamic din cartus_firma), centrat
     doc.add_paragraph()
-    _add_para(
-        doc,
-        "Proiectant de specialitate: {}".format(cf.get("firma_nume", "")),
-        align=WD_ALIGN_PARAGRAPH.RIGHT,
-    )
-    _add_para(doc, cf.get("proiectant_nume", ""),
-              align=WD_ALIGN_PARAGRAPH.RIGHT)
+    sig_left_w = Cm(4.5)
+    sig_right_w = Cm(4.0)
+    sig_rows = [
+        ("PROIECTANT DE SPECIALITATE", cf.get("firma_nume", "")),
+        ("ÎNTOCMIT", cf.get("proiectant_nume", "")),
+    ]
+    sig = doc.add_table(rows=0, cols=2)
+    sig.alignment = WD_TABLE_ALIGNMENT.CENTER
+    sig.allow_autofit = False
+    _set_table_fixed(sig)
+    for col, w in zip(sig.columns, (sig_left_w, sig_right_w)):
+        col.width = w
+    for label, value in sig_rows:
+        cells = sig.add_row().cells
+        c_left, c_right = cells[0], cells[1]
+        c_left.width = sig_left_w
+        c_right.width = sig_right_w
+        _set_run_font(c_left.paragraphs[0].add_run(label), size=11, bold=True)
+        _set_run_font(c_right.paragraphs[0].add_run(value), size=11, bold=False)
+    set_table_borders(sig)  # chenar vizibil pe tabelul de semnatura
 
 
 # =============================================================================
