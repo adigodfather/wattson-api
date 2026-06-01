@@ -275,13 +275,30 @@ def swap_cartus_plan(data: dict) -> dict:
     # 5. Acoperire cartus vechi cu alb opac
     page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
 
-    # 5b. Acoperire tabele arhitect DEASUPRA cartusului (bilant teritorial, suprafete,
+    # 5b. Acoperire tabele arhitect in forma de L (bilant teritorial, suprafete,
     # retrageri, categorii pericol) — face loc legendelor electrice. Inainte de desenarea
-    # cartusului Zynapse, dupa detectarea cartus_bbox. ty1 plafonat la cy0-2 (cartusul
-    # ramane intact), ty0 = prima ancora (cotele/axele de sus raman intacte).
+    # cartusului Zynapse, dupa detectarea cartus_bbox.
+    #   - STANGA (x < cartus): acopera de la ty0 pana JOS (H) — acolo nu e cartus.
+    #   - MIJLOC/DEASUPRA cartus: acopera de la ty0 doar pana la cy0-2 (cartus intact).
+    # ty0 = prima ancora (cotele/axele de sus raman intacte).
     tables_bbox = _detect_tables_bbox(page, W, H, bbox.y0)
+    tables_bbox_stanga = None
+    tables_bbox_mijloc = None
     if tables_bbox is not None:
-        page.draw_rect(tables_bbox, color=(1, 1, 1), fill=(1, 1, 1))
+        cx0, cy0 = bbox.x0, bbox.y0
+        tx0, ty0, tx1 = tables_bbox.x0, tables_bbox.y0, tables_bbox.x1
+        # a) STANGA: pana jos la H-2, doar pana la marginea stanga a cartusului (cx0-2)
+        rs = (tx0, ty0, min(tx1, cx0 - 2.0), H - 2.0)
+        # b) MIJLOC: de la marginea stanga a cartusului pana la tx1, doar pana la cy0-2
+        rm = (max(tx0, cx0 - 2.0), ty0, tx1, cy0 - 2.0)
+        if rs[0] < rs[2] and rs[1] < rs[3]:
+            page.draw_rect(fitz.Rect(*rs), color=(1, 1, 1), fill=(1, 1, 1))
+            tables_bbox_stanga = [round(rs[0], 1), round(rs[1], 1),
+                                  round(rs[2], 1), round(rs[3], 1)]
+        if rm[0] < rm[2] and rm[1] < rm[3]:
+            page.draw_rect(fitz.Rect(*rm), color=(1, 1, 1), fill=(1, 1, 1))
+            tables_bbox_mijloc = [round(rm[0], 1), round(rm[1], 1),
+                                  round(rm[2], 1), round(rm[3], 1)]
 
     # 6. Cartus nou (acelasi bbox, scara detectata)
     _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
@@ -303,5 +320,7 @@ def swap_cartus_plan(data: dict) -> dict:
             "tables_bbox": ([round(tables_bbox.x0, 1), round(tables_bbox.y0, 1),
                              round(tables_bbox.x1, 1), round(tables_bbox.y1, 1)]
                             if tables_bbox is not None else None),
+            "tables_bbox_stanga": tables_bbox_stanga,
+            "tables_bbox_mijloc": tables_bbox_mijloc,
         },
     }
