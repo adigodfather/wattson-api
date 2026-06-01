@@ -786,7 +786,7 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
         _bus_y = BUS_Y_TOP + 2 * BUS_LINE_SPACING   # T -> 44
     else:
         _bus_y = BUS_Y_TOP
-    draw_line(c, cx_mm, _bus_y, cx_mm, MCB_Y_TOP, width=0.4, color=phase_color(circuit.fasa))
+    draw_line(c, cx_mm, _bus_y, cx_mm, MCB_Y_TOP, width=0.4)
 
     # Box MCB — pe schema afisam fara prefixul "MCB " (ramane "1P+N 16A C").
     # Tabelul de jos pastreaza formatul complet "MCB 1P+N 16A C" (neschimbat).
@@ -864,7 +864,8 @@ def draw_schema_full(c, width_mm: float, request, page_circuits,
     draw_bus_bars(c, bus_start, bus_end, request.racord)
 
     # RCCB brackets (opționale, deasupra grupelor)
-    draw_rccb_brackets(c, page_circuits, columns_x, request.rccb_groups)
+    # draw_rccb_brackets dezactivat — eliminat la cererea utilizatorului (B.4)
+    # draw_rccb_brackets(c, page_circuits, columns_x, request.rccb_groups)
 
     # Puncte de conexiune la bus
     for i, x in enumerate(columns_x):
