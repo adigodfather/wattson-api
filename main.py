@@ -9,6 +9,7 @@ from schema_generator import (
     build_sample_request,
 )
 from memoriu_generator import build_memoriu_docx
+from cartus_swap import swap_cartus_plan
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
@@ -3165,6 +3166,47 @@ def generate_memoriu(request: GenerateMemoriuRequest):
             "filename": f"Memoriu_Tehnic_{safe_numar}.docx",
             "size_bytes": len(docx_bytes),
         }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# -------------------------------------------------
+#  SWAP CARTUS PLAN (.pdf overlay)  —  POST /swap-cartus-plan
+# -------------------------------------------------
+
+class SwapCartusFirma(BaseModel):
+    firma_nume: str = ""
+    firma_reg_com: str = ""
+    firma_cui: str = ""
+    firma_tel: str = ""
+    firma_email: str = ""
+    firma_logo_url: str = ""
+    sef_proiect: str = ""
+    proiectant_nume: str = ""
+
+
+class SwapCartusProiect(BaseModel):
+    beneficiar: str = ""
+    titlu_proiect: str = ""
+    amplasament: str = ""
+    numar_proiect: str = ""
+    faza: str = ""
+
+
+class SwapCartusRequest(BaseModel):
+    pdf_base64: str = ""
+    cartus_firma: SwapCartusFirma = SwapCartusFirma()
+    cartus_proiect: SwapCartusProiect = SwapCartusProiect()
+    plansa_nr: str = ""
+    plansa_titlu: str = ""
+
+
+@app.post("/swap-cartus-plan")
+def swap_cartus_plan_endpoint(request: SwapCartusRequest):
+    """Detecteaza cartusul arhitectului pe planul PDF si il inlocuieste cu cartusul
+    firmei (overlay vectorial, format + scara pastrate). Erori cu status 200 (n8n)."""
+    try:
+        return swap_cartus_plan(request.model_dump())
     except Exception as e:
         return {"success": False, "error": str(e)}
 
