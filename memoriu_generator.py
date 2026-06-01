@@ -111,6 +111,15 @@ def _add_label_value(doc, label, value="", size=11):
     return p
 
 
+def _add_para(doc, text, size=11, bold=False, align=None):
+    """Paragraf normal (optional aliniere)."""
+    p = doc.add_paragraph()
+    if align is not None:
+        p.alignment = align
+    _set_run_font(p.add_run(text), size=size, bold=bold)
+    return p
+
+
 def _add_info_table(doc, rows, bg=CELL_BG_GREY):
     """Tabel 2 coloane centrat: stanga gri+bold (eticheta), dreapta bold (valoare).
     Seteaza atat latimea coloanelor cat si a fiecarei celule (python-docx capricios).
@@ -293,7 +302,133 @@ def _page_borderou(doc, planse):
     doc.add_page_break()
 
 
-def _page_memoriu(doc, cp):
+# =============================================================================
+# TEXT FIX MEMORIU — sectiuni tehnice (verbatim, diacritice pastrate exact)
+# Tuple: (kind, text); kind in {"h1","h2","p","li"}
+# =============================================================================
+_MEMORIU_BLOCKS = [
+    ("h2", "SITUAȚIA PROPUSĂ"),
+    ("p", "Înaintea începerii lucrărilor se va obţine, prin grija beneficiarului, avizul tehnic de racordare la reţeaua furnizorului, aviz care condiţionează începerea lucrărilor de instalaţii electrice."),
+    ("p", "Soluţia de branşare şi amplasarea echipamentului de măsurare a energiei electrice se va realiza în baza unui proiect tehnic elaborat conform fişei de soluţie emisă de S.D.E.E. competentă, comandat de beneficiarul lucrării."),
+    ("p", "Clădirea se va alimenta cu energie electrică de la un bloc de măsură şi protecţie trifazic (BMPT) propus, amplasat la limita de proprietate. De aici se va alimenta tabloul TEG prin cablu CYABY-F 5x6 mmp. Cablul de alimentare a acestuia se va poza îngropat sub tencuială, protejat în tuburi IPEY."),
+    ("p", "Se propune un tablou electric general montat la intrarea în locuinţă, din care se vor alimenta circuite de iluminat normal LED şi circuite de prize. Referitor la instalaţia de iluminat, corpurile de iluminat trebuie să fie în mod obligatoriu cu sursă LED pentru reducerea consumului de energie."),
+
+    ("h2", "2. SOLUȚII TEHNICE"),
+
+    ("h2", "2.1. Alimentarea cu energie electrică"),
+    ("p", "Pentru diminuarea riscului de incendiu, conform art. 4.2.2.8 din I7-2011 în BMPT se va monta un dispozitiv de protecţie la curent diferenţial rezidual (DDR) cu curentul nominal de funcţionare de 300 mA. Toţi consumatorii sunt alimentaţi la tensiunea 400/230V, 50Hz."),
+    ("p", "Se propune dotarea obiectivului cu un branşament trifazic, prin intermediul unui BMPT. Alimentarea cu energie electrică se face de la un bloc de măsură protecţie BMPT propus. De aici se alimentează tabloul electric general TEG, printr-un cablu CYABY-F 5x6 mmp."),
+    ("p", "Din tabloul electric general se vor alimenta următoarele:"),
+    ("li", "Circuite de iluminat normal"),
+    ("li", "Circuite de prize"),
+    ("li", "Circuit alimentare cuptor"),
+    ("li", "Circuite curenţi slabi"),
+    ("li", "Circuit alimentare distribuitor"),
+    ("li", "Tablou electric cameră tehnică"),
+    ("p", "Puterile instalate, absorbite şi curenţii absorbiţi pentru fiecare tablou sunt prezentate în schemele monofilare anexate (planşele IE)."),
+
+    ("h2", "2.3. Priza de pământ"),
+    ("p", "La prezenta clădire priza de pământ se realizează odată cu fundaţia, cu platbandă de OL-ZN 40x4 mm, dispusă pe conturul fundaţiei, înglobată direct în betonul fundaţiei clădirii, astfel încât să fie învelită cu un strat de beton de cel puţin 3 cm. Asigurarea continuităţii electrice pentru legături se face prin îmbinări sudate de bună calitate."),
+
+    ("h2", "2.4. Instalaţiile de protecţie împotriva trăsnetului"),
+    ("p", "Conform I7/2011 Cap.6, Punctul 6.2.2.6, pentru construcţia studiată nu este nevoie de instalaţie IPT. În cazul în care beneficiarul doreşte să monteze instalaţie IPT, ca măsură compensatorie, se va interveni asupra sa prin intermediul unui alt proiect."),
+
+    ("h2", "2.5. Distribuţia energiei electrice"),
+    ("p", "Pentru realizarea instalaţiei electrice la consumatori se utilizează o schemă de distribuţie combinată trifazată / monofazată cu 5 respectiv 3 conductoare. Circuitele sunt protejate la suprasarcină şi scurtcircuit prin întreruptoare automate cu declanşatoare magneto-termice şi împotriva curenţilor de defect prin dispozitive diferenţiale."),
+    ("p", "Tuburile de protecţie se amplasează faţă de conductele altor instalaţii şi faţă de elementele de construcţie, respectându-se distanţele minime I7-2011. La contactul cu materiale combustibile conductoarele electrice se vor poza în tuburi sau plinte metalice sau din materiale plastice omologate pentru montare pe materiale combustibile."),
+
+    ("h2", "2.6. Instalaţia de prize și forţă"),
+    ("p", "Toate circuitele de prize trebuie să aibă protecţie diferenţială de mare sensibilitate, 30mA, DDR, pentru a asigura o protecţie suplimentară la curenţii de defect. Caracteristicile aparaturii de protecţie de pe coloanele respective sunt cuprinse în schema monofilară generală."),
+    ("p", "Distribuţia circuitelor propuse se realizează cu cabluri tip CYY-F pozate aparent în paturi de cabluri şi/sau îngropat în tuburi de protecţie din IPEY-18-ST pentru circuitele de forţă, respectiv IPEY-16-ST pentru circuitele de iluminat."),
+    ("p", "Conform art. 5.4.29 din Normativul I7-2011, prizele din încăperile în care au acces copii vor fi de tip special (cu obturatori) şi prevăzute cu dispozitive de protecţie diferenţială ≤ 30 mA."),
+    ("p", "De menţionat că tablourile electrice vor fi de tip modular, prevăzute cu unul sau mai multe rânduri de module, fixate pe şine DIN 35 mm şi vor fi comandate de către beneficiar, pentru execuţie, testare şi montare unei firme de specialitate, pe baza documentaţiei din proiect."),
+
+    ("h2", "2.7. Instalaţii de iluminat"),
+    ("p", "Se vor realiza următoarele nivele de iluminare în stare normală, conform NP-061:"),
+    ("li", "Camere: 500 lx;"),
+    ("li", "Depozite, holuri, zone de circulaţie, coridoare: 100-200 lx;"),
+    ("li", "Grupuri sanitare, toalete: 200 lx."),
+    ("p", "Toate corpurile de iluminat vor fi cu sursă LED pentru reducerea consumului de energie. Tipul şi puterea corpurilor de iluminat se vor alege conform destinaţiei fiecărei încăperi şi nivelelor de iluminare normate."),
+
+    ("h2", "2.8. PROTECȚIA ÎMPOTRIVA ȘOCURILOR ELECTRICE"),
+    ("p", "S-au aplicat măsuri pentru protecţia utilizatorilor împotriva şocurilor electrice datorate atingerilor directe şi indirecte."),
+    ("p", "Protecţia împotriva atingerilor directe se asigură prin utilizarea echipamentelor corespunzătoare categoriei de influenţe externe, conductoare izolate, tuburi de protecţie electroizolante, carcase, tablouri de distribuţie cu părţi active izolate. Se vor realiza legături de echipotenţializare cf. I7-2011."),
+    ("p", "Schema de legare la pământ este TN-S. Toate masele instalaţiei electrice sunt legate prin conductoare de protecţie la neutrul alimentării legat la pământ (PE)."),
+    ("p", "Protecţia împotriva atingerilor indirecte prin întreruperea automată a alimentării se realizează cu dispozitive de protecţie împotriva supracurenţilor. S-a respectat lungimea maximă a buclei de defect. Se prevăd dispozitive de protecţie la curent diferenţial rezidual."),
+
+    ("h2", "SĂNĂTATEA ȘI SECURITATEA MUNCII ÎN TIMPUL EXECUȚIEI"),
+    ("p", "Se vor respecta şi aplica toate prevederile de securitate şi sănătate în muncă în vigoare, în scopul asigurării condiţiilor normale de muncă şi evitării accidentelor."),
+    ("p", "Coordonarea în materie de securitate şi sănătate trebuie să fie organizată atât în faza de studiu, concepţie şi elaborare a proiectului, cât şi pe perioada executării lucrărilor. Beneficiarul lucrării sau managerul de proiect trebuie să asigure realizarea planului de securitate şi sănătate în muncă care transpune Directiva 89/391/CEE. Pe toată durata realizării lucrării, angajatorul şi lucrătorii independenţi trebuie să respecte obligaţiile generale care le revin în conformitate cu prevederile din legislaţia naţională."),
+    ("p", "Cerinţe minime specifice pentru instalaţii electrice:"),
+    ("li", "legarea obligatorie la pământ a aparatelor, echipamentelor şi utilajelor care se pot afla în mod accidental sub tensiune;"),
+    ("li", "la montajul, punerea în funcţiune, exploatarea şi întreţinerea instalaţiei care face obiectul prezentului proiect se vor respecta normele de tehnica securităţii muncii specifice lucrărilor care se vor executa;"),
+    ("li", "alimentarea cu energie electrică a sculelor, echipamentelor şi utilajelor se va face numai de la prize cu contact de protecţie sau tablouri electrice legate la instalaţia de împământare;"),
+    ("li", "pentru lucrul la înălţimi mai mari de 2,5m se vor utiliza platforme montate rigid, schele metalice şi centuri de siguranţă;"),
+    ("li", "la fiecare loc de muncă vor fi afişate mijloace de avertizare vizuală;"),
+    ("li", "dispozitive de protecţie cu chei speciale vor fi montate la uşile tablourilor electrice şi se vor prevedea plăcuţe avertizoare şi alte mijloace pentru interzicerea accesului neautorizat la circuitele electrice;"),
+    ("li", "obiectivele proiectate nu se vor pune în funcţiune, parţial sau total, nici măcar pe timp limitat, înainte de asigurarea tuturor măsurilor de tehnica securităţii muncii."),
+
+    ("h2", "SECURITATEA LA INCENDIU ÎN TIMPUL EXECUȚIEI"),
+    ("p", "Normele generale de prevenire şi stingere a incendiilor stabilesc principiile, criteriile de performanţă, cerinţele şi condiţiile tehnice privind siguranţa la foc pentru construcţii, instalaţii şi alte amenajări. Normele generale se aplică la proiectarea, executarea şi exploatarea construcţiilor, instalaţiilor şi a altor amenajări, în raport cu faza de realizare în care se află şi indiferent de titularul dreptului de proprietate."),
+    ("p", "Cerinţe minime generale specifice instalaţiilor electrice:"),
+    ("li", "în caz de incendiu la instalaţiile electrice, înainte de a se acţiona pentru stingerea acestora, se vor scoate de sub tensiune instalaţiile electrice afectate şi cele periclitate;"),
+    ("li", "la instalaţiile electrice interioare, pentru stingerea incendiilor se vor folosi numai stingătoare cu praf şi bioxid de carbon;"),
+    ("li", "se va asigura verificarea instalaţiilor electrice înainte de punerea sub tensiune;"),
+    ("li", "se va asigura utilizarea numai a aparatelor şi echipamentelor electrice aflate în bună stare;"),
+    ("li", "se va asigura menţinerea în bună stare a sistemelor de protecţie aferente;"),
+    ("li", "se va asigura executarea reparaţiilor, reviziilor şi întreţinerii numai de către personal autorizat;"),
+    ("li", "se va asigura preîntâmpinarea acţiunii rozătoarelor asupra învelişului de protecţie din PVC al cablurilor electrice."),
+    ("p", "Beneficiarul va lua măsuri ca dotările cu mijloace PSI şi instalaţiile de prevenire şi stingere a incendiilor să fie în perfectă stare de funcţionare."),
+
+    ("h2", "MĂSURI DE PROTECŢIA MUNCII"),
+    ("p", "În vederea evitării producerii accidentelor de muncă şi eliminarea pericolelor de electrocutare a personalului în timpul execuţiei şi exploatării instalaţiilor electrice, prin prezentul proiect se prevăd măsuri de protecţia muncii, dintre care cele mai importante sunt:"),
+    ("li", "alegerea corespunzătoare a aparatajului în funcţie de mediu şi riscul de incendiu în care acesta funcţionează;"),
+    ("li", "amplasarea accesibilă a echipamentelor în vederea unei întreţineri uşoare;"),
+    ("li", "prevederea prin proiect a instalaţiei de legare la pământ pentru protecţia împotriva şocurilor electrice;"),
+    ("li", "pentru protecţia împotriva atingerilor indirecte, toate elementele metalice ale echipamentelor electrice care în mod normal nu sunt sub tensiune vor fi legate la instalaţia de legare la pământ;"),
+    ("li", "dispozitive de protecţie la curent diferenţial rezidual conform paragrafului 2.8."),
+    ("p", "Se va acorda o atenţie deosebită următoarelor norme: Legea securităţii şi sănătăţii în muncă nr. 319/2006, Normele metodologice de aplicare aprobate prin HG nr. 1425/2006. Toate lucrările de montaj ale instalaţiilor electrice se vor executa numai de muncitori care au calificarea corespunzătoare şi instructajul de protecţia muncii pentru locul de muncă respectiv."),
+
+    ("h2", "PREVEDERI FINALE"),
+    ("p", "Proiectul de instalaţii electrice se verifică de verificator de proiecte atestat conform Legii 10/1995. Beneficiarul va lua toate măsurile necesare respectării prevederilor Legii 10/1995 şi completărilor ulterioare."),
+    ("p", "Lucrările vor fi încredinţate spre executare unor firme specializate şi atestate pentru categoriile respective de lucrări."),
+    ("p", "Orice modificare intervenită pe parcursul realizării lucrării la execuţie va fi adusă la cunoştinţa proiectantului pentru stabilirea soluţiilor în conformitate cu normativele în vigoare. Efectuarea unor modificări fără avizul proiectantului poate să-l absolve pe acesta de răspunderea faţă de eventualele consecinţe."),
+
+    ("h1", "IV. CERINȚE DE CALITATE ȘI CRITERII DE PERFORMANȚĂ"),
+    ("p", "Această exigenţă se apreciază prin:"),
+    ("li", "rezistenţa mecanică a elementelor instalaţiei electrice la eforturile exercitate în timpul utilizării;"),
+    ("li", "numărul minim de manevre mecanice asupra aparatelor electrice şi asupra corpurilor de iluminat care nu produc deteriorări şi uzură;"),
+    ("li", "rezistenţa materialelor, aparatelor şi echipamentelor electrice la condiţii maxime de utilizare;"),
+    ("li", "adaptarea măsurilor de protecţie antiseismică;"),
+    ("li", "limitarea transmiterii vibraţiilor produse de utilaje şi echipamente electrice susceptibile să intre în rezonanţă."),
+
+    ("h2", "Securitate la incendiu"),
+    ("p", "Această exigenţă se apreciază prin:"),
+    ("li", "adaptarea instalaţiei electrice la gradul de rezistenţă la foc a elementelor de construcţie;"),
+    ("li", "încadrarea instalaţiei electrice în categoriile privind pericolul de incendiu respectiv pericolul de explozie;"),
+    ("li", "precizarea nivelului de combustibilitate a componentelor instalaţiei electrice;"),
+    ("li", "precizarea limitei de rezistenţă la foc a elementelor de construcţie străpunse de instalaţie."),
+    ("p", "Conform normativelor şi standardelor în vigoare se evită montarea instalaţiei electrice pe elemente de construcţie din materiale combustibile. Dacă acest lucru nu este posibil se iau măsuri de protecţie a porţiunii de instalaţie expusă la pericolul de incendiu."),
+
+    ("h2", "Siguranţă în exploatare"),
+    ("p", "Această exigenţă se apreciază prin:"),
+    ("li", "protecţia utilizatorului împotriva şocurilor electrice prin atingere directă sau indirectă;"),
+    ("li", "securitatea instalaţiei electrice la funcţionare în regim anormal (protecţie la suprasarcină, scurtcircuit, scădere de tensiune);"),
+    ("li", "limitarea temperaturii exterioare a suprafeţelor accesibile ale echipamentelor electrice;"),
+    ("li", "limitarea riscului de rănire prin contact cu părţile în mişcare ale utilajelor şi echipamentelor."),
+
+    ("h2", "Protecţia împotriva zgomotului"),
+    ("p", "Această exigenţă se apreciază prin asigurarea confortului acustic în încăperi dotate cu instalaţii electrice ce pot emite zgomote pe perioade scurte de timp, nivelul admis pentru zgomotul emis de instalaţiile electrice din spaţiile tehnice, şi măsurile de limitare a zgomotului în cazul echipamentelor electromagnetice."),
+
+    ("h2", "Igienă, sănătate şi mediu"),
+    ("p", "Această exigenţă se apreciază prin evitarea riscului de producere sau favorizare a dezvoltării de substanţe nocive sau insalubre şi limitarea producerii de descărcări electrice care favorizează apariţia şi propagarea incendiului."),
+
+    ("h2", "Economia de energie şi izolare termică"),
+    ("p", "Această exigenţă se apreciază prin asigurarea unor consumuri optime de energie electrică, asigurarea unor pierderi minime admise de tensiune, încadrarea consumului de energie activă şi reactivă în limitele admise, şi adoptarea soluţiilor de execuţie care au o valoare minimă a energiei înglobate."),
+]
+
+
+def _page_memoriu(doc, cp, cf):
     _add_heading(doc, "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE", level=1)
     _add_heading(doc, "1. DATE GENERALE", level=2)
 
@@ -308,10 +443,26 @@ def _page_memoriu(doc, cp):
         "mai sus.",
     )
 
-    # TODO: text fix memoriu — se inlocuieste [TEXT_FIX_MEMORIU_AICI]
-    # cu textul complet al sectiunilor tehnice (mesajul urmator).
-    _set_run_font(doc.add_paragraph().add_run("[TEXT_FIX_MEMORIU_AICI]"),
-                  size=11, bold=False)
+    # Text fix sectiuni tehnice — kind in {"h1","h2","p","li"}
+    for kind, text in _MEMORIU_BLOCKS:
+        if kind == "h1":
+            _add_heading(doc, text, level=1)
+        elif kind == "h2":
+            _add_heading(doc, text, level=2)
+        elif kind == "li":
+            _add_para(doc, "- " + text)
+        else:
+            _add_para(doc, text)
+
+    # Semnatura finala (dinamic din cartus_firma), aliniata dreapta
+    doc.add_paragraph()
+    _add_para(
+        doc,
+        "Proiectant de specialitate: {}".format(cf.get("firma_nume", "")),
+        align=WD_ALIGN_PARAGRAPH.RIGHT,
+    )
+    _add_para(doc, cf.get("proiectant_nume", ""),
+              align=WD_ALIGN_PARAGRAPH.RIGHT)
 
 
 # =============================================================================
@@ -329,7 +480,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_coperta(doc, cp, cf)
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse)
-    _page_memoriu(doc, cp)
+    _page_memoriu(doc, cp, cf)
 
     buf = io.BytesIO()
     doc.save(buf)
