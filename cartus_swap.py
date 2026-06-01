@@ -287,10 +287,18 @@ def swap_cartus_plan(data: dict) -> dict:
     if tables_bbox is not None:
         cx0, cy0 = bbox.x0, bbox.y0
         tx0, ty0, tx1 = tables_bbox.x0, tables_bbox.y0, tables_bbox.x1
+        # Marginea dreapta a zonei MIJLOC = include TOATE cuvintele din banda tabelelor
+        # (nu doar ancorele) — prinde valorile izolate din extrema dreapta (C/3/IV/D,
+        # "sau"/"cu"/"de" etc.) care altfel raman ca o coada vizibila deasupra cartusului.
+        banda = [w for w in page.get_text("words")
+                 if w[0] >= tx0 and w[1] >= ty0 and w[3] <= cy0 + 2]
+        tx1_mijloc = max((w[2] for w in banda), default=tx1)
+        # plafoneaza ca sa NU atingi rama/chenarul planului din dreapta
+        tx1_mijloc = min(tx1_mijloc + 4.0, W * 0.95)
         # a) STANGA: pana jos la H-2, doar pana la marginea stanga a cartusului (cx0-2)
         rs = (tx0, ty0, min(tx1, cx0 - 2.0), H - 2.0)
-        # b) MIJLOC: de la marginea stanga a cartusului pana la tx1, doar pana la cy0-2
-        rm = (max(tx0, cx0 - 2.0), ty0, tx1, cy0 - 2.0)
+        # b) MIJLOC: de la marginea stanga a cartusului pana la tx1_mijloc, doar pana la cy0-2
+        rm = (max(tx0, cx0 - 2.0), ty0, tx1_mijloc, cy0 - 2.0)
         if rs[0] < rs[2] and rs[1] < rs[3]:
             page.draw_rect(fitz.Rect(*rs), color=(1, 1, 1), fill=(1, 1, 1))
             tables_bbox_stanga = [round(rs[0], 1), round(rs[1], 1),
