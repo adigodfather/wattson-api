@@ -38,6 +38,16 @@ ANCORE = [
     "faza", "proiect nr", "proiectant",
 ]
 
+# Ancore tabele arhitect (bilant teritorial, suprafete, retrageri, categorii pericol) —
+# comparate normalizat (fara diacritice). Tokenii multi-cuvant sunt inofensivi (nu prind
+# cuvinte simple); detectia se sprijina pe tokenii simpli.
+TABLE_ANCORE = [
+    "bilant", "teritorial", "urbanistici", "teren", "p.o.t", "c.u.t",
+    "alei", "pavate", "spatii verzi", "retragere", "categoria", "gradul",
+    "rezistenta", "clasa importanta", "categoria de importanta",
+    "suprafata construita", "suprafata utila", "locuibila", "desfasurata",
+]
+
 _DIACR = {
     "ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t",
     "Ă": "a", "Â": "a", "Î": "i", "Ș": "s", "Ş": "s", "Ț": "t", "Ţ": "t",
@@ -94,6 +104,40 @@ def _detect_cartus_bbox(page, W: float, H: float):
         min(W, bx1 + m), min(H, by1 + m),
     )
     return bbox, len(hits)
+
+
+def _detect_tables_bbox(page, W: float, H: float, cy0: float):
+    """Bbox al tabelelor arhitectului DEASUPRA cartusului (>=4 ancore de tabel).
+    Returneaza fitz.Rect sau None. Plafonat strict la cy0-2 (nu atinge cartusul Zynapse);
+    ty0 = limita primei ancore (nu urca peste cote/axe)."""
+    words = page.get_text("words")
+    hits = []
+    for w in words:
+        x0, y0, x1, y1 = w[0], w[1], w[2], w[3]
+        # In jumatatea de jos, dar STRICT deasupra cartusului
+        if not (y0 > 0.55 * H and y1 <= cy0 + 5):
+            continue
+        tl = _norm(w[4])
+        if any(a in tl for a in TABLE_ANCORE):
+            hits.append((x0, y0, x1, y1))
+
+    if len(hits) < 4:
+        return None
+
+    tx0 = min(h[0] for h in hits)
+    ty0 = min(h[1] for h in hits)            # limita primei ancore — NU urca mai sus
+    tx1 = max(h[2] for h in hits)
+    ty1 = min(max(h[3] for h in hits), cy0 - 2)  # plafonat strict sub cartus
+
+    m = 4.0  # margine mica laterala/jos (ty0 ramane fix; ty1 ramane plafonat)
+    tx0 = max(0.0, tx0 - m)
+    tx1 = min(W, tx1 + m)
+    ty1 = min(ty1 + m, cy0 - 2)
+
+    rect = fitz.Rect(tx0, ty0, tx1, ty1)
+    if rect.width <= 0 or rect.height <= 0:
+        return None
+    return rect
 
 
 def _line(page, x, y_base, text, size, bold=False, max_w=None):
@@ -228,8 +272,17 @@ def swap_cartus_plan(data: dict) -> dict:
             "detected": {"format": fmt, "scara": scara, "cartus_bbox": None},
         }
 
-    # 5. Acoperire cu alb opac
+    # 5. Acoperire cartus vechi cu alb opac
     page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
+
+    # 5b. Acoperire tabele arhitect DEASUPRA cartusului (bilant teritorial, suprafete,
+    # retrageri, categorii pericol) — face loc legendelor electrice. Inainte de desenarea
+    # cartusului Zynapse, dupa detectarea cartus_bbox. ty1 plafonat la cy0-2 (cartusul
+    # ramane intact), ty0 = prima ancora (cotele/axele de sus raman intacte).
+    tables_bbox = _detect_tables_bbox(page, W, H, bbox.y0)
+    if tables_bbox is not None:
+        page.draw_rect(tables_bbox, color=(1, 1, 1), fill=(1, 1, 1))
+
     # 6. Cartus nou (acelasi bbox, scara detectata)
     _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
 
@@ -247,5 +300,8 @@ def swap_cartus_plan(data: dict) -> dict:
             "scara": scara,
             "cartus_bbox": [round(bbox.x0, 1), round(bbox.y0, 1),
                             round(bbox.x1, 1), round(bbox.y1, 1)],
+            "tables_bbox": ([round(tables_bbox.x0, 1), round(tables_bbox.y0, 1),
+                             round(tables_bbox.x1, 1), round(tables_bbox.y1, 1)]
+                            if tables_bbox is not None else None),
         },
     }
