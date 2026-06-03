@@ -553,13 +553,16 @@ export function ZynapseConfigurator() {
     };
   }
 
-  function buildCartusProiect(): CartusProiect {
-    // Fallback data_proiect ca MM.YYYY (format cartuș) dacă userul nu a completat
+  function buildCartusProiect(override?: CartusProiect): CartusProiect {
+    // Fallback data_proiect ca MM.YYYY (format cartuș) dacă userul nu a completat.
+    // override = datele confirmate in modal (evita stale closure cand runBackend e
+    // apelat imediat dupa setCartusProiectInput, inainte ca state-ul sa se actualizeze).
     const now = new Date();
     const mmYyyy = `${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`;
+    const src = override ?? cartusProiectInput;
     return {
-      ...cartusProiectInput,
-      data_proiect: cartusProiectInput.data_proiect || mmYyyy,
+      ...src,
+      data_proiect: src.data_proiect || mmYyyy,
     };
   }
 
@@ -597,7 +600,9 @@ export function ZynapseConfigurator() {
   };
 
   // Epic 3.11: pas 2 — după confirmarea cartușului, rulează efectiv backend-ul.
-  const runBackend = async () => {
+  // cartusOverride = datele confirmate in modal, pasate direct (nu prin state) ca sa
+  // evite stale closure (setCartusProiectInput e asincron).
+  const runBackend = async (cartusOverride?: CartusProiect) => {
     if (status === "loading") return;
     setStatus("loading"); setError(null); setResult(null); setStepIndex(0);
 
@@ -689,7 +694,7 @@ export function ZynapseConfigurator() {
       }, null, 2));
 
       const cartus_firma = await fetchCartusFirma();
-      const cartus_proiect = buildCartusProiect();
+      const cartus_proiect = buildCartusProiect(cartusOverride);
 
       setStepIndex(2);
       const res = await fetch(WEBHOOK_URL, {
@@ -809,7 +814,7 @@ export function ZynapseConfigurator() {
           setCartusProiectInput(data);
           setCartusConfirmed(true);
           setShowCartusModal(false);
-          void runBackend();
+          void runBackend(data); // pasează datele EDITATE direct (evită stale closure)
         }}
         onCancel={() => setShowCartusModal(false)}
       />
