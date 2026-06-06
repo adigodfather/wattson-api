@@ -10,6 +10,7 @@ from schema_generator import (
 )
 from memoriu_generator import build_memoriu_docx
 from cartus_swap import swap_cartus_plan
+import draw_elements
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
@@ -3207,6 +3208,24 @@ def swap_cartus_plan_endpoint(request: SwapCartusRequest):
     firmei (overlay vectorial, format + scara pastrate). Erori cu status 200 (n8n)."""
     try:
         return swap_cartus_plan(request.model_dump())
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# -------------------------------------------------
+#  DRAW PLAN ELEMENTS (.pdf overlay)  —  POST /draw-plan-elements
+# -------------------------------------------------
+
+class DrawPlanElementsRequest(BaseModel):
+    pdf_base64: str = ""
+    plansa_nr: str = ""
+    plan_type: str = "iluminat"  # deocamdată doar iluminat (becuri)
+
+
+@app.post("/draw-plan-elements")
+def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
+    try:
+        return draw_elements.draw_plan_elements(request.model_dump())
     except Exception as e:
         return {"success": False, "error": str(e)}
 
