@@ -738,10 +738,7 @@ export function ZynapseConfigurator() {
           result_data: data,
           memoriu_text: data.memoriu_tehnic,
         });
-        await supabase
-          .from("profiles")
-          .update({ projects_used: projectsUsed + 1 })
-          .eq("id", user.id);
+        await supabase.rpc('increment_projects_used');
         await refreshProfile();
         setSaveMessage("Proiect salvat cu succes");
       }
