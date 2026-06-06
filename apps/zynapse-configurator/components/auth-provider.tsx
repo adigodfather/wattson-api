@@ -8,9 +8,9 @@ import { createClient } from "@/lib/supabase";
 export interface Profile {
   id: string;
   full_name: string | null;
-  avatar_url: string | null;
   projects_used: number;
   projects_limit: number;
+  credits_balance: number;
 }
 
 interface AuthContextValue {
@@ -39,14 +39,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, avatar_url, projects_used, projects_limit")
+      .select("id, full_name, projects_used, projects_limit, credits_balance")
       .eq("id", userId)
       .single();
     if (data) {
       setProfile({
-        ...data,
+        id: data.id,
+        full_name: data.full_name ?? null,
         projects_used: data.projects_used ?? 0,
         projects_limit: data.projects_limit ?? 3,
+        credits_balance: data.credits_balance ?? 0,
       });
     } else {
       setProfile(null);

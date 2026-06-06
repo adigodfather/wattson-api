@@ -434,7 +434,7 @@ function EquipmentCards({
 
 /* ─── Main configurator ─── */
 export function ZynapseConfigurator() {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, loading: authLoading, signOut, refreshProfile } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [status, setStatus] = useState("idle");
@@ -859,6 +859,13 @@ export function ZynapseConfigurator() {
             <>
               <span className="text-sm hidden sm:block" style={{ color: "#8B8FA8" }}>
                 {profile?.full_name || user.email}
+              </span>
+              <span
+                className="text-sm hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}
+                title="Credite disponibile">
+                <span aria-hidden="true">⚡</span>
+                {authLoading || !profile ? "— credite" : `${profile.credits_balance ?? 0} credite`}
               </span>
               <button onClick={signOut}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium font-[inherit] cursor-pointer transition-colors duration-150"
