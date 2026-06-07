@@ -437,6 +437,223 @@ function EquipmentCards({
   );
 }
 
+/* ─── Panou drept (b): cip de procesare finală (status === "loading") ─── */
+function CipProcesare() {
+  return (
+    <div className="flex flex-col items-center justify-center text-center min-h-[40vh] md:min-h-[480px]" style={{ padding: "0 24px" }}>
+      <div className="w-full" style={{ maxWidth: 420 }}>
+        <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+          <defs>
+            <filter id="zcGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="2.2" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .zc-gear{transform-box:fill-box;transform-origin:center;animation:zc-rot 6s linear infinite}
+            @keyframes zc-rot{to{transform:rotate(360deg)}}
+            .zc-pulse{transform-box:fill-box;transform-origin:center;animation:zc-pulse 4.4s ease-out infinite}
+            .zc-pulse.b{animation-delay:2.2s}
+            @keyframes zc-pulse{0%{transform:scale(.22);opacity:.5}70%{opacity:.12}100%{transform:scale(2.4);opacity:0}}
+            .zc-cur{stroke-dasharray:16 260;animation:zc-flow 3.6s linear infinite}
+            .zc-cur.d2{animation-delay:.9s}.zc-cur.d3{animation-delay:1.8s}.zc-cur.d4{animation-delay:2.7s}
+            @keyframes zc-flow{from{stroke-dashoffset:276}to{stroke-dashoffset:0}}
+            .zc-node{animation:zc-node 2.8s ease-in-out infinite}
+            @keyframes zc-node{0%,100%{opacity:.3}50%{opacity:1}}
+            @media (prefers-reduced-motion: reduce){
+              .zc-gear,.zc-cur,.zc-node{animation:none}
+              .zc-pulse{animation:none;opacity:0}
+            }
+          `}} />
+
+          {/* trasee PCB de fundal */}
+          <g stroke="#545870" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.55">
+            <path d="M160 78 V30" />
+            <path d="M192 110 H288" />
+            <path d="M160 142 V196" />
+            <path d="M128 110 H32" />
+            <path d="M140 78 V50 H56" />
+            <path d="M180 78 V50 H264" />
+            <path d="M180 142 V172 H264" />
+            <path d="M140 142 V172 H56" />
+            <path d="M192 96 H230 V64" />
+            <path d="M128 124 H90 V158" />
+          </g>
+
+          {/* noduri pulsatoare (decalat) */}
+          <g fill="#378ADD">
+            <circle className="zc-node" cx="160" cy="30" r="2.4" style={{ animationDelay: "0s" }} />
+            <circle className="zc-node" cx="288" cy="110" r="2.4" style={{ animationDelay: ".5s" }} />
+            <circle className="zc-node" cx="160" cy="196" r="2.4" style={{ animationDelay: "1s" }} />
+            <circle className="zc-node" cx="32" cy="110" r="2.4" style={{ animationDelay: "1.5s" }} />
+            <circle className="zc-node" cx="56" cy="50" r="2" style={{ animationDelay: ".8s" }} />
+            <circle className="zc-node" cx="264" cy="50" r="2" style={{ animationDelay: "1.3s" }} />
+            <circle className="zc-node" cx="264" cy="172" r="2" style={{ animationDelay: ".3s" }} />
+            <circle className="zc-node" cx="56" cy="172" r="2" style={{ animationDelay: "1.8s" }} />
+            <circle className="zc-node" cx="230" cy="64" r="2" style={{ animationDelay: "2.1s" }} />
+            <circle className="zc-node" cx="90" cy="158" r="2" style={{ animationDelay: ".6s" }} />
+          </g>
+
+          {/* curent care "curge" pe trasee cardinale */}
+          <g stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" fill="none" filter="url(#zcGlow)">
+            <path className="zc-cur" d="M160 78 V30" />
+            <path className="zc-cur d2" d="M192 110 H288" />
+            <path className="zc-cur d3" d="M160 142 V196" />
+            <path className="zc-cur d4" d="M128 110 H32" />
+          </g>
+
+          {/* puls radial din centru */}
+          <g fill="none" stroke="#378ADD" strokeWidth="1.1">
+            <circle className="zc-pulse" cx="160" cy="110" r="26" />
+            <circle className="zc-pulse b" cx="160" cy="110" r="26" />
+          </g>
+
+          {/* pini cip */}
+          <g fill="#378ADD" opacity="0.7">
+            <rect x="142" y="72.5" width="4" height="6" rx="1" />
+            <rect x="158" y="72.5" width="4" height="6" rx="1" />
+            <rect x="174" y="72.5" width="4" height="6" rx="1" />
+            <rect x="142" y="141.5" width="4" height="6" rx="1" />
+            <rect x="158" y="141.5" width="4" height="6" rx="1" />
+            <rect x="174" y="141.5" width="4" height="6" rx="1" />
+            <rect x="121.5" y="90" width="6" height="4" rx="1" />
+            <rect x="121.5" y="108" width="6" height="4" rx="1" />
+            <rect x="121.5" y="126" width="6" height="4" rx="1" />
+            <rect x="192.5" y="90" width="6" height="4" rx="1" />
+            <rect x="192.5" y="108" width="6" height="4" rx="1" />
+            <rect x="192.5" y="126" width="6" height="4" rx="1" />
+          </g>
+
+          {/* corp cip */}
+          <rect x="128" y="78" width="64" height="64" rx="11" fill="rgba(55,138,221,0.05)" stroke="#378ADD" strokeWidth="1.4" />
+
+          {/* angrenaj rotativ (focal) */}
+          <g className="zc-gear">
+            <circle cx="160" cy="110" r="15" fill="none" stroke="#5BB8F5" strokeWidth="5" strokeDasharray="4.5 5.4" filter="url(#zcGlow)" />
+            <circle cx="160" cy="110" r="9.5" fill="#0F1115" stroke="#378ADD" strokeWidth="1.4" />
+            <circle cx="160" cy="110" r="2.6" fill="#5BB8F5" />
+          </g>
+        </svg>
+      </div>
+      <h3 className="text-[15px] font-semibold m-0 mt-4" style={{ color: "#8B8FA8" }}>Se generează proiectul…</h3>
+      <p className="text-[12px] m-0 mt-1" style={{ color: "#3A3D50" }}>Calculăm circuitele și pregătim planșele</p>
+    </div>
+  );
+}
+
+/* ─── Panou drept (a): carusel flux (schelet — cadre placeholder) ─── */
+function FluxIconBox({ children, size = 76 }: { children: React.ReactNode; size?: number }) {
+  return (
+    <div className="rounded-2xl flex items-center justify-center shrink-0"
+      style={{ width: size, height: size, background: "rgba(55,138,221,0.07)", border: "1px solid rgba(55,138,221,0.14)" }}>
+      {children}
+    </div>
+  );
+}
+
+const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode }[] = [
+  {
+    n: 1, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
+    icon: (
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+        <path d="M12 15.5V5M8 9l4-4 4 4" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 19h14" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    n: 2, title: "Selectează datele", subtitle: "Tip clădire, regim, putere, echipamente",
+    icon: (
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+        <path d="M4 7h16M4 12h16M4 17h16" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="9" cy="7" r="2.4" fill="#0F1115" stroke="#5BB8F5" strokeWidth="1.6" />
+        <circle cx="15" cy="12" r="2.4" fill="#0F1115" stroke="#5BB8F5" strokeWidth="1.6" />
+        <circle cx="8" cy="17" r="2.4" fill="#0F1115" stroke="#5BB8F5" strokeWidth="1.6" />
+      </svg>
+    ),
+  },
+  {
+    n: 3, title: "Confirmă cartușul", subtitle: "Verifici datele extrase automat",
+    icon: (
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+        <rect x="4" y="3" width="16" height="18" rx="2.5" stroke="#378ADD" strokeWidth="1.6" />
+        <path d="M8 11.5l2.6 2.6L16 8.5" stroke="#5BB8F5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    n: 4, title: "Generează proiectul", subtitle: "Circuite, scheme, planșe, memoriu",
+    icon: (
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+];
+
+function CarouselFlux() {
+  const [idx, setIdx] = useState(0);
+  const [reduced, setReduced] = useState(false);
+
+  // Detectare prefers-reduced-motion (pur vizual, izolat de fluxul de generare)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Ciclare automată a cadrelor (oprită la reduced-motion); curățată la unmount
+  useEffect(() => {
+    if (reduced) return;
+    const id = setInterval(() => setIdx(i => (i + 1) % FLUX_FRAMES.length), 3500);
+    return () => clearInterval(id);
+  }, [reduced]);
+
+  // Reduced-motion: toate cadrele static, fără mișcare
+  if (reduced) {
+    return (
+      <div className="flex flex-col justify-center gap-3 min-h-[40vh] md:min-h-[480px]" style={{ padding: "8px 20px" }}>
+        {FLUX_FRAMES.map(f => (
+          <div key={f.n} className="flex items-center gap-3.5 text-left">
+            <FluxIconBox size={52}>{f.icon}</FluxIconBox>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: "#8B8FA8" }}>{f.n}. {f.title}</div>
+              <div className="text-[12px]" style={{ color: "#3A3D50" }}>{f.subtitle}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative min-h-[40vh] md:min-h-[480px]">
+      {FLUX_FRAMES.map((f, i) => (
+        <div key={f.n}
+          className="absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity ease-in-out"
+          style={{ opacity: i === idx ? 1 : 0, transitionDuration: "400ms", pointerEvents: i === idx ? "auto" : "none", padding: "0 28px" }}
+          aria-hidden={i === idx ? undefined : true}>
+          <FluxIconBox>{f.icon}</FluxIconBox>
+          <h3 className="text-[17px] font-semibold m-0 mt-5 mb-1.5" style={{ color: "#8B8FA8" }}>{f.n}. {f.title}</h3>
+          <p className="text-sm m-0 leading-relaxed" style={{ color: "#3A3D50", maxWidth: 300 }}>{f.subtitle}</p>
+        </div>
+      ))}
+      <div className="absolute left-0 right-0 flex justify-center gap-2" style={{ bottom: 18 }}>
+        {FLUX_FRAMES.map((f, i) => (
+          <span key={f.n} className="rounded-full transition-all duration-300"
+            style={{ width: i === idx ? 18 : 6, height: 6, background: i === idx ? "#378ADD" : "rgba(255,255,255,0.14)" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main configurator ─── */
 export function ZynapseConfigurator() {
   const { user, profile, loading: authLoading, signOut, refreshProfile } = useAuth();
@@ -1478,114 +1695,10 @@ export function ZynapseConfigurator() {
             )}
 
           </div>
+        ) : isLoading ? (
+          <CipProcesare />
         ) : (
-          <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 440, padding: "0 24px" }}>
-            <div className="w-full" style={{ maxWidth: 360 }}>
-              <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
-                <defs>
-                  <filter id="zcGlow" x="-60%" y="-60%" width="220%" height="220%">
-                    <feGaussianBlur stdDeviation="2.2" result="b" />
-                    <feMerge>
-                      <feMergeNode in="b" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-                </defs>
-                <style dangerouslySetInnerHTML={{ __html: `
-                  .zc-gear{transform-box:fill-box;transform-origin:center;animation:zc-rot 6s linear infinite}
-                  @keyframes zc-rot{to{transform:rotate(360deg)}}
-                  .zc-pulse{transform-box:fill-box;transform-origin:center;animation:zc-pulse 4.4s ease-out infinite}
-                  .zc-pulse.b{animation-delay:2.2s}
-                  @keyframes zc-pulse{0%{transform:scale(.22);opacity:.5}70%{opacity:.12}100%{transform:scale(2.4);opacity:0}}
-                  .zc-cur{stroke-dasharray:16 260;animation:zc-flow 3.6s linear infinite}
-                  .zc-cur.d2{animation-delay:.9s}.zc-cur.d3{animation-delay:1.8s}.zc-cur.d4{animation-delay:2.7s}
-                  @keyframes zc-flow{from{stroke-dashoffset:276}to{stroke-dashoffset:0}}
-                  .zc-node{animation:zc-node 2.8s ease-in-out infinite}
-                  @keyframes zc-node{0%,100%{opacity:.3}50%{opacity:1}}
-                  @media (prefers-reduced-motion: reduce){
-                    .zc-gear,.zc-cur,.zc-node{animation:none}
-                    .zc-pulse{animation:none;opacity:0}
-                  }
-                `}} />
-
-                {/* trasee PCB de fundal */}
-                <g stroke="#545870" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.55">
-                  <path d="M160 78 V30" />
-                  <path d="M192 110 H288" />
-                  <path d="M160 142 V196" />
-                  <path d="M128 110 H32" />
-                  <path d="M140 78 V50 H56" />
-                  <path d="M180 78 V50 H264" />
-                  <path d="M180 142 V172 H264" />
-                  <path d="M140 142 V172 H56" />
-                  <path d="M192 96 H230 V64" />
-                  <path d="M128 124 H90 V158" />
-                </g>
-
-                {/* noduri pulsatoare (decalat) */}
-                <g fill="#378ADD">
-                  <circle className="zc-node" cx="160" cy="30" r="2.4" style={{ animationDelay: "0s" }} />
-                  <circle className="zc-node" cx="288" cy="110" r="2.4" style={{ animationDelay: ".5s" }} />
-                  <circle className="zc-node" cx="160" cy="196" r="2.4" style={{ animationDelay: "1s" }} />
-                  <circle className="zc-node" cx="32" cy="110" r="2.4" style={{ animationDelay: "1.5s" }} />
-                  <circle className="zc-node" cx="56" cy="50" r="2" style={{ animationDelay: ".8s" }} />
-                  <circle className="zc-node" cx="264" cy="50" r="2" style={{ animationDelay: "1.3s" }} />
-                  <circle className="zc-node" cx="264" cy="172" r="2" style={{ animationDelay: ".3s" }} />
-                  <circle className="zc-node" cx="56" cy="172" r="2" style={{ animationDelay: "1.8s" }} />
-                  <circle className="zc-node" cx="230" cy="64" r="2" style={{ animationDelay: "2.1s" }} />
-                  <circle className="zc-node" cx="90" cy="158" r="2" style={{ animationDelay: ".6s" }} />
-                </g>
-
-                {/* curent care "curge" pe trasee cardinale */}
-                <g stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" fill="none" filter="url(#zcGlow)">
-                  <path className="zc-cur" d="M160 78 V30" />
-                  <path className="zc-cur d2" d="M192 110 H288" />
-                  <path className="zc-cur d3" d="M160 142 V196" />
-                  <path className="zc-cur d4" d="M128 110 H32" />
-                </g>
-
-                {/* puls radial din centru */}
-                <g fill="none" stroke="#378ADD" strokeWidth="1.1">
-                  <circle className="zc-pulse" cx="160" cy="110" r="26" />
-                  <circle className="zc-pulse b" cx="160" cy="110" r="26" />
-                </g>
-
-                {/* pini cip */}
-                <g fill="#378ADD" opacity="0.7">
-                  <rect x="142" y="72.5" width="4" height="6" rx="1" />
-                  <rect x="158" y="72.5" width="4" height="6" rx="1" />
-                  <rect x="174" y="72.5" width="4" height="6" rx="1" />
-                  <rect x="142" y="141.5" width="4" height="6" rx="1" />
-                  <rect x="158" y="141.5" width="4" height="6" rx="1" />
-                  <rect x="174" y="141.5" width="4" height="6" rx="1" />
-                  <rect x="121.5" y="90" width="6" height="4" rx="1" />
-                  <rect x="121.5" y="108" width="6" height="4" rx="1" />
-                  <rect x="121.5" y="126" width="6" height="4" rx="1" />
-                  <rect x="192.5" y="90" width="6" height="4" rx="1" />
-                  <rect x="192.5" y="108" width="6" height="4" rx="1" />
-                  <rect x="192.5" y="126" width="6" height="4" rx="1" />
-                </g>
-
-                {/* corp cip */}
-                <rect x="128" y="78" width="64" height="64" rx="11" fill="rgba(55,138,221,0.05)" stroke="#378ADD" strokeWidth="1.4" />
-
-                {/* angrenaj rotativ (focal) */}
-                <g className="zc-gear">
-                  <circle cx="160" cy="110" r="15" fill="none" stroke="#5BB8F5" strokeWidth="5" strokeDasharray="4.5 5.4" filter="url(#zcGlow)" />
-                  <circle cx="160" cy="110" r="9.5" fill="#0F1115" stroke="#378ADD" strokeWidth="1.4" />
-                  <circle cx="160" cy="110" r="2.6" fill="#5BB8F5" />
-                </g>
-              </svg>
-            </div>
-            <h3 className="text-[17px] font-semibold m-0 mt-3 mb-1" style={{ color: "#8B8FA8" }}>Proiectare electrică automată</h3>
-            <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-[11px]" style={{ color: "#3A3D50" }}>
-              {["Analiză Claude Vision", "Calcul circuite FastAPI", "Memoriu tehnic automat"].map(s => (
-                <span key={s} className="flex items-center gap-1.5">
-                  <span style={{ color: "#545870" }}>—</span> {s}
-                </span>
-              ))}
-            </div>
-          </div>
+          <CarouselFlux />
         )}
       </div>
     </div>
