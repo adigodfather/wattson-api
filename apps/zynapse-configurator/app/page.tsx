@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 
 // TODO: ajustează prețurile/creditele — valori PLACEHOLDER (model pe credite)
 const PLANS = [
-  { name: "Start", price: "125", credits: "250 credite", perCredit: "0,50 lei/credit", desc: "Pentru primele proiecte", features: ["~250 m² DTAC", "Schemă + memoriu + BOM", "Creditele nu expiră"], cta: "Cumpără credite", pop: false },
+  { name: "Start", price: "125", credits: "250 credite", perCredit: "0,50 lei/credit", desc: "Pentru primele proiecte", features: ["~250 m² DTAC", "Schemă + memoriu + listă cantități", "Creditele nu expiră"], cta: "Cumpără credite", pop: false },
   { name: "Profesional", price: "450", credits: "1.000 credite", perCredit: "0,45 lei/credit", desc: "Pentru proiectanți activi", features: ["~1.000 m² DTAC", "10% reducere/credit", "Suport prioritar"], cta: "Cumpără credite", pop: true },
   { name: "Birou", price: "2.000", credits: "5.000 credite", perCredit: "0,40 lei/credit", desc: "Pentru firme de proiectare", features: ["~5.000 m² DTAC", "20% reducere/credit", "Facturare firmă"], cta: "Cumpără credite", pop: false },
   { name: "Nelimitat", price: "La cerere", credits: "", perCredit: "", desc: "Volum mare / integrare custom", features: ["Credite în volum", "Facturare firmă", "Suport dedicat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
@@ -379,10 +379,7 @@ export default function Landing() {
         body { margin: 0; background: #050709; }
         @keyframes fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-        @keyframes logo-float3d {
-          0%   { transform: rotateX(6deg) rotateY(-12deg) translateY(-7px) }
-          100% { transform: rotateX(-6deg) rotateY(12deg) translateY(7px) }
-        }
+        @keyframes logo-spin { from { transform: rotateY(0deg) } to { transform: rotateY(360deg) } }
         @media (prefers-reduced-motion: reduce) { .hero-logo { animation: none !important; transform: none !important } }
         @keyframes pulse-ring { 0%{transform:scale(0.8);opacity:.4} 100%{transform:scale(2.5);opacity:0} }
         @keyframes glow-pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
@@ -449,10 +446,17 @@ export default function Landing() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-icon.png" alt="Zynapse" width={250} height={250} className="hero-logo" style={{
             position: "relative", transformStyle: "preserve-3d",
-            animation: "logo-float3d 7s ease-in-out infinite alternate",
+            animation: "logo-spin 9s linear infinite",
             filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.25))",
           }} />
         </div>
+
+        <p className="fu" style={{
+          fontSize: 14.5, lineHeight: 1.65, color: "#6E7488",
+          maxWidth: 560, margin: "0 0 22px", textAlign: "center",
+        }}>
+          Zynapse este o platformă online care automatizează aplicarea normativelor și generează rapid livrabilele pentru proiecte de instalații electrice.
+        </p>
 
         <div className="fu fu1" style={{
           display: "inline-flex", alignItems: "center", gap: 8,
@@ -464,7 +468,7 @@ export default function Landing() {
             width: 5, height: 5, borderRadius: "50%", background: "#1D9E75",
             animation: "glow-pulse 2s infinite", display: "inline-block",
           }} />
-          BUSINESS AI &amp; ELECTRICAL AUTOMATION
+          AUTOMATIZARE PROIECTARE ELECTRICĂ
         </div>
 
         <h1 className="fu fu2" style={{
@@ -481,11 +485,19 @@ export default function Landing() {
         </h1>
 
         <p className="fu fu3" style={{
-          fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 40px", maxWidth: 520,
+          fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 26px", maxWidth: 520,
         }}>
           Încarcă planșele, AI-ul extrage camerele, motorul calculează circuitele.
-          Memoriu tehnic, BOM, liste cantități — totul generat automat, conform I7-2011.
+          Memoriu tehnic, liste de cantități — totul generat automat, conform I7-2011.
         </p>
+
+        <div className="fu fu3" style={{
+          margin: "0 0 34px", padding: "12px 24px", borderRadius: 12, maxWidth: 600,
+          background: "rgba(55,138,221,0.05)", border: "1px solid rgba(55,138,221,0.16)",
+          fontSize: 15, fontStyle: "italic", color: "#9FD2FA", lineHeight: 1.6, textAlign: "center",
+        }}>
+          „Nu schimbăm normativele, doar le aplicăm pentru tine, scăpându-te de task-urile repetitive.”
+        </div>
 
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
           <a href="/register" className="cta-main" style={{
@@ -535,7 +547,7 @@ export default function Landing() {
             { n: "01", t: "Upload planșe", d: "PDF, JPG, PNG" },
             { n: "02", t: "Formular", d: "Tip clădire, încălzire" },
             { n: "03", t: "AI procesează", d: "Claude Vision + calcul" },
-            { n: "04", t: "Proiect gata", d: "Circuite, memoriu, BOM" },
+            { n: "04", t: "Proiect gata", d: "Circuite, memoriu, liste cantități" },
           ].map((s, i) => (
             <div key={i} className="feat" style={{
               padding: 24, borderRadius: 16, textAlign: "center",
@@ -569,9 +581,9 @@ export default function Landing() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
           {[
             { dot: "#378ADD", title: "Extragere AI din planșe", desc: "Claude Vision citește planșele și identifică încăperile automat" },
-            { dot: "#1D9E75", title: "Calcul conform I7-2011", desc: "Circuite dimensionate normativ, fără erori de calcul" },
+            { dot: "#1D9E75", title: "Calcul conform normativelor", desc: "Dimensionare conform I7-2011, NP 061-2002, NTE 007/08/00 și PE 132-2003" },
             { dot: "#C4963A", title: "Memoriu tehnic automat", desc: "Document complet generat, gata de depus la proiect" },
-            { dot: "#378ADD", title: "BOM instant", desc: "Liste cantități automate, exportabile imediat în PDF" },
+            { dot: "#378ADD", title: "Liste de cantități instant", desc: "Liste de cantități automate, exportabile imediat în PDF" },
             { dot: "#1D9E75", title: "DTAC & PT complet", desc: "Documentații complete pentru autorizare de construire" },
             { dot: "#C4963A", title: "30 secunde per proiect", desc: "Fără ore de calcul manual — totul automatizat" },
           ].map((f, i) => (
@@ -661,7 +673,7 @@ export default function Landing() {
               }} />
               <span style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>ZYNAPSE</span>
             </div>
-            <span style={{ fontSize: 12, color: "#333", lineHeight: 1.7 }}>2025 — Business AI &amp;<br />Electrical Automation</span>
+            <span style={{ fontSize: 12, color: "#333", lineHeight: 1.7 }}>2025 — Proiectare electrică<br />automată</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
             {[
