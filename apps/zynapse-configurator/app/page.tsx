@@ -425,6 +425,8 @@ export default function Landing() {
         .sec-btn:hover { border-color: rgba(255,255,255,0.15) !important; color: #fff !important }
         .plans-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px }
         @media (max-width: 820px) { .plans-grid { grid-template-columns: 1fr } }
+        .steps-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px }
+        @media (max-width: 820px) { .steps-grid { grid-template-columns: repeat(2,1fr) } }
       `}</style>
 
       <CircuitCanvas />
@@ -591,24 +593,53 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 56px" }}>
           4 pași — planșă la proiect electric
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16 }}>
+        <div className="steps-grid">
           {[
-            { n: "01", t: "Upload planșe", d: "PDF, JPG, PNG" },
-            { n: "02", t: "Formular", d: "Tip clădire, încălzire" },
-            { n: "03", t: "AI procesează", d: "Claude Vision + calcul" },
-            { n: "04", t: "Proiect gata", d: "Circuite, memoriu, liste cantități" },
+            { n: "01", t: "Upload planșe", d: "PDF, JPG, PNG", icon: (
+              <>
+                <path d="M12 15.5V5M8 9l4-4 4 4" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M5 19h14" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+              </>
+            ) },
+            { n: "02", t: "Formular", d: "Tip clădire, încălzire", icon: (
+              <>
+                <rect x="4.5" y="4" width="15" height="16" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+                <path d="M9 4V3.2a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V4" stroke="#378ADD" strokeWidth="1.4" strokeLinejoin="round" />
+                <path d="M8 9.5h5M8 13h5" stroke="#378ADD" strokeWidth="1.3" strokeLinecap="round" />
+                <path d="M8 16.6l1.4 1.4L12.6 15" stroke="#5BB8F5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </>
+            ) },
+            { n: "03", t: "AI procesează", d: "Claude Vision + calcul", icon: (
+              <>
+                <rect x="6" y="6" width="12" height="12" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+                <path d="M9.5 6V4M14.5 6V4M9.5 20v-2M14.5 20v-2M6 9.5H4M6 14.5H4M20 9.5h-2M20 14.5h-2" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+                <circle cx="12" cy="12" r="2.6" stroke="#5BB8F5" strokeWidth="1.4" />
+                <path d="M12 8.7V7.8M12 16.2v-.9M8.7 12h-.9M16.2 12h-.9" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
+              </>
+            ) },
+            { n: "04", t: "Proiect gata", d: "Circuite, memoriu, liste cantități", icon: (
+              <>
+                <path d="M7 3.5h6.5L18 8v11.5a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" stroke="#5BB8F5" strokeWidth="1.5" strokeLinejoin="round" />
+                <path d="M13.5 3.5V8H18" stroke="#378ADD" strokeWidth="1.4" strokeLinejoin="round" />
+                <path d="M9 15l2 2 4-4.5" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </>
+            ) },
           ].map((s, i) => (
             <div key={i} className="feat" style={{
               padding: 24, borderRadius: 16, textAlign: "center",
               background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)",
             }}>
+              <span style={{
+                position: "absolute", top: 12, right: 14, fontSize: 11, fontWeight: 700,
+                color: "#5BB8F5", opacity: 0.45, letterSpacing: 0.5,
+              }}>{s.n}</span>
               <div style={{
-                width: 44, height: 44, borderRadius: 12, margin: "0 auto 14px",
-                background: "rgba(55,138,221,0.1)",
-                border: "1px solid rgba(55,138,221,0.25)",
+                width: 48, height: 48, borderRadius: 13, margin: "0 auto 14px",
+                background: "rgba(55,138,221,0.1)", border: "1px solid rgba(55,138,221,0.25)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 14, fontWeight: 700, color: "#5BB8F5",
-              }}>{s.n}</div>
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">{s.icon}</svg>
+              </div>
               <div style={{ fontSize: 15, fontWeight: 600, color: "#ddd", marginBottom: 4 }}>{s.t}</div>
               <div style={{ fontSize: 12, color: "#555" }}>{s.d}</div>
             </div>
