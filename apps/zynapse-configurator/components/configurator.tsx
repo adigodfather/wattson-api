@@ -146,8 +146,8 @@ function Toggle({ label, checked, onChange, description }: {
 }) {
   return (
     <label className="flex items-center gap-3 mb-3 cursor-pointer select-none">
-      <div className="relative shrink-0 w-9 h-5 rounded-full transition-all duration-200"
-        style={{ background: checked ? "#378ADD" : "rgba(255,255,255,0.1)", animation: checked ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined }}>
+      <div className={`relative shrink-0 w-9 h-5 rounded-full transition-all duration-200${checked ? " zy-current" : ""}`}
+        style={{ background: checked ? "#378ADD" : "rgba(255,255,255,0.1)" }}>
         <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200"
           style={{ left: checked ? 18 : 2 }} />
         <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
@@ -175,14 +175,13 @@ function CategoryCards({ value, onChange }: { value: string; onChange: (v: strin
           <button key={c.value} type="button" disabled={!enabled}
             onClick={() => enabled && onChange(c.value)}
             title={enabled ? undefined : "Disponibil curând"}
-            className="rounded-xl p-3 text-center transition-all duration-150 font-[inherit]"
+            className={`rounded-xl p-3 text-center transition-all duration-150 font-[inherit]${selected ? " zy-current" : ""}`}
             style={{
               background: selected ? "rgba(55,138,221,0.08)" : "rgba(255,255,255,0.02)",
               border: selected ? "1.5px solid rgba(55,138,221,0.5)" : "1px solid rgba(255,255,255,0.07)",
               outline: "none",
               cursor: enabled ? "pointer" : "not-allowed",
               opacity: enabled ? 1 : 0.4,
-              animation: selected ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined,
             }}>
             <div style={{ fontSize: 22, marginBottom: 4 }}>{c.icon}</div>
             <div className="text-[12px] font-bold" style={{ color: selected ? "#5BB8F5" : "#C8CAD6" }}>{c.label}</div>
@@ -208,14 +207,13 @@ function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: st
           <button key={opt.value} type="button" disabled={!opt.enabled}
             onClick={() => opt.enabled && onChange(opt.value)}
             title={"tooltip" in opt ? opt.tooltip : undefined}
-            className="rounded-lg py-2.5 px-2 text-center transition-all duration-150 font-[inherit]"
+            className={`rounded-lg py-2.5 px-2 text-center transition-all duration-150 font-[inherit]${isSel ? " zy-current" : ""}`}
             style={{
               background: isSel ? "rgba(55,138,221,0.1)" : "rgba(255,255,255,0.02)",
               border: isSel ? "1px solid rgba(55,138,221,0.4)" : "1px solid rgba(255,255,255,0.06)",
               color: isSel ? "#5BB8F5" : "#C8CAD6",
               cursor: opt.enabled ? "pointer" : "not-allowed",
               opacity: opt.enabled ? 1 : 0.4,
-              animation: isSel ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined,
             }}>
             <div className="text-[12px] font-bold">{opt.label}</div>
             {!opt.enabled && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: "#C9A227" }}>Curând</div>}
@@ -273,12 +271,11 @@ function HeightRegimeSelector({ hasBasement, setHasBasement, floors, setFloors, 
         <div className="flex gap-1.5">
           {[0, 1, 2, 3, 4, 5].map(n => (
             <button key={n} type="button" onClick={() => setFloors(n)}
-              className="w-9 h-9 rounded-lg text-[13px] font-semibold cursor-pointer font-[inherit] transition-all duration-100"
+              className={`w-9 h-9 rounded-lg text-[13px] font-semibold cursor-pointer font-[inherit] transition-all duration-100${floors === n ? " zy-current" : ""}`}
               style={{
                 background: floors === n ? "rgba(55,138,221,0.15)" : "rgba(255,255,255,0.03)",
                 border: floors === n ? "1.5px solid #378ADD" : "1px solid rgba(255,255,255,0.08)",
                 color: floors === n ? "#5BB8F5" : "#8B8FA8",
-                animation: floors === n ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined,
               }}>
               {n === 5 ? "5+" : n}
             </button>
@@ -311,11 +308,10 @@ function PowerPhaseSelector({ value, onChange, suggestTri }: {
         const sel = value === o.v;
         return (
           <button key={o.v} type="button" onClick={() => onChange(o.v)}
-            className="rounded-xl p-3 text-center cursor-pointer transition-all duration-150 font-[inherit]"
+            className={`rounded-xl p-3 text-center cursor-pointer transition-all duration-150 font-[inherit]${sel ? " zy-current" : ""}`}
             style={{
               background: sel ? "rgba(55,138,221,0.08)" : "rgba(255,255,255,0.02)",
               border: sel ? "1.5px solid rgba(55,138,221,0.5)" : "1px solid rgba(255,255,255,0.07)",
-              animation: sel ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined,
             }}>
             <div className="text-lg mb-1">{o.icon}</div>
             <div className="text-[12px] font-bold" style={{ color: sel ? "#5BB8F5" : "#C8CAD6" }}>{o.title}</div>
@@ -351,11 +347,10 @@ function EquipmentCards({
         const st = equipment[eq.type];
         return (
           <div key={eq.type}
-            className="rounded-xl transition-all duration-150 overflow-hidden"
+            className={`rounded-xl transition-all duration-150 overflow-hidden${st.enabled ? " zy-current" : ""}`}
             style={{
               background: st.enabled ? "rgba(55,138,221,0.06)" : "rgba(255,255,255,0.02)",
               border: st.enabled ? "1.5px solid rgba(55,138,221,0.3)" : "1px solid rgba(255,255,255,0.07)",
-              animation: st.enabled ? "zy-selected-glow 2.6s ease-in-out infinite" : undefined,
             }}>
             <div className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer select-none"
               onClick={() => setEquipment(prev => ({ ...prev, [eq.type]: { ...prev[eq.type], enabled: !prev[eq.type].enabled } }))}>

@@ -121,3 +121,51 @@ textarea {
 .zy-slide-in {
   animation: zy-slide-in 0.3s ease forwards;
 }
+
+/* ── Curent electric pe marginea elementelor SELECTATE ──
+   Border animat: un arc luminos (conic-gradient) care circulă pe perimetru.
+   Mască padding-ring => doar marginea se aprinde; colțurile rotunjite respectate. */
+@property --zy-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.zy-current {
+  position: relative;
+}
+.zy-current::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--zy-angle),
+    rgba(91, 184, 245, 0) 0deg,
+    rgba(91, 184, 245, 0) 190deg,
+    rgba(55, 138, 221, 0.85) 255deg,
+    #5BB8F5 312deg,
+    #CDEBFF 342deg,
+    #5BB8F5 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  filter: drop-shadow(0 0 3px rgba(91, 184, 245, 0.75));
+  pointer-events: none;
+  z-index: 2;
+  animation: zy-current-flow 2.4s linear infinite;
+}
+@keyframes zy-current-flow {
+  to { --zy-angle: 360deg; }
+}
+
+/* Reduced-motion: fără curgere — rămâne un contur static luminos pe selectat */
+@media (prefers-reduced-motion: reduce) {
+  .zy-current::before {
+    animation: none;
+    background: linear-gradient(90deg, #378ADD, #5BB8F5);
+  }
+}
