@@ -283,16 +283,16 @@ function PlanCard({ p, idx, hovered, onHover }: {
       style={{
         padding: 28, borderRadius: 18, position: "relative", cursor: "default",
         background: p.custom
-          ? "linear-gradient(160deg, rgba(196,150,58,0.05), rgba(55,138,221,0.03))"
+          ? "linear-gradient(160deg, rgba(55,138,221,0.05), rgba(55,138,221,0.03))"
           : p.pop
-          ? "linear-gradient(160deg, rgba(55,138,221,0.07), rgba(29,158,117,0.04))"
+          ? "linear-gradient(160deg, rgba(55,138,221,0.07), rgba(55,138,221,0.04))"
           : "rgba(255,255,255,0.015)",
         border: p.custom
-          ? "1px solid rgba(196,150,58,0.2)"
+          ? "1px solid rgba(55,138,221,0.2)"
           : p.pop
           ? "1px solid rgba(55,138,221,0.25)"
           : p.free
-          ? "1px solid rgba(29,158,117,0.2)"
+          ? "1px solid rgba(55,138,221,0.2)"
           : "1px solid rgba(255,255,255,0.05)",
         boxShadow: isHovered && p.pop ? "0 16px 60px rgba(55,138,221,.1)" : "none",
         transform: isHovered ? "translateY(-6px)" : "none",
@@ -302,14 +302,14 @@ function PlanCard({ p, idx, hovered, onHover }: {
         <div style={{
           position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
           padding: "3px 14px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-          background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff",
+          background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
         }}>Recomandat</div>
       )}
       {p.free && (
         <div style={{
           position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
           padding: "3px 14px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-          background: "rgba(29,158,117,0.15)", color: "#5DCAA5", border: "1px solid rgba(29,158,117,0.3)",
+          background: "rgba(55,138,221,0.15)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.3)",
         }}>Gratuit</div>
       )}
       <div style={{ fontSize: 13, fontWeight: 600, color: "#777", marginBottom: 6 }}>{p.name}</div>
@@ -329,7 +329,7 @@ function PlanCard({ p, idx, hovered, onHover }: {
           <li key={j} style={{ fontSize: 13, color: "#888", padding: "5px 0", display: "flex", alignItems: "center", gap: 8 }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M3 6L5 8L9 4"
-                stroke={p.custom ? "#C4963A" : p.pop ? "#5BB8F5" : p.free ? "#5DCAA5" : "#444"}
+                stroke={p.custom ? "#5BB8F5" : p.pop ? "#5BB8F5" : p.free ? "#5BB8F5" : "#444"}
                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             {f}
@@ -342,19 +342,19 @@ function PlanCard({ p, idx, hovered, onHover }: {
           display: "block", textAlign: "center", padding: "11px 20px", borderRadius: 10,
           fontSize: 13, fontWeight: 600, textDecoration: "none",
           background: p.pop
-            ? "linear-gradient(135deg,#378ADD,#1D9E75)"
+            ? "linear-gradient(135deg,#378ADD,#5BB8F5)"
             : p.free
-            ? "rgba(29,158,117,0.12)"
+            ? "rgba(55,138,221,0.12)"
             : p.custom
-            ? "rgba(196,150,58,0.1)"
+            ? "rgba(55,138,221,0.1)"
             : "rgba(255,255,255,0.04)",
-          color: p.pop ? "#fff" : p.free ? "#5DCAA5" : p.custom ? "#C4963A" : "#888",
+          color: p.pop ? "#fff" : p.free ? "#5BB8F5" : p.custom ? "#5BB8F5" : "#888",
           border: p.pop
             ? "none"
             : p.free
-            ? "1px solid rgba(29,158,117,0.25)"
+            ? "1px solid rgba(55,138,221,0.25)"
             : p.custom
-            ? "1px solid rgba(196,150,58,0.25)"
+            ? "1px solid rgba(55,138,221,0.25)"
             : "1px solid rgba(255,255,255,0.06)",
           transition: "all .2s",
         }}>
@@ -455,7 +455,7 @@ export default function Landing() {
           ))}
           <a href="/login" className="cta-main" style={{
             padding: "8px 22px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: "linear-gradient(135deg, #378ADD, #1D9E75)",
+            background: "linear-gradient(135deg, #378ADD, #5BB8F5)",
             color: "#fff", textDecoration: "none",
           }}>Intră în cont</a>
         </nav>
@@ -544,7 +544,7 @@ export default function Landing() {
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
           <a href="/register" className="cta-main" style={{
             padding: "15px 36px", borderRadius: 12, fontSize: 16, fontWeight: 600,
-            background: "linear-gradient(135deg, #378ADD, #1D9E75)",
+            background: "linear-gradient(135deg, #378ADD, #5BB8F5)",
             color: "#fff", textDecoration: "none",
           }}>Începe gratuit</a>
           <a href="#pachete" className="sec-btn" style={{
@@ -690,7 +690,7 @@ export default function Landing() {
       }}>
         <div style={{
           padding: "56px 40px", borderRadius: 24,
-          background: "linear-gradient(160deg, rgba(55,138,221,0.05), rgba(29,158,117,0.03))",
+          background: "linear-gradient(160deg, rgba(55,138,221,0.05), rgba(55,138,221,0.03))",
           border: "1px solid rgba(55,138,221,0.08)",
         }}>
           <h2 style={{ fontSize: 30, fontWeight: 700, color: "#fff", margin: "0 0 10px", letterSpacing: -.5 }}>
@@ -702,7 +702,7 @@ export default function Landing() {
           <a href="/register" className="cta-main" style={{
             display: "inline-block", padding: "14px 40px", borderRadius: 12,
             fontSize: 16, fontWeight: 600, textDecoration: "none",
-            background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff",
+            background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
           }}>Creează cont gratuit</a>
         </div>
       </section>
