@@ -385,9 +385,15 @@ export default function Landing() {
         }
         @keyframes circ-flow { 0% { stroke-dashoffset: 1.14; opacity: .12 } 45% { opacity: .85 } 100% { stroke-dashoffset: 0; opacity: .12 } }
         .circ-cur { stroke-dasharray: 0.14 1; animation: circ-flow 3s ease-in-out infinite }
+        @keyframes wordmark-glow {
+          0%,100% { text-shadow: 0 0 14px rgba(91,184,245,0.45), 0 0 36px rgba(55,138,221,0.22) }
+          50%     { text-shadow: 0 0 22px rgba(91,184,245,0.75), 0 0 60px rgba(55,138,221,0.40) }
+        }
+        .zynapse-wordmark { animation: fadeUp .8s ease-out both, wordmark-glow 3s ease-in-out infinite }
         @media (prefers-reduced-motion: reduce) {
           .hero-logo { animation: none !important; transform: none !important }
           .circ-cur { animation: none !important; opacity: .22 !important }
+          .zynapse-wordmark { animation: none !important; text-shadow: 0 0 16px rgba(91,184,245,0.5) !important }
         }
         @keyframes pulse-ring { 0%{transform:scale(0.8);opacity:.4} 100%{transform:scale(2.5);opacity:0} }
         @keyframes glow-pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
@@ -489,25 +495,10 @@ export default function Landing() {
           }} />
         </div>
 
-        <p className="fu" style={{
-          fontSize: 14.5, lineHeight: 1.65, color: "#6E7488",
-          maxWidth: 560, margin: "0 0 22px", textAlign: "center",
-        }}>
-          Zynapse este o platformă online care automatizează aplicarea normativelor și generează rapid livrabilele pentru proiecte de instalații electrice.
-        </p>
-
-        <div className="fu fu1" style={{
-          display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "5px 16px", borderRadius: 20,
-          background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.12)",
-          fontSize: 12, color: "#5BB8F5", fontWeight: 500, marginBottom: 28, letterSpacing: .5,
-        }}>
-          <span style={{
-            width: 5, height: 5, borderRadius: "50%", background: "#1D9E75",
-            animation: "glow-pulse 2s infinite", display: "inline-block",
-          }} />
-          AUTOMATIZARE PROIECTARE ELECTRICĂ
-        </div>
+        <div className="zynapse-wordmark" style={{
+          fontSize: "clamp(40px, 9vw, 60px)", fontWeight: 500, letterSpacing: 6,
+          color: "#fff", lineHeight: 1, margin: "4px 0 30px",
+        }}>ZYNAPSE</div>
 
         <h1 className="fu fu2" style={{
           fontSize: 56, fontWeight: 700, lineHeight: 1.06, color: "#fff",
@@ -529,13 +520,12 @@ export default function Landing() {
           Memoriu tehnic, liste de cantități — totul generat automat, conform I7-2011.
         </p>
 
-        <div className="fu fu3" style={{
-          margin: "0 0 34px", padding: "12px 24px", borderRadius: 12, maxWidth: 600,
-          background: "rgba(55,138,221,0.05)", border: "1px solid rgba(55,138,221,0.16)",
-          fontSize: 15, fontStyle: "italic", color: "#9FD2FA", lineHeight: 1.6, textAlign: "center",
+        <p className="fu fu3" style={{
+          margin: "0 0 38px", maxWidth: 560, fontSize: 15, fontStyle: "italic",
+          color: "#7E8498", lineHeight: 1.6, textAlign: "center",
         }}>
           „Nu schimbăm normativele, doar le aplicăm pentru tine, scăpându-te de task-urile repetitive.”
-        </div>
+        </p>
 
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
           <a href="/register" className="cta-main" style={{
@@ -567,6 +557,13 @@ export default function Landing() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* ── Moto (bandă discretă) ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "16px 40px 0", textAlign: "center" }}>
+        <p style={{ fontSize: 15.5, lineHeight: 1.7, color: "#6E7488", margin: 0 }}>
+          Zynapse este o platformă online care automatizează aplicarea normativelor și generează rapid livrabilele pentru proiecte de instalații electrice.
+        </p>
       </section>
 
       {/* ── Cum funcționează ── */}
