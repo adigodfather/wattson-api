@@ -554,14 +554,69 @@ function FluxIconBox({ children, size = 76 }: { children: React.ReactNode; size?
   );
 }
 
-const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode }[] = [
+const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode; art?: React.ReactNode }[] = [
   {
     n: 1, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-        <path d="M12 15.5V5M8 9l4-4 4 4" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M5 19h14" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+        <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" stroke="#5BB8F5" strokeWidth="1.6" />
+        <path d="M12 3.5V13M12 13H20.5M3.5 13H8" stroke="#378ADD" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
+    ),
+    art: (
+      <div className="w-full" style={{ maxWidth: 380 }}>
+        <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+          <defs>
+            <filter id="bpGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3" />
+            </filter>
+          </defs>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .bp{animation:bp-fade 6s ease-in-out infinite}
+            @keyframes bp-fade{0%{opacity:0}4%{opacity:1}88%{opacity:1}100%{opacity:0}}
+            .bp-line{stroke-dasharray:1}
+            .bp-1{animation:bp-d1 6s ease-in-out infinite}
+            .bp-2{animation:bp-d2 6s ease-in-out infinite}
+            .bp-3{animation:bp-d3 6s ease-in-out infinite}
+            .bp-4{animation:bp-d4 6s ease-in-out infinite}
+            .bp-5{animation:bp-d5 6s ease-in-out infinite}
+            .bp-6{animation:bp-d6 6s ease-in-out infinite}
+            .bp-7{animation:bp-d7 6s ease-in-out infinite}
+            .bp-8{animation:bp-d8 6s ease-in-out infinite}
+            @keyframes bp-d1{0%,3%{stroke-dashoffset:1}22%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d2{0%,22%{stroke-dashoffset:1}31%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d3{0%,31%{stroke-dashoffset:1}39%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d4{0%,39%{stroke-dashoffset:1}46%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d5{0%,46%{stroke-dashoffset:1}53%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d6{0%,53%{stroke-dashoffset:1}61%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d7{0%,61%{stroke-dashoffset:1}68%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d8{0%,68%{stroke-dashoffset:1}75%,100%{stroke-dashoffset:0}}
+            .bp-glow-el{animation:bp-glow 6s ease-in-out infinite}
+            @keyframes bp-glow{0%,72%{opacity:0}80%{opacity:.5}88%,100%{opacity:0}}
+            @media (prefers-reduced-motion: reduce){
+              .bp{animation:none!important;opacity:1!important}
+              .bp-line{animation:none!important;stroke-dashoffset:0!important}
+              .bp-glow-el{animation:none!important;opacity:0!important}
+            }
+          `}} />
+          <g className="bp" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            {/* halo puls pe contur (după desenare) */}
+            <path className="bp-glow-el" d="M60 40 H260 V180 H60 Z" stroke="#5BB8F5" strokeWidth="2.5" filter="url(#bpGlow)" />
+            {/* contur exterior (pereți casă) */}
+            <path className="bp-line bp-1" pathLength="1" d="M60 40 H260 V180 H60 Z" stroke="#5BB8F5" strokeWidth="2.2" />
+            {/* pereți interiori */}
+            <path className="bp-line bp-2" pathLength="1" d="M160 40 V96" stroke="#378ADD" strokeWidth="1.8" />
+            <path className="bp-line bp-3" pathLength="1" d="M160 120 H260" stroke="#378ADD" strokeWidth="1.8" />
+            <path className="bp-line bp-4" pathLength="1" d="M60 110 H110" stroke="#378ADD" strokeWidth="1.8" />
+            <path className="bp-line bp-5" pathLength="1" d="M110 110 V180" stroke="#378ADD" strokeWidth="1.8" />
+            {/* ușă (arc de deschidere) */}
+            <path className="bp-line bp-6" pathLength="1" d="M160 96 A24 24 0 0 0 136 120" stroke="#5BB8F5" strokeWidth="1.6" />
+            {/* ferestre (straddle pe pereți) */}
+            <path className="bp-line bp-7" pathLength="1" d="M100 36 H132 M100 44 H132" stroke="#5BB8F5" strokeWidth="1.6" />
+            <path className="bp-line bp-8" pathLength="1" d="M256 84 V112 M264 84 V112" stroke="#5BB8F5" strokeWidth="1.6" />
+          </g>
+        </svg>
+      </div>
     ),
   },
   {
@@ -639,7 +694,7 @@ function CarouselFlux() {
           className="absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity ease-in-out"
           style={{ opacity: i === idx ? 1 : 0, transitionDuration: "400ms", pointerEvents: i === idx ? "auto" : "none", padding: "0 28px" }}
           aria-hidden={i === idx ? undefined : true}>
-          <FluxIconBox>{f.icon}</FluxIconBox>
+          {f.art ?? <FluxIconBox>{f.icon}</FluxIconBox>}
           <h3 className="text-[17px] font-semibold m-0 mt-5 mb-1.5" style={{ color: "#8B8FA8" }}>{f.n}. {f.title}</h3>
           <p className="text-sm m-0 leading-relaxed" style={{ color: "#3A3D50", maxWidth: 300 }}>{f.subtitle}</p>
         </div>
