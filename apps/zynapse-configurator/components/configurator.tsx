@@ -556,73 +556,73 @@ function FluxIconBox({ children, size = 76 }: { children: React.ReactNode; size?
 
 const EQUIPMENT_ART: { label: string; icon: React.ReactNode }[] = [
   {
-    label: "Pompă căldură",
+    label: "Wi-Fi",
     icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+      <>
+        <path d="M4.5 9.5a11 11 0 0 1 15 0" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M7.5 12.5a7 7 0 0 1 9 0" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M10 15.4a3 3 0 0 1 4 0" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="12" cy="18.4" r="1.3" fill="#5BB8F5" />
+      </>
+    ),
+  },
+  {
+    label: "PDC",
+    icon: (
+      <>
         <rect x="2.5" y="6.5" width="19" height="11" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
         <circle cx="12" cy="12" r="3.3" stroke="#378ADD" strokeWidth="1.4" />
         <path d="M12 8.7v6.6M9.1 10.3l5.8 3.4M9.1 13.7l5.8-3.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
         <path d="M4.7 9.2v5.6" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
-      </svg>
+      </>
     ),
   },
   {
-    label: "Centrală",
+    label: "Cuptor",
     icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-        <rect x="5" y="3" width="14" height="18" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
-        <rect x="7.8" y="6" width="8.4" height="5" rx="1" stroke="#378ADD" strokeWidth="1.3" />
-        <path d="M12 12.4c-1.4 1-2 2-2 3.1 0 1.2 .9 2 2 2s2-.8 2-2c0-1.4-1.3-1.8-2-3.1z" stroke="#378ADD" strokeWidth="1.2" strokeLinejoin="round" />
-      </svg>
+      <>
+        <rect x="4" y="4" width="16" height="16" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+        <path d="M4 9h16" stroke="#378ADD" strokeWidth="1.3" />
+        <path d="M7 6.6h3.5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <rect x="7.5" y="11.5" width="9" height="6" rx="1" stroke="#378ADD" strokeWidth="1.2" />
+      </>
     ),
   },
   {
     label: "Boiler",
     icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+      <>
         <rect x="7" y="3.5" width="10" height="17" rx="4.5" stroke="#5BB8F5" strokeWidth="1.5" />
         <path d="M9.5 11h5M9.5 14h5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
         <path d="M12 3.5V1.6M10 20.5v1.9M14 20.5v1.9" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
-      </svg>
+      </>
     ),
   },
   {
     label: "Aer condiționat",
     icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+      <>
         <rect x="2.5" y="6" width="19" height="7" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
         <path d="M5 10.5h14" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
         <path d="M7 16c0 1 .8 1.5 1.6 2M12 16c0 1 .8 1.5 1.6 2M17 16c-.2 1 .4 1.6 1.1 2.2" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
-      </svg>
+      </>
     ),
   },
   {
     label: "Fotovoltaice",
     icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+      <>
         <rect x="3" y="5.5" width="18" height="9" rx="1" stroke="#5BB8F5" strokeWidth="1.5" />
         <path d="M9 5.5v9M15 5.5v9M3 8.5h18M3 11.5h18" stroke="#378ADD" strokeWidth="1" strokeLinecap="round" />
         <path d="M12 14.5v4M8 18.5h8" stroke="#5BB8F5" strokeWidth="1.3" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    label: "Tablou",
-    icon: (
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-        <rect x="5" y="3" width="14" height="18" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
-        <path d="M8 7.5h3.5M8 12h3.5M8 16.5h3.5" stroke="#378ADD" strokeWidth="1.3" strokeLinecap="round" />
-        <rect x="13.6" y="6" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
-        <rect x="13.6" y="10.5" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
-        <rect x="13.6" y="15" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
-      </svg>
+      </>
     ),
   },
 ];
 
 const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode; durationMs: number; art?: React.ReactNode }[] = [
   {
-    n: 1, durationMs: 6500, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
+    n: 1, durationMs: 15000, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" stroke="#5BB8F5" strokeWidth="1.6" />
@@ -630,35 +630,29 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
       </svg>
     ),
     art: (
-      <div className="w-full" style={{ maxWidth: 560 }}>
-        <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+      <div className="w-full flex flex-col items-center" style={{ maxWidth: 640 }}>
+        <svg viewBox="0 0 420 290" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
             <filter id="bpGlow" x="-30%" y="-30%" width="160%" height="160%">
-              <feGaussianBlur stdDeviation="3" />
+              <feGaussianBlur stdDeviation="3.4" />
             </filter>
           </defs>
           <style dangerouslySetInnerHTML={{ __html: `
-            .bp{animation:bp-fade 6s ease-in-out infinite}
-            @keyframes bp-fade{0%{opacity:0}4%{opacity:1}88%{opacity:1}100%{opacity:0}}
+            .bp{animation:bp-fade 15s ease-in-out infinite}
+            @keyframes bp-fade{0%{opacity:0}2.5%{opacity:1}93%{opacity:1}100%{opacity:0}}
             .bp-line{stroke-dasharray:1}
-            .bp-1{animation:bp-d1 6s ease-in-out infinite}
-            .bp-2{animation:bp-d2 6s ease-in-out infinite}
-            .bp-3{animation:bp-d3 6s ease-in-out infinite}
-            .bp-4{animation:bp-d4 6s ease-in-out infinite}
-            .bp-5{animation:bp-d5 6s ease-in-out infinite}
-            .bp-6{animation:bp-d6 6s ease-in-out infinite}
-            .bp-7{animation:bp-d7 6s ease-in-out infinite}
-            .bp-8{animation:bp-d8 6s ease-in-out infinite}
-            @keyframes bp-d1{0%,3%{stroke-dashoffset:1}22%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d2{0%,22%{stroke-dashoffset:1}31%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d3{0%,31%{stroke-dashoffset:1}39%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d4{0%,39%{stroke-dashoffset:1}46%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d5{0%,46%{stroke-dashoffset:1}53%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d6{0%,53%{stroke-dashoffset:1}61%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d7{0%,61%{stroke-dashoffset:1}68%,100%{stroke-dashoffset:0}}
-            @keyframes bp-d8{0%,68%{stroke-dashoffset:1}75%,100%{stroke-dashoffset:0}}
-            .bp-glow-el{animation:bp-glow 6s ease-in-out infinite}
-            @keyframes bp-glow{0%,72%{opacity:0}80%{opacity:.5}88%,100%{opacity:0}}
+            .bp-1{animation:bp-d1 15s ease-in-out infinite}
+            .bp-2{animation:bp-d2 15s ease-in-out infinite}
+            .bp-3{animation:bp-d3 15s ease-in-out infinite}
+            .bp-4{animation:bp-d4 15s ease-in-out infinite}
+            .bp-5{animation:bp-d5 15s ease-in-out infinite}
+            @keyframes bp-d1{0%,2%{stroke-dashoffset:1}25%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d2{0%,25%{stroke-dashoffset:1}45%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d3{0%,45%{stroke-dashoffset:1}63%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d4{0%,63%{stroke-dashoffset:1}74%,100%{stroke-dashoffset:0}}
+            @keyframes bp-d5{0%,74%{stroke-dashoffset:1}85%,100%{stroke-dashoffset:0}}
+            .bp-glow-el{animation:bp-glow 15s ease-in-out infinite}
+            @keyframes bp-glow{0%,86%{opacity:0}90%{opacity:.5}94%,100%{opacity:0}}
             @media (prefers-reduced-motion: reduce){
               .bp{animation:none!important;opacity:1!important}
               .bp-line{animation:none!important;stroke-dashoffset:0!important}
@@ -666,27 +660,45 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
             }
           `}} />
           <g className="bp" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            {/* halo puls pe contur (după desenare) */}
-            <path className="bp-glow-el" d="M60 40 H260 V180 H60 Z" stroke="#5BB8F5" strokeWidth="2.5" filter="url(#bpGlow)" />
+            {/* halo puls pe contur (după desenarea completă) */}
+            <path className="bp-glow-el" d="M30 30 H390 V260 H30 Z" stroke="#5BB8F5" strokeWidth="2.8" filter="url(#bpGlow)" />
             {/* contur exterior (pereți casă) */}
-            <path className="bp-line bp-1" pathLength="1" d="M60 40 H260 V180 H60 Z" stroke="#5BB8F5" strokeWidth="2.2" />
-            {/* pereți interiori */}
-            <path className="bp-line bp-2" pathLength="1" d="M160 40 V96" stroke="#378ADD" strokeWidth="1.8" />
-            <path className="bp-line bp-3" pathLength="1" d="M160 120 H260" stroke="#378ADD" strokeWidth="1.8" />
-            <path className="bp-line bp-4" pathLength="1" d="M60 110 H110" stroke="#378ADD" strokeWidth="1.8" />
-            <path className="bp-line bp-5" pathLength="1" d="M110 110 V180" stroke="#378ADD" strokeWidth="1.8" />
-            {/* ușă (arc de deschidere) */}
-            <path className="bp-line bp-6" pathLength="1" d="M160 96 A24 24 0 0 0 136 120" stroke="#5BB8F5" strokeWidth="1.6" />
+            <path className="bp-line bp-1" pathLength="1" d="M30 30 H390 V260 H30 Z" stroke="#5BB8F5" strokeWidth="2.4" />
+            {/* pereți interiori principali */}
+            <path className="bp-line bp-2" pathLength="1" d="M180 30 V180 M30 180 H390 M290 30 V180" stroke="#378ADD" strokeWidth="1.8" />
+            {/* pereți interiori secundari (camere) */}
+            <path className="bp-line bp-3" pathLength="1" d="M120 180 V260 M230 180 V260 M320 180 V260 M180 110 H290" stroke="#378ADD" strokeWidth="1.7" />
+            {/* uși (arce de deschidere) */}
+            <path className="bp-line bp-4" pathLength="1" d="M180 130 A22 22 0 0 0 158 152 M250 180 A20 20 0 0 1 270 200 M290 90 A18 18 0 0 0 272 108" stroke="#5BB8F5" strokeWidth="1.6" />
             {/* ferestre (straddle pe pereți) */}
-            <path className="bp-line bp-7" pathLength="1" d="M100 36 H132 M100 44 H132" stroke="#5BB8F5" strokeWidth="1.6" />
-            <path className="bp-line bp-8" pathLength="1" d="M256 84 V112 M264 84 V112" stroke="#5BB8F5" strokeWidth="1.6" />
+            <path className="bp-line bp-5" pathLength="1" d="M80 26 H120 M80 34 H120 M320 26 H360 M320 34 H360 M26 95 V135 M34 95 V135 M160 256 H200 M160 264 H200" stroke="#5BB8F5" strokeWidth="1.6" />
           </g>
         </svg>
+
+        {/* Reguli planșe — ies în evidență / strălucesc */}
+        <div className="mt-5 w-full text-left rounded-xl px-4 py-3.5"
+          style={{ background: "rgba(55,138,221,0.06)", border: "1px solid rgba(91,184,245,0.28)", boxShadow: "0 0 22px rgba(55,138,221,0.12)" }}>
+          <ul className="m-0 p-0 list-none flex flex-col gap-2">
+            {[
+              "Planșele să nu fie semnate sau ștampilate",
+              "Planșele să nu fie semnate electronic",
+              "Planșele să nu fie scanate (preferabil format vectorial / PDF nativ)",
+            ].map(r => (
+              <li key={r} className="flex items-start gap-2.5 text-[13px] md:text-[13.5px] font-medium"
+                style={{ color: "#9FD2FA", textShadow: "0 0 10px rgba(91,184,245,0.4)" }}>
+                <span style={{ color: "#5BB8F5" }}>▸</span><span>{r}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="m-0 mt-3 text-[12.5px] italic leading-relaxed" style={{ color: "#7FB4E0" }}>
+            Vă mulțumim că respectați aceste cerințe — ne ajută să vă oferim un rezultat de calitate
+          </p>
+        </div>
       </div>
     ),
   },
   {
-    n: 2, durationMs: 6000, title: "Selectează datele", subtitle: "Tip clădire, regim, putere, echipamente",
+    n: 2, durationMs: 15000, title: "Selectează datele", subtitle: "Tip clădire, regim, putere, echipamente",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <path d="M4 7h16M4 12h16M4 17h16" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
@@ -696,50 +708,121 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
       </svg>
     ),
     art: (
-      <div className="w-full" style={{ maxWidth: 520 }}>
-        <style dangerouslySetInnerHTML={{ __html: `
-          .eq-tile{animation:eq-pop 6s ease-in-out infinite}
-          @keyframes eq-pop{
-            0%{opacity:0;transform:scale(.7)}
-            6%{opacity:1;transform:scale(1.05)}
-            12%{opacity:1;transform:scale(1)}
-            40%{transform:scale(1.035)}
-            64%{transform:scale(1)}
-            80%{opacity:1}
-            92%{opacity:0;transform:scale(.92)}
-            100%{opacity:0;transform:scale(.7)}
-          }
-          @media (prefers-reduced-motion: reduce){
-            .eq-tile{animation:none!important;opacity:1!important;transform:none!important}
-          }
-        `}} />
-        <div className="grid grid-cols-3 gap-3 md:gap-4">
-          {EQUIPMENT_ART.map((eq, i) => (
-            <div key={eq.label} className="eq-tile rounded-2xl flex flex-col items-center justify-center gap-2 py-4 px-2"
-              style={{ background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.14)", animationDelay: `${i * 0.3}s` }}>
-              {eq.icon}
-              <span className="text-[10.5px] font-medium leading-tight text-center" style={{ color: "#8B8FA8" }}>{eq.label}</span>
-            </div>
-          ))}
+      <div className="w-full flex flex-col items-center" style={{ maxWidth: 560 }}>
+        <svg viewBox="0 0 440 280" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+          <defs>
+            <filter id="eqGlow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.4" /></filter>
+          </defs>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .eqs{animation:eqs-fade 15s ease-in-out infinite}
+            @keyframes eqs-fade{0%{opacity:0}3%{opacity:1}94%{opacity:1}100%{opacity:0}}
+            .eq-app{transform-box:fill-box;transform-origin:center;opacity:0}
+            .ea1{animation:ea1 15s ease-in-out infinite}
+            .ea2{animation:ea2 15s ease-in-out infinite}
+            .ea3{animation:ea3 15s ease-in-out infinite}
+            .ea4{animation:ea4 15s ease-in-out infinite}
+            .ea5{animation:ea5 15s ease-in-out infinite}
+            .ea6{animation:ea6 15s ease-in-out infinite}
+            @keyframes ea1{0%,2%{opacity:0;transform:scale(.82)}7%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            @keyframes ea2{0%,5%{opacity:0;transform:scale(.82)}10%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            @keyframes ea3{0%,8%{opacity:0;transform:scale(.82)}13%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            @keyframes ea4{0%,11%{opacity:0;transform:scale(.82)}16%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            @keyframes ea5{0%,14%{opacity:0;transform:scale(.82)}19%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            @keyframes ea6{0%,17%{opacity:0;transform:scale(.82)}22%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+            .eq-panel{stroke-dasharray:1;animation:eq-panel 15s ease-in-out infinite}
+            @keyframes eq-panel{0%,3%{stroke-dashoffset:1}16%,100%{stroke-dashoffset:0}}
+            .eq-mod{opacity:0;animation:eq-mod 15s ease-in-out infinite}
+            @keyframes eq-mod{0%,40%{opacity:0}52%,100%{opacity:1}}
+            .eq-cable{stroke-dasharray:1}
+            .ec1{animation:ec1 15s ease-in-out infinite}
+            .ec2{animation:ec2 15s ease-in-out infinite}
+            .ec3{animation:ec3 15s ease-in-out infinite}
+            .ec4{animation:ec4 15s ease-in-out infinite}
+            .ec5{animation:ec5 15s ease-in-out infinite}
+            .ec6{animation:ec6 15s ease-in-out infinite}
+            @keyframes ec1{0%,24%{stroke-dashoffset:1}36%,100%{stroke-dashoffset:0}}
+            @keyframes ec2{0%,29%{stroke-dashoffset:1}41%,100%{stroke-dashoffset:0}}
+            @keyframes ec3{0%,34%{stroke-dashoffset:1}46%,100%{stroke-dashoffset:0}}
+            @keyframes ec4{0%,39%{stroke-dashoffset:1}51%,100%{stroke-dashoffset:0}}
+            @keyframes ec5{0%,44%{stroke-dashoffset:1}56%,100%{stroke-dashoffset:0}}
+            @keyframes ec6{0%,49%{stroke-dashoffset:1}61%,100%{stroke-dashoffset:0}}
+            .eq-cur{stroke-dasharray:9 80;animation:eq-flow 2.2s linear infinite, eq-curfade 15s ease-in-out infinite}
+            @keyframes eq-flow{from{stroke-dashoffset:89}to{stroke-dashoffset:0}}
+            @keyframes eq-curfade{0%,58%{opacity:0}64%{opacity:.85}90%{opacity:.85}95%,100%{opacity:0}}
+            .eq-dot{animation:eq-dot 2.6s ease-in-out infinite}
+            @keyframes eq-dot{0%,100%{opacity:.3}50%{opacity:1}}
+            @media (prefers-reduced-motion: reduce){
+              .eqs{animation:none!important;opacity:1!important}
+              .eq-app{animation:none!important;opacity:1!important;transform:none!important}
+              .eq-panel,.eq-cable{animation:none!important;stroke-dashoffset:0!important}
+              .eq-mod{animation:none!important;opacity:1!important}
+              .eq-cur{animation:none!important;opacity:0!important}
+              .eq-dot{animation:none!important;opacity:.8!important}
+            }
+          `}} />
+          <g className="eqs">
+            {/* cabluri (se conectează pe rând spre tablou) */}
+            {EQUIPMENT_ART.map((eq, i) => {
+              const rowY = 34 + i * 40, midx = 220 + i * 8, py = 70 + i * 28;
+              return <path key={`c${i}`} className={`eq-cable ec${i + 1}`} pathLength="1" d={`M150 ${rowY} H${midx} V${py} H330`} stroke="#4A5E86" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            })}
+            {/* curent care curge spre tablou */}
+            {EQUIPMENT_ART.map((eq, i) => {
+              const rowY = 34 + i * 40, midx = 220 + i * 8, py = 70 + i * 28;
+              return <path key={`f${i}`} className="eq-cur" d={`M150 ${rowY} H${midx} V${py} H330`} stroke="#5BB8F5" strokeWidth="1.8" fill="none" strokeLinecap="round" filter="url(#eqGlow)" />;
+            })}
+            {/* tablou electric */}
+            <rect className="eq-panel" pathLength="1" x="330" y="54" width="86" height="172" rx="6" stroke="#5BB8F5" strokeWidth="2" fill="rgba(55,138,221,0.04)" />
+            <path className="eq-panel" pathLength="1" d="M340 76 H406" stroke="#378ADD" strokeWidth="1.4" />
+            {EQUIPMENT_ART.map((eq, i) => {
+              const py = 70 + i * 28;
+              return (
+                <g key={`m${i}`} className="eq-mod" fill="none">
+                  <rect x="342" y={py - 8} width="62" height="16" rx="2" stroke="#378ADD" strokeWidth="1.2" />
+                  <path d={`M351 ${py} h7`} stroke="#5BB8F5" strokeWidth="1.4" strokeLinecap="round" />
+                </g>
+              );
+            })}
+            {/* echipamente etichetate (apar pe rând) */}
+            {EQUIPMENT_ART.map((eq, i) => {
+              const rowY = 34 + i * 40;
+              return (
+                <g key={`e${i}`} className={`eq-app ea${i + 1}`}>
+                  <svg x="8" y={rowY - 16} width="32" height="32" viewBox="0 0 24 24" fill="none">{eq.icon}</svg>
+                  <text x="46" y={rowY + 4} fontSize="12.5" fontWeight="500" fill="#9AA0B5">{eq.label}</text>
+                </g>
+              );
+            })}
+            {/* noduri pulsatoare (echipament + intrare tablou) */}
+            {EQUIPMENT_ART.map((eq, i) => {
+              const rowY = 34 + i * 40, py = 70 + i * 28;
+              return (
+                <g key={`n${i}`} fill="#5BB8F5">
+                  <circle className="eq-dot" cx="150" cy={rowY} r="2.6" style={{ animationDelay: `${i * 0.25}s` }} />
+                  <circle className="eq-dot" cx="330" cy={py} r="2.6" style={{ animationDelay: `${i * 0.25 + 0.4}s` }} />
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+
+        {/* Reguli echipamente — ies în evidență / strălucesc */}
+        <div className="mt-5 w-full text-left rounded-xl px-4 py-3.5"
+          style={{ background: "rgba(55,138,221,0.06)", border: "1px solid rgba(91,184,245,0.28)", boxShadow: "0 0 22px rgba(55,138,221,0.12)" }}>
+          <ul className="m-0 p-0 list-none flex flex-col gap-2">
+            {[
+              "Selectați opțiunile dorite pentru imobilul dumneavoastră",
+              "Pentru echipamente nespecificate de noi, adăugați și încăperea în care doriți montarea, precum și puterea acestora",
+              "Pentru cele mai bune rezultate, selectați toate echipamentele dorite din proiect",
+            ].map(r => (
+              <li key={r} className="flex items-start gap-2.5 text-[13px] md:text-[13.5px] font-medium"
+                style={{ color: "#9FD2FA", textShadow: "0 0 10px rgba(91,184,245,0.4)" }}>
+                <span style={{ color: "#5BB8F5" }}>▸</span><span>{r}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
-    ),
-  },
-  {
-    n: 3, durationMs: 4000, title: "Confirmă cartușul", subtitle: "Verifici datele extrase automat",
-    icon: (
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-        <rect x="4" y="3" width="16" height="18" rx="2.5" stroke="#378ADD" strokeWidth="1.6" />
-        <path d="M8 11.5l2.6 2.6L16 8.5" stroke="#5BB8F5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    n: 4, durationMs: 4000, title: "Generează proiectul", subtitle: "Circuite, scheme, planșe, memoriu",
-    icon: (
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
     ),
   },
 ];
@@ -784,19 +867,15 @@ function CarouselFlux() {
     );
   }
 
+  const active = FLUX_FRAMES[idx] ?? FLUX_FRAMES[0];
   return (
-    <div className="relative min-h-[40vh] md:min-h-[480px]">
-      {FLUX_FRAMES.map((f, i) => (
-        <div key={f.n}
-          className="absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity ease-in-out"
-          style={{ opacity: i === idx ? 1 : 0, transitionDuration: "400ms", pointerEvents: i === idx ? "auto" : "none", padding: "0 28px" }}
-          aria-hidden={i === idx ? undefined : true}>
-          {f.art ?? <FluxIconBox>{f.icon}</FluxIconBox>}
-          <h3 className="text-[17px] font-semibold m-0 mt-5 mb-1.5" style={{ color: "#8B8FA8" }}>{f.n}. {f.title}</h3>
-          <p className="text-sm m-0 leading-relaxed" style={{ color: "#3A3D50", maxWidth: 300 }}>{f.subtitle}</p>
-        </div>
-      ))}
-      <div className="absolute left-0 right-0 flex justify-center gap-2" style={{ bottom: 18 }}>
+    <div className="flex flex-col items-center justify-center text-center min-h-[40vh] md:min-h-[480px]" style={{ padding: "12px 24px 36px" }}>
+      <div key={active.n} className="w-full flex flex-col items-center" style={{ animation: "zy-fade-in 480ms ease both" }}>
+        {active.art ?? <FluxIconBox>{active.icon}</FluxIconBox>}
+        <h3 className="text-[17px] font-semibold m-0 mt-5 mb-1.5" style={{ color: "#8B8FA8" }}>{active.n}. {active.title}</h3>
+        <p className="text-sm m-0 leading-relaxed" style={{ color: "#3A3D50", maxWidth: 320 }}>{active.subtitle}</p>
+      </div>
+      <div className="mt-6 flex justify-center gap-2">
         {FLUX_FRAMES.map((f, i) => (
           <span key={f.n} className="rounded-full transition-all duration-300"
             style={{ width: i === idx ? 18 : 6, height: 6, background: i === idx ? "#378ADD" : "rgba(255,255,255,0.14)" }} />
