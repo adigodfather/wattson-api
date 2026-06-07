@@ -554,9 +554,75 @@ function FluxIconBox({ children, size = 76 }: { children: React.ReactNode; size?
   );
 }
 
-const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode; art?: React.ReactNode }[] = [
+const EQUIPMENT_ART: { label: string; icon: React.ReactNode }[] = [
   {
-    n: 1, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
+    label: "Pompă căldură",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="2.5" y="6.5" width="19" height="11" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+        <circle cx="12" cy="12" r="3.3" stroke="#378ADD" strokeWidth="1.4" />
+        <path d="M12 8.7v6.6M9.1 10.3l5.8 3.4M9.1 13.7l5.8-3.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
+        <path d="M4.7 9.2v5.6" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Centrală",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="5" y="3" width="14" height="18" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+        <rect x="7.8" y="6" width="8.4" height="5" rx="1" stroke="#378ADD" strokeWidth="1.3" />
+        <path d="M12 12.4c-1.4 1-2 2-2 3.1 0 1.2 .9 2 2 2s2-.8 2-2c0-1.4-1.3-1.8-2-3.1z" stroke="#378ADD" strokeWidth="1.2" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Boiler",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="7" y="3.5" width="10" height="17" rx="4.5" stroke="#5BB8F5" strokeWidth="1.5" />
+        <path d="M9.5 11h5M9.5 14h5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M12 3.5V1.6M10 20.5v1.9M14 20.5v1.9" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Aer condiționat",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="2.5" y="6" width="19" height="7" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+        <path d="M5 10.5h14" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M7 16c0 1 .8 1.5 1.6 2M12 16c0 1 .8 1.5 1.6 2M17 16c-.2 1 .4 1.6 1.1 2.2" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Fotovoltaice",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="5.5" width="18" height="9" rx="1" stroke="#5BB8F5" strokeWidth="1.5" />
+        <path d="M9 5.5v9M15 5.5v9M3 8.5h18M3 11.5h18" stroke="#378ADD" strokeWidth="1" strokeLinecap="round" />
+        <path d="M12 14.5v4M8 18.5h8" stroke="#5BB8F5" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Tablou",
+    icon: (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <rect x="5" y="3" width="14" height="18" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+        <path d="M8 7.5h3.5M8 12h3.5M8 16.5h3.5" stroke="#378ADD" strokeWidth="1.3" strokeLinecap="round" />
+        <rect x="13.6" y="6" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
+        <rect x="13.6" y="10.5" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
+        <rect x="13.6" y="15" width="2.6" height="3" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
+      </svg>
+    ),
+  },
+];
+
+const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.ReactNode; durationMs: number; art?: React.ReactNode }[] = [
+  {
+    n: 1, durationMs: 6500, title: "Încarcă arhitectura", subtitle: "Planșele clădirii — PDF sau imagine",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" stroke="#5BB8F5" strokeWidth="1.6" />
@@ -564,7 +630,7 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
       </svg>
     ),
     art: (
-      <div className="w-full" style={{ maxWidth: 380 }}>
+      <div className="w-full" style={{ maxWidth: 560 }}>
         <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
             <filter id="bpGlow" x="-30%" y="-30%" width="160%" height="160%">
@@ -620,7 +686,7 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
     ),
   },
   {
-    n: 2, title: "Selectează datele", subtitle: "Tip clădire, regim, putere, echipamente",
+    n: 2, durationMs: 6000, title: "Selectează datele", subtitle: "Tip clădire, regim, putere, echipamente",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <path d="M4 7h16M4 12h16M4 17h16" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
@@ -629,9 +695,38 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
         <circle cx="8" cy="17" r="2.4" fill="#0F1115" stroke="#5BB8F5" strokeWidth="1.6" />
       </svg>
     ),
+    art: (
+      <div className="w-full" style={{ maxWidth: 520 }}>
+        <style dangerouslySetInnerHTML={{ __html: `
+          .eq-tile{animation:eq-pop 6s ease-in-out infinite}
+          @keyframes eq-pop{
+            0%{opacity:0;transform:scale(.7)}
+            6%{opacity:1;transform:scale(1.05)}
+            12%{opacity:1;transform:scale(1)}
+            40%{transform:scale(1.035)}
+            64%{transform:scale(1)}
+            80%{opacity:1}
+            92%{opacity:0;transform:scale(.92)}
+            100%{opacity:0;transform:scale(.7)}
+          }
+          @media (prefers-reduced-motion: reduce){
+            .eq-tile{animation:none!important;opacity:1!important;transform:none!important}
+          }
+        `}} />
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
+          {EQUIPMENT_ART.map((eq, i) => (
+            <div key={eq.label} className="eq-tile rounded-2xl flex flex-col items-center justify-center gap-2 py-4 px-2"
+              style={{ background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.14)", animationDelay: `${i * 0.3}s` }}>
+              {eq.icon}
+              <span className="text-[10.5px] font-medium leading-tight text-center" style={{ color: "#8B8FA8" }}>{eq.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
   },
   {
-    n: 3, title: "Confirmă cartușul", subtitle: "Verifici datele extrase automat",
+    n: 3, durationMs: 4000, title: "Confirmă cartușul", subtitle: "Verifici datele extrase automat",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <rect x="4" y="3" width="16" height="18" rx="2.5" stroke="#378ADD" strokeWidth="1.6" />
@@ -640,7 +735,7 @@ const FLUX_FRAMES: { n: number; title: string; subtitle: string; icon: React.Rea
     ),
   },
   {
-    n: 4, title: "Generează proiectul", subtitle: "Circuite, scheme, planșe, memoriu",
+    n: 4, durationMs: 4000, title: "Generează proiectul", subtitle: "Circuite, scheme, planșe, memoriu",
     icon: (
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -663,12 +758,14 @@ function CarouselFlux() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Ciclare automată a cadrelor (oprită la reduced-motion); curățată la unmount
+  // Ciclare automată: fiecare cadru așteaptă propria durată, apoi trece la următorul.
+  // setTimeout re-armat la fiecare schimbare de index (oprit la reduced-motion); curățat la unmount.
   useEffect(() => {
     if (reduced) return;
-    const id = setInterval(() => setIdx(i => (i + 1) % FLUX_FRAMES.length), 3500);
-    return () => clearInterval(id);
-  }, [reduced]);
+    const dur = FLUX_FRAMES[idx]?.durationMs ?? 4000;
+    const id = setTimeout(() => setIdx(i => (i + 1) % FLUX_FRAMES.length), dur);
+    return () => clearTimeout(id);
+  }, [reduced, idx]);
 
   // Reduced-motion: toate cadrele static, fără mișcare
   if (reduced) {
