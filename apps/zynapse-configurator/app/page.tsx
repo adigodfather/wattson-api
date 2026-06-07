@@ -379,8 +379,16 @@ export default function Landing() {
         body { margin: 0; background: #050709; }
         @keyframes fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-        @keyframes logo-spin { from { transform: rotateY(0deg) } to { transform: rotateY(360deg) } }
-        @media (prefers-reduced-motion: reduce) { .hero-logo { animation: none !important; transform: none !important } }
+        @keyframes logo-pulse {
+          0%, 100% { transform: scale(1);    filter: brightness(2.5) contrast(1.1) drop-shadow(0 0 22px rgba(91,184,245,0.32)) drop-shadow(0 0 48px rgba(55,138,221,0.16)); }
+          50%      { transform: scale(1.06); filter: brightness(2.6) contrast(1.1) drop-shadow(0 0 40px rgba(91,184,245,0.6))  drop-shadow(0 0 84px rgba(55,138,221,0.30)); }
+        }
+        @keyframes circ-flow { 0% { stroke-dashoffset: 1.14; opacity: .12 } 45% { opacity: .85 } 100% { stroke-dashoffset: 0; opacity: .12 } }
+        .circ-cur { stroke-dasharray: 0.14 1; animation: circ-flow 3s ease-in-out infinite }
+        @media (prefers-reduced-motion: reduce) {
+          .hero-logo { animation: none !important; transform: none !important }
+          .circ-cur { animation: none !important; opacity: .22 !important }
+        }
         @keyframes pulse-ring { 0%{transform:scale(0.8);opacity:.4} 100%{transform:scale(2.5);opacity:0} }
         @keyframes glow-pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
         @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
@@ -439,15 +447,45 @@ export default function Landing() {
         alignItems: "center", justifyContent: "center",
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
-        <div style={{ position: "relative", marginBottom: 24, perspective: 800, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ position: "relative", marginBottom: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
+          {/* circuite care ies din logo si radiaza sus/jos (SVG, CSS-only) */}
+          <svg className="logo-circuits" width="560" height="760" viewBox="0 0 560 760" fill="none" aria-hidden="true"
+            style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 0, pointerEvents: "none" }}>
+            <defs>
+              <filter id="logoCircGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2" /></filter>
+            </defs>
+            {/* trasee de baza (dim) */}
+            <g stroke="#378ADD" strokeWidth="1" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.18">
+              <path d="M240 250 V160 H170 V40" />
+              <path d="M280 245 V20" />
+              <path d="M320 250 V160 H390 V40" />
+              <path d="M240 510 V600 H170 V720" />
+              <path d="M280 515 V740" />
+              <path d="M320 510 V600 H390 V720" />
+            </g>
+            {/* curent care curge ritmic, pompat din logo */}
+            <g stroke="#5BB8F5" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#logoCircGlow)">
+              <path className="circ-cur" pathLength="1" d="M240 250 V160 H170 V40" />
+              <path className="circ-cur" pathLength="1" d="M280 245 V20" />
+              <path className="circ-cur" pathLength="1" d="M320 250 V160 H390 V40" />
+              <path className="circ-cur" pathLength="1" d="M240 510 V600 H170 V720" />
+              <path className="circ-cur" pathLength="1" d="M280 515 V740" />
+              <path className="circ-cur" pathLength="1" d="M320 510 V600 H390 V720" />
+            </g>
+            {/* noduri la capete */}
+            <g fill="#5BB8F5" opacity="0.6">
+              <circle cx="170" cy="40" r="2.4" /><circle cx="280" cy="20" r="2.4" /><circle cx="390" cy="40" r="2.4" />
+              <circle cx="170" cy="720" r="2.4" /><circle cx="280" cy="740" r="2.4" /><circle cx="390" cy="720" r="2.4" />
+            </g>
+          </svg>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={250} height={250} className="hero-logo" style={{
-            position: "relative", transformStyle: "preserve-3d",
-            animation: "logo-spin 9s linear infinite",
-            filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.25))",
+          <img src="/logo-icon.png" alt="Zynapse" width={290} height={290} className="hero-logo" style={{
+            position: "relative", zIndex: 1,
+            animation: "logo-pulse 3s ease-in-out infinite",
+            filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 22px rgba(91,184,245,0.32)) drop-shadow(0 0 48px rgba(55,138,221,0.16))",
           }} />
         </div>
 
