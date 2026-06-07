@@ -404,8 +404,22 @@ export default function Landing() {
         .fu3 { animation-delay:.35s } .fu4 { animation-delay:.5s }
         .cta-main { transition: all .25s }
         .cta-main:hover { transform:translateY(-2px); box-shadow: 0 8px 40px rgba(55,138,221,.3) }
-        .feat { transition: all .25s }
+        .feat { transition: all .25s; position: relative }
+        .feat::before {
+          content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px;
+          background: conic-gradient(from var(--feat-angle), rgba(91,184,245,0) 0deg, rgba(91,184,245,0) 200deg, rgba(55,138,221,0.9) 270deg, #5BB8F5 320deg, #CDEBFF 345deg, #5BB8F5 360deg);
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor; mask-composite: exclude;
+          filter: drop-shadow(0 0 3px rgba(91,184,245,0.6));
+          opacity: 0; transition: opacity .25s; pointer-events: none;
+          animation: feat-rotate 2.6s linear infinite; animation-play-state: paused;
+        }
         .feat:hover { border-color: rgba(55,138,221,.2) !important; transform: translateY(-2px) }
+        .feat:hover::before { opacity: 1; animation-play-state: running }
+        @property --feat-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false }
+        @keyframes feat-rotate { to { --feat-angle: 360deg } }
+        @media (prefers-reduced-motion: reduce) { .feat:hover::before { animation: none !important; opacity: 1; background: linear-gradient(90deg,#378ADD,#5BB8F5) } }
         .nav-link { transition: color .2s }
         .nav-link:hover { color: #fff !important }
         .sec-btn:hover { border-color: rgba(255,255,255,0.15) !important; color: #fff !important }
@@ -590,10 +604,10 @@ export default function Landing() {
             }}>
               <div style={{
                 width: 44, height: 44, borderRadius: 12, margin: "0 auto 14px",
-                background: i === 2 ? "linear-gradient(135deg,#378ADD,#1D9E75)" : "rgba(255,255,255,0.04)",
-                border: i === 2 ? "none" : "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(55,138,221,0.1)",
+                border: "1px solid rgba(55,138,221,0.25)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 14, fontWeight: 700, color: i === 2 ? "#fff" : "#444",
+                fontSize: 14, fontWeight: 700, color: "#5BB8F5",
               }}>{s.n}</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: "#ddd", marginBottom: 4 }}>{s.t}</div>
               <div style={{ fontSize: 12, color: "#555" }}>{s.d}</div>
@@ -615,12 +629,12 @@ export default function Landing() {
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
           {[
-            { dot: "#378ADD", title: "Extragere AI din planșe", desc: "Claude Vision citește planșele și identifică încăperile automat" },
-            { dot: "#1D9E75", title: "Calcul conform normativelor", desc: "Dimensionare conform I7-2011, NP 061-2002, NTE 007/08/00 și PE 132-2003" },
-            { dot: "#C4963A", title: "Memoriu tehnic automat", desc: "Document complet generat, gata de depus la proiect" },
-            { dot: "#378ADD", title: "Liste de cantități instant", desc: "Liste de cantități automate, exportabile imediat în PDF" },
-            { dot: "#1D9E75", title: "DTAC & PT complet", desc: "Documentații complete pentru autorizare de construire" },
-            { dot: "#C4963A", title: "30 secunde per proiect", desc: "Fără ore de calcul manual — totul automatizat" },
+            { dot: "#5BB8F5", title: "Extragere AI din planșe", desc: "Claude Vision citește planșele și identifică încăperile automat" },
+            { dot: "#5BB8F5", title: "Calcul conform normativelor", desc: "Dimensionare conform I7-2011, NP 061-2002, NTE 007/08/00 și PE 132-2003" },
+            { dot: "#5BB8F5", title: "Memoriu tehnic automat", desc: "Document complet generat, gata de depus la proiect" },
+            { dot: "#5BB8F5", title: "Liste de cantități instant", desc: "Liste de cantități automate, exportabile imediat în PDF" },
+            { dot: "#5BB8F5", title: "DTAC & PT complet", desc: "Documentații complete pentru autorizare de construire" },
+            { dot: "#5BB8F5", title: "Scheme monofilare", desc: "Scheme electrice monofilare generate automat, gata de export PDF" },
           ].map((f, i) => (
             <div key={i} className="feat" style={{
               padding: "24px 28px", borderRadius: 16,
