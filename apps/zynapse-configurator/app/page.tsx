@@ -20,11 +20,17 @@ interface Spark {
   life: number; decay: number; color: string;
 }
 
+interface Trace {
+  pts: { x: number; y: number }[];
+  len: number; seg: number; speed: number; phase: number;
+}
+
 function CircuitCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: -1000, y: -1000 });
   const sparks = useRef<Spark[]>([]);
   const nodes = useRef<Node[]>([]);
+  const traces = useRef<Trace[]>([]);
   const raf = useRef<number>(0);
 
   useEffect(() => {
@@ -34,26 +40,59 @@ function CircuitCanvas() {
     if (!ctx) return;
     const canvas = c;
     let W = 0, H = 0;
+    const reduced = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+
+    function polyLen(pts: { x: number; y: number }[]) {
+      let L = 0;
+      for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      return L;
+    }
 
     function initNodes() {
       nodes.current = [];
-      const count = Math.floor((W * H) / 28000);
+      // densitate redusa + plafon -> O(n^2) ramane ieftin si pe mobil/laptop slab
+      const count = Math.min(Math.floor((W * H) / 38000), 70);
       for (let i = 0; i < count; i++) {
         nodes.current.push({
           x: Math.random() * W, y: Math.random() * H,
-          vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.5) * 0.15,
-          r: Math.random() * 1.8 + 0.5,
+          vx: (Math.random() - 0.5) * 0.14, vy: (Math.random() - 0.5) * 0.14,
+          r: Math.random() * 1.6 + 0.5,
           pulse: Math.random() * Math.PI * 2,
           speed: Math.random() * 0.02 + 0.005,
-          color: Math.random() > 0.6 ? "55,138,221" : "29,158,117",
+          color: Math.random() > 0.6 ? "55,138,221" : "91,184,245",
         });
       }
     }
 
+    function initTraces() {
+      traces.current = [];
+      const rows = Math.max(3, Math.min(7, Math.round(H / 150)));
+      for (let i = 0; i < rows; i++) {
+        const baseY = (H / (rows + 1)) * (i + 1) + (Math.random() - 0.5) * 30;
+        const jog = (Math.random() > 0.5 ? 1 : -1) * (28 + Math.random() * 34);
+        const x1 = W * (0.18 + Math.random() * 0.12);
+        const x2 = W * (0.55 + Math.random() * 0.18);
+        const pts = [
+          { x: -20, y: baseY },
+          { x: x1, y: baseY },
+          { x: x1, y: baseY + jog },
+          { x: x2, y: baseY + jog },
+          { x: x2, y: baseY },
+          { x: W + 20, y: baseY },
+        ];
+        const len = polyLen(pts);
+        const dur = 6000 + Math.random() * 4000; // 6-10s per traversare
+        traces.current.push({ pts, len, seg: 70 + Math.random() * 40, speed: len / dur, phase: Math.random() * len });
+      }
+    }
+
     function resize() {
+      // canvas la dimensiunea viewport-ului (fixed) -> ~1/3 din pixelii vechi (era innerHeight*3)
       W = canvas.width = window.innerWidth;
-      H = canvas.height = window.innerHeight * 3;
+      H = canvas.height = window.innerHeight;
       initNodes();
+      initTraces();
     }
 
     function addSpark(x: number, y: number) {
@@ -63,32 +102,51 @@ function CircuitCanvas() {
         sparks.current.push({
           x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
           life: 1, decay: Math.random() * 0.03 + 0.015,
-          color: Math.random() > 0.5 ? "55,138,221" : "29,158,117",
+          color: Math.random() > 0.5 ? "55,138,221" : "91,184,245",
         });
       }
     }
 
-    function draw() {
-      ctx.clearRect(0, 0, W, H);
-      const mx = mouse.current.x;
-      const my = mouse.current.y + window.scrollY;
+    function drawTraces(t: number) {
+      traces.current.forEach(tr => {
+        ctx.beginPath();
+        ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+        for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i].x, tr.pts[i].y);
+        // traseu PCB de baza (dim)
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(55,138,221,0.05)";
+        ctx.stroke();
+        // curent luminos care curge dintr-o parte in alta (segment cu lineDash mobil)
+        const off = (t * tr.speed + tr.phase) % tr.len;
+        ctx.setLineDash([tr.seg, tr.len]);
+        ctx.lineDashOffset = -off;
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = "rgba(91,184,245,0.8)";
+        ctx.shadowColor = "rgba(91,184,245,0.7)";
+        ctx.shadowBlur = 6;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([]);
+      });
+    }
 
-      nodes.current.forEach(n => {
+    function drawNodes() {
+      const mx = mouse.current.x, my = mouse.current.y;
+      const ns = nodes.current;
+      ns.forEach(n => {
         n.x += n.vx; n.y += n.vy;
         if (n.x < 0 || n.x > W) n.vx *= -1;
         if (n.y < 0 || n.y > H) n.vy *= -1;
         n.pulse += n.speed;
-
         const dx = n.x - mx, dy = n.y - my;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const glow = dist < 200 ? (200 - dist) / 200 : 0;
-        const a = 0.15 + Math.sin(n.pulse) * 0.1 + glow * 0.6;
-
+        const a = 0.14 + Math.sin(n.pulse) * 0.09 + glow * 0.6;
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r + glow * 2, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${n.color},${a})`;
         ctx.fill();
-
         if (glow > 0.3) {
           ctx.beginPath();
           ctx.arc(n.x, n.y, n.r + glow * 6, 0, Math.PI * 2);
@@ -96,10 +154,9 @@ function CircuitCanvas() {
           ctx.fill();
         }
       });
-
-      for (let i = 0; i < nodes.current.length; i++) {
-        for (let j = i + 1; j < nodes.current.length; j++) {
-          const a = nodes.current[i], b = nodes.current[j];
+      for (let i = 0; i < ns.length; i++) {
+        for (let j = i + 1; j < ns.length; j++) {
+          const a = ns[i], b = ns[j];
           const dx = a.x - b.x, dy = a.y - b.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 120) {
@@ -107,7 +164,7 @@ function CircuitCanvas() {
             const dmx = midX - mx, dmy = midY - my;
             const md = Math.sqrt(dmx * dmx + dmy * dmy);
             const mg = md < 180 ? (180 - md) / 180 : 0;
-            const alpha = (1 - d / 120) * 0.06 + mg * 0.2;
+            const alpha = (1 - d / 120) * 0.05 + mg * 0.2;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
@@ -118,7 +175,9 @@ function CircuitCanvas() {
           }
         }
       }
+    }
 
+    function drawSparks() {
       sparks.current = sparks.current.filter(s => {
         s.x += s.vx; s.y += s.vy; s.vy += 0.05; s.life -= s.decay;
         if (s.life <= 0) return false;
@@ -128,29 +187,69 @@ function CircuitCanvas() {
         ctx.fill();
         return true;
       });
+    }
 
+    function draw(t: number) {
+      ctx.clearRect(0, 0, W, H);
+      drawTraces(t);
+      drawNodes();
+      drawSparks();
       raf.current = requestAnimationFrame(draw);
     }
 
+    function drawStatic() {
+      ctx.clearRect(0, 0, W, H);
+      traces.current.forEach(tr => {
+        ctx.beginPath();
+        ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+        for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i].x, tr.pts[i].y);
+        ctx.strokeStyle = "rgba(55,138,221,0.06)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      });
+      nodes.current.forEach(n => {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${n.color},0.18)`;
+        ctx.fill();
+      });
+    }
+
     resize();
-    draw();
+
+    // prefers-reduced-motion: fundal STATIC, fara RAF/listeneri de animatie
+    if (reduced) {
+      drawStatic();
+      const onResizeStatic = () => { resize(); drawStatic(); };
+      window.addEventListener("resize", onResizeStatic);
+      return () => window.removeEventListener("resize", onResizeStatic);
+    }
+
+    const start = () => { if (!raf.current) raf.current = requestAnimationFrame(draw); };
+    const stop = () => { if (raf.current) { cancelAnimationFrame(raf.current); raf.current = 0; } };
+
+    start();
     window.addEventListener("resize", resize);
     const onMove = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
-    const onClick = (e: MouseEvent) => { addSpark(e.clientX, e.clientY + window.scrollY); };
+    const onClick = (e: MouseEvent) => { addSpark(e.clientX, e.clientY); };
+    // pauza cand tab-ul nu e vizibil -> nu consuma degeaba
+    const onVis = () => { if (document.hidden) stop(); else start(); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("click", onClick);
+    document.addEventListener("visibilitychange", onVis);
 
     return () => {
-      cancelAnimationFrame(raf.current);
+      stop();
       window.removeEventListener("resize", resize);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("click", onClick);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
   return (
     <canvas ref={ref} style={{
-      position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+      position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
       pointerEvents: "none", zIndex: 0,
     }} />
   );
