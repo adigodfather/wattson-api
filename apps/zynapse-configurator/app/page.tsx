@@ -301,7 +301,7 @@ export default function Landing() {
       }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={48} height={48} style={{
+          <img src="/logo-icon.png" alt="Zynapse" width={68} height={68} style={{
             objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
           }} />
         </div>
@@ -360,9 +360,10 @@ export default function Landing() {
         }}>
           Proiectare electrică<br />
           <span style={{
-            background: "linear-gradient(135deg, #378ADD 0%, #1D9E75 50%, #C4963A 100%)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            backgroundSize: "200% 100%", animation: "shimmer 4s linear infinite",
+            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+            backgroundSize: "200% 100%", animation: "shimmer 3.2s linear infinite",
+            filter: "drop-shadow(0 0 14px rgba(91,184,245,0.35))",
           }}>din viitor</span>
         </h1>
 
@@ -393,7 +394,6 @@ export default function Landing() {
           borderTop: "1px solid rgba(255,255,255,0.04)",
         }}>
           {[
-            { v: "30s", l: "per proiect" },
             { v: "I7-2011", l: "normativ" },
             { v: "17+", l: "circuite" },
             { v: "DTAC+PT", l: "complet" },
