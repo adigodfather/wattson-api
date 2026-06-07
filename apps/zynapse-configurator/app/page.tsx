@@ -373,6 +373,11 @@ export default function Landing() {
         body { margin: 0; background: #050709; }
         @keyframes fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+        @keyframes logo-float3d {
+          0%   { transform: rotateX(6deg) rotateY(-12deg) translateY(-7px) }
+          100% { transform: rotateX(-6deg) rotateY(12deg) translateY(7px) }
+        }
+        @media (prefers-reduced-motion: reduce) { .hero-logo { animation: none !important; transform: none !important } }
         @keyframes pulse-ring { 0%{transform:scale(0.8);opacity:.4} 100%{transform:scale(2.5);opacity:0} }
         @keyframes glow-pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
         @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
@@ -429,13 +434,14 @@ export default function Landing() {
         alignItems: "center", justifyContent: "center",
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
-        <div style={{ position: "relative", marginBottom: 24, animation: "float 5s ease-in-out infinite", display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ position: "relative", marginBottom: 24, perspective: 800, display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={200} height={200} style={{
-            position: "relative",
+          <img src="/logo-icon.png" alt="Zynapse" width={250} height={250} className="hero-logo" style={{
+            position: "relative", transformStyle: "preserve-3d",
+            animation: "logo-float3d 7s ease-in-out infinite alternate",
             filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 30px rgba(55,138,221,0.5)) drop-shadow(0 0 60px rgba(29,158,117,0.25))",
           }} />
         </div>
