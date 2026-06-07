@@ -8,7 +8,7 @@ const PLANS = [
   { name: "5 DTAC-uri", price: "200", unit: "LEI", period: "per pachet", desc: "Pachet rezidențial", features: ["5 proiecte DTAC", "Memoriu tehnic", "BOM automat", "Export PDF", "Suport email"], cta: "Cumpără pachet", pop: true },
   { name: "5 PT-uri", price: "800", unit: "LEI", period: "per pachet", desc: "Proiectare completă", features: ["5 proiecte PT", "Memoriu + Caiet sarcini", "BOM + Liste cantități", "Planșe generate", "Export PDF", "Suport prioritar"], cta: "Cumpără pachet", pop: false },
   { name: "10 DTAC + 10 PT", price: "1300", unit: "LEI", period: "per pachet", desc: "Pachet profesional", features: ["10 proiecte DTAC", "10 proiecte PT", "Documentație completă", "Export PDF", "Suport prioritar", "API access"], cta: "Cumpără pachet", pop: false },
-  { name: "Nelimitat", price: "?", unit: "", period: "lunar", desc: "DTAC + PT nelimitat", features: ["Proiecte nelimitate", "DTAC + PT complet", "Toate funcționalitățile", "Suport dedicat", "SLA garantat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
+  { name: "Nelimitat", price: "La cerere", unit: "", period: "", desc: "DTAC + PT nelimitat", features: ["Proiecte nelimitate", "DTAC + PT complet", "Toate funcționalitățile", "Suport dedicat", "SLA garantat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
 ];
 
 interface Node {
@@ -299,13 +299,11 @@ export default function Landing() {
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={30} height={30} style={{
+          <img src="/logo-icon.png" alt="Zynapse" width={48} height={48} style={{
             objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
           }} />
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>ZYNAPSE</span>
-          <span style={{ fontSize: 10, color: "#444", fontWeight: 500, letterSpacing: 1.5, marginLeft: 4 }}>ELECTRICAL AI</span>
         </div>
         <nav style={{ display: "flex", gap: 28, alignItems: "center" }}>
           {[
@@ -372,7 +370,7 @@ export default function Landing() {
           fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 40px", maxWidth: 520,
         }}>
           Încarcă planșele, AI-ul extrage camerele, motorul calculează circuitele.
-          Memoriu tehnic, BOM, liste cantități — totul în 30 de secunde, conform I7-2011.
+          Memoriu tehnic, BOM, liste cantități — totul generat automat, conform I7-2011.
         </p>
 
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
