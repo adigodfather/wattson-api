@@ -334,8 +334,8 @@ function EquipmentCards({
 }: {
   equipment: Record<string, EquipState>;
   setEquipment: React.Dispatch<React.SetStateAction<Record<string, EquipState>>>;
-  customEquipment: { name: string; power_kw: number; phase: string }[];
-  setCustomEquipment: React.Dispatch<React.SetStateAction<{ name: string; power_kw: number; phase: string }[]>>;
+  customEquipment: { name: string; room: string; power_kw: number; phase: string }[];
+  setCustomEquipment: React.Dispatch<React.SetStateAction<{ name: string; room: string; power_kw: number; phase: string }[]>>;
 }) {
   const inputStyle = {
     background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
@@ -400,6 +400,10 @@ function EquipmentCards({
               ×
             </button>
           </div>
+          <input type="text" placeholder="Încăpere / Cameră (ex: bucătărie, living, hol)" value={eq.room}
+            onChange={e => setCustomEquipment(prev => prev.map((x, j) => j === i ? { ...x, room: e.target.value } : x))}
+            className="w-full px-2.5 py-2 rounded-lg text-[13px] outline-none font-[inherit] mb-2"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>PUTERE (kW)</label>
@@ -423,7 +427,7 @@ function EquipmentCards({
       ))}
 
       <button type="button"
-        onClick={() => setCustomEquipment(prev => [...prev, { name: "", power_kw: 0, phase: "mono" }])}
+        onClick={() => setCustomEquipment(prev => [...prev, { name: "", room: "", power_kw: 0, phase: "mono" }])}
         className="text-[12px] font-semibold px-3 py-2 rounded-lg cursor-pointer font-[inherit] text-left"
         style={{ background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", color: "#545870" }}>
         ➕ Adaugă echipament custom
@@ -900,7 +904,7 @@ export function ZynapseConfigurator() {
   const [equipment, setEquipment] = useState<Record<string, EquipState>>(
     Object.fromEntries(EXTRA_EQUIPMENT_DEFAULTS.map(e => [e.type, { enabled: false, power_kw: e.default_kw, phase: e.default_phase }]))
   );
-  const [customEquipment, setCustomEquipment] = useState<{ name: string; power_kw: number; phase: string }[]>([]);
+  const [customEquipment, setCustomEquipment] = useState<{ name: string; room: string; power_kw: number; phase: string }[]>([]);
 
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);

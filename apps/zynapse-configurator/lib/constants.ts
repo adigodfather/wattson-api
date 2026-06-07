@@ -88,6 +88,7 @@ export interface ExtraEquipment {
   power_kw: number;
   phase: string;   // "mono" | "tri" | "none"
   phases?: number; // 1 | 3 — derivat din `phase` pentru backend (auto-select PDC / cuptor)
+  room?: string;   // încăperea unde se montează (doar pt. echipamente custom)
 }
 
 export const EXTRA_EQUIPMENT_DEFAULTS: {
