@@ -2,13 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 
+// TODO: ajustează prețurile/creditele — valori PLACEHOLDER (model pe credite)
 const PLANS = [
-  { name: "DTAC Casă", price: "0", unit: "LEI", period: "cont gratuit", desc: "Login & proiectare gratuită", features: ["1 proiect DTAC", "Memoriu tehnic", "BOM automat", "Export JSON"], cta: "Creează cont gratuit", pop: false, free: true },
-  { name: "1 DTAC + PT", price: "150", unit: "LEI", period: "per pachet", desc: "Proiect complet unic", features: ["1 DTAC complet", "1 PT complet", "Memoriu + Caiet sarcini", "BOM + Liste cantități", "Export PDF"], cta: "Cumpără pachet", pop: false },
-  { name: "5 DTAC-uri", price: "200", unit: "LEI", period: "per pachet", desc: "Pachet rezidențial", features: ["5 proiecte DTAC", "Memoriu tehnic", "BOM automat", "Export PDF", "Suport email"], cta: "Cumpără pachet", pop: true },
-  { name: "5 PT-uri", price: "800", unit: "LEI", period: "per pachet", desc: "Proiectare completă", features: ["5 proiecte PT", "Memoriu + Caiet sarcini", "BOM + Liste cantități", "Planșe generate", "Export PDF", "Suport prioritar"], cta: "Cumpără pachet", pop: false },
-  { name: "10 DTAC + 10 PT", price: "1300", unit: "LEI", period: "per pachet", desc: "Pachet profesional", features: ["10 proiecte DTAC", "10 proiecte PT", "Documentație completă", "Export PDF", "Suport prioritar", "API access"], cta: "Cumpără pachet", pop: false },
-  { name: "Nelimitat", price: "La cerere", unit: "", period: "", desc: "DTAC + PT nelimitat", features: ["Proiecte nelimitate", "DTAC + PT complet", "Toate funcționalitățile", "Suport dedicat", "SLA garantat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
+  { name: "Start", price: "125", credits: "250 credite", perCredit: "0,50 lei/credit", desc: "Pentru primele proiecte", features: ["~250 m² DTAC", "Schemă + memoriu + BOM", "Creditele nu expiră"], cta: "Cumpără credite", pop: false },
+  { name: "Profesional", price: "450", credits: "1.000 credite", perCredit: "0,45 lei/credit", desc: "Pentru proiectanți activi", features: ["~1.000 m² DTAC", "10% reducere/credit", "Suport prioritar"], cta: "Cumpără credite", pop: true },
+  { name: "Birou", price: "2.000", credits: "5.000 credite", perCredit: "0,40 lei/credit", desc: "Pentru firme de proiectare", features: ["~5.000 m² DTAC", "20% reducere/credit", "Facturare firmă"], cta: "Cumpără credite", pop: false },
+  { name: "Nelimitat", price: "La cerere", credits: "", perCredit: "", desc: "Volum mare / integrare custom", features: ["Credite în volum", "Facturare firmă", "Suport dedicat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
 ];
 
 interface Node {
@@ -267,7 +266,8 @@ function PulseRing({ delay = 0 }: { delay?: number }) {
 }
 
 interface PlanCard {
-  name: string; price: string; unit: string; period: string;
+  name: string; price: string;
+  credits?: string; perCredit?: string;
   desc: string; features: string[]; cta: string;
   pop?: boolean; free?: boolean; custom?: boolean;
 }
@@ -303,7 +303,7 @@ function PlanCard({ p, idx, hovered, onHover }: {
           position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
           padding: "3px 14px", borderRadius: 20, fontSize: 11, fontWeight: 600,
           background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff",
-        }}>Popular</div>
+        }}>Recomandat</div>
       )}
       {p.free && (
         <div style={{
@@ -313,11 +313,17 @@ function PlanCard({ p, idx, hovered, onHover }: {
         }}>Gratuit</div>
       )}
       <div style={{ fontSize: 13, fontWeight: 600, color: "#777", marginBottom: 6 }}>{p.name}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 4 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 2 }}>
         <span style={{ fontSize: 38, fontWeight: 700, color: "#fff", letterSpacing: -1 }}>{p.price}</span>
-        <span style={{ fontSize: 13, color: "#555" }}>{p.unit} {p.period}</span>
+        {!p.custom && <span style={{ fontSize: 14, color: "#666" }}>lei</span>}
       </div>
-      <p style={{ fontSize: 12, color: "#444", margin: "0 0 20px" }}>{p.desc}</p>
+      {p.credits && (
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#5BB8F5", marginBottom: 2 }}>{p.credits}</div>
+      )}
+      {p.perCredit && (
+        <div style={{ fontSize: 12, color: "#555" }}>{p.perCredit}</div>
+      )}
+      <p style={{ fontSize: 12, color: "#444", margin: "12px 0 20px" }}>{p.desc}</p>
       <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
         {p.features.map((f, j) => (
           <li key={j} style={{ fontSize: 13, color: "#888", padding: "5px 0", display: "flex", alignItems: "center", gap: 8 }}>
@@ -392,6 +398,8 @@ export default function Landing() {
         .nav-link { transition: color .2s }
         .nav-link:hover { color: #fff !important }
         .sec-btn:hover { border-color: rgba(255,255,255,0.15) !important; color: #fff !important }
+        .plans-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px }
+        @media (max-width: 820px) { .plans-grid { grid-template-columns: 1fr } }
       `}</style>
 
       <CircuitCanvas />
@@ -587,21 +595,31 @@ export default function Landing() {
         maxWidth: 1200, margin: "0 auto", padding: "60px 40px 100px",
       }}>
         <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
-          Pachete &amp; prețuri
+          Plătești cât proiectezi
         </h2>
-        <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 56px" }}>
-          Începe gratuit cu DTAC Casă. Upgrade când ai nevoie.
+        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: "0 0 22px" }}>
+          1 credit = 1 m² de suprafață construită · 1 credit = 0,50 lei
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 16 }}>
+        <div style={{
+          maxWidth: 640, margin: "0 auto 52px", padding: "16px 24px", borderRadius: 14,
+          background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.2)",
+          textAlign: "center", fontSize: 14, color: "#9FD2FA", lineHeight: 1.65,
+        }}>
+          Un proiect DTAC de 150 m² costă <strong style={{ color: "#5BB8F5" }}>150 credite (75 lei)</strong>. Faza PT consumă dublu (×2). Cumperi credite în avans, nu expiră.
+        </div>
+        <div className="plans-grid" style={{ marginBottom: 16 }}>
           {PLANS.slice(0, 3).map((p, i) => (
             <PlanCard key={i} p={p} idx={i} hovered={hovered} onHover={setHovered} />
           ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
-          {PLANS.slice(3).map((p, i) => (
-            <PlanCard key={i + 3} p={p} idx={i + 3} hovered={hovered} onHover={setHovered} />
-          ))}
-        </div>
+        {PLANS.slice(3).map((p, i) => (
+          <div key={i + 3} style={{ maxWidth: 380, margin: "0 auto" }}>
+            <PlanCard p={p} idx={i + 3} hovered={hovered} onHover={setHovered} />
+          </div>
+        ))}
+        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "36px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
+          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
+        </p>
       </section>
 
       {/* ── CTA final ── */}
