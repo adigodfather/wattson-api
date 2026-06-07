@@ -28,6 +28,12 @@
   50% { opacity: 1; transform: scale(1.01); }
 }
 
+/* Halo subtil "live" pe controalele SELECTATE (aplicat pe starea selectată existentă) */
+@keyframes zy-selected-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(55, 138, 221, 0.26), 0 0 9px rgba(55, 138, 221, 0.10); }
+  50%      { box-shadow: 0 0 0 1px rgba(55, 138, 221, 0.40), 0 0 17px rgba(55, 138, 221, 0.20); }
+}
+
 @keyframes zy-fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
