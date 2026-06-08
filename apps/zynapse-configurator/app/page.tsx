@@ -532,6 +532,9 @@ export default function Landing() {
         @media (max-width: 820px) { .steps-grid { grid-template-columns: repeat(2,1fr) } }
         .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px }
         @media (max-width: 760px) { .rules-grid { grid-template-columns: 1fr } }
+        .norm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px }
+        @media (max-width: 820px) { .norm-grid { grid-template-columns: repeat(2,1fr) } }
+        @media (max-width: 520px) { .norm-grid { grid-template-columns: 1fr } }
       `}</style>
 
       <CircuitCanvas />
@@ -674,11 +677,39 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Moto (bandă discretă) ── */}
-      <section style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "16px 40px 0", textAlign: "center" }}>
-        <p style={{ fontSize: 15.5, lineHeight: 1.7, color: "#6E7488", margin: 0 }}>
-          Zynapse este o platformă online care automatizează aplicarea normativelor și generează rapid livrabilele pentru proiecte de instalații electrice.
+      {/* ── Ce facem ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 1000, margin: "0 auto", padding: "40px 40px 20px" }}>
+        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 18px", letterSpacing: -.8 }}>
+          Ce facem
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 16, lineHeight: 1.75, margin: "0 auto", maxWidth: 720 }}>
+          Zynapse transformă planșele tale arhitecturale în documentație electrică completă. Sistemul analizează automat încăperile, dimensionează circuitele și generează schema monofilară, memoriul tehnic și listele de cantități — toate conform normativelor românești în vigoare. Tu păstrezi controlul deciziilor de proiectare; noi eliminăm munca repetitivă de calcul și redactare.
         </p>
+
+        <p style={{ textAlign: "center", color: "#5BB8F5", fontSize: 13, fontWeight: 600, letterSpacing: .5, margin: "44px 0 18px" }}>
+          NORMATIVELE PE CARE LE APLICĂM
+        </p>
+        <div className="norm-grid">
+          {[
+            { code: "I7-2011", desc: "Instalații electrice aferente clădirilor" },
+            { code: "NP 061-2002", desc: "Sisteme de iluminat artificial" },
+            { code: "NTE 007/08/00", desc: "Rețele de cabluri electrice" },
+            { code: "PE 132-2003", desc: "Rețele electrice de distribuție" },
+            { code: "NP 099-2004", desc: "Instalații electrice în zone cu pericol de explozie" },
+            { code: "I18/1-2002", desc: "Instalații electrice de curenți slabi" },
+            { code: "I18/2-2002", desc: "Semnalizare incendii și alarmare" },
+            { code: "STAS 12604", desc: "Protecția împotriva electrocutărilor (prize de pământ)" },
+            { code: "Legea 10/1995", desc: "Calitatea în construcții" },
+          ].map(n => (
+            <div key={n.code} className="feat" style={{
+              padding: "16px 18px", borderRadius: 14,
+              background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.14)",
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#5BB8F5", marginBottom: 5 }}>{n.code}</div>
+              <div style={{ fontSize: 12.5, color: "#888", lineHeight: 1.5 }}>{n.desc}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* ── Cum funcționează ── */}
