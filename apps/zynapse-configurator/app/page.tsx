@@ -637,17 +637,9 @@ export default function Landing() {
         }}>ZYNAPSE</div>
 
         <p className="fu fu3" style={{
-          fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 26px", maxWidth: 520,
+          fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 36px", maxWidth: 520,
         }}>
-          Încarcă planșele, AI-ul extrage camerele, motorul calculează circuitele.
-          Memoriu tehnic, liste de cantități — totul generat automat, conform I7-2011.
-        </p>
-
-        <p className="fu fu3" style={{
-          margin: "0 0 38px", maxWidth: 560, fontSize: 15, fontStyle: "italic",
-          color: "#7E8498", lineHeight: 1.6, textAlign: "center",
-        }}>
-          „Nu schimbăm normativele, doar le aplicăm pentru tine, scăpându-te de task-urile repetitive.”
+          Nu schimbăm normativele, doar le aplicăm pentru tine, scăpându-te de task-urile repetitive.
         </p>
 
         <div className="fu fu4" style={{ display: "flex", gap: 16 }}>
