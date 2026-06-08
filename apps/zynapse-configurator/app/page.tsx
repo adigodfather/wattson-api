@@ -337,7 +337,7 @@ function PlanCard({ p, idx, hovered, onHover }: {
         ))}
       </ul>
       <a
-        href={p.custom ? "mailto:contact@zynapse.org" : "/register"}
+        href={p.custom ? "mailto:office@zynapse.org" : "/register"}
         style={{
           display: "block", textAlign: "center", padding: "11px 20px", borderRadius: 10,
           fontSize: 13, fontWeight: 600, textDecoration: "none",
@@ -530,6 +530,8 @@ export default function Landing() {
         @media (max-width: 820px) { .plans-grid { grid-template-columns: 1fr } }
         .steps-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px }
         @media (max-width: 820px) { .steps-grid { grid-template-columns: repeat(2,1fr) } }
+        .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px }
+        @media (max-width: 760px) { .rules-grid { grid-template-columns: 1fr } }
       `}</style>
 
       <CircuitCanvas />
@@ -551,7 +553,7 @@ export default function Landing() {
           {[
             { label: "Pachete", href: "#pachete" },
             { label: "Cum funcționează", href: "#cum-functioneaza" },
-            { label: "Contact", href: "mailto:contact@zynapse.org" },
+            { label: "Contact", href: "mailto:office@zynapse.org" },
           ].map(item => (
             <a key={item.label} href={item.href} className="nav-link"
               style={{ color: "#666", fontSize: 13, textDecoration: "none", fontWeight: 500 }}>
@@ -798,22 +800,49 @@ export default function Landing() {
           Estimează creditele și costul în câteva secunde
         </p>
         <CreditCalculator />
-        <p style={{ textAlign: "center", color: "#666", fontSize: 13, fontWeight: 600, letterSpacing: .5, margin: "52px 0 18px" }}>
-          SAU CUMPĂRĂ DIRECT UN PACHET
-        </p>
-        <div className="plans-grid" style={{ marginBottom: 16 }}>
-          {PLANS.slice(0, 3).map((p, i) => (
-            <PlanCard key={i} p={p} idx={i} hovered={hovered} onHover={setHovered} />
-          ))}
-        </div>
-        {PLANS.slice(3).map((p, i) => (
-          <div key={i + 3} style={{ maxWidth: 380, margin: "0 auto" }}>
-            <PlanCard p={p} idx={i + 3} hovered={hovered} onHover={setHovered} />
-          </div>
-        ))}
-        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "36px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "32px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
           Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
         </p>
+      </section>
+
+      {/* ── Reguli ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 760, margin: "0 auto", padding: "20px 40px 60px" }}>
+        <h2 style={{ fontSize: 30, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 10px", letterSpacing: -.6 }}>
+          Reguli pentru o colaborare corectă
+        </h2>
+        <p style={{ textAlign: "center", color: "#666", fontSize: 14, margin: "0 0 36px" }}>
+          Câteva cerințe simple ca proiectul tău să iasă impecabil
+        </p>
+        <div className="rules-grid">
+          <div style={{
+            padding: "24px 26px", borderRadius: 16,
+            background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)",
+            boxShadow: "0 0 30px rgba(55,138,221,0.06)",
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, marginBottom: 14 }}>PLANȘE</div>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                "Planșele să nu fie semnate sau ștampilate",
+                "Planșele să nu fie semnate electronic",
+                "Planșele să nu fie scanate (preferabil format vectorial / PDF nativ)",
+              ].map(r => (
+                <li key={r} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#9FD2FA", lineHeight: 1.55 }}>
+                  <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{r}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div style={{
+            padding: "24px 26px", borderRadius: 16,
+            background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)",
+            boxShadow: "0 0 30px rgba(55,138,221,0.06)",
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, marginBottom: 14 }}>SUPRAFAȚĂ DECLARATĂ</div>
+            <p style={{ fontSize: 14, color: "#9FD2FA", lineHeight: 1.7, margin: 0 }}>
+              Suprafața declarată trebuie să corespundă planșelor încărcate. Declararea unei suprafețe mai mici decât cea reală, pentru a reduce numărul de credite, atrage penalizarea contului.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* ── CTA final ── */}
@@ -862,13 +891,14 @@ export default function Landing() {
               { label: "Login", href: "/login" },
               { label: "Register", href: "/register" },
               { label: "Pachete", href: "#pachete" },
-              { label: "Contact", href: "mailto:contact@zynapse.org" },
+              { label: "Contact", href: "mailto:office@zynapse.org" },
             ].map(item => (
               <a key={item.label} href={item.href} style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>{item.label}</a>
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-            <a href="mailto:contact@zynapse.org" style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>contact@zynapse.org</a>
+            <a href="mailto:office@zynapse.org" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>office@zynapse.org</a>
+            <a href="tel:+40774484053" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>0774 484 053</a>
           </div>
         </div>
       </footer>
