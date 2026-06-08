@@ -384,10 +384,14 @@ const FLOW_DELIVERABLES: { label: string; icon: React.ReactNode }[] = [
     label: "Schemă monofilară",
     icon: (
       <>
-        <path d="M3 12h4M17 12h4" stroke="#5BB8F5" strokeWidth="1.4" strokeLinecap="round" />
-        <rect x="9" y="9" width="6" height="6" rx="1" stroke="#5BB8F5" strokeWidth="1.4" />
-        <path d="M12 3v6M12 15v6" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
-        <circle cx="6" cy="12" r="1.1" fill="#378ADD" /><circle cx="18" cy="12" r="1.1" fill="#378ADD" />
+        <path d="M12 2.5v19" stroke="#5BB8F5" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="12" cy="4.5" r="1.2" fill="#378ADD" />
+        <path d="M12 8h4.5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <rect x="16.5" y="6.6" width="4" height="2.8" rx="0.6" stroke="#378ADD" strokeWidth="1.1" />
+        <path d="M12 13H7.5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <circle cx="5.6" cy="13" r="1.9" stroke="#378ADD" strokeWidth="1.1" />
+        <path d="M12 18h4.5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M16.8 16.5v3M18.3 16.5v3M19.8 16.5v3" stroke="#378ADD" strokeWidth="1" strokeLinecap="round" />
       </>
     ),
   },
@@ -405,13 +409,13 @@ const FLOW_DELIVERABLES: { label: string; icon: React.ReactNode }[] = [
     label: "Liste de cantități",
     icon: (
       <>
-        <circle cx="7" cy="6" r="2.2" stroke="#5BB8F5" strokeWidth="1.3" />
-        <path d="M5.8 8.1h2.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
-        <circle cx="13" cy="6" r="2.2" stroke="#5BB8F5" strokeWidth="1.3" />
-        <path d="M11.8 8.1h2.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
-        <path d="M7 8.2v5h11M13 8.2v2" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="15.6" y="14.6" width="5" height="5" rx="1" stroke="#5BB8F5" strokeWidth="1.2" />
-        <circle cx="17.3" cy="17.1" r=".6" fill="#378ADD" /><circle cx="18.9" cy="17.1" r=".6" fill="#378ADD" />
+        <rect x="4" y="4" width="16" height="16" rx="2" stroke="#5BB8F5" strokeWidth="1.4" />
+        <path d="M9 4v16" stroke="#378ADD" strokeWidth="1.1" />
+        <path d="M4 9.3h16M4 14.6h16" stroke="#378ADD" strokeWidth="1.1" />
+        <path d="M5.6 6.4l.8 .8 1.3-1.4" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.6 11.7l.8 .8 1.3-1.4" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.6 17l.8 .8 1.3-1.4" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M11 6.7h6M11 12h6M11 17.3h6" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
       </>
     ),
   },
@@ -427,80 +431,87 @@ const FLOW_DELIVERABLES: { label: string; icon: React.ReactNode }[] = [
   },
 ];
 
+const FLOW_CURVES = [
+  "M460 302 C 360 345, 205 352, 133 384",
+  "M460 302 C 432 348, 382 354, 351 384",
+  "M460 302 C 488 348, 538 354, 569 384",
+  "M460 302 C 560 345, 715 352, 787 384",
+];
+
 function FlowDiagram() {
   return (
     <>
-      {/* Orizontal (desktop/tabletă) */}
-      <svg className="flow-h" viewBox="0 0 940 380" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto" }}>
+      {/* Flux vertical (desktop/tabletă) */}
+      <svg className="flow-h" viewBox="0 0 920 548" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto", maxWidth: 720, margin: "0 auto" }}>
         <defs>
-          <filter id="flGlow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3" /></filter>
+          <filter id="flGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.4" /></filter>
         </defs>
 
-        {/* conector input -> AI (bază) */}
-        <path d="M112 190 H386" stroke="#378ADD" strokeWidth="1.2" opacity="0.2" strokeLinecap="round" />
+        {/* săgeți curbe creier -> livrabile: bază dim + curent care curge (stagger) */}
+        {FLOW_DELIVERABLES.map((d, i) => (
+          <path key={`b${i}`} d={FLOW_CURVES[i]} stroke="#378ADD" strokeWidth="1.2" opacity="0.18" fill="none" strokeLinecap="round" />
+        ))}
+        {FLOW_DELIVERABLES.map((d, i) => (
+          <path key={`c${i}`} className="fl-cur" pathLength="1" d={FLOW_CURVES[i]} stroke="#5BB8F5" strokeWidth="1.7" fill="none" strokeLinecap="round" filter="url(#flGlow)" style={{ animationDelay: `${i * 0.5}s` }} />
+        ))}
 
-        {/* trasee AI -> livrabile: bază dim + curent care curge */}
-        {FLOW_DELIVERABLES.map((d, i) => {
-          const yi = 70 + i * 80, bx = 545 + i * 12;
-          return <path key={`b${i}`} d={`M470 190 H${bx} V${yi} H698`} stroke="#378ADD" strokeWidth="1.2" opacity="0.18" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
-        })}
-        {FLOW_DELIVERABLES.map((d, i) => {
-          const yi = 70 + i * 80, bx = 545 + i * 12;
-          return <path key={`c${i}`} className="fl-cur" pathLength="1" d={`M470 190 H${bx} V${yi} H698`} stroke="#5BB8F5" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#flGlow)" style={{ animationDelay: `${i * 0.5}s` }} />;
-        })}
+        {/* Input „Planșe" (sus) */}
+        <rect x="410" y="22" width="100" height="100" rx="18" fill="rgba(55,138,221,0.06)" stroke="rgba(55,138,221,0.25)" strokeWidth="1.5" />
+        <svg x="437" y="49" width="46" height="46" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
+        <text x="460" y="146" textAnchor="middle" fontSize="15" fontWeight="600" fill="#9FD2FA">Planșe</text>
 
-        {/* Input „Planșe" */}
-        <rect x="40" y="156" width="68" height="68" rx="15" fill="rgba(55,138,221,0.06)" stroke="rgba(55,138,221,0.25)" strokeWidth="1.5" />
-        <svg x="57" y="173" width="34" height="34" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
-        <text x="74" y="244" textAnchor="middle" fontSize="14" fontWeight="600" fill="#9FD2FA">Planșe</text>
-
-        {/* planșă care „călătorește" spre AI */}
+        {/* planșă care „călătorește" în jos spre creier */}
         <g className="fl-travel">
-          <svg x="107" y="177" width="26" height="26" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
+          <svg x="447" y="92" width="26" height="26" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
         </g>
 
-        {/* Analiză AI: glow + pătrat + creier */}
-        <rect className="fl-aiglow" x="378" y="138" width="104" height="104" rx="20" fill="#378ADD" filter="url(#flGlow)" />
-        <rect x="390" y="150" width="80" height="80" rx="16" fill="rgba(55,138,221,0.08)" stroke="#5BB8F5" strokeWidth="1.6" />
-        <svg x="408" y="168" width="44" height="44" viewBox="0 0 24 24" fill="none">{FLOW_BRAIN_ICON}</svg>
-        <text x="430" y="258" textAnchor="middle" fontSize="14" fontWeight="600" fill="#9FD2FA">Analiză AI</text>
+        {/* săgeată în jos spre creier */}
+        <path d="M460 162 V206" stroke="#378ADD" strokeWidth="1.3" opacity="0.3" strokeLinecap="round" />
+        <path d="M454 201 L460 210 L466 201" stroke="#5BB8F5" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
 
-        {/* Livrabile */}
+        {/* Analiză AI: creier (fără chenar) cu glow care pulsează */}
+        <circle className="fl-aiglow" cx="460" cy="258" r="46" fill="#378ADD" filter="url(#flGlow)" />
+        <g className="fl-brain">
+          <svg x="421" y="219" width="78" height="78" viewBox="0 0 24 24" fill="none">{FLOW_BRAIN_ICON}</svg>
+        </g>
+        <text x="460" y="340" textAnchor="middle" fontSize="15" fontWeight="600" fill="#9FD2FA">Analiză AI</text>
+
+        {/* Livrabile (jos, casete mari egale) */}
         {FLOW_DELIVERABLES.map((d, i) => {
-          const yi = 70 + i * 80;
+          const cx = 133 + i * 218;
           return (
             <g key={`d${i}`}>
-              <circle cx="698" cy={yi} r="2.6" fill="#5BB8F5" />
-              <rect x="700" y={yi - 22} width="44" height="44" rx="11" fill="rgba(55,138,221,0.06)" stroke="rgba(55,138,221,0.22)" strokeWidth="1.4" />
-              <svg x="709" y={yi - 13} width="26" height="26" viewBox="0 0 24 24" fill="none">{d.icon}</svg>
-              <text x="754" y={yi + 5} fontSize="14" fontWeight="600" fill="#cfd3df">{d.label}</text>
+              <circle cx={cx} cy="384" r="2.6" fill="#5BB8F5" />
+              <rect x={cx - 85} y="384" width="170" height="150" rx="16" fill="rgba(55,138,221,0.05)" stroke="rgba(55,138,221,0.2)" strokeWidth="1.4" />
+              <svg x={cx - 21} y="410" width="42" height="42" viewBox="0 0 24 24" fill="none">{d.icon}</svg>
+              <text x={cx} y="500" textAnchor="middle" fontSize="13.5" fontWeight="600" fill="#cfd3df">{d.label}</text>
             </g>
           );
         })}
       </svg>
 
-      {/* Vertical (mobil) */}
+      {/* Vertical compact (mobil) */}
       <div className="flow-v" style={{ flexDirection: "column", alignItems: "center" }}>
         <div style={{ width: 150, padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.22)" }}>
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px" }}>{FLOW_PLANSE_ICON}</svg>
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px" }}>{FLOW_PLANSE_ICON}</svg>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#9FD2FA" }}>Planșe</div>
         </div>
-        <svg width="12" height="28" viewBox="0 0 12 28" fill="none" style={{ margin: "6px 0" }}>
-          <path d="M6 0V28" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
-          <path className="fl-down" d="M6 0V28" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" />
+        <svg width="12" height="30" viewBox="0 0 12 30" fill="none" style={{ margin: "8px 0" }}>
+          <path d="M6 0V30" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
+          <path className="fl-down" d="M6 0V30" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
-        <div className="fl-ai-v" style={{ width: 150, padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.08)", border: "1px solid #5BB8F5" }}>
-          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px" }}>{FLOW_BRAIN_ICON}</svg>
+        <div style={{ textAlign: "center" }}>
+          <svg className="fl-brain" width="58" height="58" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px", filter: "drop-shadow(0 0 12px rgba(91,184,245,0.45))" }}>{FLOW_BRAIN_ICON}</svg>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#9FD2FA" }}>Analiză AI</div>
         </div>
-        <svg width="12" height="28" viewBox="0 0 12 28" fill="none" style={{ margin: "6px 0" }}>
-          <path d="M6 0V28" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
-          <path className="fl-down" d="M6 0V28" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" style={{ animationDelay: ".4s" }} />
+        <svg width="12" height="30" viewBox="0 0 12 30" fill="none" style={{ margin: "8px 0" }}>
+          <path d="M6 0V30" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
+          <path className="fl-down" d="M6 0V30" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" style={{ animationDelay: ".4s" }} />
         </svg>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, width: "100%", maxWidth: 380 }}>
           {FLOW_DELIVERABLES.map((d, i) => (
-            <div key={i} className="feat" style={{ padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.14)" }}>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>{d.icon}</svg>
+            <div key={i} className="feat" style={{ padding: "18px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.05)", border: "1px solid rgba(55,138,221,0.16)" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>{d.icon}</svg>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: "#cfd3df", lineHeight: 1.3 }}>{d.label}</div>
             </div>
           ))}
@@ -684,11 +695,13 @@ export default function Landing() {
         .flow-v { display: none }
         @media (max-width: 760px) { .flow-h { display: none } .flow-v { display: flex } }
         .fl-travel { animation: fl-travel 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
-        @keyframes fl-travel { 0% { transform: translate(0,0) scale(1); opacity: 0 } 12% { opacity: 1 } 68% { transform: translate(252px,0) scale(.4); opacity: 1 } 82%,100% { transform: translate(252px,0) scale(.4); opacity: 0 } }
+        @keyframes fl-travel { 0% { transform: translate(0,0) scale(1); opacity: 0 } 14% { opacity: 1 } 70% { transform: translate(0,118px) scale(.42); opacity: 1 } 84%,100% { transform: translate(0,118px) scale(.42); opacity: 0 } }
         .fl-cur { stroke-dasharray: 0.16 1; animation: fl-flow 2.8s ease-in-out infinite }
         @keyframes fl-flow { 0% { stroke-dashoffset: 1.16; opacity: .15 } 45% { opacity: .9 } 100% { stroke-dashoffset: 0; opacity: .15 } }
         .fl-aiglow { animation: fl-aiglow 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
-        @keyframes fl-aiglow { 0%,100% { opacity: .18; transform: scale(1) } 50% { opacity: .5; transform: scale(1.08) } }
+        @keyframes fl-aiglow { 0%,100% { opacity: .16; transform: scale(1) } 50% { opacity: .5; transform: scale(1.22) } }
+        .fl-brain { animation: fl-brain 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
+        @keyframes fl-brain { 0%,100% { transform: scale(1) } 50% { transform: scale(1.09) } }
         .fl-ai-v { animation: fl-aiglowv 3s ease-in-out infinite }
         @keyframes fl-aiglowv { 0%,100% { box-shadow: 0 0 14px rgba(55,138,221,0.15) } 50% { box-shadow: 0 0 30px rgba(55,138,221,0.4) } }
         .fl-down { stroke-dasharray: 6 8; animation: fl-down 1.3s linear infinite }
@@ -697,6 +710,7 @@ export default function Landing() {
           .fl-travel { animation: none !important; opacity: 0 !important }
           .fl-cur { animation: none !important; opacity: .3 !important }
           .fl-aiglow { animation: none !important; opacity: .3 !important }
+          .fl-brain { animation: none !important }
           .fl-ai-v { animation: none !important }
           .fl-down { animation: none !important }
         }
