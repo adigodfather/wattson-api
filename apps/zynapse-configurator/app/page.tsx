@@ -531,9 +531,63 @@ const CREDIT_PRICING = {
   ],
 };
 
-/* Calculator de credite — pur de prezentare (calcul local, fara apel extern) */
-function CreditCalculator() {
+const DELIVERABLES_BY_PHASE: Record<"dtac" | "dtac_pt", { title: string; sub: string; items: string[] }> = {
+  dtac: {
+    title: "Ce primești la DTAC",
+    sub: "Documentație Tehnică pentru Autorizația de Construire",
+    items: ["Scheme monofilare", "Memoriu tehnic"],
+  },
+  dtac_pt: {
+    title: "Ce primești la DTAC + PT",
+    sub: "Proiect Tehnic complet, pentru execuție",
+    items: [
+      "Planuri de iluminat",
+      "Planuri de forță (prize)",
+      "Scheme monofilare",
+      "Scheme de distribuție",
+      "Memoriu tehnic amplu (cu program de control și faze determinante)",
+      "Caiet de sarcini",
+      "Breviar de calcul",
+      "Liste de cantități",
+    ],
+  },
+};
+
+/* Card „Ce primești" — dinamic după faza selectată în calculator (doar citire) */
+function CeprimestiCard({ phase }: { phase: "dtac" | "dtac_pt" }) {
+  const d = DELIVERABLES_BY_PHASE[phase];
+  return (
+    <div key={phase} className="cefade-card" style={{
+      padding: "26px 26px", borderRadius: 18, height: "100%",
+      background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.22)",
+      boxShadow: "0 0 30px rgba(55,138,221,0.06)",
+    }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>{d.title}</div>
+      <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 18px", lineHeight: 1.5 }}>{d.sub}</div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 11 }}>
+        {d.items.map(it => (
+          <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
+            <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* Panou calculator: calculator (stânga) + card „Ce primești" dinamic (dreapta) */
+function CalculatorPanel() {
   const [phase, setPhase] = useState<"dtac" | "dtac_pt">("dtac");
+  return (
+    <div className="calc-row">
+      <div className="calc-mid"><CreditCalculator phase={phase} setPhase={setPhase} /></div>
+      <div className="calc-side"><CeprimestiCard phase={phase} /></div>
+    </div>
+  );
+}
+
+/* Calculator de credite — pur de prezentare (calcul local, fara apel extern) */
+function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setPhase: (p: "dtac" | "dtac_pt") => void }) {
   const [area, setArea] = useState<number>(1000);
 
   const perM2 = phase === "dtac_pt"
@@ -689,14 +743,11 @@ export default function Landing() {
         @media (max-width: 820px) { .steps-grid { grid-template-columns: repeat(2,1fr) } }
         .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px }
         @media (max-width: 760px) { .rules-grid { grid-template-columns: 1fr } }
-        .calc-row { display: grid; grid-template-columns: 1fr 1.55fr 1fr; gap: 18px; align-items: start; max-width: 1120px; margin: 40px auto 0 }
-        .calc-row .calc-left { grid-column: 1; grid-row: 1 }
-        .calc-row .calc-mid { grid-column: 2; grid-row: 1 }
-        .calc-row .calc-right { grid-column: 3; grid-row: 1 }
-        @media (max-width: 860px) {
-          .calc-row { grid-template-columns: 1fr; max-width: 560px; gap: 16px }
-          .calc-row .calc-left, .calc-row .calc-mid, .calc-row .calc-right { grid-column: auto; grid-row: auto }
-        }
+        .calc-row { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; align-items: start; max-width: 1000px; margin: 40px auto 0 }
+        @media (max-width: 860px) { .calc-row { grid-template-columns: 1fr; max-width: 560px; gap: 16px } }
+        .cefade-card { animation: zy-cefade .35s ease }
+        @keyframes zy-cefade { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
+        @media (prefers-reduced-motion: reduce) { .cefade-card { animation: none } }
         .norm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px }
         @media (max-width: 820px) { .norm-grid { grid-template-columns: repeat(2,1fr) } }
         @media (max-width: 520px) { .norm-grid { grid-template-columns: 1fr } }
@@ -1026,49 +1077,7 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
           Estimează creditele și costul în câteva secunde
         </p>
-        <div className="calc-row">
-          {/* Calculator (centru) */}
-          <div className="calc-mid">
-            <CreditCalculator />
-          </div>
-          {/* DTAC (stânga) */}
-          <div className="calc-left">
-            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)" }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC</div>
-              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Documentație Tehnică pentru Autorizația de Construire</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                {["Scheme monofilare", "Memoriu tehnic"].map(it => (
-                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
-                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          {/* DTAC + PT (dreapta) */}
-          <div className="calc-right">
-            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.28)", boxShadow: "0 0 30px rgba(55,138,221,0.07)" }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC + PT</div>
-              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Proiect Tehnic (complet, pentru execuție)</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  "Planuri de iluminat",
-                  "Planuri de forță (prize)",
-                  "Scheme monofilare",
-                  "Scheme de distribuție",
-                  "Memoriu tehnic amplu (cu program de control și faze determinante)",
-                  "Caiet de sarcini",
-                  "Breviar de calcul",
-                  "Liste de cantități",
-                ].map(it => (
-                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
-                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
+        <CalculatorPanel />
 
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
           Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
