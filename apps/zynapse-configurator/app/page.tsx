@@ -840,17 +840,23 @@ export default function Landing() {
         </div>
 
         <div style={{
-          display: "flex", gap: 48, marginTop: 40, padding: "28px 0",
+          display: "flex", flexWrap: "wrap", justifyContent: "center",
+          gap: 40, marginTop: 40, padding: "28px 0",
           borderTop: "1px solid rgba(255,255,255,0.04)",
         }}>
           {[
-            { v: "I7-2011", l: "normativ" },
-            { v: "17+", l: "circuite" },
-            { v: "DTAC+PT", l: "complet" },
+            { v: "Asistență AI", l: "analiză automată", hi: true },
+            { v: "I7-2011", l: "100% conform", hi: false },
+            { v: "DTAC + PT", l: "faze complete", hi: false },
+            { v: "1 credit / m²", l: "preț transparent", hi: false },
           ].map((s, i) => (
             <div key={i} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>{s.v}</div>
-              <div style={{ fontSize: 11, color: "#444", marginTop: 2, letterSpacing: .5 }}>{s.l}</div>
+              <div style={{
+                fontSize: s.hi ? 24 : 20, fontWeight: 700, letterSpacing: -.5,
+                color: s.hi ? "#5BB8F5" : "#fff",
+                textShadow: s.hi ? "0 0 16px rgba(91,184,245,0.5)" : "none",
+              }}>{s.v}</div>
+              <div style={{ fontSize: s.hi ? 12 : 11, color: s.hi ? "#7FB4E0" : "#444", marginTop: 2, letterSpacing: .5 }}>{s.l}</div>
             </div>
           ))}
         </div>
@@ -951,7 +957,51 @@ export default function Landing() {
           Estimează creditele și costul în câteva secunde
         </p>
         <CreditCalculator />
-        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "32px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
+
+        {/* Ce primești: DTAC vs DTAC + PT */}
+        <div style={{ maxWidth: 760, margin: "48px auto 0" }}>
+          <h3 style={{ fontSize: 22, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 6px", letterSpacing: -.4 }}>
+            Ce primești
+          </h3>
+          <p style={{ textAlign: "center", color: "#666", fontSize: 13.5, margin: "0 0 28px" }}>
+            Diferența dintre cele două faze
+          </p>
+          <div className="rules-grid">
+            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC</div>
+              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Documentație Tehnică pentru Autorizația de Construire</div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                {["Scheme monofilare", "Memoriu tehnic"].map(it => (
+                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
+                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.28)", boxShadow: "0 0 30px rgba(55,138,221,0.07)" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC + PT</div>
+              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Proiect Tehnic (complet, pentru execuție)</div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  "Planuri de iluminat",
+                  "Planuri de forță (prize)",
+                  "Scheme monofilare",
+                  "Scheme de distribuție",
+                  "Memoriu tehnic amplu (cu program de control și faze determinante)",
+                  "Caiet de sarcini",
+                  "Breviar de calcul",
+                  "Liste de cantități",
+                ].map(it => (
+                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
+                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
           Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
         </p>
       </section>
