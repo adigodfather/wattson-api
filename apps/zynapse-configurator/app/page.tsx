@@ -452,6 +452,14 @@ function CreditCalculator() {
         </div>
       </div>
 
+      <a href="/register" className="cta-main" style={{
+        display: "block", textAlign: "center", marginTop: 16, padding: "13px 20px", borderRadius: 11,
+        fontSize: 15, fontWeight: 600, textDecoration: "none",
+        background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
+      }}>
+        {credits > 0 ? `Cumpără ${credits.toLocaleString("ro-RO")} credite` : "Începe gratuit"}
+      </a>
+
       <div style={{ fontSize: 11.5, color: "#555", textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>
         DTAC = 1 credit/mp · PT = 2 credite/mp · DTAC + PT = 3 credite/mp
       </div>
@@ -651,7 +659,7 @@ export default function Landing() {
             background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
             color: "#777", textDecoration: "none", transition: "all .2s",
           }}>
-            Vezi pachetele
+            Calculează creditele
           </a>
         </div>
 
@@ -784,18 +792,15 @@ export default function Landing() {
         maxWidth: 1200, margin: "0 auto", padding: "60px 40px 100px",
       }}>
         <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
-          Plătești cât proiectezi
+          Calculează-ți proiectul
         </h2>
-        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: "0 0 22px" }}>
-          1 credit = 1 m² de suprafață construită · 1 credit = 0,50 lei
+        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
+          Estimează creditele și costul în câteva secunde
         </p>
-        <div style={{
-          maxWidth: 640, margin: "0 auto 52px", padding: "16px 24px", borderRadius: 14,
-          background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.2)",
-          textAlign: "center", fontSize: 14, color: "#9FD2FA", lineHeight: 1.65,
-        }}>
-          Un proiect DTAC de 150 m² costă <strong style={{ color: "#5BB8F5" }}>150 credite (75 lei)</strong>. Faza PT consumă dublu (×2). Cumperi credite în avans, nu expiră.
-        </div>
+        <CreditCalculator />
+        <p style={{ textAlign: "center", color: "#666", fontSize: 13, fontWeight: 600, letterSpacing: .5, margin: "52px 0 18px" }}>
+          SAU CUMPĂRĂ DIRECT UN PACHET
+        </p>
         <div className="plans-grid" style={{ marginBottom: 16 }}>
           {PLANS.slice(0, 3).map((p, i) => (
             <PlanCard key={i} p={p} idx={i} hovered={hovered} onHover={setHovered} />
@@ -809,7 +814,6 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "36px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
           Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
         </p>
-        <CreditCalculator />
       </section>
 
       {/* ── CTA final ── */}
