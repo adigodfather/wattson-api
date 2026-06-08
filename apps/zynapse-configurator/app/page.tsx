@@ -364,6 +364,101 @@ function PlanCard({ p, idx, hovered, onHover }: {
   );
 }
 
+// TODO: ajustează praguri/prețuri ale calculatorului de credite
+const CREDIT_PRICING = {
+  perM2: { dtac: 1, pt: 2 },                 // credite/mp: DTAC = 1, PT = 2 (DTAC+PT = 3)
+  tiers: [                                    // praguri de reducere la volum (pe total credite)
+    { min: 5000, lei: 0.40 },                // 5000+ credite
+    { min: 1000, lei: 0.45 },                // 1000–4999 credite
+    { min: 0,    lei: 0.50 },                // sub 1000 credite
+  ],
+};
+
+/* Calculator de credite — pur de prezentare (calcul local, fara apel extern) */
+function CreditCalculator() {
+  const [phase, setPhase] = useState<"dtac" | "dtac_pt">("dtac");
+  const [area, setArea] = useState<number>(1000);
+
+  const perM2 = phase === "dtac_pt"
+    ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
+    : CREDIT_PRICING.perM2.dtac;
+  const credits = Math.max(0, Math.round(area * perM2));
+  const baseLei = CREDIT_PRICING.tiers[CREDIT_PRICING.tiers.length - 1].lei;
+  const tier = CREDIT_PRICING.tiers.find(t => credits >= t.min) ?? { min: 0, lei: baseLei };
+  const pricePerCredit = tier.lei;
+  const totalLei = credits * pricePerCredit;
+
+  const fmtLei = (n: number) => n.toLocaleString("ro-RO", { maximumFractionDigits: 2 });
+  const fmtCredit = (n: number) => n.toFixed(2).replace(".", ",");
+
+  const phaseBtn = (val: "dtac" | "dtac_pt", label: string) => {
+    const active = phase === val;
+    return (
+      <button type="button" onClick={() => setPhase(val)} style={{
+        flex: 1, padding: "10px 14px", borderRadius: 10, fontSize: 14, fontWeight: 600,
+        cursor: "pointer", fontFamily: "inherit", transition: "all .2s",
+        background: active ? "linear-gradient(135deg, #378ADD, #5BB8F5)" : "rgba(255,255,255,0.03)",
+        border: active ? "1px solid transparent" : "1px solid rgba(255,255,255,0.08)",
+        color: active ? "#fff" : "#888",
+      }}>{label}</button>
+    );
+  };
+
+  return (
+    <div style={{
+      maxWidth: 560, margin: "48px auto 0", padding: "28px 28px 24px", borderRadius: 18,
+      background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)",
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, textAlign: "center" }}>
+        CALCULATOR DE CREDITE
+      </div>
+      <div style={{ fontSize: 13, color: "#666", textAlign: "center", margin: "4px 0 20px" }}>
+        Estimează creditele și costul proiectului tău
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#777", letterSpacing: .5, marginBottom: 8 }}>FAZA</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+        {phaseBtn("dtac", "DTAC")}
+        {phaseBtn("dtac_pt", "DTAC + PT")}
+      </div>
+
+      <label htmlFor="cc-area" style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#777", letterSpacing: .5, marginBottom: 8 }}>
+        SUPRAFAȚĂ CONSTRUITĂ (mp)
+      </label>
+      <input id="cc-area" type="number" min={0} step={10} value={area || ""} placeholder="ex: 1000"
+        onChange={e => setArea(Math.max(0, parseFloat(e.target.value) || 0))}
+        style={{
+          width: "100%", padding: "12px 14px", borderRadius: 10, fontSize: 16, fontFamily: "inherit",
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff",
+          outline: "none", marginBottom: 22, boxSizing: "border-box",
+        }} />
+
+      <div style={{
+        padding: "18px 20px", borderRadius: 12, textAlign: "center",
+        background: "rgba(55,138,221,0.07)", border: "1px solid rgba(55,138,221,0.2)",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>
+            {credits.toLocaleString("ro-RO")}<span style={{ fontSize: 15, fontWeight: 500, color: "#5BB8F5", marginLeft: 6 }}>credite</span>
+          </span>
+          <span style={{ fontSize: 18, color: "#444" }}>·</span>
+          <span style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>
+            {fmtLei(totalLei)}<span style={{ fontSize: 15, fontWeight: 500, color: "#5BB8F5", marginLeft: 6 }}>lei</span>
+          </span>
+        </div>
+        <div style={{ fontSize: 12.5, color: "#888", marginTop: 8 }}>
+          Tarif aplicat: <strong style={{ color: "#5BB8F5" }}>{fmtCredit(pricePerCredit)} lei/credit</strong>
+          {pricePerCredit < baseLei && <> — beneficiezi de prețul redus la volum</>}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11.5, color: "#555", textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>
+        DTAC = 1 credit/mp · PT = 2 credite/mp · DTAC + PT = 3 credite/mp
+      </div>
+    </div>
+  );
+}
+
 export default function Landing() {
   const [hovered, setHovered] = useState<number | null>(null);
 
@@ -714,6 +809,7 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "36px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
           Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
         </p>
+        <CreditCalculator />
       </section>
 
       {/* ── CTA final ── */}
