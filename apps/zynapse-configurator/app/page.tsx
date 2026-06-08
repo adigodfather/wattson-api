@@ -386,14 +386,14 @@ export default function Landing() {
         @keyframes circ-flow { 0% { stroke-dashoffset: 1.14; opacity: .12 } 45% { opacity: .85 } 100% { stroke-dashoffset: 0; opacity: .12 } }
         .circ-cur { stroke-dasharray: 0.14 1; animation: circ-flow 3s ease-in-out infinite }
         @keyframes wordmark-glow {
-          0%,100% { text-shadow: 0 0 14px rgba(91,184,245,0.45), 0 0 36px rgba(55,138,221,0.22) }
-          50%     { text-shadow: 0 0 22px rgba(91,184,245,0.75), 0 0 60px rgba(55,138,221,0.40) }
+          0%,100% { filter: drop-shadow(0 0 12px rgba(91,184,245,0.35)) }
+          50%     { filter: drop-shadow(0 0 22px rgba(91,184,245,0.70)) }
         }
-        .zynapse-wordmark { animation: fadeUp .8s ease-out both, wordmark-glow 3s ease-in-out infinite }
+        .zynapse-wordmark { animation: fadeUp .8s ease-out both, shimmer 3.2s linear infinite, wordmark-glow 3s ease-in-out infinite }
         @media (prefers-reduced-motion: reduce) {
           .hero-logo { animation: none !important; transform: none !important }
           .circ-cur { animation: none !important; opacity: .22 !important }
-          .zynapse-wordmark { animation: none !important; text-shadow: 0 0 16px rgba(91,184,245,0.5) !important }
+          .zynapse-wordmark { animation: none !important; filter: drop-shadow(0 0 14px rgba(91,184,245,0.45)) !important }
         }
         @keyframes pulse-ring { 0%{transform:scale(0.8);opacity:.4} 100%{transform:scale(2.5);opacity:0} }
         @keyframes glow-pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
@@ -469,6 +469,19 @@ export default function Landing() {
         alignItems: "center", justifyContent: "center",
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
+        <h1 className="fu fu2" style={{
+          fontSize: 56, fontWeight: 700, lineHeight: 1.06, color: "#fff",
+          margin: "0 0 22px", letterSpacing: -2, maxWidth: 700,
+        }}>
+          Proiectare electrică<br />
+          <span style={{
+            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+            backgroundSize: "200% 100%", animation: "shimmer 3.2s linear infinite",
+            filter: "drop-shadow(0 0 14px rgba(91,184,245,0.35))",
+          }}>din viitor</span>
+        </h1>
+
         <div style={{ position: "relative", marginBottom: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
           {/* circuite care ies din logo si radiaza sus/jos (SVG, CSS-only) */}
           <svg className="logo-circuits" width="560" height="760" viewBox="0 0 560 760" fill="none" aria-hidden="true"
@@ -512,22 +525,11 @@ export default function Landing() {
         </div>
 
         <div className="zynapse-wordmark" style={{
-          fontSize: "clamp(40px, 9vw, 60px)", fontWeight: 500, letterSpacing: 6,
-          color: "#fff", lineHeight: 1, margin: "4px 0 30px",
+          fontSize: "clamp(40px, 9vw, 60px)", fontWeight: 700, letterSpacing: 6, lineHeight: 1, margin: "4px 0 30px",
+          background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+          WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+          backgroundSize: "200% 100%", filter: "drop-shadow(0 0 14px rgba(91,184,245,0.4))",
         }}>ZYNAPSE</div>
-
-        <h1 className="fu fu2" style={{
-          fontSize: 56, fontWeight: 700, lineHeight: 1.06, color: "#fff",
-          margin: "0 0 22px", letterSpacing: -2, maxWidth: 700,
-        }}>
-          Proiectare electrică<br />
-          <span style={{
-            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
-            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-            backgroundSize: "200% 100%", animation: "shimmer 3.2s linear infinite",
-            filter: "drop-shadow(0 0 14px rgba(91,184,245,0.35))",
-          }}>din viitor</span>
-        </h1>
 
         <p className="fu fu3" style={{
           fontSize: 17, lineHeight: 1.7, color: "#555", margin: "0 0 26px", maxWidth: 520,
