@@ -364,6 +364,152 @@ function PlanCard({ p, idx, hovered, onHover }: {
   );
 }
 
+/* ─── Schemă de flux „Cum funcționează" (CSS/SVG, fără JS per frame) ─── */
+const FLOW_PLANSE_ICON = (
+  <>
+    <rect x="5" y="3" width="14" height="18" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
+    <path d="M8 8h8M8 11.5h8M8 15h5" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+  </>
+);
+const FLOW_BRAIN_ICON = (
+  <>
+    <path d="M9.5 4.2A2.7 2.7 0 0 0 5 6.5 2.4 2.4 0 0 0 4 11a2.4 2.4 0 0 0 1.2 4.3A2.5 2.5 0 0 0 9.5 17.8" stroke="#5BB8F5" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M14.5 4.2A2.7 2.7 0 0 1 19 6.5 2.4 2.4 0 0 1 20 11a2.4 2.4 0 0 1-1.2 4.3A2.5 2.5 0 0 1 14.5 17.8" stroke="#5BB8F5" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M12 4.6v13.6" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
+    <path d="M9.5 8.2c1 .7 2.2 .7 3.2 0M14.5 10.6c-1 .7-2.2 .7-3.2 0" stroke="#378ADD" strokeWidth="1" strokeLinecap="round" />
+  </>
+);
+const FLOW_DELIVERABLES: { label: string; icon: React.ReactNode }[] = [
+  {
+    label: "Schemă monofilară",
+    icon: (
+      <>
+        <path d="M3 12h4M17 12h4" stroke="#5BB8F5" strokeWidth="1.4" strokeLinecap="round" />
+        <rect x="9" y="9" width="6" height="6" rx="1" stroke="#5BB8F5" strokeWidth="1.4" />
+        <path d="M12 3v6M12 15v6" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
+        <circle cx="6" cy="12" r="1.1" fill="#378ADD" /><circle cx="18" cy="12" r="1.1" fill="#378ADD" />
+      </>
+    ),
+  },
+  {
+    label: "Memoriu tehnic",
+    icon: (
+      <>
+        <path d="M12 6c-1.7-1.2-4.1-1.5-6.6-1.2v12c2.5-.3 4.9 0 6.6 1.2" stroke="#5BB8F5" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M12 6c1.7-1.2 4.1-1.5 6.6-1.2v12c-2.5-.3-4.9 0-6.6 1.2" stroke="#5BB8F5" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M12 6v12" stroke="#378ADD" strokeWidth="1.2" />
+      </>
+    ),
+  },
+  {
+    label: "Liste de cantități",
+    icon: (
+      <>
+        <circle cx="7" cy="6" r="2.2" stroke="#5BB8F5" strokeWidth="1.3" />
+        <path d="M5.8 8.1h2.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
+        <circle cx="13" cy="6" r="2.2" stroke="#5BB8F5" strokeWidth="1.3" />
+        <path d="M11.8 8.1h2.4" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" />
+        <path d="M7 8.2v5h11M13 8.2v2" stroke="#378ADD" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="15.6" y="14.6" width="5" height="5" rx="1" stroke="#5BB8F5" strokeWidth="1.2" />
+        <circle cx="17.3" cy="17.1" r=".6" fill="#378ADD" /><circle cx="18.9" cy="17.1" r=".6" fill="#378ADD" />
+      </>
+    ),
+  },
+  {
+    label: "Circuite dimensionate",
+    icon: (
+      <>
+        <path d="M3 8h6v8h12" stroke="#5BB8F5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 8V4h8" stroke="#378ADD" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="3" cy="8" r="1.2" fill="#5BB8F5" /><circle cx="21" cy="16" r="1.2" fill="#5BB8F5" /><circle cx="17" cy="4" r="1.2" fill="#5BB8F5" />
+      </>
+    ),
+  },
+];
+
+function FlowDiagram() {
+  return (
+    <>
+      {/* Orizontal (desktop/tabletă) */}
+      <svg className="flow-h" viewBox="0 0 940 380" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto" }}>
+        <defs>
+          <filter id="flGlow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3" /></filter>
+        </defs>
+
+        {/* conector input -> AI (bază) */}
+        <path d="M112 190 H386" stroke="#378ADD" strokeWidth="1.2" opacity="0.2" strokeLinecap="round" />
+
+        {/* trasee AI -> livrabile: bază dim + curent care curge */}
+        {FLOW_DELIVERABLES.map((d, i) => {
+          const yi = 70 + i * 80, bx = 545 + i * 12;
+          return <path key={`b${i}`} d={`M470 190 H${bx} V${yi} H698`} stroke="#378ADD" strokeWidth="1.2" opacity="0.18" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+        })}
+        {FLOW_DELIVERABLES.map((d, i) => {
+          const yi = 70 + i * 80, bx = 545 + i * 12;
+          return <path key={`c${i}`} className="fl-cur" pathLength="1" d={`M470 190 H${bx} V${yi} H698`} stroke="#5BB8F5" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#flGlow)" style={{ animationDelay: `${i * 0.5}s` }} />;
+        })}
+
+        {/* Input „Planșe" */}
+        <rect x="40" y="156" width="68" height="68" rx="15" fill="rgba(55,138,221,0.06)" stroke="rgba(55,138,221,0.25)" strokeWidth="1.5" />
+        <svg x="57" y="173" width="34" height="34" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
+        <text x="74" y="244" textAnchor="middle" fontSize="14" fontWeight="600" fill="#9FD2FA">Planșe</text>
+
+        {/* planșă care „călătorește" spre AI */}
+        <g className="fl-travel">
+          <svg x="107" y="177" width="26" height="26" viewBox="0 0 24 24" fill="none">{FLOW_PLANSE_ICON}</svg>
+        </g>
+
+        {/* Analiză AI: glow + pătrat + creier */}
+        <rect className="fl-aiglow" x="378" y="138" width="104" height="104" rx="20" fill="#378ADD" filter="url(#flGlow)" />
+        <rect x="390" y="150" width="80" height="80" rx="16" fill="rgba(55,138,221,0.08)" stroke="#5BB8F5" strokeWidth="1.6" />
+        <svg x="408" y="168" width="44" height="44" viewBox="0 0 24 24" fill="none">{FLOW_BRAIN_ICON}</svg>
+        <text x="430" y="258" textAnchor="middle" fontSize="14" fontWeight="600" fill="#9FD2FA">Analiză AI</text>
+
+        {/* Livrabile */}
+        {FLOW_DELIVERABLES.map((d, i) => {
+          const yi = 70 + i * 80;
+          return (
+            <g key={`d${i}`}>
+              <circle cx="698" cy={yi} r="2.6" fill="#5BB8F5" />
+              <rect x="700" y={yi - 22} width="44" height="44" rx="11" fill="rgba(55,138,221,0.06)" stroke="rgba(55,138,221,0.22)" strokeWidth="1.4" />
+              <svg x="709" y={yi - 13} width="26" height="26" viewBox="0 0 24 24" fill="none">{d.icon}</svg>
+              <text x="754" y={yi + 5} fontSize="14" fontWeight="600" fill="#cfd3df">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Vertical (mobil) */}
+      <div className="flow-v" style={{ flexDirection: "column", alignItems: "center" }}>
+        <div style={{ width: 150, padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.22)" }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px" }}>{FLOW_PLANSE_ICON}</svg>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#9FD2FA" }}>Planșe</div>
+        </div>
+        <svg width="12" height="28" viewBox="0 0 12 28" fill="none" style={{ margin: "6px 0" }}>
+          <path d="M6 0V28" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
+          <path className="fl-down" d="M6 0V28" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+        <div className="fl-ai-v" style={{ width: 150, padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.08)", border: "1px solid #5BB8F5" }}>
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 6px" }}>{FLOW_BRAIN_ICON}</svg>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#9FD2FA" }}>Analiză AI</div>
+        </div>
+        <svg width="12" height="28" viewBox="0 0 12 28" fill="none" style={{ margin: "6px 0" }}>
+          <path d="M6 0V28" stroke="#378ADD" strokeWidth="1.5" opacity="0.25" />
+          <path className="fl-down" d="M6 0V28" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" style={{ animationDelay: ".4s" }} />
+        </svg>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, width: "100%", maxWidth: 380 }}>
+          {FLOW_DELIVERABLES.map((d, i) => (
+            <div key={i} className="feat" style={{ padding: "16px 12px", borderRadius: 14, textAlign: "center", background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.14)" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>{d.icon}</svg>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: "#cfd3df", lineHeight: 1.3 }}>{d.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // TODO: ajustează praguri/prețuri ale calculatorului de credite
 const CREDIT_PRICING = {
   perM2: { dtac: 1, pt: 2 },                 // credite/mp: DTAC = 1, PT = 2 (DTAC+PT = 3)
@@ -535,6 +681,25 @@ export default function Landing() {
         .norm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px }
         @media (max-width: 820px) { .norm-grid { grid-template-columns: repeat(2,1fr) } }
         @media (max-width: 520px) { .norm-grid { grid-template-columns: 1fr } }
+        .flow-v { display: none }
+        @media (max-width: 760px) { .flow-h { display: none } .flow-v { display: flex } }
+        .fl-travel { animation: fl-travel 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
+        @keyframes fl-travel { 0% { transform: translate(0,0) scale(1); opacity: 0 } 12% { opacity: 1 } 68% { transform: translate(252px,0) scale(.4); opacity: 1 } 82%,100% { transform: translate(252px,0) scale(.4); opacity: 0 } }
+        .fl-cur { stroke-dasharray: 0.16 1; animation: fl-flow 2.8s ease-in-out infinite }
+        @keyframes fl-flow { 0% { stroke-dashoffset: 1.16; opacity: .15 } 45% { opacity: .9 } 100% { stroke-dashoffset: 0; opacity: .15 } }
+        .fl-aiglow { animation: fl-aiglow 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
+        @keyframes fl-aiglow { 0%,100% { opacity: .18; transform: scale(1) } 50% { opacity: .5; transform: scale(1.08) } }
+        .fl-ai-v { animation: fl-aiglowv 3s ease-in-out infinite }
+        @keyframes fl-aiglowv { 0%,100% { box-shadow: 0 0 14px rgba(55,138,221,0.15) } 50% { box-shadow: 0 0 30px rgba(55,138,221,0.4) } }
+        .fl-down { stroke-dasharray: 6 8; animation: fl-down 1.3s linear infinite }
+        @keyframes fl-down { to { stroke-dashoffset: -14 } }
+        @media (prefers-reduced-motion: reduce) {
+          .fl-travel { animation: none !important; opacity: 0 !important }
+          .fl-cur { animation: none !important; opacity: .3 !important }
+          .fl-aiglow { animation: none !important; opacity: .3 !important }
+          .fl-ai-v { animation: none !important }
+          .fl-down { animation: none !important }
+        }
       `}</style>
 
       <CircuitCanvas />
@@ -723,58 +888,7 @@ export default function Landing() {
         <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 56px" }}>
           4 pași — planșă la proiect electric
         </p>
-        <div className="steps-grid">
-          {[
-            { n: "01", t: "Upload planșe", d: "PDF, JPG, PNG", icon: (
-              <>
-                <path d="M12 15.5V5M8 9l4-4 4 4" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M5 19h14" stroke="#378ADD" strokeWidth="1.6" strokeLinecap="round" />
-              </>
-            ) },
-            { n: "02", t: "Formular", d: "Tip clădire, încălzire", icon: (
-              <>
-                <rect x="4.5" y="4" width="15" height="16" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
-                <path d="M9 4V3.2a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V4" stroke="#378ADD" strokeWidth="1.4" strokeLinejoin="round" />
-                <path d="M8 9.5h5M8 13h5" stroke="#378ADD" strokeWidth="1.3" strokeLinecap="round" />
-                <path d="M8 16.6l1.4 1.4L12.6 15" stroke="#5BB8F5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </>
-            ) },
-            { n: "03", t: "AI procesează", d: "Claude Vision + calcul", icon: (
-              <>
-                <rect x="6" y="6" width="12" height="12" rx="2" stroke="#5BB8F5" strokeWidth="1.5" />
-                <path d="M9.5 6V4M14.5 6V4M9.5 20v-2M14.5 20v-2M6 9.5H4M6 14.5H4M20 9.5h-2M20 14.5h-2" stroke="#378ADD" strokeWidth="1.2" strokeLinecap="round" />
-                <circle cx="12" cy="12" r="2.6" stroke="#5BB8F5" strokeWidth="1.4" />
-                <path d="M12 8.7V7.8M12 16.2v-.9M8.7 12h-.9M16.2 12h-.9" stroke="#5BB8F5" strokeWidth="1.2" strokeLinecap="round" />
-              </>
-            ) },
-            { n: "04", t: "Proiect gata", d: "Circuite, memoriu, liste cantități", icon: (
-              <>
-                <path d="M7 3.5h6.5L18 8v11.5a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" stroke="#5BB8F5" strokeWidth="1.5" strokeLinejoin="round" />
-                <path d="M13.5 3.5V8H18" stroke="#378ADD" strokeWidth="1.4" strokeLinejoin="round" />
-                <path d="M9 15l2 2 4-4.5" stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </>
-            ) },
-          ].map((s, i) => (
-            <div key={i} className="feat" style={{
-              padding: 24, borderRadius: 16, textAlign: "center",
-              background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)",
-            }}>
-              <span style={{
-                position: "absolute", top: 12, right: 14, fontSize: 11, fontWeight: 700,
-                color: "#5BB8F5", opacity: 0.45, letterSpacing: 0.5,
-              }}>{s.n}</span>
-              <div style={{
-                width: 48, height: 48, borderRadius: 13, margin: "0 auto 14px",
-                background: "rgba(55,138,221,0.1)", border: "1px solid rgba(55,138,221,0.25)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">{s.icon}</svg>
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "#ddd", marginBottom: 4 }}>{s.t}</div>
-              <div style={{ fontSize: 12, color: "#555" }}>{s.d}</div>
-            </div>
-          ))}
-        </div>
+        <FlowDiagram />
       </section>
 
       {/* ── Tot ce ai nevoie ── */}
