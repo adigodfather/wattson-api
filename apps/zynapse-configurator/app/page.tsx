@@ -563,7 +563,7 @@ function CreditCalculator() {
 
   return (
     <div style={{
-      maxWidth: 560, margin: "48px auto 0", padding: "28px 28px 24px", borderRadius: 18,
+      maxWidth: 560, margin: "0 auto", padding: "28px 28px 24px", borderRadius: 18,
       background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)",
     }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, textAlign: "center" }}>
@@ -689,6 +689,14 @@ export default function Landing() {
         @media (max-width: 820px) { .steps-grid { grid-template-columns: repeat(2,1fr) } }
         .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px }
         @media (max-width: 760px) { .rules-grid { grid-template-columns: 1fr } }
+        .calc-row { display: grid; grid-template-columns: 1fr 1.55fr 1fr; gap: 18px; align-items: start; max-width: 1120px; margin: 40px auto 0 }
+        .calc-row .calc-left { grid-column: 1; grid-row: 1 }
+        .calc-row .calc-mid { grid-column: 2; grid-row: 1 }
+        .calc-row .calc-right { grid-column: 3; grid-row: 1 }
+        @media (max-width: 860px) {
+          .calc-row { grid-template-columns: 1fr; max-width: 560px; gap: 16px }
+          .calc-row .calc-left, .calc-row .calc-mid, .calc-row .calc-right { grid-column: auto; grid-row: auto }
+        }
         .norm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px }
         @media (max-width: 820px) { .norm-grid { grid-template-columns: repeat(2,1fr) } }
         @media (max-width: 520px) { .norm-grid { grid-template-columns: 1fr } }
@@ -733,7 +741,7 @@ export default function Landing() {
         </div>
         <nav style={{ display: "flex", gap: 28, alignItems: "center" }}>
           {[
-            { label: "Pachete", href: "#pachete" },
+            { label: "Calculator", href: "#pachete" },
             { label: "Cum funcționează", href: "#cum-functioneaza" },
             { label: "Contact", href: "mailto:office@zynapse.org" },
           ].map(item => (
@@ -911,103 +919,64 @@ export default function Landing() {
         <FlowDiagram />
       </section>
 
-      {/* ── Tot ce ai nevoie ── */}
+      {/* ── Arhitectură (plan care se desenează) ── */}
       <section style={{
         position: "relative", zIndex: 1,
-        maxWidth: 1100, margin: "0 auto", padding: "60px 40px",
+        maxWidth: 900, margin: "0 auto", padding: "60px 40px",
       }}>
         <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 10px", letterSpacing: -.8 }}>
-          Tot ce ai nevoie
+          Arhitectura ta, citită automat
         </h2>
-        <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 48px" }}>
-          Un singur tool pentru întregul proiect electric
+        <p style={{ textAlign: "center", color: "#555", fontSize: 15, margin: "0 0 40px" }}>
+          AI-ul interpretează planșele și extrage încăperile, ca un proiectant
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
-          {[
-            { dot: "#5BB8F5", title: "Extragere AI din planșe", desc: "Claude Vision citește planșele și identifică încăperile automat" },
-            { dot: "#5BB8F5", title: "Calcul conform normativelor", desc: "Dimensionare conform I7-2011, NP 061-2002, NTE 007/08/00 și PE 132-2003" },
-            { dot: "#5BB8F5", title: "Memoriu tehnic automat", desc: "Document complet generat, gata de depus la proiect" },
-            { dot: "#5BB8F5", title: "Liste de cantități instant", desc: "Liste de cantități automate, exportabile imediat în PDF" },
-            { dot: "#5BB8F5", title: "DTAC & PT complet", desc: "Documentații complete pentru autorizare de construire" },
-            { dot: "#5BB8F5", title: "Scheme monofilare", desc: "Scheme electrice monofilare generate automat, gata de export PDF" },
-          ].map((f, i) => (
-            <div key={i} className="feat" style={{
-              padding: "24px 28px", borderRadius: 16,
-              background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: f.dot, flexShrink: 0 }} />
-                <span style={{ fontSize: 15, fontWeight: 700, color: "#ddd" }}>{f.title}</span>
-              </div>
-              <p style={{ fontSize: 13, color: "#555", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
-            </div>
-          ))}
+        <div style={{ maxWidth: 620, margin: "0 auto" }}>
+          <svg viewBox="0 0 420 290" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto" }}>
+            <defs>
+              <filter id="bpArch" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.4" /></filter>
+            </defs>
+            <style dangerouslySetInnerHTML={{ __html: `
+              .bp{animation:bp-fade 15s ease-in-out infinite}
+              @keyframes bp-fade{0%{opacity:0}2.5%{opacity:1}93%{opacity:1}100%{opacity:0}}
+              .bp-line{stroke-dasharray:1}
+              .bp-1{animation:bp-d1 15s ease-in-out infinite}
+              .bp-2{animation:bp-d2 15s ease-in-out infinite}
+              .bp-3{animation:bp-d3 15s ease-in-out infinite}
+              .bp-4{animation:bp-d4 15s ease-in-out infinite}
+              .bp-5{animation:bp-d5 15s ease-in-out infinite}
+              @keyframes bp-d1{0%,2%{stroke-dashoffset:1}25%,100%{stroke-dashoffset:0}}
+              @keyframes bp-d2{0%,25%{stroke-dashoffset:1}45%,100%{stroke-dashoffset:0}}
+              @keyframes bp-d3{0%,45%{stroke-dashoffset:1}63%,100%{stroke-dashoffset:0}}
+              @keyframes bp-d4{0%,63%{stroke-dashoffset:1}74%,100%{stroke-dashoffset:0}}
+              @keyframes bp-d5{0%,74%{stroke-dashoffset:1}85%,100%{stroke-dashoffset:0}}
+              .bp-glow-el{animation:bp-glow 15s ease-in-out infinite}
+              @keyframes bp-glow{0%,86%{opacity:0}90%{opacity:.5}94%,100%{opacity:0}}
+              @media (prefers-reduced-motion: reduce){
+                .bp{animation:none!important;opacity:1!important}
+                .bp-line{animation:none!important;stroke-dashoffset:0!important}
+                .bp-glow-el{animation:none!important;opacity:0!important}
+              }
+            `}} />
+            <g className="bp" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              {/* halo puls pe contur (după desenarea completă) */}
+              <path className="bp-glow-el" d="M30 30 H390 V260 H30 Z" stroke="#5BB8F5" strokeWidth="2.8" filter="url(#bpArch)" />
+              {/* contur exterior */}
+              <path className="bp-line bp-1" pathLength="1" d="M30 30 H390 V260 H30 Z" stroke="#5BB8F5" strokeWidth="2.4" />
+              {/* pereți interiori principali */}
+              <path className="bp-line bp-2" pathLength="1" d="M180 30 V180 M30 180 H390 M290 30 V180" stroke="#378ADD" strokeWidth="1.8" />
+              {/* pereți interiori secundari (camere) */}
+              <path className="bp-line bp-3" pathLength="1" d="M120 180 V260 M230 180 V260 M320 180 V260 M180 110 H290" stroke="#378ADD" strokeWidth="1.7" />
+              {/* uși (arce de deschidere) */}
+              <path className="bp-line bp-4" pathLength="1" d="M180 130 A22 22 0 0 0 158 152 M250 180 A20 20 0 0 1 270 200 M290 90 A18 18 0 0 0 272 108" stroke="#5BB8F5" strokeWidth="1.6" />
+              {/* ferestre */}
+              <path className="bp-line bp-5" pathLength="1" d="M80 26 H120 M80 34 H120 M320 26 H360 M320 34 H360 M26 95 V135 M34 95 V135 M160 256 H200 M160 264 H200" stroke="#5BB8F5" strokeWidth="1.6" />
+            </g>
+          </svg>
         </div>
-      </section>
-
-      {/* ── Pachete & prețuri ── */}
-      <section id="pachete" style={{
-        position: "relative", zIndex: 1,
-        maxWidth: 1200, margin: "0 auto", padding: "60px 40px 100px",
-      }}>
-        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
-          Calculează-ți proiectul
-        </h2>
-        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
-          Estimează creditele și costul în câteva secunde
-        </p>
-        <CreditCalculator />
-
-        {/* Ce primești: DTAC vs DTAC + PT */}
-        <div style={{ maxWidth: 760, margin: "48px auto 0" }}>
-          <h3 style={{ fontSize: 22, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 6px", letterSpacing: -.4 }}>
-            Ce primești
-          </h3>
-          <p style={{ textAlign: "center", color: "#666", fontSize: 13.5, margin: "0 0 28px" }}>
-            Diferența dintre cele două faze
-          </p>
-          <div className="rules-grid">
-            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)" }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC</div>
-              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Documentație Tehnică pentru Autorizația de Construire</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                {["Scheme monofilare", "Memoriu tehnic"].map(it => (
-                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
-                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.28)", boxShadow: "0 0 30px rgba(55,138,221,0.07)" }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC + PT</div>
-              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Proiect Tehnic (complet, pentru execuție)</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  "Planuri de iluminat",
-                  "Planuri de forță (prize)",
-                  "Scheme monofilare",
-                  "Scheme de distribuție",
-                  "Memoriu tehnic amplu (cu program de control și faze determinante)",
-                  "Caiet de sarcini",
-                  "Breviar de calcul",
-                  "Liste de cantități",
-                ].map(it => (
-                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
-                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
-          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
-        </p>
       </section>
 
       {/* ── Reguli ── */}
-      <section style={{ position: "relative", zIndex: 1, maxWidth: 760, margin: "0 auto", padding: "20px 40px 60px" }}>
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 760, margin: "0 auto", padding: "40px 40px 60px" }}>
         <h2 style={{ fontSize: 30, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 10px", letterSpacing: -.6 }}>
           Reguli pentru o colaborare corectă
         </h2>
@@ -1044,6 +1013,66 @@ export default function Landing() {
             </p>
           </div>
         </div>
+      </section>
+
+      {/* ── Calculator ── */}
+      <section id="pachete" style={{
+        position: "relative", zIndex: 1,
+        maxWidth: 1200, margin: "0 auto", padding: "40px 40px 100px",
+      }}>
+        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
+          Calculează-ți proiectul
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
+          Estimează creditele și costul în câteva secunde
+        </p>
+        <div className="calc-row">
+          {/* Calculator (centru) */}
+          <div className="calc-mid">
+            <CreditCalculator />
+          </div>
+          {/* DTAC (stânga) */}
+          <div className="calc-left">
+            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC</div>
+              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Documentație Tehnică pentru Autorizația de Construire</div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                {["Scheme monofilare", "Memoriu tehnic"].map(it => (
+                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
+                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          {/* DTAC + PT (dreapta) */}
+          <div className="calc-right">
+            <div style={{ padding: "24px 26px", borderRadius: 16, background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.28)", boxShadow: "0 0 30px rgba(55,138,221,0.07)" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#5BB8F5" }}>DTAC + PT</div>
+              <div style={{ fontSize: 12.5, color: "#777", margin: "4px 0 16px", lineHeight: 1.5 }}>Proiect Tehnic (complet, pentru execuție)</div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  "Planuri de iluminat",
+                  "Planuri de forță (prize)",
+                  "Scheme monofilare",
+                  "Scheme de distribuție",
+                  "Memoriu tehnic amplu (cu program de control și faze determinante)",
+                  "Caiet de sarcini",
+                  "Breviar de calcul",
+                  "Liste de cantități",
+                ].map(it => (
+                  <li key={it} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#cfd3df", lineHeight: 1.5 }}>
+                    <span style={{ color: "#5BB8F5", flexShrink: 0 }}>▸</span>{it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
+          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
+        </p>
       </section>
 
       {/* ── CTA final ── */}
@@ -1091,7 +1120,7 @@ export default function Landing() {
             {[
               { label: "Login", href: "/login" },
               { label: "Register", href: "/register" },
-              { label: "Pachete", href: "#pachete" },
+              { label: "Calculator", href: "#pachete" },
               { label: "Contact", href: "mailto:office@zynapse.org" },
             ].map(item => (
               <a key={item.label} href={item.href} style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>{item.label}</a>
