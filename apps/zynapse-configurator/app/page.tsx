@@ -442,7 +442,7 @@ function FlowDiagram() {
   return (
     <>
       {/* Flux vertical (desktop/tabletă) */}
-      <svg className="flow-h" viewBox="0 0 920 548" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" style={{ display: "block", width: "100%", height: "auto", maxWidth: 720, margin: "0 auto" }}>
+      <svg className="flow-h" viewBox="0 0 920 548" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true">
         <defs>
           <filter id="flGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.4" /></filter>
         </defs>
@@ -685,12 +685,12 @@ export default function Landing() {
     <div style={{
       minHeight: "100vh", background: "#050709",
       fontFamily: "'Instrument Sans', 'DM Sans', system-ui, sans-serif",
-      color: "#c0c0c0", position: "relative",
+      color: "#c0c0c0", position: "relative", overflowX: "hidden", maxWidth: "100%",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { margin: 0; background: #050709; }
+        html, body { margin: 0; background: #050709; overflow-x: hidden; max-width: 100%; }
         @keyframes fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
         @keyframes logo-pulse {
@@ -751,8 +751,12 @@ export default function Landing() {
         .norm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px }
         @media (max-width: 820px) { .norm-grid { grid-template-columns: repeat(2,1fr) } }
         @media (max-width: 520px) { .norm-grid { grid-template-columns: 1fr } }
-        .flow-v { display: none }
-        @media (max-width: 760px) { .flow-h { display: none } .flow-v { display: flex } }
+        .flow-h { display: block; width: 100%; max-width: 720px; height: auto; margin: 0 auto }
+        .flow-v { display: none; flex-direction: column; align-items: center }
+        @media (max-width: 768px) { .flow-h { display: none } .flow-v { display: flex } }
+        .nav-links { display: flex; gap: 28px; align-items: center }
+        .landing-header { padding: 14px 40px }
+        @media (max-width: 768px) { .nav-links { display: none } .landing-header { padding: 12px 18px } }
         .fl-travel { animation: fl-travel 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center }
         @keyframes fl-travel { 0% { transform: translate(0,0) scale(1); opacity: 0 } 14% { opacity: 1 } 70% { transform: translate(0,118px) scale(.42); opacity: 1 } 84%,100% { transform: translate(0,118px) scale(.42); opacity: 0 } }
         .fl-cur { stroke-dasharray: 0.16 1; animation: fl-flow 2.8s ease-in-out infinite }
@@ -778,33 +782,35 @@ export default function Landing() {
       <CircuitCanvas />
 
       {/* ── Header ── */}
-      <header style={{
+      <header className="landing-header" style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
-        padding: "14px 40px", display: "flex", justifyContent: "space-between", alignItems: "center",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={68} height={68} style={{
+          <img src="/logo-icon.png" alt="Zynapse" width={56} height={56} style={{
             objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
           }} />
         </div>
-        <nav style={{ display: "flex", gap: 28, alignItems: "center" }}>
-          {[
-            { label: "Calculator", href: "#pachete" },
-            { label: "Cum funcționează", href: "#cum-functioneaza" },
-            { label: "Contact", href: "mailto:office@zynapse.org" },
-          ].map(item => (
-            <a key={item.label} href={item.href} className="nav-link"
-              style={{ color: "#666", fontSize: 13, textDecoration: "none", fontWeight: 500 }}>
-              {item.label}
-            </a>
-          ))}
+        <nav style={{ display: "flex", gap: 20, alignItems: "center" }}>
+          <div className="nav-links">
+            {[
+              { label: "Calculator", href: "#pachete" },
+              { label: "Cum funcționează", href: "#cum-functioneaza" },
+              { label: "Contact", href: "mailto:office@zynapse.org" },
+            ].map(item => (
+              <a key={item.label} href={item.href} className="nav-link"
+                style={{ color: "#666", fontSize: 13, textDecoration: "none", fontWeight: 500 }}>
+                {item.label}
+              </a>
+            ))}
+          </div>
           <a href="/login" className="cta-main" style={{
-            padding: "8px 22px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+            padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
             background: "linear-gradient(135deg, #378ADD, #5BB8F5)",
-            color: "#fff", textDecoration: "none",
+            color: "#fff", textDecoration: "none", whiteSpace: "nowrap",
           }}>Intră în cont</a>
         </nav>
       </header>
@@ -816,8 +822,8 @@ export default function Landing() {
         position: "relative", zIndex: 1, padding: "120px 40px 80px", textAlign: "center",
       }}>
         <h1 className="fu fu2" style={{
-          fontSize: 56, fontWeight: 700, lineHeight: 1.06, color: "#fff",
-          margin: "0 0 22px", letterSpacing: -2, maxWidth: 700,
+          fontSize: "clamp(34px, 9vw, 56px)", fontWeight: 700, lineHeight: 1.06, color: "#fff",
+          margin: "0 0 22px", letterSpacing: -1.5, maxWidth: 700,
         }}>
           Proiectare electrică<br />
           <span style={{
