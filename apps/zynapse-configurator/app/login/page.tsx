@@ -24,7 +24,7 @@ export default function LoginPage() {
         : error.message);
       setLoading(false);
     } else {
-      router.push("/configurator");
+      router.push("/home");
       router.refresh();
     }
   };
@@ -44,16 +44,17 @@ export default function LoginPage() {
         }
       `}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, marginBottom: 40, justifyContent: "center", textDecoration: "none", maxWidth: "100%" }}>
+        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 44, justifyContent: "center", textDecoration: "none", maxWidth: "100%" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={100} height={100} style={{
-            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 18px rgba(91,184,245,0.5)) drop-shadow(0 0 38px rgba(55,138,221,0.25))",
+          <img src="/logo-icon.png" alt="Zynapse" width={130} height={130} style={{
+            objectFit: "contain", maxWidth: "60%", height: "auto",
+            filter: "brightness(2.2) drop-shadow(0 0 22px rgba(91,184,245,0.5)) drop-shadow(0 0 44px rgba(55,138,221,0.25))",
           }} />
           <span style={{
-            fontSize: "clamp(38px, 13vw, 60px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
+            fontSize: "clamp(40px, 15vw, 74px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
             background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
             WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-            filter: "drop-shadow(0 0 12px rgba(91,184,245,0.45))",
+            filter: "drop-shadow(0 0 14px rgba(91,184,245,0.45))",
           }}>ZYNAPSE</span>
         </Link>
 

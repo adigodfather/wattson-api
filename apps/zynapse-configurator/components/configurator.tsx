@@ -1278,7 +1278,7 @@ export function ZynapseConfigurator() {
         }}>
         <div className="flex items-center gap-3 md:gap-4 min-w-0">
           <div className="flex items-center gap-3 shrink-0">
-            <Link href="/" aria-label="Zynapse — pagina principală" className="flex items-center gap-2 shrink-0" style={{ textDecoration: "none" }}>
+            <Link href="/home" aria-label="Zynapse — acasă" className="flex items-center gap-2 shrink-0" style={{ textDecoration: "none" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo-icon.png" alt="" width={30} height={30} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 5px rgba(91,184,245,0.4))" }} />
               <span className="text-[19px] font-bold tracking-wide" style={{

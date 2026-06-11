@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
 
   if (user) {
     if (pathname === "/" || pathname === "/login" || pathname === "/register") {
-      return NextResponse.redirect(new URL("/configurator", request.url));
+      return NextResponse.redirect(new URL("/home", request.url));
     }
   }
 
