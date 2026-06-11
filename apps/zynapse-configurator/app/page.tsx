@@ -1142,8 +1142,8 @@ export default function Landing() {
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+            <span style={{ fontSize: 12, color: "#555", fontWeight: 500 }}>S.C. ZYNAPSE S.R.L.</span>
             <a href="mailto:office@zynapse.org" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>office@zynapse.org</a>
-            <a href="tel:+40774484053" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>0774 484 053</a>
           </div>
         </div>
       </footer>
