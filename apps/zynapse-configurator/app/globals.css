@@ -169,3 +169,21 @@ textarea {
     background: linear-gradient(90deg, #378ADD, #5BB8F5);
   }
 }
+
+/* ── CalculatorPanel partajat (landing + /home): calculator | card „Ce primești" ── */
+.cta-main { transition: all .25s; }
+.cta-main:hover { transform: translateY(-2px); box-shadow: 0 8px 40px rgba(55, 138, 221, .3); }
+.calc-row {
+  display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px;
+  align-items: start; max-width: 1000px; margin: 40px auto 0;
+}
+@media (max-width: 860px) { .calc-row { grid-template-columns: 1fr; max-width: 560px; gap: 16px; } }
+.cefade-card { animation: zy-cefade .35s ease; }
+@keyframes zy-cefade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cefade-card { animation: none; } }
+
+/* ── /home: grid pachete B2B (4 -> 2 -> 1) + cuvântul „Z-Coins" din balanță ── */
+.home-pkg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 1024px) { .home-pkg-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .home-pkg-grid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .zc-bal-word { display: none; } }
