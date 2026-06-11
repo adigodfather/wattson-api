@@ -91,16 +91,16 @@ export default function RegisterPage() {
         }
       `}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center", textDecoration: "none" }}>
+        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, marginBottom: 40, justifyContent: "center", textDecoration: "none", maxWidth: "100%" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={84} height={84} style={{
-            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 14px rgba(91,184,245,0.5)) drop-shadow(0 0 30px rgba(55,138,221,0.25))",
+          <img src="/logo-icon.png" alt="Zynapse" width={100} height={100} style={{
+            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 18px rgba(91,184,245,0.5)) drop-shadow(0 0 38px rgba(55,138,221,0.25))",
           }} />
           <span style={{
-            fontSize: 26, fontWeight: 700, letterSpacing: 3, lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
+            fontSize: "clamp(38px, 13vw, 60px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
             background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
             WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-            filter: "drop-shadow(0 0 10px rgba(91,184,245,0.45))",
+            filter: "drop-shadow(0 0 12px rgba(91,184,245,0.45))",
           }}>ZYNAPSE</span>
         </Link>
 
