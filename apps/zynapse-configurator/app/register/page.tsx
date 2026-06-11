@@ -98,7 +98,7 @@ export default function RegisterPage() {
             filter: "brightness(2.2) drop-shadow(0 0 30px rgba(91,184,245,0.5)) drop-shadow(0 0 56px rgba(55,138,221,0.25))",
           }} />
           <span style={{
-            fontSize: "clamp(40px, 15vw, 74px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
+            fontSize: "clamp(32px, 11vw, 56px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
             background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
             WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
             filter: "drop-shadow(0 0 14px rgba(91,184,245,0.45))",
