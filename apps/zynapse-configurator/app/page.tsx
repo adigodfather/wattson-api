@@ -885,9 +885,31 @@ export default function Landing() {
         <h2 style={{ fontSize: 30, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 10px", letterSpacing: -.6 }}>
           Reguli pentru o colaborare corectă
         </h2>
-        <p style={{ textAlign: "center", color: "#666", fontSize: 14, margin: "0 0 36px" }}>
+        <p style={{ textAlign: "center", color: "#666", fontSize: 14, margin: "0 0 28px" }}>
           Câteva cerințe simple ca proiectul tău să iasă impecabil
         </p>
+
+        {/* Casetă legală evidențiată — glow pulsatoriu (reutilizează .zy-current; static la reduced-motion) */}
+        <div className="zy-current" style={{
+          borderRadius: 16, padding: "22px 26px", marginBottom: 24,
+          background: "rgba(55,138,221,0.08)", border: "1px solid rgba(91,184,245,0.35)",
+          boxShadow: "0 0 36px rgba(55,138,221,0.16)",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#5BB8F5", letterSpacing: .5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+            <span aria-hidden="true">⚠</span> CERINȚE LEGALE OBLIGATORII
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              "Toate planșele, schemele, memoriile tehnice și listele de cantități trebuie asumate de către un inginer proiectant autorizat ANRE.",
+              "Documentațiile tehnice pentru autorizarea construirii (DTAC) și proiectele tehnice (PT) trebuie verificate de un verificator de proiecte atestat MDLPA.",
+            ].map(r => (
+              <li key={r} style={{ display: "flex", alignItems: "flex-start", gap: 11, fontSize: 14.5, fontWeight: 500, color: "#cfe6ff", lineHeight: 1.6 }}>
+                <span style={{ color: "#5BB8F5", flexShrink: 0, fontWeight: 700 }}>▸</span>{r}
+              </li>
+            ))}
+          </ul>
+        </div>
+
         <div className="rules-grid">
           <div style={{
             padding: "24px 26px", borderRadius: 16,

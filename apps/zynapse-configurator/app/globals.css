@@ -187,3 +187,6 @@ textarea {
 @media (max-width: 1024px) { .home-pkg-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .home-pkg-grid { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .zc-bal-word { display: none; } }
+.home-nav-desktop { display: flex; align-items: center; gap: 14px; }
+.home-nav-mobile { display: none; }
+@media (max-width: 680px) { .home-nav-desktop { display: none; } .home-nav-mobile { display: block; } }

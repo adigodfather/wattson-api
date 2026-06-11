@@ -1296,6 +1296,14 @@ export function ZynapseConfigurator() {
           {/* Desktop nav links */}
           <div className="hidden md:flex items-center gap-4">
             <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
+            <Link href="/home"
+              className="text-sm font-medium transition-colors duration-150"
+              style={{ color: "#8B8FA8", textDecoration: "none" }}
+              onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
+              onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
+              Home
+            </Link>
+            <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
             <Link href="/projects"
               className="text-sm font-medium transition-colors duration-150"
               style={{ color: "#8B8FA8", textDecoration: "none" }}
@@ -1321,6 +1329,9 @@ export function ZynapseConfigurator() {
             </summary>
             <div className="absolute left-0 top-full mt-2 z-50 flex flex-col py-1 rounded-lg min-w-[170px]"
               style={{ background: "#14161C", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 28px rgba(0,0,0,0.5)" }}>
+              <Link href="/home" className="px-4 py-2.5 text-sm font-medium" style={{ color: "#5BB8F5", textDecoration: "none" }}>
+                Home
+              </Link>
               <Link href="/projects" className="px-4 py-2.5 text-sm font-medium" style={{ color: "#C8CAD6", textDecoration: "none" }}>
                 Proiectele mele
               </Link>
