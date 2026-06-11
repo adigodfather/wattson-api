@@ -1,0 +1,35 @@
+<svg width="100%" viewBox="0 0 240 240" role="img" xmlns="http://www.w3.org/2000/svg" aria-label="Z-Coin">
+<defs>
+<linearGradient id="zc-face" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#0E2A47"/>
+<stop offset="1" stop-color="#081A2E"/>
+</linearGradient>
+<linearGradient id="zc-z" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#CDEBFF"/>
+<stop offset="0.5" stop-color="#5BB8F5"/>
+<stop offset="1" stop-color="#378ADD"/>
+</linearGradient>
+</defs>
+<g transform="translate(120 120)">
+<circle r="120" fill="#05121F" stroke="#1E4A73" stroke-width="3"/>
+<circle r="112" fill="none" stroke="#2C6DA8" stroke-width="2" opacity="0.5"/>
+<g stroke="#5BB8F5" stroke-width="7" fill="none" stroke-linecap="round">
+<path d="M -86 -62 A 106 106 0 0 1 86 -62" opacity="0.9"/>
+<path d="M 86 62 A 106 106 0 0 1 -86 62" opacity="0.9"/>
+</g>
+<g stroke="#CDEBFF" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.8">
+<path d="M -70 -78 A 106 106 0 0 1 -20 -104"/>
+<path d="M 70 78 A 106 106 0 0 1 20 104"/>
+</g>
+<circle r="88" fill="url(#zc-face)" stroke="#4A9BE0" stroke-width="2.5"/>
+<circle r="88" fill="none" stroke="#0A1F33" stroke-width="6" opacity="0.4"/>
+<circle r="66" fill="none" stroke="#2C6DA8" stroke-width="1" opacity="0.45"/>
+<text x="0" y="44" text-anchor="middle" font-family="Georgia, serif" font-size="132" font-weight="700" fill="url(#zc-z)" stroke="#1E5A8C" stroke-width="1.5">Z</text>
+<g fill="#9BD4FF" opacity="0.9">
+<circle cx="0" cy="-100" r="3"/>
+<circle cx="0" cy="100" r="3"/>
+<circle cx="-100" cy="0" r="3"/>
+<circle cx="100" cy="0" r="3"/>
+</g>
+</g>
+</svg>

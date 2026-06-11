@@ -615,10 +615,10 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
       background: "rgba(55,138,221,0.04)", border: "1px solid rgba(55,138,221,0.16)",
     }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, textAlign: "center" }}>
-        CALCULATOR DE CREDITE
+        CALCULATOR Z-COINS
       </div>
       <div style={{ fontSize: 13, color: "#666", textAlign: "center", margin: "4px 0 20px" }}>
-        Estimează creditele și costul proiectului tău
+        Estimează Z-Coins și costul proiectului tău
       </div>
 
       <div style={{ fontSize: 11, fontWeight: 600, color: "#777", letterSpacing: .5, marginBottom: 8 }}>FAZA</div>
@@ -643,8 +643,10 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
         background: "rgba(55,138,221,0.07)", border: "1px solid rgba(55,138,221,0.2)",
       }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>
-            {credits.toLocaleString("ro-RO")}<span style={{ fontSize: 15, fontWeight: 500, color: "#5BB8F5", marginLeft: 6 }}>credite</span>
+          <span style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: -.5, display: "inline-flex", alignItems: "center", gap: 7 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/z-coin.svg" alt="" width={26} height={26} style={{ display: "block" }} />
+            {credits.toLocaleString("ro-RO")}<span style={{ fontSize: 15, fontWeight: 500, color: "#5BB8F5", marginLeft: 6 }}>Z-Coins</span>
           </span>
           <span style={{ fontSize: 18, color: "#444" }}>·</span>
           <span style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: -.5 }}>
@@ -652,7 +654,7 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
           </span>
         </div>
         <div style={{ fontSize: 12.5, color: "#888", marginTop: 8 }}>
-          Tarif: <strong style={{ color: "#5BB8F5" }}>{fmtCredit(pricePerCredit)} lei/credit</strong>
+          Tarif: <strong style={{ color: "#5BB8F5" }}>{fmtCredit(pricePerCredit)} lei/Z-Coin</strong>
         </div>
       </div>
 
@@ -661,11 +663,11 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
         fontSize: 15, fontWeight: 600, textDecoration: "none",
         background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
       }}>
-        {credits > 0 ? `Cumpără ${credits.toLocaleString("ro-RO")} credite` : "Începe gratuit"}
+        {credits > 0 ? `Cumpără ${credits.toLocaleString("ro-RO")} Z-Coins` : "Începe gratuit"}
       </a>
 
       <div style={{ fontSize: 11.5, color: "#555", textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>
-        DTAC = 1 credit/mp · DTAC + PT = 3 credite/mp
+        DTAC = 1 Z-Coin/mp · DTAC + PT = 3 Z-Coins/mp
       </div>
     </div>
   );
@@ -781,12 +783,12 @@ export default function Landing() {
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={56} height={56} style={{
-            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
-          }} />
-        </div>
+        <a href="/" aria-label="Zynapse — pagina principală" className="zynapse-wordmark" style={{
+          fontSize: 22, fontWeight: 700, letterSpacing: 2, lineHeight: 1, textDecoration: "none",
+          background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+          WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+          backgroundSize: "200% 100%", filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
+        }}>ZYNAPSE</a>
         <nav style={{ display: "flex", gap: 20, alignItems: "center" }}>
           <div className="nav-links">
             {[
@@ -893,7 +895,7 @@ export default function Landing() {
             background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
             color: "#777", textDecoration: "none", transition: "all .2s",
           }}>
-            Calculează creditele
+            Calculează Z-Coins
           </a>
         </div>
 
@@ -906,7 +908,7 @@ export default function Landing() {
             { v: "Asistență AI", l: "analiză automată", hi: true },
             { v: "I7-2011", l: "100% conform", hi: false },
             { v: "DTAC + PT", l: "faze complete", hi: false },
-            { v: "1 credit / m²", l: "preț transparent", hi: false },
+            { v: "1 Z-Coin / m²", l: "preț transparent", hi: false },
           ].map((s, i) => (
             <div key={i} style={{ textAlign: "center" }}>
               <div style={{
@@ -1059,7 +1061,7 @@ export default function Landing() {
           }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#5BB8F5", letterSpacing: .5, marginBottom: 14 }}>SUPRAFAȚĂ DECLARATĂ</div>
             <p style={{ fontSize: 14, color: "#9FD2FA", lineHeight: 1.7, margin: 0 }}>
-              Suprafața declarată trebuie să corespundă planșelor încărcate. Declararea unei suprafețe mai mici decât cea reală, pentru a reduce numărul de credite, atrage penalizarea contului.
+              Suprafața declarată trebuie să corespundă planșelor încărcate. Declararea unei suprafețe mai mici decât cea reală, pentru a reduce numărul de Z-Coins, atrage penalizarea contului.
             </p>
           </div>
         </div>
@@ -1074,12 +1076,12 @@ export default function Landing() {
           Calculează-ți proiectul
         </h2>
         <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
-          Estimează creditele și costul în câteva secunde
+          Estimează Z-Coins și costul în câteva secunde
         </p>
         <CalculatorPanel />
 
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
-          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 credite gratuite</strong> la confirmarea contului.
+          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 Z-Coins gratuite</strong> la confirmarea contului.
         </p>
       </section>
 
