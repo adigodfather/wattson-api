@@ -20,22 +20,26 @@ const PILE_JITTER = [
   { dx: 7, r: -8 }, { dx: -3, r: 3 }, { dx: 9, r: 9 }, { dx: -7, r: -4 },
 ];
 
-/* Ilustrație Z-Coin: GRĂMADĂ de monede care crește cu cantitatea (500 → puține, 10.000 → morman) */
+/* Ilustrație Z-Coin: GRĂMADĂ de monede care crește cu cantitatea (500 → puține, 10.000 → morman).
+   Monedă mare (S=54, ~1.7×) ca „Z"-ul să iasă clar; zonă fixă -> carduri egale, grămada bottom-aligned. */
 function CoinPile({ count }: { count: number }) {
-  const S = 32;
-  const H = S + Math.round((count - 1) * 3.2);          // înălțimea grămezii crește cu nr. monede
-  const W = S + 18 + Math.min(28, count * 1.5);          // baza se lățește cu nr. monede
+  const S = 54;                                          // dimensiunea monedei (mărită ~1.7×)
+  const step = S * 0.085;                                // pas vertical (overlap dens, aspect de morman)
+  const jx = S / 32;                                     // scalare jitter orizontal proporțional cu moneda
+  const pileH = S + (count - 1) * step;                  // înălțimea reală a grămezii
+  const ZONE_H = 148;                                    // zonă fixă (≥ cea mai mare grămadă) -> carduri egale
+  const W = Math.round(S + 24 + Math.min(48, count * 2.4)); // baza se lățește cu nr. monede
   return (
-    <div style={{ position: "relative", width: W, height: H, margin: "0 auto 18px" }}>
+    <div style={{ position: "relative", width: W, height: ZONE_H, margin: "0 auto 18px" }}>
       {Array.from({ length: count }).map((_, i) => {
         const j = PILE_JITTER[i % PILE_JITTER.length];
         const t = count > 1 ? i / (count - 1) : 0;        // 0 (jos) .. 1 (sus)
-        const bottom = t * (H - S);
+        const bottom = t * (pileH - S);                   // grămada crește din baza zonei în sus
         const spread = 1 - t * 0.5;                        // monedele de jos se împrăștie mai lat
-        const left = (W - S) / 2 + j.dx * spread;
+        const left = (W - S) / 2 + j.dx * jx * spread;
         return (
           <img key={i} src="/z-coin.svg" alt="" width={S} height={S}
-            style={{ position: "absolute", left, bottom, transform: `rotate(${j.r}deg)`, filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }} />
+            style={{ position: "absolute", left, bottom, transform: `rotate(${j.r}deg)`, filter: "drop-shadow(0 2px 5px rgba(0,0,0,0.5))" }} />
         );
       })}
     </div>
