@@ -521,14 +521,10 @@ function FlowDiagram() {
   );
 }
 
-// TODO: ajustează praguri/prețuri ale calculatorului de credite
+// TODO: ajustează prețul/creditele calculatorului
 const CREDIT_PRICING = {
-  perM2: { dtac: 1, pt: 2 },                 // credite/mp: DTAC = 1, PT = 2 (DTAC+PT = 3)
-  tiers: [                                    // praguri de reducere la volum (pe total credite)
-    { min: 5000, lei: 0.40 },                // 5000+ credite
-    { min: 1000, lei: 0.45 },                // 1000–4999 credite
-    { min: 0,    lei: 0.50 },                // sub 1000 credite
-  ],
+  perM2: { dtac: 1, pt: 2 },   // credite/mp: DTAC = 1, PT = 2 (DTAC+PT = 3)
+  pricePerCredit: 0.50,        // lei/credit — preț fix, fără reducere la volum
 };
 
 const DELIVERABLES_BY_PHASE: Record<"dtac" | "dtac_pt", { title: string; sub: string; items: string[] }> = {
@@ -594,9 +590,7 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
     ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
     : CREDIT_PRICING.perM2.dtac;
   const credits = Math.max(0, Math.round(area * perM2));
-  const baseLei = CREDIT_PRICING.tiers[CREDIT_PRICING.tiers.length - 1].lei;
-  const tier = CREDIT_PRICING.tiers.find(t => credits >= t.min) ?? { min: 0, lei: baseLei };
-  const pricePerCredit = tier.lei;
+  const pricePerCredit = CREDIT_PRICING.pricePerCredit;
   const totalLei = credits * pricePerCredit;
 
   const fmtLei = (n: number) => n.toLocaleString("ro-RO", { maximumFractionDigits: 2 });
@@ -658,8 +652,7 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
           </span>
         </div>
         <div style={{ fontSize: 12.5, color: "#888", marginTop: 8 }}>
-          Tarif aplicat: <strong style={{ color: "#5BB8F5" }}>{fmtCredit(pricePerCredit)} lei/credit</strong>
-          {pricePerCredit < baseLei && <> — beneficiezi de prețul redus la volum</>}
+          Tarif: <strong style={{ color: "#5BB8F5" }}>{fmtCredit(pricePerCredit)} lei/credit</strong>
         </div>
       </div>
 
@@ -672,7 +665,7 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
       </a>
 
       <div style={{ fontSize: 11.5, color: "#555", textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>
-        DTAC = 1 credit/mp · PT = 2 credite/mp · DTAC + PT = 3 credite/mp
+        DTAC = 1 credit/mp · DTAC + PT = 3 credite/mp
       </div>
     </div>
   );
