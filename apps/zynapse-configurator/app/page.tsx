@@ -783,12 +783,16 @@ export default function Landing() {
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
-        <a href="/" aria-label="Zynapse — pagina principală" className="zynapse-wordmark" style={{
-          fontSize: 22, fontWeight: 700, letterSpacing: 2, lineHeight: 1, textDecoration: "none",
-          background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
-          WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-          backgroundSize: "200% 100%", filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
-        }}>ZYNAPSE</a>
+        <a href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", alignItems: "center", gap: 9, textDecoration: "none" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-icon.png" alt="" width={34} height={34} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
+          <span className="zynapse-wordmark" style={{
+            fontSize: 21, fontWeight: 700, letterSpacing: 2, lineHeight: 1,
+            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+            backgroundSize: "200% 100%", filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
+          }}>ZYNAPSE</span>
+        </a>
         <nav style={{ display: "flex", gap: 20, alignItems: "center" }}>
           <div className="nav-links">
             {[
@@ -1081,7 +1085,9 @@ export default function Landing() {
         <CalculatorPanel />
 
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
-          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>500 Z-Coins gratuite</strong> la confirmarea contului.
+          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/z-coin.svg" alt="" width={15} height={15} style={{ display: "inline-block", verticalAlign: "-2px", marginRight: 4 }} />500 Z-Coins gratuite</strong> la confirmarea contului.
         </p>
       </section>
 

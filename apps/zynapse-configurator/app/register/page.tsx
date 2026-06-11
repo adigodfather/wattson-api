@@ -91,13 +91,18 @@ export default function RegisterPage() {
         }
       `}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center" }}>
+        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center", textDecoration: "none" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={36} height={36} style={{
-            objectFit: "contain", filter: "brightness(2) drop-shadow(0 0 6px rgba(55,138,221,0.4))",
+          <img src="/logo-icon.png" alt="Zynapse" width={84} height={84} style={{
+            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 14px rgba(91,184,245,0.5)) drop-shadow(0 0 30px rgba(55,138,221,0.25))",
           }} />
-          <span style={{ fontSize: 20, fontWeight: 700, color: "#E2E4E9", letterSpacing: "-0.5px", fontFamily: "'DM Sans', sans-serif" }}>Zynapse</span>
-        </div>
+          <span style={{
+            fontSize: 26, fontWeight: 700, letterSpacing: 3, lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
+            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+            filter: "drop-shadow(0 0 10px rgba(91,184,245,0.45))",
+          }}>ZYNAPSE</span>
+        </Link>
 
         <div style={{
           background: "rgba(255,255,255,0.025)",

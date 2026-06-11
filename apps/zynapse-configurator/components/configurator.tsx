@@ -1278,11 +1278,15 @@ export function ZynapseConfigurator() {
         }}>
         <div className="flex items-center gap-3 md:gap-4 min-w-0">
           <div className="flex items-center gap-3 shrink-0">
-            <Link href="/" aria-label="Zynapse — pagina principală" className="text-[19px] font-bold tracking-wide" style={{
-              background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
-              WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-              filter: "drop-shadow(0 0 8px rgba(91,184,245,0.4))", textDecoration: "none",
-            }}>ZYNAPSE</Link>
+            <Link href="/" aria-label="Zynapse — pagina principală" className="flex items-center gap-2 shrink-0" style={{ textDecoration: "none" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-icon.png" alt="" width={30} height={30} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 5px rgba(91,184,245,0.4))" }} />
+              <span className="text-[19px] font-bold tracking-wide" style={{
+                background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+                WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+                filter: "drop-shadow(0 0 8px rgba(91,184,245,0.4))",
+              }}>ZYNAPSE</span>
+            </Link>
             <span className="hidden sm:inline-flex text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded-md"
               style={{ background: "rgba(55,138,221,0.12)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.2)" }}>
               Beta
