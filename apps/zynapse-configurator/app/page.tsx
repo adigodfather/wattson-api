@@ -32,8 +32,21 @@ function CircuitCanvas() {
   const nodes = useRef<Node[]>([]);
   const traces = useRef<Trace[]>([]);
   const raf = useRef<number>(0);
+  // Pe mobil (<768px) NU randam canvas-ul deloc: fara JS/animatie/RAF -> fundal
+  // curat (#050709) si zero consum de baterie. Default false = SSR-safe.
+  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => setEnabled(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;       // mobil -> efectul (RAF + listeneri) nici nu porneste
     const c = ref.current;
     if (!c) return;
     const ctx = c.getContext("2d") as CanvasRenderingContext2D;
@@ -245,7 +258,9 @@ function CircuitCanvas() {
       window.removeEventListener("click", onClick);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [enabled]);
+
+  if (!enabled) return null;    // mobil: niciun canvas in DOM
 
   return (
     <canvas ref={ref} style={{
