@@ -1023,6 +1023,9 @@ export default function Landing() {
               { label: "Login", href: "/login" },
               { label: "Register", href: "/register" },
               { label: "Calculator", href: "#pachete" },
+              { label: "Termeni și Condiții", href: "/terms" },
+              { label: "Confidențialitate", href: "/privacy" },
+              { label: "Politică de retur", href: "/refund" },
               { label: "Contact", href: "mailto:office@zynapse.org" },
             ].map(item => (
               <a key={item.label} href={item.href} style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>{item.label}</a>
