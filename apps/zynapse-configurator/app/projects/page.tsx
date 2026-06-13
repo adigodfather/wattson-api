@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/components/auth-provider";
-import { ZLogo } from "@/components/result-sections";
 
 interface ProjectRow {
   id: string;
@@ -70,13 +69,16 @@ export default function ProjectsPage() {
       <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
         style={{ background: "rgba(10,11,14,0.88)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
         <div className="flex items-center gap-4">
-          <Link href="/configurator" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
-            <ZLogo size={32} gradientId="zg-projects" />
-            <span className="text-[17px] font-bold tracking-tight" style={{ color: "#E2E4E9" }}>Zynapse</span>
-            <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded-md"
-              style={{ background: "rgba(55,138,221,0.12)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.2)" }}>
-              Beta
-            </span>
+          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-icon.png" alt="Zynapse" width={34} height={34}
+              style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
+            <span style={{
+              fontSize: 21, fontWeight: 700, letterSpacing: 2, lineHeight: 1,
+              background: "linear-gradient(90deg, #5BB8F5, #CDEBFF, #378ADD)",
+              WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+              backgroundSize: "200% 100%", filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
+            }}>ZYNAPSE</span>
           </Link>
           <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
           <Link href="/configurator"
@@ -165,14 +167,20 @@ export default function ProjectsPage() {
                 key={p.id}
                 onClick={() => router.push(`/projects/${p.id}`)}
                 className="rounded-2xl p-5 cursor-pointer transition-all duration-200"
-                style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
+                style={{
+                  background: "rgba(55,138,221,0.04)",
+                  border: "1px solid rgba(55,138,221,0.18)",
+                  boxShadow: "0 0 0 1px rgba(55,138,221,0.04), 0 4px 24px rgba(55,138,221,0.06)",
+                }}
                 onMouseOver={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.04)";
-                  (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(55,138,221,0.25)";
+                  (e.currentTarget as HTMLDivElement).style.background = "rgba(55,138,221,0.07)";
+                  (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(55,138,221,0.4)";
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 1px rgba(55,138,221,0.1), 0 6px 32px rgba(55,138,221,0.14)";
                 }}
                 onMouseOut={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.025)";
-                  (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.07)";
+                  (e.currentTarget as HTMLDivElement).style.background = "rgba(55,138,221,0.04)";
+                  (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(55,138,221,0.18)";
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 1px rgba(55,138,221,0.04), 0 4px 24px rgba(55,138,221,0.06)";
                 }}>
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="text-sm font-bold m-0 leading-tight" style={{ color: "#E2E4E9", maxWidth: "75%" }}>
