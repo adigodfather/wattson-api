@@ -440,9 +440,9 @@ function EquipmentCards({
 /* ─── Panou drept (b): cip de procesare finală (status === "loading") ─── */
 function CipProcesare() {
   return (
-    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px]" style={{ padding: "0 24px" }}>
+    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch" style={{ padding: "0 24px" }}>
       <div className="w-full" style={{ maxWidth: 680 }}>
-        <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+        <svg viewBox="-50 -50 420 320" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
             <filter id="zcGlow" x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="2.2" result="b" />
@@ -471,38 +471,38 @@ function CipProcesare() {
 
           {/* trasee PCB de fundal */}
           <g stroke="#545870" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.55">
-            <path d="M160 78 V30" />
-            <path d="M192 110 H288" />
-            <path d="M160 142 V196" />
-            <path d="M128 110 H32" />
-            <path d="M140 78 V50 H56" />
-            <path d="M180 78 V50 H264" />
-            <path d="M180 142 V172 H264" />
-            <path d="M140 142 V172 H56" />
-            <path d="M192 96 H230 V64" />
-            <path d="M128 124 H90 V158" />
+            <path d="M160 78 V-40" />
+            <path d="M192 110 H360" />
+            <path d="M160 142 V260" />
+            <path d="M128 110 H-40" />
+            <path d="M140 78 V35 H-35" />
+            <path d="M180 78 V35 H310" />
+            <path d="M180 142 V185 H310" />
+            <path d="M140 142 V185 H-35" />
+            <path d="M192 96 H270 V35" />
+            <path d="M128 124 H50 V185" />
           </g>
 
           {/* noduri pulsatoare (decalat) */}
           <g fill="#378ADD">
-            <circle className="zc-node" cx="160" cy="30" r="2.4" style={{ animationDelay: "0s" }} />
-            <circle className="zc-node" cx="288" cy="110" r="2.4" style={{ animationDelay: ".5s" }} />
-            <circle className="zc-node" cx="160" cy="196" r="2.4" style={{ animationDelay: "1s" }} />
-            <circle className="zc-node" cx="32" cy="110" r="2.4" style={{ animationDelay: "1.5s" }} />
-            <circle className="zc-node" cx="56" cy="50" r="2" style={{ animationDelay: ".8s" }} />
-            <circle className="zc-node" cx="264" cy="50" r="2" style={{ animationDelay: "1.3s" }} />
-            <circle className="zc-node" cx="264" cy="172" r="2" style={{ animationDelay: ".3s" }} />
-            <circle className="zc-node" cx="56" cy="172" r="2" style={{ animationDelay: "1.8s" }} />
-            <circle className="zc-node" cx="230" cy="64" r="2" style={{ animationDelay: "2.1s" }} />
-            <circle className="zc-node" cx="90" cy="158" r="2" style={{ animationDelay: ".6s" }} />
+            <circle className="zc-node" cx="160" cy="-40" r="2.8" style={{ animationDelay: "0s" }} />
+            <circle className="zc-node" cx="360" cy="110" r="2.8" style={{ animationDelay: ".5s" }} />
+            <circle className="zc-node" cx="160" cy="260" r="2.8" style={{ animationDelay: "1s" }} />
+            <circle className="zc-node" cx="-40" cy="110" r="2.8" style={{ animationDelay: "1.5s" }} />
+            <circle className="zc-node" cx="-35" cy="35" r="2.2" style={{ animationDelay: ".8s" }} />
+            <circle className="zc-node" cx="310" cy="35" r="2.2" style={{ animationDelay: "1.3s" }} />
+            <circle className="zc-node" cx="310" cy="185" r="2.2" style={{ animationDelay: ".3s" }} />
+            <circle className="zc-node" cx="-35" cy="185" r="2.2" style={{ animationDelay: "1.8s" }} />
+            <circle className="zc-node" cx="270" cy="35" r="2.2" style={{ animationDelay: "2.1s" }} />
+            <circle className="zc-node" cx="50" cy="185" r="2.2" style={{ animationDelay: ".6s" }} />
           </g>
 
           {/* curent care "curge" pe trasee cardinale */}
           <g stroke="#5BB8F5" strokeWidth="1.6" strokeLinecap="round" fill="none" filter="url(#zcGlow)">
-            <path className="zc-cur" d="M160 78 V30" />
-            <path className="zc-cur d2" d="M192 110 H288" />
-            <path className="zc-cur d3" d="M160 142 V196" />
-            <path className="zc-cur d4" d="M128 110 H32" />
+            <path className="zc-cur" d="M160 78 V-40" />
+            <path className="zc-cur d2" d="M192 110 H360" />
+            <path className="zc-cur d3" d="M160 142 V260" />
+            <path className="zc-cur d4" d="M128 110 H-40" />
           </g>
 
           {/* puls radial din centru */}
