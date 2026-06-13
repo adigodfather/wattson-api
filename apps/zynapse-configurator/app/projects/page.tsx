@@ -42,6 +42,7 @@ export default function ProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -51,8 +52,13 @@ export default function ProjectsPage() {
       .select("id, project_id, building_type, levels, heating_type, status, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        setProjects(data ?? []);
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("[projects] fetch error:", error);
+          setLoadError(true);
+        } else {
+          setProjects(data ?? []);
+        }
         setLoading(false);
       });
   }, [user]);
@@ -119,6 +125,22 @@ export default function ProjectsPage() {
           <div className="flex items-center justify-center" style={{ minHeight: 300 }}>
             <span className="inline-block w-6 h-6 border-2 rounded-full"
               style={{ borderColor: "#378ADD", borderTopColor: "transparent", animation: "zy-spin 0.7s linear infinite" }} />
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-20">
+            <div className="mb-4 mx-auto rounded-2xl flex items-center justify-center"
+              style={{ width: 64, height: 64, background: "rgba(221,80,80,0.07)", border: "1px solid rgba(221,80,80,0.18)" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
+                <path d="M12 8v5M12 16h.01M10.3 3.86l-8 14A2 2 0 004 21h16a2 2 0 001.7-3.14l-8-14a2 2 0 00-3.4 0z" stroke="#DD5050" strokeWidth="1.5" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold m-0 mb-2" style={{ color: "#C97070" }}>Nu am putut încărca proiectele</h3>
+            <p className="text-sm m-0 mb-6" style={{ color: "#3A3D50" }}>A apărut o eroare la conectarea cu serverul. Încearcă din nou.</p>
+            <button onClick={() => window.location.reload()}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer font-[inherit]"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#E2E4E9" }}>
+              Reîncarcă
+            </button>
           </div>
         ) : projects.length === 0 ? (
           <div className="text-center py-20">

@@ -1195,7 +1195,7 @@ export function ZynapseConfigurator() {
       setStepIndex(4);
       if (user) {
         const supabase = createClient();
-        await supabase.from("projects").insert({
+        const { error: insertError } = await supabase.from("projects").insert({
           user_id: user.id,
           project_id: form.project_id,
           building_type: form.building_type,
@@ -1208,9 +1208,15 @@ export function ZynapseConfigurator() {
           result_data: data,
           memoriu_text: data.memoriu_tehnic,
         });
-        await supabase.rpc('increment_projects_used');
-        await refreshProfile();
-        setSaveMessage("Proiect salvat cu succes");
+        if (insertError) {
+          console.error("[save project] insert error:", insertError);
+          setSaveMessage("Proiectul a fost generat, dar salvarea în istoric a eșuat. Descarcă-l acum din rezultate.");
+        } else {
+          const { error: rpcError } = await supabase.rpc('increment_projects_used');
+          if (rpcError) console.error("[save project] increment error:", rpcError);
+          await refreshProfile();
+          setSaveMessage("Proiect salvat cu succes");
+        }
       }
 
       setResult(data);
