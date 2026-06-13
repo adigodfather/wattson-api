@@ -212,6 +212,17 @@ export interface ProjectResult {
     type?: string; panel?: string | null; expanded?: boolean;
   }> | null;
   has_planuri?: boolean;
+  // Planșe de iluminat (plan cu becuri desenate din bbox Vision) — DTAC+PT
+  planse_iluminat?: Array<{
+    type?: string;
+    name: string;
+    pdf_base64: string;
+    filename?: string;
+    source_plansa_nr?: string;
+    rooms_found?: number;
+    elements_drawn?: number;
+  }> | null;
+  has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
   memoriu_filename?: string;

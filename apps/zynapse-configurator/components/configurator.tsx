@@ -1939,17 +1939,24 @@ export function ZynapseConfigurator() {
             )}
 
             {/* ── Tab: Planșe (arhitectură cu cartuș Zynapse) ── */}
-            {activeTab === 'plan' && (
+            {activeTab === 'plan' && (() => {
+              // DTAC+PT: planul cu becuri (planse_iluminat) INLOCUIESTE planul de baza (planuri).
+              // DTAC: planse_iluminat lipseste -> afiseaza planuri ca inainte.
+              const planseSursa: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string }> =
+                (result!.planse_iluminat && result!.planse_iluminat.length)
+                  ? result!.planse_iluminat
+                  : (result!.planuri || []);
+              return (
               <div>
-                {result!.planuri?.length ? (
+                {planseSursa.length ? (
                   <div className="flex flex-col gap-4">
-                    {result!.planuri.map((p, i) => (
+                    {planseSursa.map((p, i) => (
                       <div key={i} className="rounded-xl overflow-hidden"
                         style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
                         <div className="px-5 py-3 flex items-center justify-between border-b"
                           style={{ borderColor: "rgba(255,255,255,0.04)" }}>
                           <span className="text-sm font-semibold" style={{ color: "#C8CAD6" }}>
-                            {p.plansa_nr ? `${p.plansa_nr} — ` : ""}{p.name}
+                            {(p.plansa_nr || p.source_plansa_nr) ? `${p.plansa_nr || p.source_plansa_nr} — ` : ""}{p.name}
                           </span>
                           <button
                             onClick={() => downloadPDF(
@@ -1974,7 +1981,8 @@ export function ZynapseConfigurator() {
                   <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există planuri.</p>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── Tab: Memoriu tehnic ── */}
             {activeTab === 'memoriu' && (
