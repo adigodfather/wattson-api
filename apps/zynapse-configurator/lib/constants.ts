@@ -37,7 +37,7 @@ export const BUILDING_SUBTYPES: Record<string, { value: string; label: string }[
 
 export const FAZA_PROIECT_OPTIONS = [
   { value: "DTAC",     label: "DTAC",      enabled: true },
-  { value: "DTAC+PT",  label: "DTAC + PT", enabled: false, tooltip: "Disponibil curând (lansare Q2 2026)" },
+  { value: "DTAC+PT",  label: "DTAC + PT", enabled: true },
   { value: "PT",       label: "PT",        enabled: false, tooltip: "Disponibil curând (lansare Q2 2026)" },
 ] as const;
 
