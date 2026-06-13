@@ -1161,8 +1161,26 @@ export function ZynapseConfigurator() {
       });
 
       setStepIndex(3);
-      const data: ProjectResult = await res.json();
+
+      // Citim ca text mai întâi (proxy-ul poate întoarce non-JSON la 504)
+      const rawText = await res.text();
+      let data: ProjectResult;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error("Răspuns invalid de la server (posibil timeout). Încearcă din nou sau cu mai puține planuri.");
+      }
       console.log("WEBHOOK RESPONSE:", data);
+
+      // Verificăm statusul HTTP: proxy-ul /api/generate întoarce 502 la timeout/eroare upstream
+      if (!res.ok) {
+        const msg = (data as any)?.details
+          || (data as any)?.error
+          || `Eroare de procesare (HTTP ${res.status}). Încearcă din nou.`;
+        throw new Error(msg);
+      }
+
+      // n8n poate întoarce 200 cu shape {status:"error"}
       if ((data as any).status === "error") throw new Error((data as any).error || "Eroare necunoscută");
 
       // Extract auto-detected values
