@@ -42,8 +42,14 @@ try:
         get_app_setting,
     )
     _SUPABASE_AVAILABLE = True
-except Exception:
+    logger.info("[supabase] client importat cu succes — persistența activă")
+except Exception as e:
     _SUPABASE_AVAILABLE = False
+    logger.error(
+        "[supabase] IMPORT EȘUAT — persistența e DEZACTIVATĂ (no-op). "
+        "Proiectele NU se vor salva în baza de date. Cauză: %r", e,
+        exc_info=True,
+    )
 
     def save_project(*a, **kw): return kw.get("project_data", {}).get("project_id", "")
     def save_project_file(*a, **kw): pass
