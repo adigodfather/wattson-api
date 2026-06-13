@@ -13,11 +13,6 @@ const wordmark: React.CSSProperties = {
   WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
   filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
 };
-const draftBanner: React.CSSProperties = {
-  display: "inline-block", padding: "6px 12px", borderRadius: 8, fontSize: 12.5,
-  color: "#F0C674", background: "rgba(240,198,116,0.08)",
-  border: "1px solid rgba(240,198,116,0.25)", margin: "24px 0 8px",
-};
 const h1: React.CSSProperties = {
   fontSize: 30, fontWeight: 700, color: "#CDEBFF", letterSpacing: -0.5, margin: "12px 0 6px",
 };
@@ -42,19 +37,15 @@ export default function PrivacyPage() {
       <div style={container}>
         <a href="/" style={wordmark}>ZYNAPSE</a>
 
-        <div style={draftBanner}>
-          [CIORNĂ — text-șablon, a se verifica de un specialist înainte de publicare]
-        </div>
-
         <h1 style={h1}>Politica de Confidențialitate</h1>
-        <p style={updated}>Data ultimei actualizări: [COMPLETEAZĂ: data]</p>
+        <p style={updated}>Data ultimei actualizări: 13 iunie 2026</p>
 
         <Section n={1} title="Operatorul de date">
           Operatorul datelor cu caracter personal este{" "}
-          <strong style={{ color: "#cfd3dd" }}>S.C. ZYNAPSE S.R.L.</strong>, CUI [COMPLETEAZĂ: CUI],
-          înregistrată la Registrul Comerțului sub nr. [COMPLETEAZĂ: Nr. Registrul Comerțului], cu sediul
-          social în [COMPLETEAZĂ: Adresă sediu social]. Responsabil cu protecția datelor:
-          [COMPLETEAZĂ: DPO/persoană de contact, dacă există] — email{" "}
+          <strong style={{ color: "#cfd3dd" }}>S.C. ZYNAPSE S.R.L.</strong>, CUI 54417482,
+          înregistrată la Registrul Comerțului sub nr. J2026/0224/13006, cu sediul
+          social în Jud. Bihor, Loc. Aleșd, Str. Nucului nr. 20. Responsabil cu protecția datelor:
+          ing. Dan Adrian Nicolas — email{" "}
           <a href="mailto:office@zynapse.org" style={linkStyle}>office@zynapse.org</a>.
         </Section>
 
@@ -95,14 +86,12 @@ export default function PrivacyPage() {
           <p style={{ margin: 0 }}>
             Datele de plată (datele cardului) sunt procesate exclusiv de Netopia; Zynapse{" "}
             <strong style={{ color: "#cfd3dd" }}>NU stochează</strong> datele cardului.
-            [COMPLETEAZĂ: detalii suplimentare procesatori, dacă este cazul].
           </p>
         </Section>
 
         <Section n={6} title="Stocarea datelor">
           Păstrăm datele cât timp este necesar pentru furnizarea serviciului și pe perioadele impuse de lege.
-          Datele de facturare se păstrează conform legislației fiscale aplicabile [COMPLETEAZĂ: perioadă de
-          păstrare].
+          Datele de facturare se păstrează conform legislației fiscale aplicabile.
         </Section>
 
         <Section n={7} title="Drepturile persoanei vizate (GDPR)">
@@ -125,8 +114,8 @@ export default function PrivacyPage() {
 
         <Section n={8} title="Cookies">
           Utilizăm cookie-uri strict necesare pentru funcționarea platformei (sesiune și autentificare).
-          Acestea nu necesită consimțământ. [COMPLETEAZĂ: dacă se adaugă cookie-uri de analytics, acestea vor
-          fi utilizate doar pe baza consimțământului].
+          Acestea nu necesită consimțământ. În cazul în care vor fi adăugate cookie-uri de analytics, acestea
+          vor fi utilizate doar pe baza consimțământului.
         </Section>
 
         <Section n={9} title="Securitate">

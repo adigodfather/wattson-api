@@ -13,11 +13,6 @@ const wordmark: React.CSSProperties = {
   WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
   filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
 };
-const draftBanner: React.CSSProperties = {
-  display: "inline-block", padding: "6px 12px", borderRadius: 8, fontSize: 12.5,
-  color: "#F0C674", background: "rgba(240,198,116,0.08)",
-  border: "1px solid rgba(240,198,116,0.25)", margin: "24px 0 8px",
-};
 const h1: React.CSSProperties = {
   fontSize: 30, fontWeight: 700, color: "#CDEBFF", letterSpacing: -0.5, margin: "12px 0 6px",
 };
@@ -41,18 +36,14 @@ export default function TermsPage() {
       <div style={container}>
         <a href="/" style={wordmark}>ZYNAPSE</a>
 
-        <div style={draftBanner}>
-          [CIORNĂ — text-șablon, a se verifica de un specialist înainte de publicare]
-        </div>
-
         <h1 style={h1}>Termeni și Condiții</h1>
-        <p style={updated}>Data ultimei actualizări: [COMPLETEAZĂ: data]</p>
+        <p style={updated}>Data ultimei actualizări: 13 iunie 2026</p>
 
         <Section n={1} title="Identificarea operatorului">
           Serviciul Zynapse este operat de <strong style={{ color: "#cfd3dd" }}>S.C. ZYNAPSE S.R.L.</strong>,
-          CUI [COMPLETEAZĂ: CUI], înregistrată la Registrul Comerțului sub nr.
-          [COMPLETEAZĂ: Nr. Registrul Comerțului], cu sediul social în
-          [COMPLETEAZĂ: Adresă sediu social]. Email de contact:{" "}
+          CUI 54417482, înregistrată la Registrul Comerțului sub nr.
+          J2026/0224/13006, cu sediul social în
+          Jud. Bihor, Loc. Aleșd, Str. Nucului nr. 20. Email de contact:{" "}
           <a href="mailto:office@zynapse.org" style={linkStyle}>office@zynapse.org</a>. Site:{" "}
           <a href="https://www.zynapse.org" style={linkStyle}>www.zynapse.org</a>.
         </Section>

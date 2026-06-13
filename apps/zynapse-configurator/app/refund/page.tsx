@@ -13,11 +13,6 @@ const wordmark: React.CSSProperties = {
   WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
   filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
 };
-const draftBanner: React.CSSProperties = {
-  display: "inline-block", padding: "6px 12px", borderRadius: 8, fontSize: 12.5,
-  color: "#F0C674", background: "rgba(240,198,116,0.08)",
-  border: "1px solid rgba(240,198,116,0.25)", margin: "24px 0 8px",
-};
 const h1: React.CSSProperties = {
   fontSize: 30, fontWeight: 700, color: "#CDEBFF", letterSpacing: -0.5, margin: "12px 0 6px",
 };
@@ -41,12 +36,8 @@ export default function RefundPage() {
       <div style={container}>
         <a href="/" style={wordmark}>ZYNAPSE</a>
 
-        <div style={draftBanner}>
-          [CIORNĂ — text-șablon, a se verifica de un specialist înainte de publicare]
-        </div>
-
         <h1 style={h1}>Politica de Retur și Rambursare</h1>
-        <p style={updated}>Data ultimei actualizări: [COMPLETEAZĂ: data]</p>
+        <p style={updated}>Data ultimei actualizări: 13 iunie 2026</p>
 
         <Section n={1} title="Natura serviciului">
           Zynapse furnizează conținut digital și servicii prestate prin mijloace electronice (generarea
@@ -59,17 +50,23 @@ export default function RefundPage() {
             Conform OUG nr. 34/2014, consumatorul are dreptul de a se retrage din contract în termen de 14 zile
             în cazul achizițiilor online, fără a fi nevoit să justifice decizia.
           </p>
+          <p style={{ margin: "0 0 10px" }}>
+            Excepție (art. 16 lit. m): pentru conținutul digital și serviciile executate integral, dreptul de
+            retragere se <strong style={{ color: "#cfd3dd" }}>PIERDE</strong>. Z-Coins se consideră
+            <strong style={{ color: "#cfd3dd" }}> CONSUMAȚI</strong> și serviciul
+            <strong style={{ color: "#cfd3dd" }}> EXECUTAT</strong> integral în momentul generării cu succes a
+            documentației solicitate. Din acel moment, contravaloarea Z-Coins consumați NU se rambursează.
+          </p>
           <p style={{ margin: 0 }}>
-            Însă, pentru conținutul digital livrat și pentru serviciile executate integral, dreptul de
-            retragere se <strong style={{ color: "#cfd3dd" }}>PIERDE</strong> odată ce utilizatorul a consumat
-            Z-Coins pentru generarea documentației, cu acordul prealabil expres al acestuia. La cumpărare,
-            utilizatorul confirmă că ia la cunoștință pierderea dreptului de retragere pentru Z-Coins consumați.
+            La cumpărare și la crearea contului, utilizatorul își dă acordul expres și confirmă că ia la
+            cunoștință pierderea dreptului de retragere pentru Z-Coins consumați în urma generării documentației.
           </p>
         </Section>
 
         <Section n={3} title="Z-Coins neconsumați">
-          Z-Coins cumpărați dar neconsumați pot fi rambursați în termen de [COMPLETEAZĂ: nr.] zile de la
-          achiziție, la cerere prin{" "}
+          Sunt rambursabili <strong style={{ color: "#cfd3dd" }}>EXCLUSIV</strong> Z-Coins achiziționați și
+          neconsumați (care nu au fost folosiți pentru nicio generare reușită de documentație). Aceștia pot fi
+          rambursați în termen de 14 zile de la achiziție, la cerere prin{" "}
           <a href="mailto:office@zynapse.org" style={linkStyle}>office@zynapse.org</a>, mai puțin eventualele
           comisioane de procesare a plății.
         </Section>
@@ -83,7 +80,7 @@ export default function RefundPage() {
           Solicitarea de rambursare se transmite la{" "}
           <a href="mailto:office@zynapse.org" style={linkStyle}>office@zynapse.org</a>, împreună cu datele
           tranzacției. Rambursarea se efectuează pe aceeași metodă de plată utilizată la achiziție, în termen de
-          [COMPLETEAZĂ: nr.] zile de la aprobarea cererii.
+          14 zile de la aprobarea cererii.
         </Section>
 
         <Section n={6} title="Erori tehnice">
