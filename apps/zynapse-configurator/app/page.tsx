@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { CalculatorPanel } from "@/components/CreditCalculator";
+import SiteFooter from "@/components/SiteFooter";
 
 interface Node {
   x: number; y: number; vx: number; vy: number;
@@ -895,41 +896,7 @@ export default function Landing() {
       </section>
 
       {/* ── Footer ── */}
-      <footer style={{
-        position: "relative", zIndex: 1,
-        maxWidth: 1100, margin: "0 auto", padding: "40px 40px 56px",
-        borderTop: "1px solid rgba(255,255,255,0.04)",
-      }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 40, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo-icon.png" alt="Zynapse" width={18} height={18} style={{
-                filter: "brightness(2) drop-shadow(0 0 4px rgba(55,138,221,0.3))",
-              }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>ZYNAPSE</span>
-            </div>
-            <span style={{ fontSize: 12, color: "#333", lineHeight: 1.7 }}>2025 — Proiectare electrică<br />automată</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
-            {[
-              { label: "Login", href: "/login" },
-              { label: "Register", href: "/register" },
-              { label: "Calculator", href: "#pachete" },
-              { label: "Termeni și Condiții", href: "/terms" },
-              { label: "Confidențialitate", href: "/privacy" },
-              { label: "Politică de retur", href: "/refund" },
-              { label: "Contact", href: "mailto:office@zynapse.org" },
-            ].map(item => (
-              <a key={item.label} href={item.href} style={{ fontSize: 12, color: "#444", textDecoration: "none" }}>{item.label}</a>
-            ))}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-            <span style={{ fontSize: 12, color: "#555", fontWeight: 500 }}>S.C. ZYNAPSE S.R.L.</span>
-            <a href="mailto:office@zynapse.org" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>office@zynapse.org</a>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

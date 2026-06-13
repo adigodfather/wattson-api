@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import { CalculatorPanel } from "@/components/CreditCalculator";
+import SiteFooter from "@/components/SiteFooter";
 
 // TODO: Netopia — deblocare secvențială + marcare pachet cumpărat per cont (aici legăm plata)
 const HOME_PACKAGES: { coins: number; lei: number; count: number }[] = [
@@ -181,6 +182,7 @@ export default function HomePage() {
       )}
 
       <div style={{ height: 60 }} />
+      <SiteFooter />
     </div>
   );
 }
