@@ -440,8 +440,8 @@ function EquipmentCards({
 /* ─── Panou drept (b): cip de procesare finală (status === "loading") ─── */
 function CipProcesare() {
   return (
-    <div className="flex flex-col items-center justify-center text-center min-h-[40vh] md:min-h-[480px]" style={{ padding: "0 24px" }}>
-      <div className="w-full" style={{ maxWidth: 420 }}>
+    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px]" style={{ padding: "0 24px" }}>
+      <div className="w-full" style={{ maxWidth: 680 }}>
         <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
             <filter id="zcGlow" x="-60%" y="-60%" width="220%" height="220%">
@@ -538,8 +538,8 @@ function CipProcesare() {
           </g>
         </svg>
       </div>
-      <h3 className="text-[15px] font-semibold m-0 mt-4" style={{ color: "#8B8FA8" }}>Se generează proiectul…</h3>
-      <p className="text-[12px] m-0 mt-1" style={{ color: "#3A3D50" }}>Calculăm circuitele și pregătim planșele</p>
+      <h3 className="text-[19px] font-semibold m-0 mt-6" style={{ color: "#8B8FA8" }}>Se generează proiectul…</h3>
+      <p className="text-[14px] m-0 mt-2" style={{ color: "#3A3D50" }}>Calculăm circuitele și pregătim planșele</p>
     </div>
   );
 }
