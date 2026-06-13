@@ -72,8 +72,28 @@ def _draw_bulb(page, cx, cy, r=9.0):
                    fitz.Point(center.x + d, center.y - d), color=RED, width=1.2)
 
 
+def _vision_centers(rooms, W, H):
+    """Centre din bbox Vision (fracții 0-1) -> puncte PDF.
+    rooms = listă de { name, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
+    Ignoră tăcut camerele fără bbox numeric valid."""
+    centers = []
+    for r in rooms or []:
+        bb = (r or {}).get("bbox") or {}
+        try:
+            x = float(bb.get("x")); y = float(bb.get("y"))
+            w = float(bb.get("w")); h = float(bb.get("h"))
+        except (TypeError, ValueError):
+            continue
+        cx = (x + w / 2.0) * W
+        cy = (y + h / 2.0) * H
+        centers.append({"x": cx, "y": cy, "label": str(r.get("name") or "")})
+    return centers
+
+
 def draw_plan_elements(data: dict) -> dict:
-    """Desenează becuri în centrul camerelor. Clonează pattern-ul swap_cartus_plan.
+    """Desenează becuri în centrul camerelor.
+    Cale 1 (preferată): bbox-uri Vision din data['rooms'] (fracții 0-1) -> robust.
+    Cale 2 (fallback): regex pe textul de suprafață (_find_room_centers).
     Plasă de siguranță: 0 camere găsite → returnează planul NEMODIFICAT."""
     try:
         pdf_b64 = data.get("pdf_base64") or ""
@@ -83,18 +103,28 @@ def draw_plan_elements(data: dict) -> dict:
         page = doc[0]
         W, H = page.rect.width, page.rect.height
 
-        centers = _find_room_centers(page, W, H)
+        # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
+        # desenăm becurile din centrele lor — robust, independent de text/regex.
+        # Altfel -> fallback la calea veche cu regex pe textul de suprafață.
+        vision_centers = _vision_centers(data.get("rooms"), W, H)
+        if vision_centers:
+            source = "vision_bbox"
+            centers = vision_centers
+        else:
+            source = "text_regex"
+            centers = _find_room_centers(page, W, H)
 
         # plasă de siguranță: nu desena nimic dacă n-am găsit camere
         if len(centers) == 0:
             out = doc.tobytes(deflate=True)
             return {
                 "success": True,
+                "source": source,
                 "pdf_base64": base64.b64encode(out).decode("utf-8"),
                 "filename": f"Plan_{data.get('plansa_nr','') or 'IE'}_iluminat.pdf",
                 "size_bytes": len(out),
                 "detected": {"rooms_found": 0, "elements_drawn": 0,
-                             "note": "Nicio cameră detectată (ancoră suprafață). Plan nemodificat."},
+                             "note": "Nicio cameră detectată. Plan nemodificat."},
             }
 
         for c in centers:
@@ -103,6 +133,7 @@ def draw_plan_elements(data: dict) -> dict:
         out = doc.tobytes(deflate=True)
         return {
             "success": True,
+            "source": source,
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
             "filename": f"Plan_{data.get('plansa_nr','') or 'IE'}_iluminat.pdf",
             "size_bytes": len(out),

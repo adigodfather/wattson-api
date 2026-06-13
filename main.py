@@ -3226,6 +3226,7 @@ class DrawPlanElementsRequest(BaseModel):
     pdf_base64: str = ""
     plansa_nr: str = ""
     plan_type: str = "iluminat"  # deocamdată doar iluminat (becuri)
+    rooms: Optional[list] = None  # camere cu bbox Vision (fracții 0-1); lipsă -> fallback regex
 
 
 @app.post("/draw-plan-elements")
