@@ -262,6 +262,45 @@ export function AnnotatedPlanSection({ src }: { src: string }) {
   );
 }
 
+/* ─── Planșe PDF cu straturi (iluminat cu becuri, forță... — fiecare planșă separată) ─── */
+export function PlanPdfSection({ planse }: {
+  planse: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }>;
+}) {
+  if (!planse?.length) return null;
+  return (
+    <ResultSection title="Planșe" count={planse.length} defaultOpen>
+      <div className="flex flex-col gap-4 mt-3">
+        {planse.map((p, i) => {
+          const nr = p.plansa_nr || p.source_plansa_nr || "";
+          return (
+            <div key={i} className="rounded-xl overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="px-4 py-2.5 border-b" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                <span className="text-sm font-semibold" style={{ color: "#C8CAD6" }}>
+                  {nr ? `${nr} — ` : ""}{p.name}
+                </span>
+              </div>
+              <iframe
+                src={`data:application/pdf;base64,${p.pdf_base64}`}
+                className="w-full"
+                style={{ height: 600, border: "none" }}
+                title={p.name}
+              />
+              <div className="px-4 py-3">
+                <SchemaDownloadButton
+                  base64Pdf={p.pdf_base64}
+                  label={`Descarcă ${p.name} PDF`}
+                  fileName={p.filename || `Plan-${p.name.toLowerCase().replace(/\s+/g, "-")}.pdf`}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </ResultSection>
+  );
+}
+
 /* ─── Metric card ─── */
 export function MetricCard({ value, label, color }: { value: string | number; label: string; color: string }) {
   return (
@@ -348,9 +387,17 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
 
       {result.project_info && <ProjectInfoCard info={result.project_info} />}
 
-      {result.annotated_plan_base64 && (
-        <AnnotatedPlanSection src={result.annotated_plan_base64} />
-      )}
+      {(() => {
+        // Planurile cu straturi (iluminat cu becuri etc.) sunt planul principal.
+        // Fallback la planul adnotat doar pentru proiecte vechi fără planșe cu straturi.
+        const planseStrat: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }> | null =
+          result.planse_iluminat?.length
+            ? result.planse_iluminat
+            : (result.planuri?.length ? result.planuri : null);
+        if (planseStrat) return <PlanPdfSection planse={planseStrat} />;
+        if (result.annotated_plan_base64) return <AnnotatedPlanSection src={result.annotated_plan_base64} />;
+        return null;
+      })()}
       {result.schemas?.length ? (
         <SchemasSection schemas={result.schemas} />
       ) : result.schema_monofilara_pdf ? (
