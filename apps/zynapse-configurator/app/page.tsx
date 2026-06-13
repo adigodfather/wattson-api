@@ -3,14 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { CalculatorPanel } from "@/components/CreditCalculator";
 
-// TODO: ajustează prețurile/creditele — valori PLACEHOLDER (model pe credite)
-const PLANS = [
-  { name: "Start", price: "125", credits: "250 credite", perCredit: "0,50 lei/credit", desc: "Pentru primele proiecte", features: ["~250 m² DTAC", "Schemă + memoriu + listă cantități", "Creditele nu expiră"], cta: "Cumpără credite", pop: false },
-  { name: "Profesional", price: "450", credits: "1.000 credite", perCredit: "0,45 lei/credit", desc: "Pentru proiectanți activi", features: ["~1.000 m² DTAC", "10% reducere/credit", "Suport prioritar"], cta: "Cumpără credite", pop: true },
-  { name: "Birou", price: "2.000", credits: "5.000 credite", perCredit: "0,40 lei/credit", desc: "Pentru firme de proiectare", features: ["~5.000 m² DTAC", "20% reducere/credit", "Facturare firmă"], cta: "Cumpără credite", pop: false },
-  { name: "Nelimitat", price: "La cerere", credits: "", perCredit: "", desc: "Volum mare / integrare custom", features: ["Credite în volum", "Facturare firmă", "Suport dedicat", "Integrare custom"], cta: "Solicită ofertă", pop: false, custom: true },
-];
-
 interface Node {
   x: number; y: number; vx: number; vy: number;
   r: number; pulse: number; speed: number; color: string;
@@ -278,105 +270,6 @@ function PulseRing({ delay = 0 }: { delay?: number }) {
       animation: `pulse-ring 4s ease-out infinite ${delay}s`,
       pointerEvents: "none",
     }} />
-  );
-}
-
-interface PlanCard {
-  name: string; price: string;
-  credits?: string; perCredit?: string;
-  desc: string; features: string[]; cta: string;
-  pop?: boolean; free?: boolean; custom?: boolean;
-}
-
-function PlanCard({ p, idx, hovered, onHover }: {
-  p: PlanCard; idx: number; hovered: number | null; onHover: (i: number | null) => void;
-}) {
-  const isHovered = hovered === idx;
-  return (
-    <div
-      onMouseOver={() => onHover(idx)}
-      onMouseOut={() => onHover(null)}
-      style={{
-        padding: 28, borderRadius: 18, position: "relative", cursor: "default",
-        background: p.custom
-          ? "linear-gradient(160deg, rgba(55,138,221,0.05), rgba(55,138,221,0.03))"
-          : p.pop
-          ? "linear-gradient(160deg, rgba(55,138,221,0.07), rgba(55,138,221,0.04))"
-          : "rgba(255,255,255,0.015)",
-        border: p.custom
-          ? "1px solid rgba(55,138,221,0.2)"
-          : p.pop
-          ? "1px solid rgba(55,138,221,0.25)"
-          : p.free
-          ? "1px solid rgba(55,138,221,0.2)"
-          : "1px solid rgba(255,255,255,0.05)",
-        boxShadow: isHovered && p.pop ? "0 16px 60px rgba(55,138,221,.1)" : "none",
-        transform: isHovered ? "translateY(-6px)" : "none",
-        transition: "transform .3s, border-color .3s, box-shadow .3s",
-      }}>
-      {p.pop && (
-        <div style={{
-          position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
-          padding: "3px 14px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-          background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
-        }}>Recomandat</div>
-      )}
-      {p.free && (
-        <div style={{
-          position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
-          padding: "3px 14px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-          background: "rgba(55,138,221,0.15)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.3)",
-        }}>Gratuit</div>
-      )}
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#777", marginBottom: 6 }}>{p.name}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 2 }}>
-        <span style={{ fontSize: 38, fontWeight: 700, color: "#fff", letterSpacing: -1 }}>{p.price}</span>
-        {!p.custom && <span style={{ fontSize: 14, color: "#666" }}>lei</span>}
-      </div>
-      {p.credits && (
-        <div style={{ fontSize: 14, fontWeight: 600, color: "#5BB8F5", marginBottom: 2 }}>{p.credits}</div>
-      )}
-      {p.perCredit && (
-        <div style={{ fontSize: 12, color: "#555" }}>{p.perCredit}</div>
-      )}
-      <p style={{ fontSize: 12, color: "#444", margin: "12px 0 20px" }}>{p.desc}</p>
-      <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
-        {p.features.map((f, j) => (
-          <li key={j} style={{ fontSize: 13, color: "#888", padding: "5px 0", display: "flex", alignItems: "center", gap: 8 }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M3 6L5 8L9 4"
-                stroke={p.custom ? "#5BB8F5" : p.pop ? "#5BB8F5" : p.free ? "#5BB8F5" : "#444"}
-                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {f}
-          </li>
-        ))}
-      </ul>
-      <a
-        href={p.custom ? "mailto:office@zynapse.org" : "/register"}
-        style={{
-          display: "block", textAlign: "center", padding: "11px 20px", borderRadius: 10,
-          fontSize: 13, fontWeight: 600, textDecoration: "none",
-          background: p.pop
-            ? "linear-gradient(135deg,#378ADD,#5BB8F5)"
-            : p.free
-            ? "rgba(55,138,221,0.12)"
-            : p.custom
-            ? "rgba(55,138,221,0.1)"
-            : "rgba(255,255,255,0.04)",
-          color: p.pop ? "#fff" : p.free ? "#5BB8F5" : p.custom ? "#5BB8F5" : "#888",
-          border: p.pop
-            ? "none"
-            : p.free
-            ? "1px solid rgba(55,138,221,0.25)"
-            : p.custom
-            ? "1px solid rgba(55,138,221,0.25)"
-            : "1px solid rgba(255,255,255,0.06)",
-          transition: "all .2s",
-        }}>
-        {p.cta}
-      </a>
-    </div>
   );
 }
 

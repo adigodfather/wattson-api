@@ -41,15 +41,6 @@ export const FAZA_PROIECT_OPTIONS = [
   { value: "PT",       label: "PT",        enabled: false, tooltip: "Disponibil curând (lansare Q2 2026)" },
 ] as const;
 
-// ─── Tip clădire (Epic 3.11) — pentru moment DOAR Rezidențial e activ ───────────
-
-export const TIP_CLADIRE_OPTIONS = [
-  { value: "rezidential", label: "Rezidențial", enabled: true,  icon: "🏠" },
-  { value: "comercial",   label: "Comercial",   enabled: false, icon: "🏢", tooltip: "Disponibil curând" },
-  { value: "industrial",  label: "Industrial",  enabled: false, icon: "🏭", tooltip: "Disponibil curând" },
-  { value: "public",      label: "Public",      enabled: false, icon: "🏛️", tooltip: "Disponibil curând" },
-] as const;
-
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [
