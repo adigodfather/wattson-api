@@ -109,6 +109,7 @@ export interface FormData {
   project_id: string;
   building_category: string;    // "rezidential" | "public" | "industrial"
   building_type: string;        // subtype value
+  surface_mp: number;           // suprafață construită declarată (mp), pentru calcul Z-Coins
   power_phase: string;          // "mono" | "tri"
   insulation_level: string;
   heating_type: string;         // generation type
@@ -134,6 +135,7 @@ export const INITIAL_FORM: FormData = {
   project_id: "",
   building_category: "",
   building_type: "",
+  surface_mp: 0,
   power_phase: "mono",
   insulation_level: "",
   heating_type: "",

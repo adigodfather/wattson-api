@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 // TODO: ajustează prețul/Z-Coins calculatorului
-const CREDIT_PRICING = {
+export const CREDIT_PRICING = {
   perM2: { dtac: 1, pt: 2 },   // Z-Coins/mp: DTAC = 1, PT = 2 (DTAC+PT = 3)
   pricePerCredit: 0.50,        // lei/Z-Coin — preț fix, fără reducere la volum
 };

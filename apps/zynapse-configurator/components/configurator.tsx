@@ -16,6 +16,7 @@ import {
 } from "@/components/result-sections";
 import CartusConfirmModal from "./CartusConfirmModal";
 import MultiFileDropZone from "./MultiFileDropZone";
+import { CREDIT_PRICING } from "@/components/CreditCalculator";
 
 const WEBHOOK_URL = "/api/generate";
 
@@ -1452,6 +1453,44 @@ export function ZynapseConfigurator() {
           <SectionLabel>Faza proiect</SectionLabel>
           <FazaProiectChips value={cartusProiectInput.faza}
             onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))} />
+
+          {/* Suprafață construită + cost estimat Z-Coins — DOAR afișare (consumul real: task A5) */}
+          <SectionLabel>Suprafață construită</SectionLabel>
+          <div className="mb-3.5">
+            <label className="block text-[12px] font-semibold tracking-wide mb-1.5" style={{ color: "#8B8FA8" }}>
+              SUPRAFAȚĂ TOTALĂ (mp) <span style={{ color: "#E24B4A" }}>*</span>
+            </label>
+            <input type="number" min={1} step={1} value={form.surface_mp || ""}
+              onChange={(e) => update("surface_mp", parseFloat(e.target.value) || 0)}
+              placeholder="ex: 160"
+              className="w-full rounded-lg px-3 py-2.5 text-[14px] font-[inherit] outline-none"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "#E2E4E9" }} />
+          </div>
+
+          {form.surface_mp > 0 && (() => {
+            const faza = cartusProiectInput.faza;
+            const perM2 = faza === "DTAC+PT"
+              ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
+              : faza === "PT"
+              ? CREDIT_PRICING.perM2.pt
+              : CREDIT_PRICING.perM2.dtac;
+            const zcoins = Math.ceil(form.surface_mp * perM2);
+            const lei = zcoins * CREDIT_PRICING.pricePerCredit;
+            const fmt = (n: number) => n.toLocaleString("ro-RO", { maximumFractionDigits: 2 });
+            const pretZ = CREDIT_PRICING.pricePerCredit.toFixed(2).replace(".", ",");
+            return (
+              <div className="mb-3.5 rounded-xl p-4" style={{ background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.18)" }}>
+                <div className="text-[12px]" style={{ color: "#8B8FA8" }}>Cost estimat proiect</div>
+                <div className="mt-1" style={{ fontSize: 20, fontWeight: 700 }}>
+                  <span style={{ color: "#5BB8F5" }}>{fmt(zcoins)} Z-Coins</span>
+                  <span style={{ color: "#8B8FA8", fontWeight: 500, fontSize: 15 }}> · {fmt(lei)} lei</span>
+                </div>
+                <div className="mt-1 text-[11px]" style={{ color: "#545870" }}>
+                  {faza} · {form.surface_mp} mp × {perM2} Z-Coin/mp · {pretZ} lei/Z-Coin
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 3. Tip clădire PAS1 + PAS2 */}
           <SectionLabel>Tip clădire</SectionLabel>
