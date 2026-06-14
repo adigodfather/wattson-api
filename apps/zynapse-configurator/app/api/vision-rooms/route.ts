@@ -34,7 +34,8 @@ const VISION_PROMPT = `Ești expert în analiza planurilor de construcție româ
    - apartamente repetitive pe etaje → "bloc"
    - vitrine, casă de marcat → "comercial"
 
-4. CAMERE — pentru fiecare spațiu: name, room_type, area_m2, height_m, function, bbox ({x,y,w,h} în pixeli față de stânga-sus)
+4. CAMERE — pentru fiecare spațiu: name, room_type, area_m2, height_m, function, bbox ({x,y,w,h} NORMALIZAT între 0 și 1 față de lățimea/înălțimea imaginii, NU pixeli — x=0 stânga, x=1 dreapta, y=0 sus, y=1 jos).
+   bbox = dreptunghiul care acoperă ÎNTREAGA suprafață a camerei, de la perete la perete (toți cei 4 pereți care o delimitează), NU doar zona textului/etichetei/cotelor.
    Funcții valide: day/night/bathroom/kitchen/circulation/technical/storage/other/hall/office/corridor/sanitary/kitchen_pub/production/warehouse/office_ind
 
 5. DIMENSIUNI IMAGINE — estimează: image_width_px, image_height_px
@@ -55,10 +56,14 @@ JSON final:
   "building_category": "rezidential",
   "building_info": {"image_width_px": 2480, "image_height_px": 3508},
   "project_info": {"titlu_proiect": "", "beneficiar": "", "amplasament": "", "sef_proiect": "", "proiect_nr": "", "data": "", "faza": "", "plansa_nr": ""},
-  "rooms": [{"name": "Living", "room_type": "living", "area_m2": 25, "height_m": 2.7, "function": "day", "bbox": {"x": 100, "y": 200, "w": 400, "h": 300}}]
+  "rooms": [{"name": "Living", "room_type": "living", "area_m2": 25, "height_m": 2.7, "function": "day", "bbox": {"x": 0.05, "y": 0.10, "w": 0.20, "h": 0.15}}]
 }
 
-Pentru FIECARE cameră din rooms[], include bbox cu poziția în pixeli (x,y = colț stânga-sus, w,h = dimensiuni), raportat la dimensiunile reale ale imaginii. Identifică limitele din pereții vizibili. bbox-ul trebuie să fie suficient de precis pentru plasarea simbolurilor electrice în interiorul fiecărei camere.
+Pentru FIECARE cameră din rooms[], include bbox NORMALIZAT între 0 și 1 (fracții din lățime/înălțime, NU pixeli):
+- x,y = colțul stânga-sus al camerei (intersecția pereților stânga+sus), w,h = până la pereții dreapta+jos.
+- Centrul bbox-ului (x+w/2, y+h/2) trebuie să cadă în mijlocul liber al încăperii (unde ar sta un corp de iluminat pe tavan), nu lângă un perete sau pe etichetă.
+- Dacă eticheta «A: NN mp» e într-un colț, ignoră poziția ei — bbox-ul urmează pereții, nu textul.
+- Verificare: aria dreptunghiului (w×h × suprafața imaginii) trebuie să fie aproximativ proporțională cu area_m2 declarat — dacă bbox-ul e mult mai mic decât cameră, l-ai desenat prea strâns.
 
 Returnează DOAR JSON-ul, fără explicații.`;
 
