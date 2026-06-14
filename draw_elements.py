@@ -57,10 +57,11 @@ def _find_room_centers(page, W, H):
     return centers
 
 
-def _draw_bulb(page, cx, cy, r=9.0):
+def _draw_bulb(page, cx, cy, r=9.0, y_offset=-22):
     """Simbol standard corp de iluminat: cerc cu X (două diametre la 45°), roșu.
-    Plasat ușor deasupra ancorei de suprafață ca să nu se suprapună peste text."""
-    center = fitz.Point(cx, cy - 22)  # offset în sus față de eticheta suprafeței
+    y_offset: deplasare verticală față de (cx, cy). Default -22 = deasupra ancorei
+    de suprafață (cale text_regex). vision_bbox cheamă cu y_offset=0 (centrul real)."""
+    center = fitz.Point(cx, cy + y_offset)  # y_offset negativ = în sus
     # cerc
     page.draw_circle(center, r, color=RED, width=1.2)
     # X = două diagonale la 45°, rază = r
@@ -127,8 +128,11 @@ def draw_plan_elements(data: dict) -> dict:
                              "note": "Nicio cameră detectată. Plan nemodificat."},
             }
 
+        # vision_bbox: cy e deja centrul camerei -> fără offset (bec în centru).
+        # text_regex: cy e poziția textului "A:" -> -22 (bec deasupra textului).
+        y_offset = 0 if source == "vision_bbox" else -22
         for c in centers:
-            _draw_bulb(page, c["x"], c["y"])
+            _draw_bulb(page, c["x"], c["y"], y_offset=y_offset)
 
         out = doc.tobytes(deflate=True)
         return {
