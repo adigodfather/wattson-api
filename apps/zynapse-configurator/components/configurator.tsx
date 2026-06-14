@@ -440,7 +440,7 @@ function EquipmentCards({
 /* ─── Panou drept (b): cip de procesare finală (status === "loading") ─── */
 function CipProcesare() {
   return (
-    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch" style={{ padding: "0 24px" }}>
+    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch px-6 md:pl-[12%]">
       <div className="w-full" style={{ maxWidth: 680 }}>
         <svg viewBox="-50 -50 420 320" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
