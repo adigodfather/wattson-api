@@ -3,6 +3,8 @@
 // existente. "Contact" (mailto) din lista veche e omis din coloana Platforma fiindca
 // email-ul apare deja in coloana Contact (evita redundanta).
 
+import NetopiaLogo from "@/components/NetopiaLogo";
+
 const PLATFORM_LINKS = [
   { label: "Login", href: "/login" },
   { label: "Register", href: "/register" },
@@ -82,8 +84,11 @@ export default function SiteFooter() {
         </div>
       </div>
 
-      {/* ── ZONA 3 — linie legală (jos, centrat) ── */}
+      {/* ── ZONA 3 — sigla Netopia (plăți) + linie legală (jos, centrat) ── */}
       <div style={{ marginTop: 18, paddingTop: 16, borderTop: "0.5px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+          <NetopiaLogo />
+        </div>
         <span style={{ fontSize: 12, color: "#545870" }}>
           S.C. ZYNAPSE S.R.L. · Str. Nucului nr. 20, Aleșd, jud. Bihor
         </span>
