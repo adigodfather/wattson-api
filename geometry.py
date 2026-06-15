@@ -40,6 +40,7 @@ RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acel
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
 CLUSTER_RATIO = 1.38       # mediana clusterului sanatos (referinta pt. tie-break la overlap)
+BBOX_CONTAIN_TOL = 12.0    # REGULA 3: centroidul trebuie sa cada in bbox-ul Vision al camerei (±TOL)
 
 
 def _collect(page):
@@ -293,17 +294,31 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 best = max(strong, key=lambda g: (round(g[4], 1), -abs(g[4] - area_vision)))
                 l, rr, t, b, area_geom, aspect, support = best
 
+                cgx = round((l + rr) / 2.0, 1)
+                cgy = round((t + b) / 2.0, 1)
+
+                # walls/doors raman MEREU (prize/intrerupatoare), chiar daca centroidul e respins
                 rec["wall_segments"] = _walls_in_rect(h_segs, v_segs, l, rr, t, b)
                 rec["doors"] = _doors_in_rect(doors, l, rr, t, b)
                 rec["area_geometric_m2"] = round(area_geom, 2)
-                rec["geometric"] = True
-                rec["centroid"] = {"x": round((l + rr) / 2.0, 1), "y": round((t + b) / 2.0, 1)}
-                rec["reason"] = "validat geometric: aspect %.1f, arie %.1fm2, %d seed-uri de acord" % (
-                    aspect, area_geom, support)
-                # temp pentru REGULA 2 (sters inainte de return)
-                rec["_rect"] = (l, rr, t, b)
-                rec["_ratio"] = (area_geom / area_vision) if area_vision > 0 else None
-                rec["_support"] = support
+
+                # REGULA 3 — bbox-containment: centroidul trebuie sa cada in bbox-ul Vision
+                # al ACESTEI camere (±TOL). Altfel dreptunghiul a "evadat" intr-un vecin.
+                inside = (bx - BBOX_CONTAIN_TOL <= cgx <= bx + bw + BBOX_CONTAIN_TOL and
+                          by - BBOX_CONTAIN_TOL <= cgy <= by + bh + BBOX_CONTAIN_TOL)
+                if not inside:
+                    # geometric ramane False, centroid None -> fallback Vision (centru bbox)
+                    rec["reason"] = "respins bbox-containment: centroid (%d,%d) iese din bbox Vision" % (
+                        cgx, cgy)
+                else:
+                    rec["geometric"] = True
+                    rec["centroid"] = {"x": cgx, "y": cgy}
+                    rec["reason"] = "validat geometric: aspect %.1f, arie %.1fm2, %d seed-uri de acord" % (
+                        aspect, area_geom, support)
+                    # temp pentru REGULA 2 (sters inainte de return)
+                    rec["_rect"] = (l, rr, t, b)
+                    rec["_ratio"] = (area_geom / area_vision) if area_vision > 0 else None
+                    rec["_support"] = support
             else:
                 # niciun dreptunghi plauzibil sub plafon: populam walls/doors din seed-ul central
                 # (DOAR daca nu e over-merge, ca sa nu lasam pereti inselatori)
