@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth-provider";
+import { startCheckout } from "@/lib/payment/startCheckout";
 
 // TODO: ajustează prețul/Z-Coins calculatorului
 export const CREDIT_PRICING = {
@@ -55,6 +58,10 @@ function CeprimestiCard({ phase }: { phase: "dtac" | "dtac_pt" }) {
 /* Calculator de Z-Coins — pur de prezentare (calcul local, fara apel extern) */
 function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setPhase: (p: "dtac" | "dtac_pt") => void }) {
   const [area, setArea] = useState<number>(1000);
+  const { user } = useAuth();
+  const router = useRouter();
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   const perM2 = phase === "dtac_pt"
     ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
@@ -62,6 +69,19 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
   const credits = Math.max(0, Math.round(area * perM2));
   const pricePerCredit = CREDIT_PRICING.pricePerCredit;
   const totalLei = credits * pricePerCredit;
+
+  // Cumpără EXACT creditele din calculator: trimite DOAR numărul; prețul se
+  // calculează server-side. Nelogat -> /login. Același mecanism ca la carduri.
+  async function handleBuy() {
+    setBuyError(null);
+    if (credits < 1) { setBuyError("Introdu o suprafață validă."); return; }
+    if (!user) { router.push("/login"); return; }
+    setBuying(true);
+    const r = await startCheckout({ credits });
+    if (r.authRequired) { router.push("/login"); return; }
+    if (!r.ok) { setBuyError(r.error || "Nu am putut iniția plata."); setBuying(false); }
+    // succes -> pagina navighează spre Netopia; lăsăm butonul în „Se redirecționează…"
+  }
 
   const fmtLei = (n: number) => n.toLocaleString("ro-RO", { maximumFractionDigits: 2 });
   const fmtCredit = (n: number) => n.toFixed(2).replace(".", ",");
@@ -128,13 +148,27 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
         </div>
       </div>
 
-      <a href="/register" className="cta-main" style={{
-        display: "block", textAlign: "center", marginTop: 16, padding: "13px 20px", borderRadius: 11,
-        fontSize: 15, fontWeight: 600, textDecoration: "none",
-        background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
-      }}>
-        {credits > 0 ? `Cumpără ${credits.toLocaleString("ro-RO")} Z-Coins` : "Începe gratuit"}
-      </a>
+      {credits > 0 ? (
+        <button type="button" onClick={handleBuy} disabled={buying} className="cta-main" style={{
+          display: "block", width: "100%", textAlign: "center", marginTop: 16, padding: "13px 20px", borderRadius: 11,
+          fontSize: 15, fontWeight: 600, fontFamily: "inherit", cursor: buying ? "wait" : "pointer",
+          background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff", border: "none",
+        }}>
+          {buying ? "Se redirecționează…" : `Cumpără ${credits.toLocaleString("ro-RO")} Z-Coins`}
+        </button>
+      ) : (
+        <a href="/register" className="cta-main" style={{
+          display: "block", textAlign: "center", marginTop: 16, padding: "13px 20px", borderRadius: 11,
+          fontSize: 15, fontWeight: 600, textDecoration: "none",
+          background: "linear-gradient(135deg, #378ADD, #5BB8F5)", color: "#fff",
+        }}>
+          Începe gratuit
+        </a>
+      )}
+
+      {buyError && (
+        <p style={{ fontSize: 12.5, color: "#F09595", textAlign: "center", marginTop: 10 }}>{buyError}</p>
+      )}
 
       <div style={{ fontSize: 11.5, color: "#555", textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>
         DTAC = 1 Z-Coin/mp · DTAC + PT = 3 Z-Coins/mp

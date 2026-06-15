@@ -18,6 +18,10 @@ function escAttr(s: string): string {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Sumă liberă (calculator): preț CANONIC, calculat EXCLUSIV server-side.
+const PRICE_PER_CREDIT = 0.5;   // lei/credit (= CREDIT_PRICING.pricePerCredit)
+const MAX_CREDITS = 100000;     // plafon de siguranță anti-abuz
+
 export async function POST(req: NextRequest) {
   try {
     // 1. autentificare (metoda din proiect)
@@ -31,38 +35,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
     }
 
-    // 2. input
-    let body: { packageId?: string } = {};
+    // 2. input — DOUĂ moduri: pachet fix {packageId} SAU sumă liberă {credits}
+    let body: { packageId?: string; credits?: number } = {};
     try { body = await req.json(); } catch { /* gol */ }
-    const packageId = String(body.packageId || "");
-    if (!packageId) {
-      return NextResponse.json({ error: "packageId lipsește" }, { status: 400 });
-    }
+    const packageId = body.packageId ? String(body.packageId) : "";
 
     const admin = createAdminClient();
 
-    // 3. pachet ACTIV din DB — pretul + creditele vin DIN DB, niciodată din client
-    const { data: pack, error: pErr } = await admin
-      .from("credit_packages")
-      .select("id, name, credits, price_ron, is_active")
-      .eq("id", packageId)
-      .eq("is_active", true)
-      .single();
-    if (pErr || !pack) {
-      return NextResponse.json({ error: "Pachet inexistent sau inactiv" }, { status: 404 });
+    // valorile finale (credite + sumă) provin EXCLUSIV de pe server, niciodată din client
+    let creditsToBuy: number;
+    let amountRon: number;
+    let dbPackageId: string | null;
+    let label: string;
+
+    if (packageId) {
+      // 3a. mod pachet ACTIV din DB — pretul + creditele vin DIN DB
+      const { data: pack, error: pErr } = await admin
+        .from("credit_packages")
+        .select("id, name, credits, price_ron, is_active")
+        .eq("id", packageId)
+        .eq("is_active", true)
+        .single();
+      if (pErr || !pack) {
+        return NextResponse.json({ error: "Pachet inexistent sau inactiv" }, { status: 404 });
+      }
+      creditsToBuy = pack.credits;
+      amountRon = Number(pack.price_ron);
+      dbPackageId = pack.id;
+      label = pack.name;
+    } else {
+      // 3b. mod sumă liberă — clientul trimite DOAR numărul de credite;
+      //     prețul = credits * PRICE_PER_CREDIT, calculat AICI (anti-fraudă).
+      const n = Number(body.credits);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_CREDITS) {
+        return NextResponse.json(
+          { error: `Număr de credite invalid (între 1 și ${MAX_CREDITS})` },
+          { status: 400 }
+        );
+      }
+      creditsToBuy = n;
+      amountRon = Math.round(n * PRICE_PER_CREDIT * 100) / 100; // 2 zecimale, server-side
+      dbPackageId = null;            // sumă liberă -> fără pachet (package_id e nullable)
+      label = `${n} Z-Coins`;
     }
 
     // 4. order_id unic
     const orderId = `ZYN-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-    const amount = Number(pack.price_ron).toFixed(2);
+    const amount = amountRon.toFixed(2);
 
-    // 5. INSERT payment pending — credits + amount ÎNGHEȚATE din pachet
+    // 5. INSERT payment pending — credits + amount ÎNGHEȚATE (calculate server-side)
     const { error: insErr } = await admin.from("payments").insert({
       order_id: orderId,
       user_id: user.id,            // profiles.id = auth.uid()
-      package_id: pack.id,
-      credits: pack.credits,
-      amount_ron: pack.price_ron,
+      package_id: dbPackageId,
+      credits: creditsToBuy,
+      amount_ron: amountRon,
       status: "pending",
     });
     if (insErr) {
@@ -86,7 +113,7 @@ export async function POST(req: NextRequest) {
       orderId,
       amount,
       currency: "RON",
-      details: `Pachet ${pack.name} - Zynapse`,
+      details: `${label} - Zynapse`,
       signature: cfg.signature,
       confirmUrl: cfg.confirmUrl,
       returnUrl: `${cfg.siteUrl}/payment/return?order=${encodeURIComponent(orderId)}`,

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase";
 import { CalculatorPanel } from "@/components/CreditCalculator";
+import { startCheckout } from "@/lib/payment/startCheckout";
 import SiteFooter from "@/components/SiteFooter";
 
 // Pachetele vin DIN DB (credit_packages) — sursa de adevăr pt. id/credite/preț.
@@ -20,27 +21,6 @@ interface DbPackage {
 
 // nr. de monede din ilustrație, pe poziție (pur vizual, indexat pe sort_order)
 const PILE_COUNTS = [3, 6, 11, 18];
-
-/* Trimite formularul auto-submit returnat de /api/payment/start spre Netopia.
-   Ruta întoarce HTML cu <form>; extragem câmpurile și facem o navigare POST
-   top-level (cross-origin) — nu depindem de onload-ul inline. */
-function submitNetopiaForm(html: string) {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const srcForm = doc.querySelector("form");
-  if (!srcForm) { document.open(); document.write(html); document.close(); return; }
-  const form = document.createElement("form");
-  form.method = "post";
-  form.action = srcForm.getAttribute("action") || "";
-  srcForm.querySelectorAll("input").forEach((inp) => {
-    const el = document.createElement("input");
-    el.type = "hidden";
-    el.name = inp.getAttribute("name") || "";
-    el.value = inp.getAttribute("value") || "";
-    form.appendChild(el);
-  });
-  document.body.appendChild(form);
-  form.submit();
-}
 
 // jitter determinist (x + rotație) pentru aspect natural de grămadă
 const PILE_JITTER = [
@@ -103,26 +83,10 @@ export default function HomePage() {
     setBuyError(null);
     if (!user) { router.push("/login"); return; }
     setBuying(packageId);
-    try {
-      const res = await fetch("/api/payment/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId }),
-      });
-      if (res.status === 401) { router.push("/login"); return; }
-      if (!res.ok) {
-        let msg = "Nu am putut iniția plata. Încearcă din nou.";
-        try { const j = await res.json(); if (j?.error) msg = String(j.error); } catch { /* gol */ }
-        setBuyError(msg);
-        setBuying(null);
-        return;
-      }
-      const html = await res.text();
-      submitNetopiaForm(html);   // navigare spre Netopia (pagina se schimbă)
-    } catch {
-      setBuyError("Eroare de rețea. Încearcă din nou.");
-      setBuying(null);
-    }
+    const r = await startCheckout({ packageId });
+    if (r.authRequired) { router.push("/login"); return; }
+    if (!r.ok) { setBuyError(r.error || "Nu am putut iniția plata."); setBuying(null); }
+    // succes -> pagina navighează spre Netopia; lăsăm butonul în „Se redirecționează…"
   }
 
   // Regula B2B: pachetele apar DOAR pentru conturi cu 30+ zile vechime,
