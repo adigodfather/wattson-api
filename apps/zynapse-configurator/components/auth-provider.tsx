@@ -11,6 +11,7 @@ export interface Profile {
   projects_used: number;
   projects_limit: number;
   credits_balance: number;
+  is_admin: boolean;
 }
 
 interface AuthContextValue {
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, projects_used, projects_limit, credits_balance")
+      .select("id, full_name, projects_used, projects_limit, credits_balance, is_admin")
       .eq("id", userId)
       .single();
     if (error) {
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         projects_used: data.projects_used ?? 0,
         projects_limit: data.projects_limit ?? 3,
         credits_balance: data.credits_balance ?? 0,
+        is_admin: data.is_admin ?? false,
       });
     } else {
       setProfile(null);

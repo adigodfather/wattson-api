@@ -198,26 +198,28 @@ function CategoryCards({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-/* ─── Faza proiect chips (Epic 3.11) — doar DTAC activ ─── */
-function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/* ─── Faza proiect chips (Epic 3.11) — DTAC+PT temporar DOAR pentru admin ─── */
+function FazaProiectChips({ value, onChange, isAdmin }: { value: string; onChange: (v: string) => void; isAdmin: boolean }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3.5">
       {FAZA_PROIECT_OPTIONS.map(opt => {
+        // DTAC+PT activ doar pentru admin (la lansare); restul vad doar DTAC.
+        const enabled = opt.enabled && (opt.value !== "DTAC+PT" || isAdmin);
         const isSel = value === opt.value;
         return (
-          <button key={opt.value} type="button" disabled={!opt.enabled}
-            onClick={() => opt.enabled && onChange(opt.value)}
+          <button key={opt.value} type="button" disabled={!enabled}
+            onClick={() => enabled && onChange(opt.value)}
             title={"tooltip" in opt ? opt.tooltip : undefined}
             className={`rounded-lg py-2.5 px-2 text-center transition-all duration-150 font-[inherit]${isSel ? " zy-current" : ""}`}
             style={{
               background: isSel ? "rgba(55,138,221,0.1)" : "rgba(255,255,255,0.02)",
               border: isSel ? "1px solid rgba(55,138,221,0.4)" : "1px solid rgba(255,255,255,0.06)",
               color: isSel ? "#5BB8F5" : "#C8CAD6",
-              cursor: opt.enabled ? "pointer" : "not-allowed",
-              opacity: opt.enabled ? 1 : 0.4,
+              cursor: enabled ? "pointer" : "not-allowed",
+              opacity: enabled ? 1 : 0.4,
             }}>
             <div className="text-[12px] font-bold">{opt.label}</div>
-            {!opt.enabled && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: "#C9A227" }}>Curând</div>}
+            {!enabled && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: "#C9A227" }}>Curând</div>}
           </button>
         );
       })}
@@ -930,9 +932,15 @@ export function ZynapseConfigurator() {
   const update = (key: keyof FormData, val: string | boolean | number) =>
     setForm(prev => ({ ...prev, [key]: val }));
 
-  const projectsUsed = profile?.projects_used ?? 0;
-  const projectsLimit = profile?.projects_limit ?? 3;
-  const isAtLimit = projectsUsed >= projectsLimit;
+  const isAdmin = profile?.is_admin === true;
+
+  // Poarta DTAC+PT (temporar, la lansare): non-admin -> faza fortata la DTAC.
+  // UI ascunde optiunea; aici garantam si starea (default-ul e DTAC+PT).
+  useEffect(() => {
+    if (!isAdmin && /PT/i.test(cartusProiectInput.faza || "")) {
+      setCartusProiectInput(p => ({ ...p, faza: "DTAC" }));
+    }
+  }, [isAdmin, cartusProiectInput.faza]);
 
   // Computed levels string from manual controls
   const levelsString = (form.has_basement ? "D+" : "") + "P" +
@@ -955,7 +963,7 @@ export function ZynapseConfigurator() {
   // Epic 3.11: butonul Generează e activ când formularul de bază e complet (fără cartuș —
   // cartușul se confirmă în popup-ul declanșat de Generează). canSubmit (cu cartuș confirmat)
   // gateează rularea efectivă a backend-ului.
-  const canSubmitBasic = formReady && !isAtLimit;
+  const canSubmitBasic = formReady;   // limita de 3 proiecte eliminata (trecem pe credite)
   const canSubmit = canSubmitBasic && cartusConfirmed;
 
   useEffect(() => {
@@ -1408,26 +1416,7 @@ export function ZynapseConfigurator() {
             <p className="text-[13px] mt-1 m-0" style={{ color: "#545870" }}>Încarcă planșele și completează datele clădirii</p>
           </div>
 
-          {isAtLimit && (
-            <div className="mb-4 p-4 rounded-xl"
-              style={{ background: "rgba(226,75,74,0.08)", border: "1px solid rgba(226,75,74,0.2)" }}>
-              <div className="text-sm font-semibold mb-1" style={{ color: "#F09595" }}>
-                Limită atinsă — {projectsUsed}/{projectsLimit} proiecte
-              </div>
-              <div className="text-[12px]" style={{ color: "#8B6060" }}>
-                <a href="mailto:contact@zynapse.org" style={{ color: "#F09595", textDecoration: "underline" }}>
-                  Contactează-ne pentru upgrade
-                </a>
-              </div>
-            </div>
-          )}
-
-          {!isAtLimit && profile && (
-            <div className="mb-4 flex items-center justify-between text-[11px]" style={{ color: "#545870" }}>
-              <span>Proiecte folosite</span>
-              <span style={{ color: "#8B8FA8" }}>{projectsUsed} / {projectsLimit}</span>
-            </div>
-          )}
+          {/* limita de 3 proiecte ELIMINATA — trecem pe credite (Z-Coins, pasul 3) */}
 
           {/* 1. Upload (Epic 3.11: multi-plan cu etichete Parter/Etaj/Mansardă) */}
           <MultiFileDropZone files={files} onChange={setFiles} maxFiles={3} />
@@ -1451,7 +1440,7 @@ export function ZynapseConfigurator() {
 
           {/* Faza proiect (Epic 3.11) — bound la cartusProiectInput.faza */}
           <SectionLabel>Faza proiect</SectionLabel>
-          <FazaProiectChips value={cartusProiectInput.faza}
+          <FazaProiectChips value={cartusProiectInput.faza} isAdmin={isAdmin}
             onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))} />
 
           {/* Suprafață construită + cost estimat Z-Coins — DOAR afișare (consumul real: task A5) */}
