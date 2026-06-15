@@ -44,6 +44,8 @@ const VISION_PROMPT = `Ești expert în analiza planurilor de construcție româ
    Caută câmpurile: TITLU PROIECT, BENEFICIAR, AMPLASAMENT, ȘEF PROIECT / PROIECTANT, PROIECT NR., DATA, FAZA, PLANSĂ NR.
    Câmpuri lipsă sau invizibile → string gol ""
 
+7. SUPRAFETE (din cartuș / tabel bilanț-indici) — extrage numeric dacă există: suprafața construită (Sc) -> surfaces.construita_mp; suprafața utilă (Su) -> surfaces.utila_mp; suprafața construită desfășurată (Scd) -> surfaces.desfasurata_mp. Caută texte gen "Suprafata construita = NNN mp" sau "Sc = NNN". Extrage DOAR numărul (ex. 245.73); negăsit -> null. NU inventa, NU estima. Dacă sunt MAI MULTE construcții (C1, C2, C3), ia construcția PRINCIPALĂ (C1 / casa de locuit), NU rândul TOTAL/TOTALA; pune în surfaces.note ce construcție ai ales (ex. "C1 CASA").
+
 JSON final:
 {
   "climate_zone": "II",
@@ -55,7 +57,7 @@ JSON final:
   "total_area_m2": 120,
   "building_category": "rezidential",
   "building_info": {"image_width_px": 2480, "image_height_px": 3508},
-  "project_info": {"titlu_proiect": "", "beneficiar": "", "amplasament": "", "sef_proiect": "", "proiect_nr": "", "data": "", "faza": "", "plansa_nr": ""},
+  "project_info": {"titlu_proiect": "", "beneficiar": "", "amplasament": "", "sef_proiect": "", "proiect_nr": "", "data": "", "faza": "", "plansa_nr": "", "surfaces": {"construita_mp": null, "utila_mp": null, "desfasurata_mp": null, "note": ""}},
   "rooms": [{"name": "Living", "room_type": "living", "area_m2": 25, "height_m": 2.7, "function": "day", "bbox": {"x": 0.05, "y": 0.10, "w": 0.20, "h": 0.15}}]
 }
 
