@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/components/auth-provider";
+import { isPhasePT } from "@/lib/constants";
 
 interface ProjectRow {
   id: string;
@@ -14,6 +15,7 @@ interface ProjectRow {
   heating_type: string;
   status: string;
   created_at: string;
+  phase: string | null;   // result_data->>phase (DTAC / DTAC+PT)
 }
 
 const BUILDING_LABEL: Record<string, string> = {
@@ -40,26 +42,45 @@ export default function ProjectsPage() {
   const { user, profile, signOut } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  // cost in Z-Coins per project.id (din tranzactia 'generation'); lipsa = proiect pre-A5
+  const [costByProject, setCostByProject] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     const supabase = createClient();
-    supabase
+    // faza = result_data->>phase (extras lejer, NU tot result_data)
+    const pProjects = supabase
       .from("projects")
-      .select("id, project_id, building_type, levels, heating_type, status, created_at")
+      .select("id, project_id, building_type, levels, heating_type, status, created_at, phase:result_data->>phase")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("[projects] fetch error:", error);
-          setLoadError(true);
-        } else {
-          setProjects(data ?? []);
+      .order("created_at", { ascending: false });
+    // costul de generare: legatura curata pe project_id (coloana noua)
+    const pTx = supabase
+      .from("credits_transactions")
+      .select("project_id, amount")
+      .eq("user_id", user.id)
+      .eq("type", "generation");
+
+    Promise.all([pProjects, pTx]).then(([projRes, txRes]) => {
+      if (projRes.error) {
+        console.error("[projects] fetch error:", projRes.error);
+        setLoadError(true);
+      } else {
+        setProjects((projRes.data as ProjectRow[]) ?? []);
+      }
+      if (txRes.error) {
+        console.error("[projects] tx fetch error:", txRes.error);
+      } else {
+        const map: Record<string, number> = {};
+        for (const t of txRes.data ?? []) {
+          if (t.project_id) map[t.project_id as string] = Math.abs(t.amount as number);
         }
-        setLoading(false);
-      });
+        setCostByProject(map);
+      }
+      setLoading(false);
+    });
   }, [user]);
 
   return (
@@ -203,6 +224,22 @@ export default function ProjectsPage() {
                 <div className="text-[11px]" style={{ color: "#3A3D50" }}>
                   {formatDate(p.created_at)}
                 </div>
+                {(p.phase || costByProject[p.id] != null) && (
+                  <div className="text-[11px] mt-2.5 pt-2.5 flex items-center gap-1.5"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                    {p.phase && (
+                      <span className="font-semibold" style={{ color: "#5BB8F5" }}>
+                        {isPhasePT(p.phase) ? "DTAC+PT" : "DTAC"}
+                      </span>
+                    )}
+                    {p.phase && <span style={{ color: "#3A3D50" }}>·</span>}
+                    <span style={{ color: "#8B8FA8" }}>
+                      {costByProject[p.id] != null
+                        ? `${costByProject[p.id].toLocaleString("ro-RO")} Z-Coins`
+                        : "—"}
+                    </span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
