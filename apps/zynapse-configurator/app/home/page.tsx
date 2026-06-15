@@ -1,18 +1,46 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { createClient } from "@/lib/supabase";
 import { CalculatorPanel } from "@/components/CreditCalculator";
 import SiteFooter from "@/components/SiteFooter";
 
-// TODO: Netopia — deblocare secvențială + marcare pachet cumpărat per cont (aici legăm plata)
-const HOME_PACKAGES: { coins: number; lei: number; count: number }[] = [
-  { coins: 500, lei: 222, count: 3 },
-  { coins: 1000, lei: 444, count: 6 },
-  { coins: 5000, lei: 2222, count: 11 },
-  { coins: 10000, lei: 4444, count: 18 },
-];
+// Pachetele vin DIN DB (credit_packages) — sursa de adevăr pt. id/credite/preț.
+interface DbPackage {
+  id: string;          // packageId trimis la /api/payment/start (ex. pack_500)
+  name: string;
+  credits: number;
+  price_ron: number | string;
+  sort_order: number;
+}
+
+// nr. de monede din ilustrație, pe poziție (pur vizual, indexat pe sort_order)
+const PILE_COUNTS = [3, 6, 11, 18];
+
+/* Trimite formularul auto-submit returnat de /api/payment/start spre Netopia.
+   Ruta întoarce HTML cu <form>; extragem câmpurile și facem o navigare POST
+   top-level (cross-origin) — nu depindem de onload-ul inline. */
+function submitNetopiaForm(html: string) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const srcForm = doc.querySelector("form");
+  if (!srcForm) { document.open(); document.write(html); document.close(); return; }
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = srcForm.getAttribute("action") || "";
+  srcForm.querySelectorAll("input").forEach((inp) => {
+    const el = document.createElement("input");
+    el.type = "hidden";
+    el.name = inp.getAttribute("name") || "";
+    el.value = inp.getAttribute("value") || "";
+    form.appendChild(el);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
 
 // jitter determinist (x + rotație) pentru aspect natural de grămadă
 const PILE_JITTER = [
@@ -49,7 +77,53 @@ function CoinPile({ count }: { count: number }) {
 
 export default function HomePage() {
   const { user, profile, loading } = useAuth();
+  const router = useRouter();
   const balance = profile?.credits_balance ?? 0;
+
+  // Pachetele citite din DB (credit_packages), sortate după sort_order.
+  const [packages, setPackages] = useState<DbPackage[] | null>(null);
+  const [buying, setBuying] = useState<string | null>(null);   // packageId în curs
+  const [buyError, setBuyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let active = true;
+    supabase
+      .from("credit_packages")
+      .select("id, name, credits, price_ron, sort_order")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => { if (active && data) setPackages(data as DbPackage[]); });
+    return () => { active = false; };
+  }, []);
+
+  // Click „Cumpără" → cere formularul Netopia de la rută și redirectează la plată.
+  // Neautentificat → login (ruta oricum cere auth).
+  async function handleBuy(packageId: string) {
+    setBuyError(null);
+    if (!user) { router.push("/login"); return; }
+    setBuying(packageId);
+    try {
+      const res = await fetch("/api/payment/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId }),
+      });
+      if (res.status === 401) { router.push("/login"); return; }
+      if (!res.ok) {
+        let msg = "Nu am putut iniția plata. Încearcă din nou.";
+        try { const j = await res.json(); if (j?.error) msg = String(j.error); } catch { /* gol */ }
+        setBuyError(msg);
+        setBuying(null);
+        return;
+      }
+      const html = await res.text();
+      submitNetopiaForm(html);   // navigare spre Netopia (pagina se schimbă)
+    } catch {
+      setBuyError("Eroare de rețea. Încearcă din nou.");
+      setBuying(null);
+    }
+  }
 
   // Regula B2B: pachetele apar DOAR pentru conturi cu 30+ zile vechime,
   // calculat din created_at-ul userului logat.
@@ -135,39 +209,46 @@ export default function HomePage() {
           <p style={{ textAlign: "center", color: "#888", fontSize: 14.5, margin: "0 0 32px" }}>
             Deblochezi pachetul următor pe măsură ce achiziționezi.
           </p>
+          {packages === null ? (
+            <p style={{ textAlign: "center", color: "#888", fontSize: 14 }}>Se încarcă pachetele…</p>
+          ) : (
           <div className="home-pkg-grid">
-            {HOME_PACKAGES.map((p, i) => {
-              // VIZUAL: primul pachet activ, restul blocate. Deblocarea reală vine cu Netopia.
-              const unlocked = i === 0;
+            {packages.map((p, i) => {
+              const emphasized = i === 0;        // primul evidențiat vizual; toate cumpărabile
+              const lei = Number(p.price_ron);
+              const isThis = buying === p.id;
               return (
-                <div key={p.coins} style={{
+                <div key={p.id} style={{
                   position: "relative", padding: "26px 20px 22px", borderRadius: 18, textAlign: "center",
-                  background: unlocked ? "rgba(55,138,221,0.06)" : "rgba(255,255,255,0.015)",
-                  border: unlocked ? "1px solid rgba(55,138,221,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                  boxShadow: unlocked ? "0 0 26px rgba(55,138,221,0.08)" : "none",
-                  opacity: unlocked ? 1 : 0.62,
+                  background: emphasized ? "rgba(55,138,221,0.06)" : "rgba(255,255,255,0.02)",
+                  border: emphasized ? "1px solid rgba(55,138,221,0.3)" : "1px solid rgba(255,255,255,0.08)",
+                  boxShadow: emphasized ? "0 0 26px rgba(55,138,221,0.08)" : "none",
                 }}>
-                  <CoinPile count={p.count} />
+                  <CoinPile count={PILE_COUNTS[i] ?? 6} />
                   <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: -0.5 }}>
-                    {p.coins.toLocaleString("ro-RO")}<span style={{ fontSize: 14, fontWeight: 500, color: "#5BB8F5", marginLeft: 5 }}>Z-Coins</span>
+                    {p.credits.toLocaleString("ro-RO")}<span style={{ fontSize: 14, fontWeight: 500, color: "#5BB8F5", marginLeft: 5 }}>Z-Coins</span>
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 600, color: "#9FD2FA", margin: "4px 0 18px" }}>
-                    {p.lei.toLocaleString("ro-RO")} lei
+                    {lei.toLocaleString("ro-RO")} lei
                   </div>
-                  <button type="button" disabled style={{
-                    width: "100%", padding: "11px 16px", borderRadius: 10, fontSize: 14, fontWeight: 600,
-                    fontFamily: "inherit", cursor: "not-allowed", color: "#8B8FA8",
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                  }}>În curând</button>
-                  {/* indicator stare (deblocare secvențială — doar vizual) */}
-                  <div style={{ marginTop: 12, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, color: unlocked ? "#5BB8F5" : "#545870" }}>
-                    <span style={{ fontSize: 14 }}>{unlocked ? "☐" : "🔒"}</span>
-                    {unlocked ? "Disponibil" : "Se deblochează ulterior"}
+                  <button type="button" onClick={() => handleBuy(p.id)} disabled={buying !== null} style={{
+                    width: "100%", padding: "11px 16px", borderRadius: 10, fontSize: 14, fontWeight: 700,
+                    fontFamily: "inherit", cursor: buying !== null ? "wait" : "pointer", color: "#fff",
+                    background: "linear-gradient(135deg, #378ADD, #5BB8F5)", border: "none",
+                    opacity: buying !== null && !isThis ? 0.55 : 1,
+                  }}>{isThis ? "Se redirecționează…" : "Cumpără"}</button>
+                  <div style={{ marginTop: 12, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, color: "#5BB8F5" }}>
+                    <span style={{ fontSize: 14 }}>🔒</span>
+                    Plată securizată Netopia
                   </div>
                 </div>
               );
             })}
           </div>
+          )}
+          {buyError && (
+            <p style={{ textAlign: "center", color: "#F09595", fontSize: 13.5, margin: "16px 0 0" }}>{buyError}</p>
+          )}
 
           {/* Mesaj final */}
           <div style={{
