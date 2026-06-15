@@ -198,6 +198,16 @@ function CategoryCards({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
+// Cost generare in Z-Coins — ACEEASI regula ca functia DB consume_credits:
+// contine 'PT' -> 3/mp (DTAC+PT); altfel (DTAC) -> 1/mp. CEIL pe suprafata.
+function genCostZ(surface: number, faza: string): number {
+  if (!surface || surface <= 0) return 0;
+  const perM2 = /PT/i.test(faza || "")
+    ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
+    : CREDIT_PRICING.perM2.dtac;
+  return Math.ceil(surface * perM2);
+}
+
 /* ─── Faza proiect chips (Epic 3.11) — DTAC+PT temporar DOAR pentru admin ─── */
 function FazaProiectChips({ value, onChange, isAdmin }: { value: string; onChange: (v: string) => void; isAdmin: boolean }) {
   return (
@@ -1032,6 +1042,17 @@ export function ZynapseConfigurator() {
   // la backend (permite re-generare fără a re-rula Vision).
   const handleGenerate = async () => {
     if (!canSubmitBasic || status === "loading" || visionCartusLoading) return;
+
+    // HOLD SIMPLU (verificare sold, informativ): blocheaza ÎNAINTE de generare daca soldul
+    // nu acopera costul. Consumul real + verificarea autoritara se fac in DB la succes.
+    const holdCost = genCostZ(form.surface_mp, cartusProiectInput.faza);
+    const holdBal = profile?.credits_balance ?? 0;
+    if (user && holdCost > 0 && holdBal < holdCost) {
+      setError(`Sold insuficient: ai nevoie de ${holdCost} Z-Coins, ai ${holdBal}. Cumpara credite din pagina principala (Acasa).`);
+      setStatus("error");
+      return;
+    }
+
     if (cartusConfirmed) { void runBackend(); return; }
 
     setVisionCartusLoading(true);
@@ -1204,7 +1225,7 @@ export function ZynapseConfigurator() {
       setStepIndex(4);
       if (user) {
         const supabase = createClient();
-        const { error: insertError } = await supabase.from("projects").insert({
+        const { data: inserted, error: insertError } = await supabase.from("projects").insert({
           user_id: user.id,
           project_id: form.project_id,
           building_type: form.building_type,
@@ -1216,15 +1237,36 @@ export function ZynapseConfigurator() {
           input_data: payload,
           result_data: data,
           memoriu_text: data.memoriu_tehnic,
-        });
+        }).select("id").single();
         if (insertError) {
           console.error("[save project] insert error:", insertError);
           setSaveMessage("Proiectul a fost generat, dar salvarea în istoric a eșuat. Descarcă-l acum din rezultate.");
         } else {
-          const { error: rpcError } = await supabase.rpc('increment_projects_used');
+          // HARD CONSUME — scade creditele real DOAR la succes, idempotent pe uuid-ul proiectului.
+          // Costul se calculeaza SERVER-SIDE in functie din surface_mp + faza (clientul nu trimite cost).
+          const consumeFaza = cartusOverride?.faza ?? cartusProiectInput.faza;
+          let msg = "Proiect salvat cu succes";
+          try {
+            const { data: consumeRes, error: consumeErr } = await supabase.rpc("consume_credits", {
+              p_surface_mp: form.surface_mp,
+              p_phase: consumeFaza,
+              p_project_id: inserted?.id ?? null,
+            });
+            if (consumeErr) {
+              // eroare tehnica (retea) -> proiectul DEJA e salvat; NU blocam afisarea, doar logam
+              console.error("[consume_credits] error:", consumeErr);
+            } else if (consumeRes && (consumeRes as { success?: boolean }).success === false) {
+              // sold insuficient la finalizare (rar) -> lasam proiectul salvat, avertizam, NU stergem munca
+              console.warn("[consume_credits] insuficient la consum:", consumeRes);
+              msg = "Proiect generat. Atenție: soldul de Z-Coins nu a putut fi debitat (sold insuficient la finalizare).";
+            }
+          } catch (e) {
+            console.error("[consume_credits] exception:", e);
+          }
+          const { error: rpcError } = await supabase.rpc("increment_projects_used");
           if (rpcError) console.error("[save project] increment error:", rpcError);
-          await refreshProfile();
-          setSaveMessage("Proiect salvat cu succes");
+          await refreshProfile();   // re-fetch -> soldul nou apare imediat in UI
+          setSaveMessage(msg);
         }
       }
 
@@ -1477,6 +1519,19 @@ export function ZynapseConfigurator() {
                 <div className="mt-1 text-[11px]" style={{ color: "#545870" }}>
                   {faza} · {form.surface_mp} mp × {perM2} Z-Coin/mp · {pretZ} lei/Z-Coin
                 </div>
+                {user && (() => {
+                  const bal = profile?.credits_balance ?? 0;
+                  return bal >= zcoins ? (
+                    <div className="mt-2 text-[11px]" style={{ color: "#3ECFA0" }}>
+                      Se vor consuma {fmt(zcoins)} Z-Coins · sold: {fmt(bal)}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px]" style={{ color: "#F09595" }}>
+                      Sold insuficient: ai {fmt(bal)}, ai nevoie de {fmt(zcoins)}.{" "}
+                      <Link href="/home" style={{ color: "#F09595", textDecoration: "underline" }}>Cumpără credite</Link>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
