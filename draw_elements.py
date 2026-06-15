@@ -79,12 +79,17 @@ ROOM_LARGE_M2 = 25.0
 _PT2_TO_M2 = 6.205e-4
 
 
-def _vision_centers(rooms, W, H):
+def _vision_centers(rooms, W, H, geoms=None):
     """Centre din bbox Vision (fracții 0-1) -> puncte PDF.
     rooms = listă de { name, area_m2, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
+    geoms = OPȚIONAL, listă PARALELĂ cu rooms (de la geometry.extract_room_geometry).
+            Dacă o cameră are centroid geometric (geometric=True) -> becul folosește
+            centroidul geometric (centrat perete-la-perete). Altfel -> centru bbox Vision
+            (comportament NESCHIMBAT). Lipsă/None -> totul pe Vision (zero regresie).
     Cameră mare (area_m2 >= ROOM_LARGE_M2; fallback = aria bbox ca proxy) -> 2 becuri
     pe axa LUNGĂ a bbox-ului (la 1/3 și 2/3); altfel 1 bec la centru. MAX 2 becuri/cameră.
-    Ignoră tăcut camerele fără bbox numeric valid."""
+    La 2 becuri pe cameră geometrică: aceeași orientare+distanță (axa lungă bbox), dar
+    perechea RE-CENTRATĂ pe centroidul geometric. Ignoră tăcut camerele fără bbox valid."""
     centers = []
     for idx, r in enumerate(rooms or []):
         bb = (r or {}).get("bbox") or {}
@@ -101,18 +106,29 @@ def _vision_centers(rooms, W, H):
             area = 0.0
         if area <= 0:
             area = (w * h) * (W * H) * _PT2_TO_M2
+
+        # centrul camerei: centroid geometric (dacă a reușit) ALTFEL centru bbox Vision (ca până acum)
+        cxc = (x + w / 2.0) * W
+        cyc = (y + h / 2.0) * H
+        g = geoms[idx] if (geoms and idx < len(geoms)) else None
+        if g and g.get("geometric") and g.get("centroid"):
+            try:
+                cxc = float(g["centroid"]["x"]); cyc = float(g["centroid"]["y"])
+            except (TypeError, ValueError, KeyError):
+                pass  # date geometrice corupte -> rămânem pe centrul bbox
+
         if area >= ROOM_LARGE_M2:
-            # 2 becuri pe axa LUNGĂ: orizontală dacă w*W >= h*H, altfel verticală
+            # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc)
             if w * W >= h * H:
-                cy = (y + h / 2.0) * H
-                centers.append({"x": (x + w / 3.0) * W, "y": cy, "label": label, "room": idx})
-                centers.append({"x": (x + 2.0 * w / 3.0) * W, "y": cy, "label": label, "room": idx})
+                dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
+                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx})
+                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx})
             else:
-                cx = (x + w / 2.0) * W
-                centers.append({"x": cx, "y": (y + h / 3.0) * H, "label": label, "room": idx})
-                centers.append({"x": cx, "y": (y + 2.0 * h / 3.0) * H, "label": label, "room": idx})
+                dy = (h / 6.0) * H
+                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx})
+                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx})
         else:
-            centers.append({"x": (x + w / 2.0) * W, "y": (y + h / 2.0) * H, "label": label, "room": idx})
+            centers.append({"x": cxc, "y": cyc, "label": label, "room": idx})
     return centers
 
 
@@ -129,10 +145,22 @@ def draw_plan_elements(data: dict) -> dict:
         page = doc[0]
         W, H = page.rect.width, page.rect.height
 
+        # Geometrie CAD (centroizi perete-la-perete) DOAR pe faza PT (apply_geometry din n8n).
+        # Defensiv: ORICE eroare -> geoms=None -> fallback TOTAL la centrul bbox Vision.
+        # Generarea becurilor NU trebuie să eșueze niciodată din cauza geometriei.
+        rooms = data.get("rooms")
+        geoms = None
+        if data.get("apply_geometry") and rooms:
+            try:
+                import geometry
+                geoms = geometry.extract_room_geometry(pdf_bytes, rooms, W, H)
+            except Exception:
+                geoms = None
+
         # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
         # desenăm becurile din centrele lor — robust, independent de text/regex.
         # Altfel -> fallback la calea veche cu regex pe textul de suprafață.
-        vision_centers = _vision_centers(data.get("rooms"), W, H)
+        vision_centers = _vision_centers(rooms, W, H, geoms)
         if vision_centers:
             source = "vision_bbox"
             centers = vision_centers

@@ -3227,6 +3227,7 @@ class DrawPlanElementsRequest(BaseModel):
     plansa_nr: str = ""
     plan_type: str = "iluminat"  # deocamdată doar iluminat (becuri)
     rooms: Optional[list] = None  # camere cu bbox Vision (fracții 0-1); lipsă -> fallback regex
+    apply_geometry: bool = False  # True DOAR pe faza PT (din n8n) -> centroid geometric din pereți
 
 
 @app.post("/draw-plan-elements")
