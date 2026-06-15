@@ -11,6 +11,8 @@ export interface NetopiaConfig {
   publicCer: string;   // public.cer (PEM, BEGIN/END) — criptează cererea
   privateKey: string;  // private.key (PEM, BEGIN/END) — decriptează IPN-ul (SECRET)
   baseUrl: string;     // endpoint Netopia (sandbox sau live)
+  paymentUrl: string;  // URL-ul unde se POSTează formularul de plată (= baseUrl)
+  siteUrl: string;     // NEXT_PUBLIC_BASE_URL fără slash final (pt. return/confirm)
   returnUrl: string;   // unde revine userul după plată (browser redirect)
   confirmUrl: string;  // IPN server-to-server (Netopia -> noi)
 }
@@ -59,7 +61,9 @@ export function getNetopiaConfig(): NetopiaConfig {
     publicCer: normalizePem(required("NETOPIA_PUBLIC_CER")),
     privateKey: normalizePem(required("NETOPIA_PRIVATE_KEY")),
     baseUrl,
-    returnUrl: `${site}/plata/retur`,
+    paymentUrl: baseUrl,
+    siteUrl: site,
+    returnUrl: `${site}/payment/return`,
     confirmUrl: `${site}/api/payment/ipn`,
   };
   return _cfg;
