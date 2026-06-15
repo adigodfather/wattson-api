@@ -1,6 +1,11 @@
 node_modules/
 .next/
 out/
+# secrete de mediu — NU se comit (Dan pune valorile in Vercel + .env.local local)
+.env
 .env.local
+.env*.local
+# .env.example E template (doar nume + placeholder) -> SE comite
+!.env.example
 *.tsbuildinfo
 next-env.d.ts
