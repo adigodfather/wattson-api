@@ -73,21 +73,46 @@ def _draw_bulb(page, cx, cy, r=9.0, y_offset=-22):
                    fitz.Point(center.x + d, center.y - d), color=RED, width=1.2)
 
 
+# Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
+ROOM_LARGE_M2 = 25.0
+# Factor pt² -> m² la scara planului (~1:71); folosit ca proxy când lipsește area_m2.
+_PT2_TO_M2 = 6.205e-4
+
+
 def _vision_centers(rooms, W, H):
     """Centre din bbox Vision (fracții 0-1) -> puncte PDF.
-    rooms = listă de { name, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
+    rooms = listă de { name, area_m2, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
+    Cameră mare (area_m2 >= ROOM_LARGE_M2; fallback = aria bbox ca proxy) -> 2 becuri
+    pe axa LUNGĂ a bbox-ului (la 1/3 și 2/3); altfel 1 bec la centru. MAX 2 becuri/cameră.
     Ignoră tăcut camerele fără bbox numeric valid."""
     centers = []
-    for r in rooms or []:
+    for idx, r in enumerate(rooms or []):
         bb = (r or {}).get("bbox") or {}
         try:
             x = float(bb.get("x")); y = float(bb.get("y"))
             w = float(bb.get("w")); h = float(bb.get("h"))
         except (TypeError, ValueError):
             continue
-        cx = (x + w / 2.0) * W
-        cy = (y + h / 2.0) * H
-        centers.append({"x": cx, "y": cy, "label": str(r.get("name") or "")})
+        label = str((r or {}).get("name") or "")
+        # mărimea camerei: area_m2 din Vision; fallback la aria bbox (proxy la ~1:71)
+        try:
+            area = float((r or {}).get("area_m2") or 0)
+        except (TypeError, ValueError):
+            area = 0.0
+        if area <= 0:
+            area = (w * h) * (W * H) * _PT2_TO_M2
+        if area >= ROOM_LARGE_M2:
+            # 2 becuri pe axa LUNGĂ: orizontală dacă w*W >= h*H, altfel verticală
+            if w * W >= h * H:
+                cy = (y + h / 2.0) * H
+                centers.append({"x": (x + w / 3.0) * W, "y": cy, "label": label, "room": idx})
+                centers.append({"x": (x + 2.0 * w / 3.0) * W, "y": cy, "label": label, "room": idx})
+            else:
+                cx = (x + w / 2.0) * W
+                centers.append({"x": cx, "y": (y + h / 3.0) * H, "label": label, "room": idx})
+                centers.append({"x": cx, "y": (y + 2.0 * h / 3.0) * H, "label": label, "room": idx})
+        else:
+            centers.append({"x": (x + w / 2.0) * W, "y": (y + h / 2.0) * H, "label": label, "room": idx})
     return centers
 
 
@@ -135,6 +160,8 @@ def draw_plan_elements(data: dict) -> dict:
             _draw_bulb(page, c["x"], c["y"], y_offset=y_offset)
 
         out = doc.tobytes(deflate=True)
+        # rooms_found = nr. camere (o cameră poate avea 2 becuri); elements_drawn = becuri.
+        rooms_found = len({c.get("room") for c in centers}) if source == "vision_bbox" else len(centers)
         return {
             "success": True,
             "source": source,
@@ -142,7 +169,7 @@ def draw_plan_elements(data: dict) -> dict:
             "filename": f"Plan_{data.get('plansa_nr','') or 'IE'}_iluminat.pdf",
             "size_bytes": len(out),
             "detected": {
-                "rooms_found": len(centers),
+                "rooms_found": rooms_found,
                 "elements_drawn": len(centers),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                              "label": c["label"][:40]} for c in centers],
