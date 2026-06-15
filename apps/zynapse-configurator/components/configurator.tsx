@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS,
+  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -202,7 +202,7 @@ function CategoryCards({ value, onChange }: { value: string; onChange: (v: strin
 // contine 'PT' -> 3/mp (DTAC+PT); altfel (DTAC) -> 1/mp. CEIL pe suprafata.
 function genCostZ(surface: number, faza: string): number {
   if (!surface || surface <= 0) return 0;
-  const perM2 = /PT/i.test(faza || "")
+  const perM2 = isPhasePT(faza)
     ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
     : CREDIT_PRICING.perM2.dtac;
   return Math.ceil(surface * perM2);
@@ -947,7 +947,7 @@ export function ZynapseConfigurator() {
   // Poarta DTAC+PT (temporar, la lansare): non-admin -> faza fortata la DTAC.
   // UI ascunde optiunea; aici garantam si starea (default-ul e DTAC+PT).
   useEffect(() => {
-    if (!isAdmin && /PT/i.test(cartusProiectInput.faza || "")) {
+    if (!isAdmin && isPhasePT(cartusProiectInput.faza)) {
       setCartusProiectInput(p => ({ ...p, faza: "DTAC" }));
     }
   }, [isAdmin, cartusProiectInput.faza]);
@@ -1500,10 +1500,8 @@ export function ZynapseConfigurator() {
 
           {form.surface_mp > 0 && (() => {
             const faza = cartusProiectInput.faza;
-            const perM2 = faza === "DTAC+PT"
+            const perM2 = isPhasePT(faza)
               ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
-              : faza === "PT"
-              ? CREDIT_PRICING.perM2.pt
               : CREDIT_PRICING.perM2.dtac;
             const zcoins = Math.ceil(form.surface_mp * perM2);
             const lei = zcoins * CREDIT_PRICING.pricePerCredit;

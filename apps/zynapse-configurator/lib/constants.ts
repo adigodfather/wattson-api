@@ -41,6 +41,14 @@ export const FAZA_PROIECT_OPTIONS = [
   { value: "PT",       label: "PT",        enabled: false, tooltip: "Disponibil curând (lansare Q2 2026)" },
 ] as const;
 
+// Detecție robustă a fazei PT, indiferent de format ("DTAC+PT", "D.T.A.C. + P.T.", "PT", "P.T.").
+// Normalizează (lowercase + scoate tot ce nu e literă) apoi caută "pt".
+// ACEEAȘI regulă ca în funcția DB consume_credits (sursă unică de logică pe frontend).
+// Mapare: dtac->1/mp; orice conține "pt" (dtacpt / pt) -> 3/mp. ("dtac" NU conține "pt".)
+export function isPhasePT(faza: string | null | undefined): boolean {
+  return (faza || "").toLowerCase().replace(/[^a-z]/g, "").includes("pt");
+}
+
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [

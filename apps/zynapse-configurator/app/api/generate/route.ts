@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
+import { isPhasePT } from "@/lib/constants";
 
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = JSON.parse(rawBody);
     const faza = String(parsed?.cartus_proiect?.faza ?? parsed?.faza ?? "");
-    if (/PT/i.test(faza)) {
+    if (isPhasePT(faza)) {
       const cookieStore = await cookies();
       const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
       const { data: { user } } = await supa.auth.getUser();
