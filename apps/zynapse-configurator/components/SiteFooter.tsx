@@ -84,10 +84,23 @@ export default function SiteFooter() {
         </div>
       </div>
 
-      {/* ── ZONA 3 — sigla Netopia (plăți) + linie legală (jos, centrat) ── */}
+      {/* ── ZONA 3 — rând conformitate (ANPC · Netopia · SmartBill) + linie legală ── */}
       <div style={{ marginTop: 18, paddingTop: 16, borderTop: "0.5px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 20, marginBottom: 14 }}>
+          {/* ANPC SAL — stânga */}
+          <a href="https://reclamatiisal.anpc.ro/" target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/anpc-sal.png" alt="ANPC - Soluționarea Alternativă a Litigiilor"
+              height={44} style={{ height: 44, width: "auto", display: "block" }} />
+          </a>
+          {/* Netopia — centru (existent) */}
           <NetopiaLogo />
+          {/* SmartBill — dreapta */}
+          <a href="https://www.smartbill.ro" target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/smartbill-logo.png" alt="Facturare SmartBill"
+              height={44} style={{ height: 44, width: "auto", display: "block" }} />
+          </a>
         </div>
         <span style={{ fontSize: 12, color: "#545870" }}>
           S.C. ZYNAPSE S.R.L. · Str. Nucului nr. 20, Aleșd, jud. Bihor
