@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_ROUTES = ["/", "/login", "/register", "/reset-password", "/auth/callback",
   // Pagini legale publice (cerute de procesatorul de plăți + vizitatori nelogați)
-  "/terms", "/privacy", "/refund",
+  "/terms", "/privacy", "/refund", "/livrare",
   // API server-to-server (apelate de n8n, fără cookie) — protejate cu x-zynapse-key în route
   "/api/vision-rooms"];
 

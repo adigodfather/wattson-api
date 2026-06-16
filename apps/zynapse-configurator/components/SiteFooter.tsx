@@ -15,6 +15,7 @@ const LEGAL_LINKS = [
   { label: "Termeni și Condiții", href: "/terms" },
   { label: "Confidențialitate", href: "/privacy" },
   { label: "Politică de retur", href: "/refund" },
+  { label: "Livrare", href: "/livrare" },
 ];
 
 export default function SiteFooter() {
