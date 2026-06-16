@@ -103,7 +103,6 @@ async function analyzePlan(
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
         max_tokens: 4096,
-        temperature: 0,
         messages: [
           {
             role: "user",
