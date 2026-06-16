@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { isPhasePT } from '@/lib/constants';
+import { CREDIT_PRICING } from '@/components/CreditCalculator';
 
 interface CartusData {
   titlu_proiect: string;
@@ -25,7 +28,9 @@ interface CartusConfirmModalProps {
   initialData: CartusData;
   onConfirm: (data: CartusData) => void;
   onCancel: () => void;
-  surfaces?: VisionSurfaces | null;   // Pas 2: primit, NU afișat încă (rândul de cost = Pas 3)
+  surfaces?: VisionSurfaces | null;   // suprafețe Vision (desfasurata_mp = bază preț)
+  manualSurfaceMp?: number;           // suprafața tastată de user în calculator
+  balance?: number;                   // sold Z-Coins curent (profile.credits_balance)
 }
 
 export default function CartusConfirmModal({
@@ -34,6 +39,8 @@ export default function CartusConfirmModal({
   onConfirm,
   onCancel,
   surfaces = null,
+  manualSurfaceMp = 0,
+  balance = 0,
 }: CartusConfirmModalProps) {
   const [data, setData] = useState<CartusData>(initialData);
   const [errors, setErrors] = useState<Partial<CartusData>>({});
@@ -45,10 +52,6 @@ export default function CartusConfirmModal({
     }
   }, [isOpen, initialData]);
 
-  // Pas 2 (temporar): confirmă că surfaces ajunge în modal. Se elimină la Pas 3 (rândul de cost).
-  useEffect(() => {
-    if (isOpen) console.log("[CartusModal] surfaces primite (Pas 2):", surfaces);
-  }, [isOpen, surfaces]);
 
   if (!isOpen) return null;
 
@@ -81,6 +84,18 @@ export default function CartusConfirmModal({
       onConfirm(data);
     }
   };
+
+  // ── Cost real (preview) — ACEEAȘI regulă ca DB consume_credits ──
+  const desf = surfaces?.desfasurata_mp ?? null;
+  const surfaceBilled = Math.max(desf ?? 0, manualSurfaceMp || 0);
+  const perM2 = isPhasePT(data.faza)
+    ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
+    : CREDIT_PRICING.perM2.dtac;
+  const cost = surfaceBilled > 0 ? Math.ceil(surfaceBilled * perM2) : 0;
+  const masurat = desf != null && desf >= (manualSurfaceMp || 0);   // suprafața din plan vs declarată
+  const insufficient = cost > 0 && balance < cost;
+  const fmt = (n: number) => n.toLocaleString('ro-RO', { maximumFractionDigits: 2 });
+  const fazaLabel = isPhasePT(data.faza) ? 'DTAC+PT' : 'DTAC';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -169,19 +184,55 @@ export default function CartusConfirmModal({
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-gray-900 border-t border-gray-700 p-6 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-5 py-2 text-gray-300 hover:text-white border border-gray-700 rounded-lg hover:bg-gray-800 transition"
-          >
-            Anulează
-          </button>
-          <button
-            onClick={handleConfirm}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
-          >
-            Confirmă și continuă
-          </button>
+        <div className="sticky bottom-0 bg-gray-900 border-t border-gray-700 p-6">
+          {/* ── Cost real (preview) — pe ce plătești înainte de generare ── */}
+          {surfaceBilled > 0 && (
+            <div className="mb-4 p-3 rounded-lg" style={{
+              background: insufficient ? 'rgba(226,75,74,0.08)' : 'rgba(55,138,221,0.08)',
+              border: `1px solid ${insufficient ? 'rgba(226,75,74,0.30)' : 'rgba(55,138,221,0.25)'}`,
+            }}>
+              <div className="flex justify-between text-sm" style={{ color: '#C8CAD6' }}>
+                <span>{masurat ? 'Suprafață detectată din plan' : 'Suprafață (declarată)'}</span>
+                <span className="font-semibold" style={{ color: '#E2E4E9' }}>{fmt(surfaceBilled)} m²</span>
+              </div>
+              <div className="flex justify-between text-sm mt-1" style={{ color: '#C8CAD6' }}>
+                <span>Cost <span style={{ color: '#8B8FA8' }}>({fazaLabel}, {perM2} Z-Coin/m²)</span></span>
+                <span className="font-bold" style={{ color: '#5BB8F5' }}>{fmt(cost)} Z-Coins</span>
+              </div>
+              <div className="flex justify-between text-xs mt-1" style={{ color: '#8B8FA8' }}>
+                <span>Soldul tău</span>
+                <span>{fmt(balance)} Z-Coins</span>
+              </div>
+              {insufficient && (
+                <div className="mt-2 text-xs" style={{ color: '#F09595' }}>
+                  Sold insuficient: ai nevoie de {fmt(cost)} Z-Coins, ai {fmt(balance)}.
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onCancel}
+              className="px-5 py-2 text-gray-300 hover:text-white border border-gray-700 rounded-lg hover:bg-gray-800 transition"
+            >
+              Anulează
+            </button>
+            {insufficient ? (
+              <Link
+                href="/home"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
+              >
+                Cumpără credite
+              </Link>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
+              >
+                Confirmă și continuă
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1346,6 +1346,8 @@ export function ZynapseConfigurator() {
         isOpen={showCartusModal}
         initialData={cartusProiectInput}
         surfaces={visionSurfaces}
+        manualSurfaceMp={form.surface_mp}
+        balance={profile?.credits_balance ?? 0}
         onConfirm={(data) => {
           setCartusProiectInput(data);
           setCartusConfirmed(true);
