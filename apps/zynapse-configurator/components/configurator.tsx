@@ -952,6 +952,12 @@ export function ZynapseConfigurator() {
     }
   }, [isAdmin, cartusProiectInput.faza]);
 
+  // Tab-urile Planșă + Materiale apar DOAR pe faza PT (DTAC+PT). isPhasePT robust la format.
+  const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
+  useEffect(() => {
+    if (!showPlanBom && (activeTab === "plan" || activeTab === "bom")) setActiveTab("circuits");
+  }, [showPlanBom, activeTab]);
+
   // Computed levels string from manual controls
   const levelsString = (form.has_basement ? "D+" : "") + "P" +
     (manualFloors > 0 ? "+" + manualFloors : "") +
@@ -1799,7 +1805,7 @@ export function ZynapseConfigurator() {
                 { id: 'schemas',  label: 'Scheme' },
                 { id: 'plan',     label: 'Planșă' },
                 { id: 'memoriu',  label: 'Memoriu' },
-              ].map(tab => (
+              ].filter(tab => showPlanBom || (tab.id !== 'bom' && tab.id !== 'plan')).map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                   className="flex-1 py-2 px-3 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer transition-all duration-150"
                   style={{
@@ -1885,8 +1891,8 @@ export function ZynapseConfigurator() {
               </div>
             )}
 
-            {/* ── Tab: Materiale (BOM) ── */}
-            {activeTab === 'bom' && (
+            {/* ── Tab: Materiale (BOM) — DOAR pe DTAC+PT ── */}
+            {showPlanBom && activeTab === 'bom' && (
               <div>
                 {result!.bom?.length ? (
                   <div className="rounded-xl mb-3 overflow-hidden"
@@ -1980,8 +1986,8 @@ export function ZynapseConfigurator() {
               </div>
             )}
 
-            {/* ── Tab: Planșe (arhitectură cu cartuș Zynapse) ── */}
-            {activeTab === 'plan' && (() => {
+            {/* ── Tab: Planșe (arhitectură cu cartuș Zynapse) — DOAR pe DTAC+PT ── */}
+            {showPlanBom && activeTab === 'plan' && (() => {
               // DTAC+PT: planul cu becuri (planse_iluminat) INLOCUIESTE planul de baza (planuri).
               // DTAC: planse_iluminat lipseste -> afiseaza planuri ca inainte.
               const planseSursa: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }> =
