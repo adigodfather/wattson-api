@@ -14,7 +14,7 @@ import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard, PlanPdfSection,
 } from "@/components/result-sections";
-import CartusConfirmModal from "./CartusConfirmModal";
+import CartusConfirmModal, { type VisionSurfaces } from "./CartusConfirmModal";
 import MultiFileDropZone from "./MultiFileDropZone";
 import { CREDIT_PRICING } from "@/components/CreditCalculator";
 
@@ -935,6 +935,8 @@ export function ZynapseConfigurator() {
 
   // Vision cartuș flow state
   const [visionCartusLoading, setVisionCartusLoading] = useState(false);
+  // Suprafețe detectate de Vision din cartuș (Pas 2) — pt. rândul de cost real în modal (Pas 3)
+  const [visionSurfaces, setVisionSurfaces] = useState<VisionSurfaces | null>(null);
   const [showCartusModal, setShowCartusModal] = useState(false);
   const [cartusConfirmed, setCartusConfirmed] = useState(false);
   const visionAnalyzedRef = useRef<string | null>(null);
@@ -1062,6 +1064,7 @@ export function ZynapseConfigurator() {
     if (cartusConfirmed) { void runBackend(); return; }
 
     setVisionCartusLoading(true);
+    setVisionSurfaces(null);   // reset la fiecare incercare; setat din raspuns daca exista
     try {
       const fd = new FormData();
       fd.append("plan", files[0]); // primul plan = parter
@@ -1077,6 +1080,8 @@ export function ZynapseConfigurator() {
           data_proiect:  cartus.data_proiect  || "",
           faza:          cartus.faza          || "DTAC+PT",
         });
+        // Pas 2: capturam surfaces (poate fi null daca Vision nu le-a gasit) — null -> fallback manual la Pas 3
+        setVisionSurfaces((cartus.surfaces && typeof cartus.surfaces === "object") ? cartus.surfaces : null);
       }
       // Dacă Vision eșuează → câmpurile rămân goale; userul le completează în modal.
     } catch (e) {
@@ -1340,6 +1345,7 @@ export function ZynapseConfigurator() {
       <CartusConfirmModal
         isOpen={showCartusModal}
         initialData={cartusProiectInput}
+        surfaces={visionSurfaces}
         onConfirm={(data) => {
           setCartusProiectInput(data);
           setCartusConfirmed(true);

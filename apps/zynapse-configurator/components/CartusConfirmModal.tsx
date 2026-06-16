@@ -12,11 +12,20 @@ interface CartusData {
   faza: string;
 }
 
+// Suprafețe detectate de Vision din cartuș/bilanț (Pas 1). desfasurata_mp = bază de preț (Pas 3).
+export interface VisionSurfaces {
+  construita_mp: number | null;
+  utila_mp: number | null;
+  desfasurata_mp: number | null;
+  note?: string;
+}
+
 interface CartusConfirmModalProps {
   isOpen: boolean;
   initialData: CartusData;
   onConfirm: (data: CartusData) => void;
   onCancel: () => void;
+  surfaces?: VisionSurfaces | null;   // Pas 2: primit, NU afișat încă (rândul de cost = Pas 3)
 }
 
 export default function CartusConfirmModal({
@@ -24,6 +33,7 @@ export default function CartusConfirmModal({
   initialData,
   onConfirm,
   onCancel,
+  surfaces = null,
 }: CartusConfirmModalProps) {
   const [data, setData] = useState<CartusData>(initialData);
   const [errors, setErrors] = useState<Partial<CartusData>>({});
@@ -34,6 +44,11 @@ export default function CartusConfirmModal({
       setErrors({});
     }
   }, [isOpen, initialData]);
+
+  // Pas 2 (temporar): confirmă că surfaces ajunge în modal. Se elimină la Pas 3 (rândul de cost).
+  useEffect(() => {
+    if (isOpen) console.log("[CartusModal] surfaces primite (Pas 2):", surfaces);
+  }, [isOpen, surfaces]);
 
   if (!isOpen) return null;
 
