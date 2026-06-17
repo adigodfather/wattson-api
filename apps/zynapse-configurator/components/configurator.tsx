@@ -1326,6 +1326,35 @@ export function ZynapseConfigurator() {
 
   const isLoading = status === "loading";
   const hasResult = !!result;
+  // Dupa o generare reusita: blocheaza panoul stang (inputuri + buton Genereaza) ca sa nu se
+  // poata re-apasa Genereaza -> proiect NOU (alt project_id) -> consum dublu de credite.
+  // Idempotenta NU protejeaza (project_id diferit). Doar 'success' blocheaza; 'error' NU (reincercare).
+  const blocked = status === "success";
+
+  // "Proiect nou": curata COMPLET starea -> re-activeaza panoul pentru un proiect nou.
+  const resetForNewProject = () => {
+    setStatus("idle");
+    setResult(null);
+    setError(null);
+    setSaveMessage(null);
+    setStepIndex(0);
+    setForm(INITIAL_FORM);
+    setFiles([]);
+    setMotors([]);
+    setManualFloors(0);
+    setEquipment(Object.fromEntries(EXTRA_EQUIPMENT_DEFAULTS.map(e => [e.type, { enabled: false, power_kw: e.default_kw, phase: e.default_phase }])));
+    setCustomEquipment([]);
+    setAutoDetected(null);
+    setActiveTab("circuits");
+    setPageFormat("");
+    setCartusProiectInput({ beneficiar: "", amplasament: "", titlu_proiect: "", numar_proiect: "", faza: "DTAC+PT", sef_proiect: "", data_proiect: "" });
+    setVisionSurfaces(null);
+    setShowCartusModal(false);
+    setCartusConfirmed(false);
+    setVisionCartusLoading(false);
+    visionAnalyzedRef.current = null;
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E" }}>
@@ -1471,6 +1500,11 @@ export function ZynapseConfigurator() {
             <h1 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>Configurator proiect</h1>
             <p className="text-[13px] mt-1 m-0" style={{ color: "#545870" }}>Încarcă planșele și completează datele clădirii</p>
           </div>
+
+          {/* Dupa succes: panoul de inputuri e blocat (pointer-events:none) ca sa nu se poata
+              modifica/re-trimite datele unui proiect deja generat. Butonul de reset e in afara. */}
+          <div aria-disabled={blocked}
+            style={{ pointerEvents: blocked ? "none" : undefined, opacity: blocked ? 0.45 : 1, transition: "opacity 0.2s ease" }}>
 
           {/* limita de 3 proiecte ELIMINATA — trecem pe credite (Z-Coins, pasul 3) */}
 
@@ -1716,19 +1750,30 @@ export function ZynapseConfigurator() {
             </div>
           )}
 
-          {/* 10. Submit — Epic 3.11: declanșează Vision pe primul plan, apoi modal cartuș */}
-          <button onClick={handleGenerate} disabled={!canSubmitBasic || isLoading || visionCartusLoading}
-            className="w-full mt-5 py-3.5 px-6 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
-            style={{
-              background: canSubmitBasic && !isLoading ? "linear-gradient(135deg, #378ADD 0%, #1D9E75 100%)" : "rgba(255,255,255,0.05)",
-              border: "none",
-              color: canSubmitBasic ? "#fff" : "#545870",
-              cursor: canSubmitBasic && !isLoading && !visionCartusLoading ? "pointer" : "not-allowed",
-              opacity: isLoading ? 0.75 : 1,
-              boxShadow: canSubmitBasic && !isLoading ? "0 0 24px rgba(55,138,221,0.25)" : "none",
-            }}>
-            {visionCartusLoading ? "Se analizează planurile..." : isLoading ? "Se procesează..." : "Generează proiect electric"}
-          </button>
+          </div>{/* /panou inputuri blocabil */}
+
+          {/* 10. Submit — Epic 3.11: declanșează Vision pe primul plan, apoi modal cartuș.
+              Dupa succes butonul devine "Proiect nou" (reset complet) -> re-activeaza panoul. */}
+          {blocked ? (
+            <button type="button" onClick={resetForNewProject}
+              className="w-full mt-5 py-3.5 px-6 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
+              style={{ background: "rgba(29,158,117,0.12)", border: "1px solid rgba(29,158,117,0.3)", color: "#3ECFA0", cursor: "pointer" }}>
+              ✓ Proiect generat · Începe proiect nou
+            </button>
+          ) : (
+            <button onClick={handleGenerate} disabled={!canSubmitBasic || isLoading || visionCartusLoading}
+              className="w-full mt-5 py-3.5 px-6 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
+              style={{
+                background: canSubmitBasic && !isLoading ? "linear-gradient(135deg, #378ADD 0%, #1D9E75 100%)" : "rgba(255,255,255,0.05)",
+                border: "none",
+                color: canSubmitBasic ? "#fff" : "#545870",
+                cursor: canSubmitBasic && !isLoading && !visionCartusLoading ? "pointer" : "not-allowed",
+                opacity: isLoading ? 0.75 : 1,
+                boxShadow: canSubmitBasic && !isLoading ? "0 0 24px rgba(55,138,221,0.25)" : "none",
+              }}>
+              {visionCartusLoading ? "Se analizează planurile..." : isLoading ? "Se procesează..." : "Generează proiect electric"}
+            </button>
+          )}
 
           {isLoading && (
             <div className="mt-3">
