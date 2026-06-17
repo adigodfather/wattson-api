@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
@@ -899,6 +900,7 @@ function CarouselFlux() {
 
 /* ─── Main configurator ─── */
 export function ZynapseConfigurator() {
+  const router = useRouter();
   const { user, profile, loading: authLoading, signOut, refreshProfile } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
@@ -1363,6 +1365,13 @@ export function ZynapseConfigurator() {
     setVisionCartusLoading(false);
     visionAnalyzedRef.current = null;
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // "Finalizare Proiect": calea principala de incheiere -> /projects (proiectul e deja salvat
+  // la succes). Handler (nu Link direct) ca sa fie usor de extins: aici se va insera ulterior
+  // un modal de feedback (nota 1-10 + nemultumiri daca <5) INAINTE de redirect. Acum doar navigheaza.
+  const handleFinalize = () => {
+    router.push("/projects");
   };
 
   return (
@@ -2086,6 +2095,22 @@ export function ZynapseConfigurator() {
                     {JSON.stringify(result, null, 2)}
                   </pre>
                 </details>
+              </div>
+            )}
+
+            {/* Finalizare Proiect — calea principala de incheiere (proiectul e deja salvat).
+                Vizibil DOAR pe success. handleFinalize -> /projects (extensibil: modal feedback). */}
+            {status === "success" && (
+              <div className="flex justify-end mt-6 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                <button type="button" onClick={handleFinalize}
+                  className="py-3 px-7 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
+                  style={{
+                    background: "linear-gradient(135deg, #1D9E75 0%, #37C58A 100%)",
+                    border: "none", color: "#fff", cursor: "pointer",
+                    boxShadow: "0 0 24px rgba(29,158,117,0.30)",
+                  }}>
+                  Finalizare Proiect →
+                </button>
               </div>
             )}
 
