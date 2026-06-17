@@ -394,3 +394,102 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None)
 
     return out
+
+
+# ── ADITIV (aparataj): geometria usilor + samburi, pentru plasarea intrerupatoarelor ──
+# NU se folosesc in fluxul de becuri/camere; sunt apelate separat din draw_elements.
+
+def _bezier_point(p, t):
+    """Punct pe curba bezier cubica (p = 4 fitz.Point) la parametrul t in [0,1]."""
+    mt = 1.0 - t
+    return (mt**3*p[0].x + 3*mt*mt*t*p[1].x + 3*mt*t*t*p[2].x + t**3*p[3].x,
+            mt**3*p[0].y + 3*mt*mt*t*p[1].y + 3*mt*t*t*p[2].y + t**3*p[3].y)
+
+
+def _circumcenter(a, b, c):
+    """Centrul cercului prin 3 puncte (tuple). None daca sunt ~coliniare.
+    Folosit ca BALAMA a usii (centrul arcului de deschidere)."""
+    ax, ay = a; bx, by = b; cx, cy = c
+    d = 2.0 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
+    if abs(d) < 1e-6:
+        return None
+    a2 = ax*ax+ay*ay; b2 = bx*bx+by*by; c2 = cx*cx+cy*cy
+    return ((a2*(by-cy) + b2*(cy-ay) + c2*(ay-by)) / d,
+            (a2*(cx-bx) + b2*(ax-cx) + c2*(bx-ax)) / d)
+
+
+def _near_wall_count(pt, h_segs, v_segs, tol=9.0):
+    """Cate axe de perete (V/H) trec prin punct (0/1/2). Capatul arcului 'pe perete'
+    (strike/toc) -> >=1; capatul 'in camera' (deschidere) -> de obicei 0."""
+    px, py = pt; n = 0
+    if any(abs(x-px) <= tol and min(y0,y1)-tol <= py <= max(y0,y1)+tol for (y0,y1,x) in v_segs):
+        n += 1
+    if any(abs(y-py) <= tol and min(x0,x1)-tol <= px <= max(x0,x1)+tol for (x0,x1,y) in h_segs):
+        n += 1
+    return n
+
+
+def extract_doors(page, W, H):
+    """Pentru fiecare arc de usa: geometria de pozitionare aparataj.
+    dict per usa: {x,y, width, hinge, strike, opentip, swing:(ux,uy normalizat catre camera), certain}.
+    'strike' = capatul de pe perete (langa toc, latura manerului); 'swing' = directia spre interiorul
+    camerei in care se deschide usa. certain=False cand latura nu poate fi decisa geometric (colt)."""
+    h_segs, v_segs, _doors = _collect(page)
+    out = []
+    for d in page.get_drawings():
+        if d.get("layer") != DOOR_LAYER:
+            continue
+        for it in d.get("items", []):
+            if it[0] != "c":
+                continue
+            p = [it[1], it[2], it[3], it[4]]
+            chord = math.hypot(p[0].x - p[3].x, p[0].y - p[3].y)
+            if not (DOOR_R_MIN <= chord / math.sqrt(2.0) <= DOOR_R_MAX):
+                continue
+            e1 = (p[0].x, p[0].y); e2 = (p[3].x, p[3].y)
+            hinge = _circumcenter(e1, _bezier_point(p, 0.5), e2)
+            if hinge is None:
+                continue
+            on1 = _near_wall_count(e1, h_segs, v_segs)
+            on2 = _near_wall_count(e2, h_segs, v_segs)
+            if on1 != on2:
+                strike, opentip = (e1, e2) if on1 > on2 else (e2, e1)
+                certain = True
+            else:
+                strike, opentip = e1, e2
+                certain = False
+            ux, uy = opentip[0]-hinge[0], opentip[1]-hinge[1]
+            ln = math.hypot(ux, uy) or 1.0
+            out.append({
+                "x": (e1[0]+e2[0])/2.0, "y": (e1[1]+e2[1])/2.0,
+                "width": math.hypot(e1[0]-e2[0], e1[1]-e2[1]),
+                "hinge": hinge, "strike": strike, "opentip": opentip,
+                "swing": (ux/ln, uy/ln), "certain": certain,
+            })
+    return out
+
+
+def extract_columns(page):
+    """Samburi de rezistenta (Structural - Bearing: patrate mici pline ~25-30cm), clusterizati.
+    Intoarce lista de (x,y) centre in puncte PDF — pentru evitarea coliziunii aparatajului."""
+    sq = []
+    for d in page.get_drawings():
+        if d.get("layer") != WALL_LAYERS[1]:   # "Structural - Bearing"
+            continue
+        r = d.get("rect")
+        if r is None:
+            continue
+        w = r.width; h = r.height
+        if 6 <= w <= 20 and 6 <= h <= 20 and max(w, h) / max(min(w, h), 0.1) < 1.6:
+            sq.append(((r.x0+r.x1)/2.0, (r.y0+r.y1)/2.0))
+    cols = []; used = [False]*len(sq)
+    for i in range(len(sq)):
+        if used[i]:
+            continue
+        gx, gy, n = sq[i][0], sq[i][1], 1
+        used[i] = True
+        for j in range(i+1, len(sq)):
+            if not used[j] and math.hypot(sq[j][0]-sq[i][0], sq[j][1]-sq[i][1]) < 18.0:
+                gx += sq[j][0]; gy += sq[j][1]; n += 1; used[j] = True
+        cols.append((gx/n, gy/n))
+    return cols

@@ -1,4 +1,5 @@
 import base64
+import math
 import re
 import fitz  # PyMuPDF
 
@@ -283,6 +284,62 @@ def _vision_centers(rooms, W, H, geoms=None):
     return centers, stats
 
 
+# ── APARATAJ: întrerupătoare (MVP) — funcții PARALELE cu becurile, nu le ating ──
+SWITCH_R = 4.0            # raza punctului plin (px)
+SWITCH_STEM = 13.0       # lungimea tijei oblice (px)
+SWITCH_FROM_JAMB = 11.0  # cat de departe pe perete, dincolo de toc (~27cm)
+SWITCH_COL_CLEAR = 30.0  # distanta minima fata de un sambure (px)
+
+
+def _draw_switch(page, x, y, angle):
+    """Simbol întrerupător simplu (SR EN 60617): punct PLIN + tijă oblică spre interiorul camerei."""
+    c = fitz.Point(x, y)
+    page.draw_circle(c, SWITCH_R, color=RED, fill=RED, width=0.8)
+    end = fitz.Point(x + SWITCH_STEM * math.cos(angle), y + SWITCH_STEM * math.sin(angle))
+    page.draw_line(c, end, color=RED, width=1.3)
+
+
+def _snap_to_wall(px, py, h_segs, v_segs, max_snap=22.0):
+    """Lipește punctul pe cea mai apropiată linie de perete (H sau V) sub max_snap px."""
+    best = None; bestd = max_snap
+    for (x0, x1, y) in h_segs:
+        if min(x0, x1) - 6 <= px <= max(x0, x1) + 6 and abs(y - py) < bestd:
+            bestd = abs(y - py); best = (px, y)
+    for (y0, y1, x) in v_segs:
+        if min(y0, y1) - 6 <= py <= max(y0, y1) + 6 and abs(x - px) < bestd:
+            bestd = abs(x - px); best = (x, py)
+    return best if best else (px, py)
+
+
+def _switch_centers(doors, columns, h_segs, v_segs, W, H):
+    """Poziția întrerupătorului per ușă: latura de deschidere (mâner), lipit pe perete lângă toc,
+    spre interiorul camerei; evită sâmburii; fallback la incertitudine. -> [{x,y,angle,certain}]."""
+    out = []
+    for d in doors:
+        hinge = d["hinge"]; strike = d["strike"]; ux, uy = d["swing"]
+        if d["certain"]:
+            # directia peretelui = de la balama spre strike (strike e pe perete);
+            # intrerupatorul pe perete, dincolo de toc, pe latura manerului
+            wx, wy = strike[0]-hinge[0], strike[1]-hinge[1]
+            wl = math.hypot(wx, wy) or 1.0; wx, wy = wx/wl, wy/wl
+            sx = strike[0] + wx * SWITCH_FROM_JAMB
+            sy = strike[1] + wy * SWITCH_FROM_JAMB
+        else:
+            # incert (usa la colt): plasa de siguranta — langa toc, spre interiorul camerei
+            wx, wy = ux, uy
+            sx = d["x"] + ux * 12.0
+            sy = d["y"] + uy * 12.0
+        sx, sy = _snap_to_wall(sx, sy, h_segs, v_segs)
+        # coliziune sambure -> impinge mai departe pe perete (max 3 pasi)
+        for _ in range(3):
+            if not any(math.hypot(cx-sx, cy-sy) < SWITCH_COL_CLEAR for (cx, cy) in columns):
+                break
+            sx += wx * 16.0; sy += wy * 16.0
+            sx, sy = _snap_to_wall(sx, sy, h_segs, v_segs)
+        out.append({"x": sx, "y": sy, "angle": math.atan2(uy, ux), "certain": d["certain"]})
+    return out
+
+
 def draw_plan_elements(data: dict) -> dict:
     """Desenează becuri în centrul camerelor.
     Cale 1 (preferată): bbox-uri Vision din data['rooms'] (fracții 0-1) -> robust.
@@ -307,6 +364,19 @@ def draw_plan_elements(data: dict) -> dict:
                 geoms = geometry.extract_room_geometry(pdf_bytes, rooms, W, H)
             except Exception:
                 geoms = None
+
+        # APARATAJ (MVP): întrerupătoare lângă uși — DOAR pe faza PT (apply_geometry), cale vectorială.
+        # Aditiv, defensiv: ORICE eroare -> fără întrerupătoare, becurile NU sunt afectate.
+        switches = []
+        if data.get("apply_geometry"):
+            try:
+                import geometry
+                doors = geometry.extract_doors(page, W, H)
+                columns = geometry.extract_columns(page)
+                h_segs, v_segs, _dd = geometry._collect(page)
+                switches = _switch_centers(doors, columns, h_segs, v_segs, W, H)
+            except Exception:
+                switches = []
 
         # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
         # desenăm becurile din centrele lor — robust, independent de text/regex.
@@ -342,6 +412,10 @@ def draw_plan_elements(data: dict) -> dict:
         for c in centers:
             _draw_bulb(page, c["x"], c["y"], y_offset=y_offset)
 
+        # APARATAJ: desenează întrerupătoarele (după becuri, pe aceeași planșă)
+        for s in switches:
+            _draw_switch(page, s["x"], s["y"], s["angle"])
+
         out = doc.tobytes(deflate=True)
         # rooms_found = nr. camere (o cameră poate avea 2 becuri); elements_drawn = becuri.
         rooms_found = len({c.get("room") for c in centers}) if source == "vision_bbox" else len(centers)
@@ -358,6 +432,8 @@ def draw_plan_elements(data: dict) -> dict:
                 "rooms_fallback": vision_stats["rooms_fallback"],
                 "bulbs_clamped": vision_stats["bulbs_clamped"],
                 "bbox_fixed": vision_stats["bbox_fixed"],
+                "switches_drawn": len(switches),
+                "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                              "label": c["label"][:40]} for c in centers],
             },
