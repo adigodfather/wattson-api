@@ -1071,15 +1071,19 @@ export function ZynapseConfigurator() {
       const res = await fetch("/api/vision-cartus", { method: "POST", body: fd });
       if (res.ok) {
         const cartus = await res.json();
-        setCartusProiectInput({
+        // FIX faza: selectia UI (FazaProiectChips -> prev.faza) CASTIGA ca default in modal.
+        // Vision-cartus extrage titlu/beneficiar/etc., dar NU suprascrie faza aleasa de user
+        // (altfel DTAC din UI ajungea DTAC+PT in modal -> cost 3x gresit). Userul o poate
+        // schimba in modal daca vrea (select editabil).
+        setCartusProiectInput(prev => ({
           titlu_proiect: cartus.titlu_proiect || "",
           beneficiar:    cartus.beneficiar    || "",
           amplasament:   cartus.amplasament   || "",
           sef_proiect:   cartus.sef_proiect   || "",
           numar_proiect: cartus.numar_proiect || "",
           data_proiect:  cartus.data_proiect  || "",
-          faza:          cartus.faza          || "DTAC+PT",
-        });
+          faza:          prev.faza,
+        }));
         // Pas 2: capturam surfaces (poate fi null daca Vision nu le-a gasit) — null -> fallback manual la Pas 3
         setVisionSurfaces((cartus.surfaces && typeof cartus.surfaces === "object") ? cartus.surfaces : null);
       }
@@ -1286,6 +1290,9 @@ export function ZynapseConfigurator() {
     } catch (err: any) {
       setError(err.message || "Eroare de conexiune la n8n");
       setStatus("error");
+      // FIX 1: pe eroare DEBLOCHEAZA panoul (reset cartusConfirmed -> blocked devine false).
+      // Userul poate corecta datele si reincerca (re-ruleaza Vision + modal).
+      setCartusConfirmed(false);
     }
   };
 
@@ -1326,10 +1333,12 @@ export function ZynapseConfigurator() {
 
   const isLoading = status === "loading";
   const hasResult = !!result;
-  // Dupa o generare reusita: blocheaza panoul stang (inputuri + buton Genereaza) ca sa nu se
-  // poata re-apasa Genereaza -> proiect NOU (alt project_id) -> consum dublu de credite.
-  // Idempotenta NU protejeaza (project_id diferit). Doar 'success' blocheaza; 'error' NU (reincercare).
-  const blocked = status === "success";
+  // Blocheaza panoul stang din momentul CONFIRMARII modalului de cartus (cand incepe generarea
+  // reala), prin loading, pana la success. Asa userul nu poate modifica date care nu se mai
+  // reflecta in proiectul ce se genereaza, nici re-apasa Genereaza -> alt project_id -> consum dublu.
+  // cartusConfirmed = confirmat in modal; loading = generare in curs; success = gata.
+  // 'error' NU e inclus si cartusConfirmed se reseteaza pe error -> panoul se deblocheaza (retry).
+  const blocked = cartusConfirmed || status === "loading" || status === "success";
 
   // "Proiect nou": curata COMPLET starea -> re-activeaza panoul pentru un proiect nou.
   const resetForNewProject = () => {
@@ -1753,8 +1762,9 @@ export function ZynapseConfigurator() {
           </div>{/* /panou inputuri blocabil */}
 
           {/* 10. Submit — Epic 3.11: declanșează Vision pe primul plan, apoi modal cartuș.
-              Dupa succes butonul devine "Proiect nou" (reset complet) -> re-activeaza panoul. */}
-          {blocked ? (
+              Pe success butonul devine "Proiect nou" (reset complet) -> re-activeaza panoul.
+              In loading ramane butonul normal ("Se procesează...", disabled) — NU resetul. */}
+          {status === "success" ? (
             <button type="button" onClick={resetForNewProject}
               className="w-full mt-5 py-3.5 px-6 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
               style={{ background: "rgba(29,158,117,0.12)", border: "1px solid rgba(29,158,117,0.3)", color: "#3ECFA0", cursor: "pointer" }}>
