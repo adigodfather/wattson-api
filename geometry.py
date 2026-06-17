@@ -40,7 +40,14 @@ RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acel
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
 CLUSTER_RATIO = 1.38       # mediana clusterului sanatos (referinta pt. tie-break la overlap)
-BBOX_CONTAIN_TOL = 12.0    # REGULA 3: centroidul trebuie sa cada in bbox-ul Vision al camerei (±TOL)
+BBOX_CONTAIN_TOL = 12.0    # REGULA 3: toleranta MINIMA (px) la bbox-containment
+# REGULA 3 relaxata calibrat: toleranta ADAPTIVA = max(TOL, CONTAIN_FRAC * latura_mica_bbox).
+# Motiv: Vision poate da un bbox DEPLASAT; un centroid CORECT din pereti iese putin din el
+# (ex. living casa pt: centroid real la 47px stanga de bbox-ul deplasat la dreapta -> respins fals
+# cu TOL=12). Tol proportional cu camera lasa abaterea mica sa treaca, dar o EVADARE reala in vecin
+# (centroidul aterizeaza in CENTRUL altei camere, la sute de px >> CONTAIN_FRAC*latura) ramane
+# respinsa. Anti-evadarea intre camere e asigurata si de REGULA 2 (overlap geometric), NEATINSA.
+CONTAIN_FRAC = 0.15        # fractiune din latura mica a bbox-ului tolerata la iesirea centroidului
 
 
 def _collect(page):
@@ -302,14 +309,17 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 rec["doors"] = _doors_in_rect(doors, l, rr, t, b)
                 rec["area_geometric_m2"] = round(area_geom, 2)
 
-                # REGULA 3 — bbox-containment: centroidul trebuie sa cada in bbox-ul Vision
-                # al ACESTEI camere (±TOL). Altfel dreptunghiul a "evadat" intr-un vecin.
-                inside = (bx - BBOX_CONTAIN_TOL <= cgx <= bx + bw + BBOX_CONTAIN_TOL and
-                          by - BBOX_CONTAIN_TOL <= cgy <= by + bh + BBOX_CONTAIN_TOL)
+                # REGULA 3 (relaxata calibrat) — bbox-containment ADAPTIV la marimea camerei.
+                # Tol = max(TOL, CONTAIN_FRAC * latura_mica). Camerele mari tolereaza o deplasare
+                # mai mare a bbox-ului Vision; o evadare reala (sute de px) ramane respinsa, iar
+                # overlap-ul geometric intre camere e prins separat de REGULA 2.
+                tol = max(BBOX_CONTAIN_TOL, CONTAIN_FRAC * min(bw, bh))
+                inside = (bx - tol <= cgx <= bx + bw + tol and
+                          by - tol <= cgy <= by + bh + tol)
                 if not inside:
                     # geometric ramane False, centroid None -> fallback Vision (centru bbox)
-                    rec["reason"] = "respins bbox-containment: centroid (%d,%d) iese din bbox Vision" % (
-                        cgx, cgy)
+                    rec["reason"] = "respins bbox-containment: centroid (%d,%d) iese din bbox Vision (tol %.0f)" % (
+                        cgx, cgy, tol)
                 else:
                     rec["geometric"] = True
                     rec["centroid"] = {"x": cgx, "y": cgy}
