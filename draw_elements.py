@@ -79,6 +79,64 @@ ROOM_LARGE_M2 = 25.0
 _PT2_TO_M2 = 6.205e-4
 
 
+def _point_in_box(px, py, box, W, H):
+    """box = (x, y, w, h) fracții 0-1; px,py în puncte PDF.
+    True dacă punctul cade în interiorul bbox-ului (margini incluse)."""
+    bx, by, bw, bh = box
+    return (bx * W <= px <= (bx + bw) * W) and (by * H <= py <= (by + bh) * H)
+
+
+def _free_midpoint_1d(lo, hi, olo, ohi):
+    """Pe intervalul [lo, hi], scoate suprapunerea [olo, ohi] și întoarce mijlocul
+    celei mai LARGI părți libere rămase (latura lo sau latura hi).
+    None dacă suprapunerea acoperă tot intervalul (nu rămâne nimic liber)."""
+    olo = max(lo, olo); ohi = min(hi, ohi)
+    left_w = olo - lo      # partea liberă [lo, olo]
+    right_w = hi - ohi     # partea liberă [ohi, hi]
+    if left_w <= 0 and right_w <= 0:
+        return None
+    return (ohi + hi) / 2.0 if right_w >= left_w else (lo + olo) / 2.0
+
+
+def _nudge_out_of_neighbors(cx, cy, own_box, others, W, H):
+    """Gardă anti-intruziune: dacă becul (cx,cy) al unei camere cade în bbox-ul unei
+    camere VECINE (tipic un hol lat/în-L al cărui centru-bbox intră peste vecină),
+    mută becul pe axa LUNGĂ a PROPRIULUI bbox, în mijlocul părții care NU se suprapune
+    cu vecina. Întoarce (nx, ny, moved).
+    CONSERVATOR: se activează DOAR la intruziune reală; dacă nu se poate ieși fără a
+    părăsi propriul bbox sau fără a intra în ALTĂ cameră -> păstrează poziția originală
+    (mai bine un bec ușor deplasat decât unul în camera greșită)."""
+    hit = next((ob for ob in others if _point_in_box(cx, cy, ob, W, H)), None)
+    if hit is None:
+        return cx, cy, False   # fără intruziune -> NEATINS (camere normale)
+
+    ox, oy, ow, oh = own_box
+    x0, x1 = ox * W, (ox + ow) * W
+    y0, y1 = oy * H, (oy + oh) * H
+    hx0, hx1 = hit[0] * W, (hit[0] + hit[2]) * W
+    hy0, hy1 = hit[1] * H, (hit[1] + hit[3]) * H
+
+    if (x1 - x0) >= (y1 - y0):
+        # bandă orizontală -> alunecă pe X, păstrează Y în centrul propriu
+        mid = _free_midpoint_1d(x0, x1, hx0, hx1)
+        if mid is None:
+            return cx, cy, False
+        nx, ny = mid, (y0 + y1) / 2.0
+    else:
+        # bandă verticală -> alunecă pe Y, păstrează X în centrul propriu
+        mid = _free_midpoint_1d(y0, y1, hy0, hy1)
+        if mid is None:
+            return cx, cy, False
+        nx, ny = (x0 + x1) / 2.0, mid
+
+    # validare: noua poziție trebuie să fie în PROPRIUL bbox ȘI în afara ORICĂREI vecine
+    if not (x0 <= nx <= x1 and y0 <= ny <= y1):
+        return cx, cy, False
+    if any(_point_in_box(nx, ny, ob, W, H) for ob in others):
+        return cx, cy, False
+    return nx, ny, True
+
+
 def _vision_centers(rooms, W, H, geoms=None):
     """Centre din bbox Vision (fracții 0-1) -> puncte PDF.
     rooms = listă de { name, area_m2, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
@@ -89,8 +147,19 @@ def _vision_centers(rooms, W, H, geoms=None):
     Cameră mare (area_m2 >= ROOM_LARGE_M2; fallback = aria bbox ca proxy) -> 2 becuri
     pe axa LUNGĂ a bbox-ului (la 1/3 și 2/3); altfel 1 bec la centru. MAX 2 becuri/cameră.
     La 2 becuri pe cameră geometrică: aceeași orientare+distanță (axa lungă bbox), dar
-    perechea RE-CENTRATĂ pe centroidul geometric. Ignoră tăcut camerele fără bbox valid."""
+    perechea RE-CENTRATĂ pe centroidul geometric. Ignoră tăcut camerele fără bbox valid.
+    GARDĂ anti-intruziune (single-bulb, cale bbox): dacă becul ar cădea în bbox-ul altei
+    camere (hol lat/în-L), e mutat în partea liberă a propriului bbox (vezi _nudge_out_of_neighbors)."""
     centers = []
+    # bbox-urile TUTUROR camerelor (fracții), aliniate cu rooms; None = bbox invalid.
+    # Necesare gărzii anti-intruziune ca să verifice suprapunerea cross-cameră.
+    boxes = []
+    for r in (rooms or []):
+        bb = (r or {}).get("bbox") or {}
+        try:
+            boxes.append((float(bb["x"]), float(bb["y"]), float(bb["w"]), float(bb["h"])))
+        except (TypeError, ValueError, KeyError):
+            boxes.append(None)
     for idx, r in enumerate(rooms or []):
         bb = (r or {}).get("bbox") or {}
         try:
@@ -128,6 +197,16 @@ def _vision_centers(rooms, W, H, geoms=None):
                 centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx})
                 centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx})
         else:
+            # GARDĂ anti-intruziune — DOAR single-bulb pe cale bbox (NU geometric, NU camere mari).
+            # Camerele normale (centru în propriul bbox) NU se ating: _nudge întoarce moved=False.
+            used_geometric = bool(g and g.get("geometric") and g.get("centroid"))
+            if not used_geometric:
+                others = [ob for j, ob in enumerate(boxes) if j != idx and ob is not None]
+                ncx, ncy, moved = _nudge_out_of_neighbors(cxc, cyc, (x, y, w, h), others, W, H)
+                if moved:
+                    print("[draw_elements] bec '%s' muta din intruziune: (%.0f,%.0f)->(%.0f,%.0f)"
+                          % (label, cxc, cyc, ncx, ncy))
+                    cxc, cyc = ncx, ncy
             centers.append({"x": cxc, "y": cyc, "label": label, "room": idx})
     return centers
 
