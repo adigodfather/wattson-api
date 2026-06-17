@@ -201,10 +201,6 @@ export default function HomePage() {
                     background: "linear-gradient(135deg, #378ADD, #5BB8F5)", border: "none",
                     opacity: buying !== null && !isThis ? 0.55 : 1,
                   }}>{isThis ? "Se redirecționează…" : "Cumpără"}</button>
-                  <div style={{ marginTop: 12, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, color: "#5BB8F5" }}>
-                    <span style={{ fontSize: 14 }}>🔒</span>
-                    Plată securizată Netopia
-                  </div>
                 </div>
               );
             })}
