@@ -480,6 +480,48 @@ def _switch_centers(doors, columns, h_segs, v_segs, W, H, room_boxes=None):
     return out
 
 
+WALL_CLEAR = 14.0   # px: un bec mai aproape de atât de o linie de perete -> tras spre interior
+
+
+def _nearest_wall(px, py, h_segs, v_segs):
+    """(dist, axis, coord) pentru cel mai apropiat perete care ACOPERĂ punctul. axis='H'->coord=y; 'V'->x."""
+    best = (1e9, None, None)
+    for (x0, x1, y) in h_segs:
+        if min(x0, x1) - 4 <= px <= max(x0, x1) + 4 and abs(y - py) < best[0]:
+            best = (abs(y - py), "H", y)
+    for (y0, y1, x) in v_segs:
+        if min(y0, y1) - 4 <= py <= max(y0, y1) + 4 and abs(x - px) < best[0]:
+            best = (abs(x - px), "V", x)
+    return best
+
+
+def _push_off_walls(centers, rboxes, h_segs, v_segs, clear=WALL_CLEAR):
+    """GARD FINAL off-wall: orice bec la <clear px de un perete e împins PERPENDICULAR spre interiorul
+    camerei (la 'clear' px de zid), clamp în propriul bbox. Becurile curate (în mijloc, >clear de orice
+    perete) NU se ating. Întrerupătoarele NU trec pe aici (sunt desenate separat). -> nr. mutate."""
+    moved = 0
+    for c in centers:
+        d0, axis, wc = _nearest_wall(c["x"], c["y"], h_segs, v_segs)
+        if axis is None or d0 >= clear:
+            continue
+        b = rboxes[c["room"]] if (c["room"] is not None and c["room"] < len(rboxes)) else None
+        if not b:
+            continue
+        bx0, by0, bx1, by1 = b[0], b[1], b[0] + b[2], b[1] + b[3]
+        nx, ny = c["x"], c["y"]
+        if axis == "H":
+            cy = (by0 + by1) / 2.0
+            ny = min(max((wc + clear) if cy >= wc else (wc - clear), by0 + 2), by1 - 2)
+        else:
+            cx = (bx0 + bx1) / 2.0
+            nx = min(max((wc + clear) if cx >= wc else (wc - clear), bx0 + 2), bx1 - 2)
+        # acceptă DOAR dacă becul ajunge mai DEPARTE de orice perete (cameră mică -> nu înrăutăți)
+        dn = _nearest_wall(nx, ny, h_segs, v_segs)[0]
+        if dn > d0 + 1.0:
+            c["x"], c["y"] = nx, ny; moved += 1
+    return moved
+
+
 def draw_plan_elements(data: dict) -> dict:
     """Desenează becuri în centrul camerelor.
     Cale 1 (preferată): bbox-uri Vision din data['rooms'] (fracții 0-1) -> robust.
@@ -548,7 +590,13 @@ def draw_plan_elements(data: dict) -> dict:
         # (centroid geometric dacă există, altfel centru bbox), PROTEJAT (nu-l scoate dedup-ul).
         switch_bulbs = 0
         if switches and source == "vision_bbox":
-            have = set(c["room"] for c in centers)
+            # 'have' = camere care au un bec ÎN PROPRIUL bbox (robust: prinde și becul mutat AFARĂ
+            # din cameră de gardă -> camera pare goală deși are un bec cu eticheta ei).
+            have = set()
+            for c in centers:
+                b = rboxes[c["room"]] if (c["room"] is not None and c["room"] < len(rboxes)) else None
+                if b and b[0] <= c["x"] <= b[0]+b[2] and b[1] <= c["y"] <= b[1]+b[3]:
+                    have.add(c["room"])
             for s in switches:
                 rid = s.get("room")
                 if rid is None or rid in have:
@@ -564,6 +612,12 @@ def draw_plan_elements(data: dict) -> dict:
                                 "label": (rooms[rid].get("name", "") if rid < len(rooms) else "")})
                 have.add(rid); switch_bulbs += 1
                 print("[draw_elements] bec garantat (intrerupator fara bec) -> cam idx %d" % rid)
+
+        # GARD FINAL off-wall: trage becurile căzute pe perete spre interiorul camerei (orice cauză:
+        # centroid pe cameră îngustă / fallback / mutat de gardă). Întrerupătoarele NU sunt afectate.
+        bulbs_offwall = 0
+        if source == "vision_bbox" and walls:
+            bulbs_offwall = _push_off_walls(centers, rboxes, walls[0], walls[1])
 
         # plasă de siguranță: nu desena nimic dacă n-am găsit camere
         if len(centers) == 0:
@@ -608,6 +662,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "bbox_fixed": vision_stats["bbox_fixed"],
                 "bulbs_dedup": vision_stats["bulbs_dedup"],
                 "switch_bulbs_added": switch_bulbs,
+                "bulbs_offwall": bulbs_offwall,
                 "switches_drawn": len(switches),
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
