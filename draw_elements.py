@@ -194,9 +194,6 @@ def _dedup_centers(centers, boxes, W, H, D=DEDUP_D):
     return [c for k, c in enumerate(centers) if not removed[k]], n
 
 
-COINCIDE_D = 32.0   # px (~80cm): două becuri mai apropiate de atât = vizual UNUL singur
-
-
 def _wall_clear(px, py, h_segs, v_segs):
     """Distanța la cel mai apropiat perete care acoperă punctul (sau 1e9 dacă niciunul)."""
     best = 1e9
@@ -209,48 +206,47 @@ def _wall_clear(px, py, h_segs, v_segs):
     return best
 
 
-def _separate_coincident(centers, boxes, h_segs, v_segs, W, H, d=COINCIDE_D):
-    """Parte finală a reconcilierii dedup: dacă becurile a DOUĂ camere coincid (<d px -> vizual unul,
-    ex. holul lat cu bbox care înghite Dressing-ul), MUTĂ becul NON-geometric în partea propriului bbox
-    cea mai DEPARTE de becul geometric păstrat + clear de pereți + necoincidentă. Geometricul (sursă de
-    adevăr) rămâne pe loc. Dacă nu există loc bun -> lasă (limită open-plan documentată). -> nr. mutate."""
-    n = len(centers)
+def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
+    """Niciun bec NON-geometric nu trebuie să cadă în bbox-ul ALTEI camere (Vision dă bbox-uri
+    suprapuse -> becul fallback al unei camere ajunge vizual în zona vecinei = a 2-a 'lumină' acolo).
+    Pentru fiecare astfel de bec, îl mută în propriul bbox la un punct care: NU e în bbox-ul altei
+    camere, e off-wall, și departe de alte becuri. Becul GEOMETRIC (sursă de adevăr) rămâne pe loc.
+    Dacă propriul bbox e complet înghițit (niciun loc liber) -> lasă (limită open-plan). -> nr. mutate."""
+    def in_other(px, py, ri):
+        for k, b in enumerate(boxes):
+            if k == ri or b is None:
+                continue
+            if b[0]*W <= px <= (b[0]+b[2])*W and b[1]*H <= py <= (b[1]+b[3])*H:
+                return True
+        return False
+
     moved = 0
-    for i in range(n):
-        for j in range(i + 1, n):
-            if centers[i]["room"] == centers[j]["room"]:
-                continue
-            if math.hypot(centers[i]["x"] - centers[j]["x"], centers[i]["y"] - centers[j]["y"]) >= d:
-                continue
-            if not centers[i].get("geometric"):
-                mv, kp = i, j
-            elif not centers[j].get("geometric"):
-                mv, kp = j, i
-            else:
-                continue   # ambele geometrice (foarte rar) -> lasă
-            b = boxes[centers[mv]["room"]] if (centers[mv]["room"] is not None and centers[mv]["room"] < len(boxes)) else None
-            if not b:
-                continue
-            bx0, by0, bx1, by1 = b[0]*W, b[1]*H, (b[0]+b[2])*W, (b[1]+b[3])*H
-            kx, ky = centers[kp]["x"], centers[kp]["y"]
-            best = None; bestscore = -1.0
-            for gi in range(1, 8):
-                for gj in range(1, 8):
-                    px = bx0 + (bx1 - bx0) * gi / 8.0
-                    py = by0 + (by1 - by0) * gj / 8.0
-                    dk = math.hypot(px - kx, py - ky)
-                    if dk < d:
-                        continue
-                    if _wall_clear(px, py, h_segs, v_segs) < 10.0:
-                        continue
-                    if any(k != mv and math.hypot(px - centers[k]["x"], py - centers[k]["y"]) < d for k in range(n)):
-                        continue
-                    score = dk
-                    if score > bestscore:
-                        bestscore = score; best = (px, py)
-            if best:
-                centers[mv]["x"], centers[mv]["y"] = best
-                moved += 1
+    for c in centers:
+        if c.get("geometric"):
+            continue
+        ri = c["room"]
+        if ri is None or ri >= len(boxes) or boxes[ri] is None:
+            continue
+        if not in_other(c["x"], c["y"], ri):
+            continue   # becul e deja DOAR în camera lui -> ok
+        bx, by, bw, bh = boxes[ri]
+        bx0, by0, bx1, by1 = bx*W, by*H, (bx+bw)*W, (by+bh)*H
+        best = None; bestscore = -1e9
+        for gi in range(1, 12):
+            for gj in range(1, 12):
+                px = bx0 + (bx1 - bx0) * gi / 12.0
+                py = by0 + (by1 - by0) * gj / 12.0
+                if in_other(px, py, ri):
+                    continue                       # tot în vecin -> sare
+                wc = _wall_clear(px, py, h_segs, v_segs)
+                if wc < 10.0:
+                    continue                       # pe perete -> sare
+                dmin = min((math.hypot(px - o["x"], py - o["y"]) for o in centers if o is not c), default=1e9)
+                score = min(wc, 120.0) + 0.4 * min(dmin, 120.0)
+                if score > bestscore:
+                    bestscore = score; best = (px, py)
+        if best:
+            c["x"], c["y"] = best; moved += 1
     return moved
 
 
@@ -391,11 +387,11 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
                         "label": str(((rooms or [])[idx] or {}).get("name") or "")})
         bulbs_guaranteed += 1
 
-    # SEPARARE COINCIDENȚE (completează dedup-ul): becuri din camere diferite care coincid vizual
-    # (bbox-uri Vision nested, ex. hol lat peste Dressing) -> mută becul non-geometric în partea liberă.
+    # ANTI-INTRUZIUNE (completează reconcilierea): niciun bec fallback nu rămâne în bbox-ul altei
+    # camere (bbox-uri Vision suprapuse -> dublare vizuală în vecină). Geometricul rămâne pe loc.
     bulbs_separated = 0
     if h_segs is not None:
-        bulbs_separated = _separate_coincident(centers, boxes, h_segs, v_segs, W, H)
+        bulbs_separated = _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H)
 
     stats = {
         "rooms_geometric": rooms_geometric,   # câte camere au folosit centroid CAD
