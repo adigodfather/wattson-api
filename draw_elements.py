@@ -285,57 +285,81 @@ def _vision_centers(rooms, W, H, geoms=None):
 
 
 # ── APARATAJ: întrerupătoare (MVP) — funcții PARALELE cu becurile, nu le ating ──
-SWITCH_R = 4.0            # raza punctului plin (px)
-SWITCH_STEM = 13.0       # lungimea tijei oblice (px)
+SWITCH_R = 3.5           # raza punctului plin (px)
+SWITCH_STEM = 14.0       # lungimea tijei oblice VIZIBILE, in afara punctului (px)
 SWITCH_FROM_JAMB = 11.0  # cat de departe pe perete, dincolo de toc (~27cm)
 SWITCH_COL_CLEAR = 30.0  # distanta minima fata de un sambure (px)
+SWITCH_SNAP_TOL = 32.0   # cat de departe caut o linie de perete pe care sa lipesc
 
 
 def _draw_switch(page, x, y, angle):
-    """Simbol întrerupător simplu (SR EN 60617): punct PLIN + tijă oblică spre interiorul camerei."""
+    """Simbol întrerupător SR EN 60617: punct PLIN + tijă oblică CLAR vizibilă (maneta), spre cameră.
+    Tija pornește de la MARGINEA punctului (nu din centru) ca să se vadă integral; groasă (2px)."""
+    dx, dy = math.cos(angle), math.sin(angle)
     c = fitz.Point(x, y)
-    page.draw_circle(c, SWITCH_R, color=RED, fill=RED, width=0.8)
-    end = fitz.Point(x + SWITCH_STEM * math.cos(angle), y + SWITCH_STEM * math.sin(angle))
-    page.draw_line(c, end, color=RED, width=1.3)
+    start = fitz.Point(x + SWITCH_R * dx, y + SWITCH_R * dy)
+    end = fitz.Point(x + (SWITCH_R + SWITCH_STEM) * dx, y + (SWITCH_R + SWITCH_STEM) * dy)
+    page.draw_line(start, end, color=RED, width=2.0)              # maneta — vizibila
+    page.draw_circle(c, SWITCH_R, color=RED, fill=RED, width=0.8)  # punct plin peste capat
 
 
-def _snap_to_wall(px, py, h_segs, v_segs, max_snap=22.0):
-    """Lipește punctul pe cea mai apropiată linie de perete (H sau V) sub max_snap px."""
-    best = None; bestd = max_snap
-    for (x0, x1, y) in h_segs:
-        if min(x0, x1) - 6 <= px <= max(x0, x1) + 6 and abs(y - py) < bestd:
-            bestd = abs(y - py); best = (px, y)
-    for (y0, y1, x) in v_segs:
-        if min(y0, y1) - 6 <= py <= max(y0, y1) + 6 and abs(x - px) < bestd:
-            bestd = abs(x - px); best = (x, py)
-    return best if best else (px, py)
+def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
+    """Coordonata EXACTĂ a celei mai apropiate linii de perete pe axa cerută, care acoperă punctul.
+    axis='H' -> y-ul liniei orizontale (lipim pe verticală); axis='V' -> x-ul liniei verticale.
+    None dacă nicio linie sub tol. Așa lipim întrerupătorul pe linia zidului, nu lângă arc."""
+    best = None; bestd = tol
+    if axis == "H":
+        for (x0, x1, y) in h_segs:
+            if min(x0, x1) - 8 <= px <= max(x0, x1) + 8 and abs(y - py) < bestd:
+                bestd = abs(y - py); best = y
+    else:
+        for (y0, y1, x) in v_segs:
+            if min(y0, y1) - 8 <= py <= max(y0, y1) + 8 and abs(x - px) < bestd:
+                bestd = abs(x - px); best = x
+    return best
 
 
 def _switch_centers(doors, columns, h_segs, v_segs, W, H):
-    """Poziția întrerupătorului per ușă: latura de deschidere (mâner), lipit pe perete lângă toc,
-    spre interiorul camerei; evită sâmburii; fallback la incertitudine. -> [{x,y,angle,certain}]."""
+    """Poziția întrerupătorului per ușă: latura de deschidere (mâner), LIPIT pe linia peretelui lângă
+    toc, spre interiorul camerei; evită sâmburii; fallback la incertitudine. -> [{x,y,angle,certain}]."""
     out = []
     for d in doors:
         hinge = d["hinge"]; strike = d["strike"]; ux, uy = d["swing"]
         if d["certain"]:
-            # directia peretelui = de la balama spre strike (strike e pe perete);
-            # intrerupatorul pe perete, dincolo de toc, pe latura manerului
+            # directia peretelui = de la balama spre strike (strike e pe perete)
             wx, wy = strike[0]-hinge[0], strike[1]-hinge[1]
             wl = math.hypot(wx, wy) or 1.0; wx, wy = wx/wl, wy/wl
             sx = strike[0] + wx * SWITCH_FROM_JAMB
             sy = strike[1] + wy * SWITCH_FROM_JAMB
+            wall_h = abs(wx) >= abs(wy)          # peretele e orizontal?
         else:
             # incert (usa la colt): plasa de siguranta — langa toc, spre interiorul camerei
-            wx, wy = ux, uy
             sx = d["x"] + ux * 12.0
             sy = d["y"] + uy * 12.0
-        sx, sy = _snap_to_wall(sx, sy, h_segs, v_segs)
-        # coliziune sambure -> impinge mai departe pe perete (max 3 pasi)
+            wall_h = abs(ux) < abs(uy)           # deschidere ⟂ perete -> peretele e pe axa opusa
+
+        # SNAP pe linia EXACTĂ a peretelui, pe axa corectă (lipit pe zid, nu pe arc)
+        if wall_h:
+            wyc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "H")
+            if wyc is not None: sy = wyc
+        else:
+            wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
+            if wxc is not None: sx = wxc
+
+        # coliziune sambure -> aluneca DE-A LUNGUL peretelui, departe de sambure, apoi re-snap
         for _ in range(3):
-            if not any(math.hypot(cx-sx, cy-sy) < SWITCH_COL_CLEAR for (cx, cy) in columns):
+            hit = next(((cx, cy) for (cx, cy) in columns if math.hypot(cx-sx, cy-sy) < SWITCH_COL_CLEAR), None)
+            if hit is None:
                 break
-            sx += wx * 16.0; sy += wy * 16.0
-            sx, sy = _snap_to_wall(sx, sy, h_segs, v_segs)
+            if wall_h:
+                sx += 18.0 if sx >= hit[0] else -18.0
+                wyc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "H")
+                if wyc is not None: sy = wyc
+            else:
+                sy += 18.0 if sy >= hit[1] else -18.0
+                wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
+                if wxc is not None: sx = wxc
+
         out.append({"x": sx, "y": sy, "angle": math.atan2(uy, ux), "certain": d["certain"]})
     return out
 
