@@ -192,14 +192,22 @@ def _wall_coord_near(target, span_lo, span_hi, segs, kind, tol=30.0):
     return best
 
 
-def _dedup_centers(centers, D=DEDUP_D):
+def _dedup_centers(centers, boxes, W, H, D=DEDUP_D):
     """Elimină becuri DUPLICATE între camere DIFERITE (bbox-uri Vision suprapuse) sub D px.
-    Elimină DOAR becuri NEPROTEJATE (fallback din camere mici): becurile 'protected' (geometrice
-    + camere mari cu 2 becuri intenționate) NU se ating. NU lasă nicio cameră fără bec (min 1).
-    Perechile din ACEEAȘI cameră NU se ating (dedup e doar cross-cameră). -> (centers, n)."""
+    Candidat la eliminare = bec NON-geometric (becurile geometrice pe pereți reali NU se ating),
+    a cărui cameră rămâne cu >=1 bec, ȘI care e fie NEPROTEJAT (fallback cameră mică), fie INTRUS
+    (cade în bbox-ul celeilalte camere — ex. bec de Terasă căzut în Living). Preferă să elimine
+    INTRUSUL. NU lasă nicio cameră fără bec. Cross-cameră (perechi din aceeași cameră neatinse). -> (centers, n)."""
     counts = {}
     for c in centers:
         counts[c["room"]] = counts.get(c["room"], 0) + 1
+
+    def in_room_bbox(k, room):
+        b = boxes[room] if (0 <= room < len(boxes)) else None
+        if not b:
+            return False
+        return b[0]*W <= centers[k]["x"] <= (b[0]+b[2])*W and b[1]*H <= centers[k]["y"] <= (b[1]+b[3])*H
+
     pairs = []
     for i in range(len(centers)):
         for j in range(i + 1, len(centers)):
@@ -213,11 +221,19 @@ def _dedup_centers(centers, D=DEDUP_D):
     for d, i, j in pairs:
         if removed[i] or removed[j]:
             continue
-        # candidat la eliminare: NEPROTEJAT (fallback, cameră mică) ȘI camera rămâne cu >=1 bec
-        cand = [k for k in (i, j) if not centers[k].get("protected") and counts[centers[k]["room"]] > 1]
+        cand = []   # (idx, e_intrus)
+        for k, other in ((i, j), (j, i)):
+            if centers[k].get("geometric"):
+                continue                                  # becurile geometrice — niciodată
+            if counts[centers[k]["room"]] <= 1:
+                continue                                  # nu goli camera
+            intruder = in_room_bbox(k, centers[other]["room"])
+            if (not centers[k].get("protected")) or intruder:
+                cand.append((k, intruder))
         if not cand:
-            continue   # nimic sigur de eliminat -> păstrăm ambele (coverage + becuri protejate)
-        victim = max(cand, key=lambda k: counts[centers[k]["room"]])  # din camera cu mai multe becuri
+            continue
+        # victimă: preferă INTRUSUL; apoi din camera cu mai multe becuri
+        victim = min(cand, key=lambda t: (0 if t[1] else 1, -counts[centers[t[0]]["room"]]))[0]
         removed[victim] = True; counts[centers[victim]["room"]] -= 1; n += 1
     return [c for k, c in enumerate(centers) if not removed[k]], n
 
@@ -358,7 +374,7 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
 
     # DEDUP GLOBAL (ULTIMUL pas, prinde si dublurile din R2): becuri din camere DIFERITE prea
     # apropiate -> elimina duplicatul (pastreaza geometricul, min 1 bec/camera). Pareto-safe.
-    centers, bulbs_dedup = _dedup_centers(centers)
+    centers, bulbs_dedup = _dedup_centers(centers, boxes, W, H)
 
     stats = {
         "rooms_geometric": rooms_geometric,   # E — câte camere au folosit centroid CAD
@@ -405,9 +421,22 @@ def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
     return best
 
 
-def _switch_centers(doors, columns, h_segs, v_segs, W, H):
+def _switch_centers(doors, columns, h_segs, v_segs, W, H, room_boxes=None):
     """Poziția întrerupătorului per ușă: latura de deschidere (mâner), LIPIT pe linia peretelui lângă
-    toc, spre interiorul camerei; evită sâmburii; fallback la incertitudine. -> [{x,y,angle,certain}]."""
+    toc, spre interiorul camerei; evită sâmburii; fallback la incertitudine.
+    Tag 'room' = camera pe care o SERVEȘTE (în care se deschide ușa) — pt. regula 'bec garantat'.
+    -> [{x,y,angle,certain,room}]."""
+    def served_room(d):
+        # camera = bbox-ul care conține un punct ÎN FAȚA ușii, pe direcția de deschidere (swing)
+        if not room_boxes:
+            return None
+        ux, uy = d["swing"]
+        px = d["x"] + ux * 55.0; py = d["y"] + uy * 55.0
+        for k, b in enumerate(room_boxes):
+            if b and b[0] <= px <= b[0]+b[2] and b[1] <= py <= b[1]+b[3]:
+                return k
+        return None
+
     out = []
     for d in doors:
         hinge = d["hinge"]; strike = d["strike"]; ux, uy = d["swing"]
@@ -446,7 +475,8 @@ def _switch_centers(doors, columns, h_segs, v_segs, W, H):
                 wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
                 if wxc is not None: sx = wxc
 
-        out.append({"x": sx, "y": sy, "angle": math.atan2(uy, ux), "certain": d["certain"]})
+        out.append({"x": sx, "y": sy, "angle": math.atan2(uy, ux), "certain": d["certain"],
+                    "room": served_room(d)})
     return out
 
 
@@ -480,6 +510,15 @@ def draw_plan_elements(data: dict) -> dict:
 
         # APARATAJ (MVP): întrerupătoare lângă uși — DOAR pe faza PT (apply_geometry), cale vectorială.
         # Aditiv, defensiv: ORICE eroare -> fără întrerupătoare, becurile NU sunt afectate.
+        # bbox-uri camere (px) — pt. asocierea întrerupător↔cameră (regula "bec garantat")
+        rboxes = []
+        for r in (rooms or []):
+            bb = (r or {}).get("bbox") or {}
+            try:
+                rboxes.append((float(bb["x"])*W, float(bb["y"])*H, float(bb["w"])*W, float(bb["h"])*H))
+            except (TypeError, ValueError, KeyError):
+                rboxes.append(None)
+
         switches = []
         if data.get("apply_geometry"):
             try:
@@ -487,7 +526,7 @@ def draw_plan_elements(data: dict) -> dict:
                 doors = geometry.extract_doors(page, W, H)
                 columns = geometry.extract_columns(page)
                 h_segs, v_segs, _dd = geometry._collect(page)
-                switches = _switch_centers(doors, columns, h_segs, v_segs, W, H)
+                switches = _switch_centers(doors, columns, h_segs, v_segs, W, H, rboxes)
             except Exception:
                 switches = []
 
@@ -503,6 +542,28 @@ def draw_plan_elements(data: dict) -> dict:
             centers = _find_room_centers(page, W, H)
             vision_stats = {"rooms_geometric": 0, "rooms_fallback": 0,
                             "bulbs_clamped": 0, "bbox_fixed": 0, "bulbs_dedup": 0}
+
+        # REGULA: orice cameră cu ÎNTRERUPĂTOR are ≥1 bec (întrerupătorul comandă becul).
+        # Dacă o cameră servită de un întrerupător n-are bec (Baie 2/Cămară etc.) -> adaugă unul
+        # (centroid geometric dacă există, altfel centru bbox), PROTEJAT (nu-l scoate dedup-ul).
+        switch_bulbs = 0
+        if switches and source == "vision_bbox":
+            have = set(c["room"] for c in centers)
+            for s in switches:
+                rid = s.get("room")
+                if rid is None or rid in have:
+                    continue
+                g = geoms[rid] if (geoms and rid < len(geoms)) else None
+                if g and g.get("geometric") and g.get("centroid"):
+                    bx, by = g["centroid"]["x"], g["centroid"]["y"]
+                elif rid < len(rboxes) and rboxes[rid]:
+                    b = rboxes[rid]; bx, by = b[0] + b[2]/2.0, b[1] + b[3]/2.0
+                else:
+                    continue
+                centers.append({"x": bx, "y": by, "room": rid, "geometric": False, "protected": True,
+                                "label": (rooms[rid].get("name", "") if rid < len(rooms) else "")})
+                have.add(rid); switch_bulbs += 1
+                print("[draw_elements] bec garantat (intrerupator fara bec) -> cam idx %d" % rid)
 
         # plasă de siguranță: nu desena nimic dacă n-am găsit camere
         if len(centers) == 0:
@@ -546,6 +607,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "bulbs_clamped": vision_stats["bulbs_clamped"],
                 "bbox_fixed": vision_stats["bbox_fixed"],
                 "bulbs_dedup": vision_stats["bulbs_dedup"],
+                "switch_bulbs_added": switch_bulbs,
                 "switches_drawn": len(switches),
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
