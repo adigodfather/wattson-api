@@ -194,6 +194,66 @@ def _dedup_centers(centers, boxes, W, H, D=DEDUP_D):
     return [c for k, c in enumerate(centers) if not removed[k]], n
 
 
+COINCIDE_D = 32.0   # px (~80cm): două becuri mai apropiate de atât = vizual UNUL singur
+
+
+def _wall_clear(px, py, h_segs, v_segs):
+    """Distanța la cel mai apropiat perete care acoperă punctul (sau 1e9 dacă niciunul)."""
+    best = 1e9
+    for (x0, x1, y) in h_segs:
+        if min(x0, x1) - 4 <= px <= max(x0, x1) + 4:
+            best = min(best, abs(y - py))
+    for (y0, y1, x) in v_segs:
+        if min(y0, y1) - 4 <= py <= max(y0, y1) + 4:
+            best = min(best, abs(x - px))
+    return best
+
+
+def _separate_coincident(centers, boxes, h_segs, v_segs, W, H, d=COINCIDE_D):
+    """Parte finală a reconcilierii dedup: dacă becurile a DOUĂ camere coincid (<d px -> vizual unul,
+    ex. holul lat cu bbox care înghite Dressing-ul), MUTĂ becul NON-geometric în partea propriului bbox
+    cea mai DEPARTE de becul geometric păstrat + clear de pereți + necoincidentă. Geometricul (sursă de
+    adevăr) rămâne pe loc. Dacă nu există loc bun -> lasă (limită open-plan documentată). -> nr. mutate."""
+    n = len(centers)
+    moved = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            if centers[i]["room"] == centers[j]["room"]:
+                continue
+            if math.hypot(centers[i]["x"] - centers[j]["x"], centers[i]["y"] - centers[j]["y"]) >= d:
+                continue
+            if not centers[i].get("geometric"):
+                mv, kp = i, j
+            elif not centers[j].get("geometric"):
+                mv, kp = j, i
+            else:
+                continue   # ambele geometrice (foarte rar) -> lasă
+            b = boxes[centers[mv]["room"]] if (centers[mv]["room"] is not None and centers[mv]["room"] < len(boxes)) else None
+            if not b:
+                continue
+            bx0, by0, bx1, by1 = b[0]*W, b[1]*H, (b[0]+b[2])*W, (b[1]+b[3])*H
+            kx, ky = centers[kp]["x"], centers[kp]["y"]
+            best = None; bestscore = -1.0
+            for gi in range(1, 8):
+                for gj in range(1, 8):
+                    px = bx0 + (bx1 - bx0) * gi / 8.0
+                    py = by0 + (by1 - by0) * gj / 8.0
+                    dk = math.hypot(px - kx, py - ky)
+                    if dk < d:
+                        continue
+                    if _wall_clear(px, py, h_segs, v_segs) < 10.0:
+                        continue
+                    if any(k != mv and math.hypot(px - centers[k]["x"], py - centers[k]["y"]) < d for k in range(n)):
+                        continue
+                    score = dk
+                    if score > bestscore:
+                        bestscore = score; best = (px, py)
+            if best:
+                centers[mv]["x"], centers[mv]["y"] = best
+                moved += 1
+    return moved
+
+
 def _vision_centers(rooms, W, H, geoms=None, walls=None):
     """PASĂ AUTORITARĂ de plasare becuri (consolidează gărzile-plasture anterioare).
     rooms = [{ name, area_m2, bbox:{x,y,w,h} }] (fracții 0-1). geoms = PARALEL cu rooms (geometry).
@@ -255,7 +315,16 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             cxc, cyc = _clip_region(x * W, y * H, w * W, h * H, h_segs, v_segs)
             rooms_fallback += 1
 
-        if area >= ROOM_LARGE_M2:
+        # FIX 2 — nr. becuri pe ARIA GEOMETRICĂ (determinist) unde există poligon; altfel aria Vision.
+        # Elimină șovăiala count-ului din aria Vision variabilă (living 24 vs 26mp).
+        area_count = area
+        if used_geometric and g and g.get("area_geometric_m2"):
+            try:
+                area_count = float(g["area_geometric_m2"])
+            except (TypeError, ValueError):
+                pass
+
+        if area_count >= ROOM_LARGE_M2:
             # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc). PROTEJATE (coverage intentionat).
             if w * W >= h * H:
                 dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
@@ -322,12 +391,19 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
                         "label": str(((rooms or [])[idx] or {}).get("name") or "")})
         bulbs_guaranteed += 1
 
+    # SEPARARE COINCIDENȚE (completează dedup-ul): becuri din camere diferite care coincid vizual
+    # (bbox-uri Vision nested, ex. hol lat peste Dressing) -> mută becul non-geometric în partea liberă.
+    bulbs_separated = 0
+    if h_segs is not None:
+        bulbs_separated = _separate_coincident(centers, boxes, h_segs, v_segs, W, H)
+
     stats = {
         "rooms_geometric": rooms_geometric,   # câte camere au folosit centroid CAD
         "rooms_fallback": rooms_fallback,      # câte au căzut pe clip bbox∩pereți
         "bbox_fixed": bbox_fixed,              # câte bbox-uri Vision corectate
         "bulbs_dedup": bulbs_dedup,            # câte becuri duplicate (open-plan) eliminate
         "bulbs_guaranteed": bulbs_guaranteed,  # câte becuri re-adăugate de invariantul final
+        "bulbs_separated": bulbs_separated,    # câte becuri coincidente separate
     }
     return centers, stats
 
@@ -486,8 +562,8 @@ def draw_plan_elements(data: dict) -> dict:
         else:
             source = "text_regex"
             centers = _find_room_centers(page, W, H)
-            vision_stats = {"rooms_geometric": 0, "rooms_fallback": 0,
-                            "bbox_fixed": 0, "bulbs_dedup": 0, "bulbs_guaranteed": 0}
+            vision_stats = {"rooms_geometric": 0, "rooms_fallback": 0, "bbox_fixed": 0,
+                            "bulbs_dedup": 0, "bulbs_guaranteed": 0, "bulbs_separated": 0}
 
         # NOTĂ: garanția "fiecare cameră are bec" + plasarea off-wall sunt acum ÎN _vision_centers
         # (pasă autoritară: ancoră geometric/clip + invariant final). Aici nu mai sunt gărzi separate.
@@ -534,6 +610,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "bbox_fixed": vision_stats["bbox_fixed"],
                 "bulbs_dedup": vision_stats["bulbs_dedup"],
                 "bulbs_guaranteed": vision_stats["bulbs_guaranteed"],
+                "bulbs_separated": vision_stats["bulbs_separated"],
                 "switches_drawn": len(switches),
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
