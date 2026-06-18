@@ -36,6 +36,7 @@ const VISION_PROMPT = `Ești expert în analiza planurilor de construcție româ
 
 4. CAMERE — pentru fiecare spațiu: name, room_type, area_m2, height_m, function, bbox ({x,y,w,h} NORMALIZAT între 0 și 1 față de lățimea/înălțimea imaginii, NU pixeli — x=0 stânga, x=1 dreapta, y=0 sus, y=1 jos).
    bbox = dreptunghiul care acoperă ÎNTREAGA suprafață a camerei, de la perete la perete (toți cei 4 pereți care o delimitează), NU doar zona textului/etichetei/cotelor.
+   ⚠️ NON-SUPRAPUNERE: fiecare zonă a planului aparține UNEI SINGURE camere. Bbox-urile camerelor NU se suprapun între ele — bbox-ul unei camere acoperă DOAR spațiul ei propriu (delimitat de pereții ei), fără a intra în camera vecină. Camerele adiacente: bbox-urile se ating la perete, dar NU se suprapun. Camere/holuri în formă de L sau neregulate: dă bbox-ul cel mai strâns care conține camera fără a acoperi vecinele; preferă să subestimezi decât să te suprapui peste vecină.
    Funcții valide: day/night/bathroom/kitchen/circulation/technical/storage/other/hall/office/corridor/sanitary/kitchen_pub/production/warehouse/office_ind
 
 5. DIMENSIUNI IMAGINE — estimează: image_width_px, image_height_px
@@ -65,6 +66,7 @@ Pentru FIECARE cameră din rooms[], include bbox NORMALIZAT între 0 și 1 (frac
 - x,y = colțul stânga-sus al camerei (intersecția pereților stânga+sus), w,h = până la pereții dreapta+jos.
 - Centrul bbox-ului (x+w/2, y+h/2) trebuie să cadă în mijlocul liber al încăperii (unde ar sta un corp de iluminat pe tavan), nu lângă un perete sau pe etichetă.
 - Dacă eticheta «A: NN mp» e într-un colț, ignoră poziția ei — bbox-ul urmează pereții, nu textul.
+- NON-SUPRAPUNERE (obligatoriu): bbox-urile a două camere NU se suprapun. Fiecare zonă a planului e a unei singure camere. Dacă un bbox ar intra în camera vecină, micșorează-l până la peretele despărțitor. Mai bine puțin prea mic decât suprapus peste vecină.
 - Verificare: aria dreptunghiului (w×h × suprafața imaginii) trebuie să fie aproximativ proporțională cu area_m2 declarat — dacă bbox-ul e mult mai mic decât cameră, l-ai desenat prea strâns.
 
 Returnează DOAR JSON-ul, fără explicații.`;
