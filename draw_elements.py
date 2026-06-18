@@ -168,7 +168,61 @@ def _clamp_to_contour(px, py, contour):
     return nx, ny, (abs(nx - px) > 1e-6 or abs(ny - py) > 1e-6)
 
 
-def _vision_centers(rooms, W, H, geoms=None):
+# ── Acoperire iluminat: holuri (R2) + dedup global ──
+_PX_TO_M = _PT2_TO_M2 ** 0.5   # ~0.0249 m/px (scara planului)
+HALL_ASPECT = 2.0              # bbox alungit (max/min latura) -> candidat hol
+HALL_2BULB_M = 3.0             # hol mai lung de 3m -> 2 becuri pe lungime
+DEDUP_D = 85.0                 # px (~2.1m): becuri din camere DIFERITE mai apropiate = duplicat
+
+
+def _wall_coord_near(target, span_lo, span_hi, segs, kind, tol=30.0):
+    """Coordonata celei mai apropiate linii de perete de 'target' (axa perpendiculară holului)
+    care acoperă mijlocul span-ului. kind='H': segs=(x0,x1,y)->y; 'V': (y0,y1,x)->x.
+    None dacă nu se găsește -> hol 'neclar' (ex. în L) => caller rămâne conservator (1 bec)."""
+    mid = (span_lo + span_hi) / 2.0
+    best = None; bestd = tol
+    if kind == "H":
+        for (x0, x1, y) in segs:
+            if min(x0, x1) <= mid <= max(x0, x1) and abs(y - target) < bestd:
+                bestd = abs(y - target); best = y
+    else:
+        for (y0, y1, x) in segs:
+            if min(y0, y1) <= mid <= max(y0, y1) and abs(x - target) < bestd:
+                bestd = abs(x - target); best = x
+    return best
+
+
+def _dedup_centers(centers, D=DEDUP_D):
+    """Elimină becuri DUPLICATE între camere DIFERITE (bbox-uri Vision suprapuse) sub D px.
+    Elimină DOAR becuri NEPROTEJATE (fallback din camere mici): becurile 'protected' (geometrice
+    + camere mari cu 2 becuri intenționate) NU se ating. NU lasă nicio cameră fără bec (min 1).
+    Perechile din ACEEAȘI cameră NU se ating (dedup e doar cross-cameră). -> (centers, n)."""
+    counts = {}
+    for c in centers:
+        counts[c["room"]] = counts.get(c["room"], 0) + 1
+    pairs = []
+    for i in range(len(centers)):
+        for j in range(i + 1, len(centers)):
+            if centers[i]["room"] == centers[j]["room"]:
+                continue
+            d = math.hypot(centers[i]["x"] - centers[j]["x"], centers[i]["y"] - centers[j]["y"])
+            if d < D:
+                pairs.append((d, i, j))
+    pairs.sort()
+    removed = [False] * len(centers); n = 0
+    for d, i, j in pairs:
+        if removed[i] or removed[j]:
+            continue
+        # candidat la eliminare: NEPROTEJAT (fallback, cameră mică) ȘI camera rămâne cu >=1 bec
+        cand = [k for k in (i, j) if not centers[k].get("protected") and counts[centers[k]["room"]] > 1]
+        if not cand:
+            continue   # nimic sigur de eliminat -> păstrăm ambele (coverage + becuri protejate)
+        victim = max(cand, key=lambda k: counts[centers[k]["room"]])  # din camera cu mai multe becuri
+        removed[victim] = True; counts[centers[victim]["room"]] -= 1; n += 1
+    return [c for k, c in enumerate(centers) if not removed[k]], n
+
+
+def _vision_centers(rooms, W, H, geoms=None, walls=None):
     """Centre din bbox Vision (fracții 0-1) -> puncte PDF.
     rooms = listă de { name, area_m2, bbox: {x, y, w, h} } cu x,y,w,h în [0,1].
     geoms = OPȚIONAL, listă PARALELĂ cu rooms (de la geometry.extract_room_geometry).
@@ -182,6 +236,7 @@ def _vision_centers(rooms, W, H, geoms=None):
     GARDĂ anti-intruziune (single-bulb, cale bbox): dacă becul ar cădea în bbox-ul altei
     camere (hol lat/în-L), e mutat în partea liberă a propriului bbox (vezi _nudge_out_of_neighbors)."""
     centers = []
+    h_segs, v_segs = (walls if walls else (None, None))   # R2 holuri: necesită liniile de perete
     # C — bbox-uri SANITIZATE (clamp la domeniul valid), aliniate cu rooms; None = invalid.
     # Aceleași boxe le folosește și garda anti-intruziune (verificare cross-cameră).
     boxes = []
@@ -242,26 +297,52 @@ def _vision_centers(rooms, W, H, geoms=None):
             rooms_fallback += 1
 
         if area >= ROOM_LARGE_M2:
-            # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc)
+            # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc). PROTEJATE (coverage intentionat).
             if w * W >= h * H:
                 dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
-                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx})
-                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx})
+                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
+                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
             else:
                 dy = (h / 6.0) * H
-                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx})
-                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx})
+                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
+                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
         else:
-            # GARDĂ anti-intruziune (8c6c743) — DOAR single-bulb pe cale bbox (NU geometric/mari).
-            # Camerele normale (centru în propriul bbox) NU se ating: _nudge întoarce moved=False.
-            if not used_geometric:
-                others = [ob for j, ob in enumerate(boxes) if j != idx and ob is not None]
-                ncx, ncy, moved = _nudge_out_of_neighbors(cxc, cyc, (x, y, w, h), others, W, H)
-                if moved:
-                    print("[draw_elements] bec '%s' muta din intruziune: (%.0f,%.0f)->(%.0f,%.0f)"
-                          % (label, cxc, cyc, ncx, ncy))
-                    cxc, cyc = ncx, ncy
-            centers.append({"x": cxc, "y": cyc, "label": label, "room": idx})
+            # R2 — HOL (bbox alungit, fallback, cu pereți): 1/2 becuri pe lungime, centrate între
+            # cei 2 pereți paraleli. DOAR dacă ambii pereți se găsesc clar; altfel conservator (1 bec).
+            hall_done = False
+            if (not used_geometric) and h_segs is not None:
+                bx, by, bw, bh = x * W, y * H, w * W, h * H
+                if max(bw, bh) / max(min(bw, bh), 1.0) > HALL_ASPECT:
+                    if bw >= bh:   # hol orizontal -> pereți sus/jos (H), becuri pe axa X
+                        c1 = _wall_coord_near(by, bx, bx + bw, h_segs, "H")
+                        c2 = _wall_coord_near(by + bh, bx, bx + bw, h_segs, "H")
+                        if c1 is not None and c2 is not None:
+                            perp = (c1 + c2) / 2.0
+                            xs = ([bx + bw/3.0, bx + 2*bw/3.0] if bw * _PX_TO_M > HALL_2BULB_M
+                                  else [bx + bw/2.0])
+                            for px in xs:
+                                centers.append({"x": px, "y": perp, "label": label, "room": idx, "geometric": False, "protected": False})
+                            hall_done = True
+                    else:          # hol vertical -> pereți stânga/dreapta (V), becuri pe axa Y
+                        c1 = _wall_coord_near(bx, by, by + bh, v_segs, "V")
+                        c2 = _wall_coord_near(bx + bw, by, by + bh, v_segs, "V")
+                        if c1 is not None and c2 is not None:
+                            perp = (c1 + c2) / 2.0
+                            ys = ([by + bh/3.0, by + 2*bh/3.0] if bh * _PX_TO_M > HALL_2BULB_M
+                                  else [by + bh/2.0])
+                            for py in ys:
+                                centers.append({"x": perp, "y": py, "label": label, "room": idx, "geometric": False, "protected": False})
+                            hall_done = True
+            if not hall_done:
+                # GARDĂ anti-intruziune (8c6c743) — single-bulb pe cale bbox; geometric/normal neatins.
+                if not used_geometric:
+                    others = [ob for j, ob in enumerate(boxes) if j != idx and ob is not None]
+                    ncx, ncy, moved = _nudge_out_of_neighbors(cxc, cyc, (x, y, w, h), others, W, H)
+                    if moved:
+                        print("[draw_elements] bec '%s' muta din intruziune: (%.0f,%.0f)->(%.0f,%.0f)"
+                              % (label, cxc, cyc, ncx, ncy))
+                        cxc, cyc = ncx, ncy
+                centers.append({"x": cxc, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": used_geometric})
 
     # A — clamp final la contur: orice bec în afara conturului -> tras în interior.
     # Becurile interne (marea majoritate) -> NEATINSE (_clamp_to_contour întoarce moved=False).
@@ -275,11 +356,16 @@ def _vision_centers(rooms, W, H, geoms=None):
                 c["x"] = nx; c["y"] = ny
                 bulbs_clamped += 1
 
+    # DEDUP GLOBAL (ULTIMUL pas, prinde si dublurile din R2): becuri din camere DIFERITE prea
+    # apropiate -> elimina duplicatul (pastreaza geometricul, min 1 bec/camera). Pareto-safe.
+    centers, bulbs_dedup = _dedup_centers(centers)
+
     stats = {
         "rooms_geometric": rooms_geometric,   # E — câte camere au folosit centroid CAD
         "rooms_fallback": rooms_fallback,      # E — câte au căzut pe bbox Vision
         "bulbs_clamped": bulbs_clamped,        # A — câte becuri trase în contur
         "bbox_fixed": bbox_fixed,              # C — câte bbox-uri corectate
+        "bulbs_dedup": bulbs_dedup,            # dedup — câte becuri duplicate eliminate
     }
     return centers, stats
 
@@ -382,12 +468,15 @@ def draw_plan_elements(data: dict) -> dict:
         # Generarea becurilor NU trebuie să eșueze niciodată din cauza geometriei.
         rooms = data.get("rooms")
         geoms = None
+        walls = None   # (h_segs, v_segs) pt. R2 holuri — doar pe cale geometrică (apply_geometry)
         if data.get("apply_geometry") and rooms:
             try:
                 import geometry
                 geoms = geometry.extract_room_geometry(pdf_bytes, rooms, W, H)
+                h_segs, v_segs, _dd = geometry._collect(page)
+                walls = (h_segs, v_segs)
             except Exception:
-                geoms = None
+                geoms = None; walls = None
 
         # APARATAJ (MVP): întrerupătoare lângă uși — DOAR pe faza PT (apply_geometry), cale vectorială.
         # Aditiv, defensiv: ORICE eroare -> fără întrerupătoare, becurile NU sunt afectate.
@@ -405,7 +494,7 @@ def draw_plan_elements(data: dict) -> dict:
         # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
         # desenăm becurile din centrele lor — robust, independent de text/regex.
         # Altfel -> fallback la calea veche cu regex pe textul de suprafață.
-        vision_centers, vision_stats = _vision_centers(rooms, W, H, geoms)
+        vision_centers, vision_stats = _vision_centers(rooms, W, H, geoms, walls)
         if vision_centers:
             source = "vision_bbox"
             centers = vision_centers
@@ -413,7 +502,7 @@ def draw_plan_elements(data: dict) -> dict:
             source = "text_regex"
             centers = _find_room_centers(page, W, H)
             vision_stats = {"rooms_geometric": 0, "rooms_fallback": 0,
-                            "bulbs_clamped": 0, "bbox_fixed": 0}
+                            "bulbs_clamped": 0, "bbox_fixed": 0, "bulbs_dedup": 0}
 
         # plasă de siguranță: nu desena nimic dacă n-am găsit camere
         if len(centers) == 0:
@@ -426,7 +515,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "size_bytes": len(out),
                 "detected": {"rooms_found": 0, "elements_drawn": 0,
                              "rooms_geometric": 0, "rooms_fallback": 0,
-                             "bulbs_clamped": 0, "bbox_fixed": 0,
+                             "bulbs_clamped": 0, "bbox_fixed": 0, "bulbs_dedup": 0,
                              "note": "Nicio cameră detectată. Plan nemodificat."},
             }
 
@@ -456,6 +545,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "rooms_fallback": vision_stats["rooms_fallback"],
                 "bulbs_clamped": vision_stats["bulbs_clamped"],
                 "bbox_fixed": vision_stats["bbox_fixed"],
+                "bulbs_dedup": vision_stats["bulbs_dedup"],
                 "switches_drawn": len(switches),
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
