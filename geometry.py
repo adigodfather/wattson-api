@@ -38,6 +38,8 @@ RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acel
 
 # BALUSTRADA — taie over-merge-ul, pastreaza clusterul sanatos (~1.38x)
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
+SELECT_AREA_RATIO = 1.5    # SELECTIE: prefera cel mai mare rect cu arie <= 1.5x aria cartus
+                           # (evita over-merge-ul in vecin -> bec pe perete la camere mici inchise)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
 CLUSTER_RATIO = 1.38       # mediana clusterului sanatos (referinta pt. tie-break la overlap)
 BBOX_CONTAIN_TOL = 12.0    # REGULA 3: toleranta MINIMA (px) la bbox-containment
@@ -295,10 +297,18 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                             break
                     else:
                         groups.append(list(c) + [1])
-                # prefera dreptunghiuri pe care 2+ seed-uri sunt de acord (anti-fluke open-door);
-                # alege cel mai MARE plauzibil; tie-break SOFT pe apropierea de aria Vision
+                # prefera dreptunghiuri pe care 2+ seed-uri sunt de acord (anti-fluke open-door)
                 strong = [g for g in groups if g[6] >= 2] or groups
-                best = max(strong, key=lambda g: (round(g[4], 1), -abs(g[4] - area_vision)))
+                # SELECTIE pe ARIA CARTUS (area_vision, stabila ~0%): cel mai MARE dreptunghi a carui
+                # arie NU depaseste SELECT_AREA_RATIO x aria cartus -> evita over-merge-ul in camera
+                # vecina (cauza poligonului respins de REGULA 2/3 la camere mici inchise -> bec pe
+                # perete). Daca niciunul sub plafon -> cel mai mare disponibil (degradare gratioasa).
+                if area_vision > 0:
+                    cap = SELECT_AREA_RATIO * area_vision
+                    pool = [g for g in strong if g[4] <= cap] or strong
+                    best = max(pool, key=lambda g: (round(g[4], 1), g[6]))
+                else:
+                    best = max(strong, key=lambda g: (round(g[4], 1), -abs(g[4] - area_vision)))
                 l, rr, t, b, area_geom, aspect, support = best
 
                 cgx = round((l + rr) / 2.0, 1)
@@ -329,6 +339,7 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                     rec["_rect"] = (l, rr, t, b)
                     rec["_ratio"] = (area_geom / area_vision) if area_vision > 0 else None
                     rec["_support"] = support
+                    rec["_bbc"] = (cx0, cy0)   # centru bbox Vision -> dezambiguare pe pozitie (REGULA 2)
             else:
                 # niciun dreptunghi plauzibil sub plafon: populam walls/doors din seed-ul central
                 # (DOAR daca nu e over-merge, ca sa nu lasam pereti inselatori)
@@ -362,12 +373,21 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         out.append(rec)
 
     # ── REGULA 2 — fara suprapuneri intre camere (un dreptunghi nu poate fi doua camere) ──
-    # Rezolvare greedy: cat timp exista o pereche cu overlap > OVERLAP_REJECT, demoteaza
-    # perdantul (fit mai prost fata de clusterul ~1.38; tie-break: mai putine seed-uri).
+    # Rezolvare greedy: cat timp exista o pereche cu overlap > OVERLAP_REJECT, demoteaza perdantul.
+    # DEZAMBIGUARE PE POZITIE (primar): cand 2 camere concureaza pe acelasi dreptunghi, cea al carei
+    # rect e cel mai DEPARTE de propriul centru bbox e cea care a EVADAT in vecina -> pierde. Astfel
+    # fiecare camera pastreaza dreptunghiul de langa ea (Dressing<->Hol central, in locuri diferite).
+    # Tie-break secundar: fit pe aspect-ratio (~1.38); tertiar: mai putine seed-uri.
     def _fit(rec):
+        rect = rec.get("_rect"); bbc = rec.get("_bbc")
+        if rect and bbc:
+            rcx = (rect[0] + rect[1]) / 2.0; rcy = (rect[2] + rect[3]) / 2.0
+            dist = math.hypot(rcx - bbc[0], rcy - bbc[1])
+        else:
+            dist = 1e9
         ratio = rec.get("_ratio")
         base = abs(ratio - CLUSTER_RATIO) if ratio is not None else 1.0
-        return (base, -rec.get("_support", 0))   # mai mare = mai prost
+        return (dist, base, -rec.get("_support", 0))   # mai mare = mai prost (a evadat mai departe)
 
     changed = True
     while changed:
@@ -391,7 +411,7 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 break
 
     for r in out:   # curatam cheile temporare
-        r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None)
+        r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None); r.pop("_bbc", None)
 
     return out
 
