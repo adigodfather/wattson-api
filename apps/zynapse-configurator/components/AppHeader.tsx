@@ -62,7 +62,7 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
         }
         .zh-cta:hover { filter: brightness(1.08); }
         .zh-cta:focus-visible { outline: 2px solid rgba(91,184,245,0.6); outline-offset: 2px; }
-        .zh-name { font-size: 13.5px; color: #8B8FA8; white-space: nowrap; overflow: hidden;
+        .zh-name { display: none; font-size: 13.5px; color: #8B8FA8; white-space: nowrap; overflow: hidden;
           text-overflow: ellipsis; max-width: 150px; }
         .zh-coins {
           display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 9px;
@@ -77,6 +77,16 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
         }
         .zh-logout:hover { background: rgba(226,75,74,0.18); color: #FFC4C4; border-color: rgba(226,75,74,0.45); }
         .zh-logout:focus-visible { outline: 2px solid rgba(226,75,74,0.6); outline-offset: 1px; }
+        .zh-logout-top { display: none; }
+        .zh-menu-sep { height: 1px; margin: 6px 8px; background: rgba(255,255,255,0.08); }
+        .zh-menu-user { padding: 4px 14px 2px; font-size: 12px; color: #545870;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .zh-menu-logout {
+          margin: 2px 6px; padding: 9px 14px; border-radius: 7px; text-align: left; width: calc(100% - 12px);
+          font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+          color: #F09595; background: rgba(226,75,74,0.10); border: 1px solid rgba(226,75,74,0.28);
+        }
+        .zh-menu-logout:hover { background: rgba(226,75,74,0.18); color: #FFC4C4; }
         .zh-burger { position: relative; flex-shrink: 0; }
         .zh-burger > summary {
           list-style: none; cursor: pointer; width: 36px; height: 36px; display: flex;
@@ -98,6 +108,8 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
           .zh-beta { display: inline-flex; }
           .zh-nav { display: flex; }
           .zh-burger { display: none; }
+          .zh-name { display: inline; }
+          .zh-logout-top { display: inline-flex; }
         }
         @media (prefers-reduced-motion: reduce) {
           .zh-link, .zh-logout { transition: none; }
@@ -135,6 +147,13 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
                 {l.label}
               </Link>
             ))}
+            {user && (
+              <>
+                <div className="zh-menu-sep" />
+                <span className="zh-menu-user">{profile?.full_name || user.email}</span>
+                <button onClick={signOut} className="zh-menu-logout">Deconectare</button>
+              </>
+            )}
           </div>
         </details>
       </div>
@@ -150,7 +169,7 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
               {loading || !profile ? "—" : (profile.credits_balance ?? 0).toLocaleString("ro-RO")}
               <span className="hidden sm:inline">&nbsp;Z-Coins</span>
             </span>
-            <button onClick={signOut} className="zh-logout">Deconectare</button>
+            <button onClick={signOut} className="zh-logout zh-logout-top">Deconectare</button>
           </>
         )}
       </div>

@@ -454,7 +454,7 @@ function EquipmentCards({
 /* ─── Panou drept (b): cip de procesare finală (status === "loading") ─── */
 function CipProcesare() {
   return (
-    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch px-6 md:pl-[12%]">
+    <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch px-6">
       <div className="w-full" style={{ maxWidth: 680 }}>
         <svg viewBox="-50 -50 420 320" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
           <defs>
@@ -1412,7 +1412,7 @@ export function ZynapseConfigurator() {
       <div className="p-4 md:p-8 mx-auto max-w-[1280px] grid grid-cols-1 md:grid-cols-[420px_1fr] gap-6 items-start">
 
         {/* ── Form panel ── */}
-        <div className="rounded-2xl p-6 md:sticky md:top-[73px] md:max-h-[calc(100vh-97px)] md:overflow-y-auto"
+        <div className="rounded-2xl p-6 md:sticky md:top-[58px] md:max-h-[calc(100vh-82px)] md:overflow-y-auto"
           style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
 
           <div className="mb-5">
