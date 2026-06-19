@@ -4,22 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 
-function ZLogo() {
-  return (
-    <svg width="36" height="36" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="zgrp" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#378ADD" />
-          <stop offset="100%" stopColor="#1D9E75" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="8" fill="url(#zgrp)" />
-      <text x="16" y="23" textAnchor="middle" fontFamily="'DM Sans', system-ui, sans-serif"
-        fontSize="20" fontWeight="700" fill="white" letterSpacing="-1">Z</text>
-    </svg>
-  );
-}
-
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +30,32 @@ export default function ResetPasswordPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+      <style>{`
+        .zy-input { transition: border-color 0.15s; }
+        .zy-input:focus { border-color: rgba(55,138,221,0.4) !important; outline: none; }
+        .zy-input::placeholder { color: #555; }
+        .zy-input:-webkit-autofill,
+        .zy-input:-webkit-autofill:hover,
+        .zy-input:-webkit-autofill:focus {
+          -webkit-box-shadow: 0 0 0 100px #0d0f12 inset;
+          -webkit-text-fill-color: #E2E4E9;
+          caret-color: #E2E4E9;
+        }
+      `}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 40, justifyContent: "center" }}>
-          <ZLogo />
-          <span style={{ fontSize: 20, fontWeight: 700, color: "#E2E4E9", letterSpacing: "-0.5px", fontFamily: "'DM Sans', sans-serif" }}>Zynapse</span>
-        </div>
+        <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 44, justifyContent: "center", textDecoration: "none", maxWidth: "100%" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-icon.png" alt="Zynapse" width={200} height={200} style={{
+            objectFit: "contain", maxWidth: "62%", height: "auto",
+            filter: "brightness(2.2) drop-shadow(0 0 30px rgba(91,184,245,0.5)) drop-shadow(0 0 56px rgba(55,138,221,0.25))",
+          }} />
+          <span style={{
+            fontSize: "clamp(32px, 11vw, 56px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",
+            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
+            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+            filter: "drop-shadow(0 0 14px rgba(91,184,245,0.45))",
+          }}>ZYNAPSE</span>
+        </Link>
 
         <div style={{
           background: "rgba(255,255,255,0.025)",
@@ -86,11 +91,12 @@ export default function ResetPasswordPage() {
                     EMAIL
                   </label>
                   <input
+                    className="zy-input"
                     type="email" value={email} onChange={e => setEmail(e.target.value)}
                     placeholder="adresa@email.com" required autoComplete="email"
                     style={{
                       width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
-                      background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
                       color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
                     }} />
                 </div>
@@ -111,6 +117,7 @@ export default function ResetPasswordPage() {
                   background: loading ? "rgba(255,255,255,0.06)" : "linear-gradient(135deg, #378ADD, #1D9E75)",
                   color: loading ? "#545870" : "#fff",
                   fontFamily: "'DM Sans', sans-serif",
+                  transition: "opacity 0.15s",
                   opacity: loading ? 0.7 : 1,
                 }}>
                   {loading ? "Se trimite..." : "Trimite link de resetare"}
