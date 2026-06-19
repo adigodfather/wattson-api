@@ -1,31 +1,58 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 
-export default function ResetPasswordPage() {
-  const [email, setEmail] = useState("");
+const LABEL = { display: "block", fontSize: 12, fontWeight: 600, color: "#8B8FA8", marginBottom: 6, letterSpacing: "0.05em", fontFamily: "'DM Sans', sans-serif" } as const;
+const INPUT = {
+  width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
+  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+  color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
+} as const;
+
+export default function UpdatePasswordPage() {
+  // null = inca verificam sesiunea; true/false = are/nu are sesiune de recovery
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  // La intrarea din link, /auth/callback a facut deja exchangeCodeForSession -> sesiune in cookie.
+  // Verificam ca exista un user (sesiune de recovery valida). Daca nu -> link expirat/invalid.
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setHasSession(!!user);
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (password.length < 6) {
+      setError("Parola trebuie să aibă minim 6 caractere.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Cele două parole nu coincid.");
+      return;
+    }
+
     setLoading(true);
-
     const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "https://www.zynapse.org/auth/callback?next=/update-password",
-    });
-
+    const { error } = await supabase.auth.updateUser({ password });
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      setDone(true);
+      return;
     }
+    // parola schimbata -> deconectam sesiunea de recovery, ca userul sa intre curat cu parola noua
+    await supabase.auth.signOut();
+    setDone(true);
   };
 
   return (
@@ -64,41 +91,73 @@ export default function ResetPasswordPage() {
           padding: "32px 28px",
         }}>
           {done ? (
+            // ── SUCCES ──
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 36, marginBottom: 16 }}>📨</div>
+              <div style={{ fontSize: 36, marginBottom: 16 }}>✅</div>
               <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 700, color: "#E2E4E9", fontFamily: "'DM Sans', sans-serif" }}>
-                Link trimis
+                Parolă schimbată
               </h2>
               <p style={{ margin: "0 0 24px", fontSize: 14, color: "#8B8FA8", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>
-                Link-ul de resetare a fost trimis la <strong style={{ color: "#E2E4E9" }}>{email}</strong>.
+                Parola a fost actualizată. Te poți autentifica cu noua parolă.
               </p>
-              <Link href="/login" style={{ fontSize: 13, color: "#5BB8F5", textDecoration: "none", fontFamily: "'DM Sans', sans-serif" }}>
-                ← Înapoi la login
+              <Link href="/login" style={{
+                display: "inline-block", padding: "12px 24px", borderRadius: 12, fontSize: 14, fontWeight: 600,
+                background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff", textDecoration: "none",
+                fontFamily: "'DM Sans', sans-serif",
+              }}>
+                Mergi la login
+              </Link>
+            </div>
+          ) : hasSession === null ? (
+            // ── VERIFICARE SESIUNE ──
+            <p style={{ textAlign: "center", margin: 0, fontSize: 14, color: "#8B8FA8", fontFamily: "'DM Sans', sans-serif" }}>
+              Se verifică link-ul...
+            </p>
+          ) : !hasSession ? (
+            // ── LINK EXPIRAT / INVALID ──
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 16 }}>⚠️</div>
+              <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 700, color: "#E2E4E9", fontFamily: "'DM Sans', sans-serif" }}>
+                Link expirat sau invalid
+              </h2>
+              <p style={{ margin: "0 0 24px", fontSize: 14, color: "#8B8FA8", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>
+                Link-ul de resetare a expirat sau a fost deja folosit. Cere unul nou.
+              </p>
+              <Link href="/reset-password" style={{
+                display: "inline-block", padding: "12px 24px", borderRadius: 12, fontSize: 14, fontWeight: 600,
+                background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff", textDecoration: "none",
+                fontFamily: "'DM Sans', sans-serif",
+              }}>
+                Cere link nou
               </Link>
             </div>
           ) : (
+            // ── FORMULAR PAROLĂ NOUĂ ──
             <>
               <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 700, color: "#E2E4E9", fontFamily: "'DM Sans', sans-serif" }}>
-                Resetează parola
+                Setează o parolă nouă
               </h1>
               <p style={{ margin: "0 0 28px", fontSize: 13, color: "#545870", fontFamily: "'DM Sans', sans-serif" }}>
-                Trimitem un link de resetare pe email-ul tău
+                Alege o parolă pe care nu ai mai folosit-o
               </p>
 
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#8B8FA8", marginBottom: 6, letterSpacing: "0.05em", fontFamily: "'DM Sans', sans-serif" }}>
-                    EMAIL
-                  </label>
+                  <label style={LABEL}>PAROLĂ NOUĂ</label>
                   <input
                     className="zy-input"
-                    type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="adresa@email.com" required autoComplete="email"
-                    style={{
-                      width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
-                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-                      color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
-                    }} />
+                    type="password" value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••" required autoComplete="new-password" minLength={6}
+                    style={INPUT} />
+                </div>
+
+                <div>
+                  <label style={LABEL}>CONFIRMĂ PAROLA</label>
+                  <input
+                    className="zy-input"
+                    type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+                    placeholder="••••••••" required autoComplete="new-password" minLength={6}
+                    style={INPUT} />
                 </div>
 
                 {error && (
@@ -120,7 +179,7 @@ export default function ResetPasswordPage() {
                   transition: "opacity 0.15s",
                   opacity: loading ? 0.7 : 1,
                 }}>
-                  {loading ? "Se trimite..." : "Trimite link de resetare"}
+                  {loading ? "Se salvează..." : "Schimbă parola"}
                 </button>
               </form>
 
