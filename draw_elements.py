@@ -148,6 +148,41 @@ def _wall_coord_near(target, span_lo, span_hi, segs, kind, tol=30.0):
     return best
 
 
+def _wall_dist(px, py, h_segs, v_segs):
+    """Distanta minima de la (px,py) la o linie de perete care il acopera pe axa relevanta."""
+    d = 1e9
+    for (x0, x1, y) in h_segs:
+        if min(x0, x1) - 4 <= px <= max(x0, x1) + 4:
+            d = min(d, abs(y - py))
+    for (y0, y1, x) in v_segs:
+        if min(y0, y1) - 4 <= py <= max(y0, y1) + 4:
+            d = min(d, abs(x - px))
+    return d
+
+
+def _nudge_offwall_long(px, py, horizontal, lo, hi, h_segs, v_segs, tol=16.0, step=12.0):
+    """Plasa de siguranta pentru becul de hol: daca punctul cade pe/langa un perete (sau o partitie
+    transversala pe axa lunga), il aluneca de-a lungul axei LUNGI in [lo,hi] pana la primul punct la
+    >tol de orice perete. Pastreaza coordonata perpendiculara (mijlocul holului). Intoarce cel mai bun
+    punct (max distanta) daca niciunul nu atinge tol. -> (x, y)."""
+    if _wall_dist(px, py, h_segs, v_segs) >= tol:
+        return px, py
+    best = (px, py); bestd = _wall_dist(px, py, h_segs, v_segs)
+    k = 1
+    while k * step <= (hi - lo):
+        cands = ((px + k*step, py), (px - k*step, py)) if horizontal else ((px, py + k*step), (px, py - k*step))
+        for (qx, qy) in cands:
+            q = qx if horizontal else qy
+            if lo <= q <= hi:
+                dd = _wall_dist(qx, qy, h_segs, v_segs)
+                if dd > bestd:
+                    bestd, best = dd, (qx, qy)
+                if dd >= tol:
+                    return qx, qy
+        k += 1
+    return best
+
+
 def _dedup_centers(centers, boxes, W, H, D=DEDUP_D):
     """Elimină becuri DUPLICATE între camere DIFERITE (bbox-uri Vision suprapuse) sub D px.
     Candidat la eliminare = bec NON-geometric (becurile geometrice pe pereți reali NU se ating),
@@ -326,32 +361,40 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
                 centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
                 centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
         else:
-            # R2 — HOL (bbox alungit, fallback, cu pereți): 1/2 becuri pe lungime, centrate între
-            # cei 2 pereți paraleli. DOAR dacă ambii pereți se găsesc clar; altfel conservator (1 bec).
+            # R2 — HOL alungit (bbox aspect>2, fallback): 1 bec in MIJLOCUL holului, garantat off-wall.
+            # Axa SCURTA (perp) = mijloc intre cei 2 pereti lungi; daca DOAR UNUL se gaseste -> mijloc
+            # intre el si marginea bbox (holul deschis pe o latura, ex. Hol central spre living). Axa
+            # LUNGA = centru, apoi NUDGE off-wall daca o partitie transversala cade acolo. Astfel becul
+            # nu cade pe perete nici pe zid transversal. 1 bec (consistent cu count-ul pe aria cartus).
             hall_done = False
-            if (not used_geometric) and h_segs is not None:
+            if (not used_geometric) and h_segs is not None and v_segs is not None:
                 bx, by, bw, bh = x * W, y * H, w * W, h * H
                 if max(bw, bh) / max(min(bw, bh), 1.0) > HALL_ASPECT:
-                    if bw >= bh:   # hol orizontal -> pereți sus/jos (H), becuri pe axa X
+                    horizontal = bw >= bh
+                    if horizontal:   # hol orizontal -> pereti lungi sus/jos (H), bec pe axa X
                         c1 = _wall_coord_near(by, bx, bx + bw, h_segs, "H")
                         c2 = _wall_coord_near(by + bh, bx, bx + bw, h_segs, "H")
-                        if c1 is not None and c2 is not None:
-                            perp = (c1 + c2) / 2.0
-                            xs = ([bx + bw/3.0, bx + 2*bw/3.0] if bw * _PX_TO_M > HALL_2BULB_M
-                                  else [bx + bw/2.0])
-                            for px in xs:
-                                centers.append({"x": px, "y": perp, "label": label, "room": idx, "geometric": False, "protected": False})
-                            hall_done = True
-                    else:          # hol vertical -> pereți stânga/dreapta (V), becuri pe axa Y
+                        lo_e, hi_e = by, by + bh
+                        lo_l, hi_l = bx, bx + bw
+                    else:            # hol vertical -> pereti lungi stanga/dreapta (V), bec pe axa Y
                         c1 = _wall_coord_near(bx, by, by + bh, v_segs, "V")
                         c2 = _wall_coord_near(bx + bw, by, by + bh, v_segs, "V")
-                        if c1 is not None and c2 is not None:
-                            perp = (c1 + c2) / 2.0
-                            ys = ([by + bh/3.0, by + 2*bh/3.0] if bh * _PX_TO_M > HALL_2BULB_M
-                                  else [by + bh/2.0])
-                            for py in ys:
-                                centers.append({"x": perp, "y": py, "label": label, "room": idx, "geometric": False, "protected": False})
-                            hall_done = True
+                        lo_e, hi_e = bx, bx + bw
+                        lo_l, hi_l = by, by + bh
+                    if c1 is not None and c2 is not None:
+                        perp = (c1 + c2) / 2.0
+                    elif c1 is not None:
+                        perp = (c1 + hi_e) / 2.0
+                    elif c2 is not None:
+                        perp = (lo_e + c2) / 2.0
+                    else:
+                        perp = None
+                    if perp is not None:   # macar un perete lung gasit -> hol plauzibil
+                        lp = (lo_l + hi_l) / 2.0
+                        px0, py0 = (lp, perp) if horizontal else (perp, lp)
+                        px1, py1 = _nudge_offwall_long(px0, py0, horizontal, lo_l, hi_l, h_segs, v_segs)
+                        centers.append({"x": px1, "y": py1, "label": label, "room": idx, "geometric": False, "protected": False})
+                        hall_done = True
             if not hall_done:
                 # 1 bec la ANCORĂ (centroid geometric SAU centrul regiunii clipate — deja în interior).
                 centers.append({"x": cxc, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": used_geometric})
