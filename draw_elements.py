@@ -311,16 +311,11 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             cxc, cyc = _clip_region(x * W, y * H, w * W, h * H, h_segs, v_segs)
             rooms_fallback += 1
 
-        # FIX 2 — nr. becuri pe ARIA GEOMETRICĂ (determinist) unde există poligon; altfel aria Vision.
-        # Elimină șovăiala count-ului din aria Vision variabilă (living 24 vs 26mp).
-        area_count = area
-        if used_geometric and g and g.get("area_geometric_m2"):
-            try:
-                area_count = float(g["area_geometric_m2"])
-            except (TypeError, ValueError):
-                pass
-
-        if area_count >= ROOM_LARGE_M2:
+        # COUNT (1 vs 2 becuri) pe ARIA DIN CARTUȘ (area_m2, citită din textul bilanțului):
+        # ~0% variație între generări ȘI exactă (= aria reală). NU pe aria GEOMETRICĂ — poligonul
+        # poate over-merge (ex. Camera de zi geom 49.7 vs cartuș 35.75 -> ar putea umfla gresit count-ul).
+        # `area` = area_m2 cartuș când există; fallback la aria bbox doar dacă lipsește din cartuș.
+        if area >= ROOM_LARGE_M2:
             # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc). PROTEJATE (coverage intentionat).
             if w * W >= h * H:
                 dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
