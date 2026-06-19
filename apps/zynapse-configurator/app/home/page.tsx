@@ -2,9 +2,9 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
 import { CalculatorPanel } from "@/components/CreditCalculator";
 import { startCheckout } from "@/lib/payment/startCheckout";
@@ -56,9 +56,8 @@ function CoinPile({ count }: { count: number }) {
 }
 
 export default function HomePage() {
-  const { user, profile, loading } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
-  const balance = profile?.credits_balance ?? 0;
 
   // Pachetele citite din DB (credit_packages), sortate după sort_order.
   const [packages, setPackages] = useState<DbPackage[] | null>(null);
@@ -96,68 +95,7 @@ export default function HomePage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E", color: "#E2E4E9", fontFamily: "'DM Sans', system-ui, sans-serif", overflowX: "hidden", maxWidth: "100%" }}>
-      {/* ── Header ── */}
-      <header style={{
-        position: "sticky", top: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "space-between",
-        gap: 12, padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)",
-        background: "rgba(10,11,14,0.85)", backdropFilter: "blur(16px)",
-      }}>
-        <Link href="/home" aria-label="Zynapse — acasă" style={{ display: "flex", alignItems: "center", gap: 9, textDecoration: "none", flexShrink: 0 }}>
-          <img src="/logo-icon.png" alt="" width={32} height={32} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
-          <span style={{
-            fontSize: 20, fontWeight: 700, letterSpacing: 1.5, lineHeight: 1,
-            background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
-            WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-            filter: "drop-shadow(0 0 8px rgba(91,184,245,0.4))",
-          }}>ZYNAPSE</span>
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span title="Z-Coins disponibile" style={{
-            display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9,
-            fontSize: 14, fontWeight: 600, color: "#E2E4E9",
-            background: "rgba(55,138,221,0.08)", border: "1px solid rgba(55,138,221,0.2)",
-          }}>
-            <img src="/z-coin.svg" alt="" width={20} height={20} style={{ display: "block" }} />
-            {loading || !profile ? "—" : balance.toLocaleString("ro-RO")}
-            <span className="zc-bal-word" style={{ color: "#8B8FA8", fontWeight: 500 }}>&nbsp;Z-Coins</span>
-          </span>
-
-          {/* Nav desktop */}
-          <nav className="home-nav-desktop">
-            <Link href="/projects" style={{ fontSize: 13.5, color: "#8B8FA8", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>Proiectele mele</Link>
-            <Link href="/settings" style={{ fontSize: 13.5, color: "#8B8FA8", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>Setări firmă</Link>
-            {profile?.is_admin && (
-              <Link href="/admin" style={{ fontSize: 13.5, color: "#5BB8F5", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap" }}>Admin</Link>
-            )}
-            <Link href="/configurator" style={{
-              fontSize: 14, fontWeight: 600, color: "#fff", textDecoration: "none",
-              padding: "8px 16px", borderRadius: 8, whiteSpace: "nowrap",
-              background: "linear-gradient(135deg, #378ADD, #5BB8F5)",
-            }}>Configurator</Link>
-          </nav>
-
-          {/* Nav mobil — hamburger CSS-only (<details>) */}
-          <details className="home-nav-mobile" style={{ position: "relative" }}>
-            <summary style={{
-              listStyle: "none", cursor: "pointer", width: 38, height: 38, display: "flex",
-              alignItems: "center", justifyContent: "center", borderRadius: 9, fontSize: 18,
-              color: "#8B8FA8", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-            }}>☰</summary>
-            <div style={{
-              position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60,
-              display: "flex", flexDirection: "column", minWidth: 184, padding: 6, borderRadius: 12,
-              background: "#14161C", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-            }}>
-              <Link href="/configurator" style={{ padding: "9px 14px", fontSize: 13.5, fontWeight: 600, color: "#5BB8F5", textDecoration: "none", borderRadius: 7 }}>Configurator</Link>
-              <Link href="/projects" style={{ padding: "9px 14px", fontSize: 13.5, color: "#C8CAD6", textDecoration: "none", borderRadius: 7 }}>Proiectele mele</Link>
-              <Link href="/settings" style={{ padding: "9px 14px", fontSize: 13.5, color: "#C8CAD6", textDecoration: "none", borderRadius: 7 }}>Setări firmă</Link>
-              {profile?.is_admin && (
-                <Link href="/admin" style={{ padding: "9px 14px", fontSize: 13.5, fontWeight: 600, color: "#5BB8F5", textDecoration: "none", borderRadius: 7 }}>Admin</Link>
-              )}
-            </div>
-          </details>
-        </div>
-      </header>
+      <AppHeader />
 
       {/* ── Calculator ── */}
       <section style={{ position: "relative", zIndex: 1, maxWidth: 1100, margin: "0 auto", padding: "44px 18px 20px" }}>

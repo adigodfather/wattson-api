@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/components/auth-provider";
-import { ZLogo, ProjectResultPanel } from "@/components/result-sections";
+import { ProjectResultPanel } from "@/components/result-sections";
+import AppHeader from "@/components/AppHeader";
 import type { ProjectResult } from "@/lib/constants";
 
 interface ProjectRow {
@@ -26,7 +27,7 @@ function formatDate(iso: string): string {
 export default function ProjectDetailPage() {
   const params = useParams();
   const id = params.id as string;
-  const { user, profile, signOut } = useAuth();
+  const { user } = useAuth();
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -62,40 +63,7 @@ export default function ProjectDetailPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E" }}>
 
-      {/* Header */}
-      <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
-        style={{ background: "rgba(10,11,14,0.88)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
-        <div className="flex items-center gap-4">
-          <Link href="/configurator" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
-            <ZLogo size={32} gradientId="zg-detail" />
-            <span className="text-[17px] font-bold tracking-tight" style={{ color: "#E2E4E9" }}>Zynapse</span>
-          </Link>
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-          <Link href="/projects"
-            className="text-sm font-medium transition-colors duration-150"
-            style={{ color: "#8B8FA8", textDecoration: "none" }}
-            onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-            onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
-            ← Proiectele mele
-          </Link>
-        </div>
-        <div className="flex items-center gap-3">
-          {user && (
-            <>
-              <span className="text-sm hidden sm:block" style={{ color: "#8B8FA8" }}>
-                {profile?.full_name || user.email}
-              </span>
-              <button onClick={signOut}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium font-[inherit] cursor-pointer"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
-                Deconectare
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader />
 
       {/* Content */}
       <div style={{ maxWidth: 1024, margin: "0 auto", padding: "40px 32px" }}>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase'
+import AppHeader from '@/components/AppHeader'
 
 type Profile = {
   firma_nume: string
@@ -217,32 +218,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen" style={{ background: '#0A0B0E' }}>
-      {/* Header — matches configurator header style */}
-      <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
-        style={{
-          background: 'rgba(10,11,14,0.88)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-        }}>
-        <div className="flex items-center gap-4">
-          <a href="/configurator" className="flex items-center gap-3" style={{ textDecoration: 'none' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Zynapse" width={30} height={30}
-              style={{ objectFit: 'contain', filter: 'brightness(2.2) drop-shadow(0 0 4px rgba(55,138,221,0.3))' }} />
-            <span className="text-[17px] font-bold tracking-tight" style={{ color: '#E2E4E9' }}>Zynapse</span>
-          </a>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-          <a href="/projects" style={{ color: '#8B8FA8', textDecoration: 'none', fontSize: 14 }}>Proiectele mele</a>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-          <span style={{ color: '#E2E4E9', fontSize: 14, fontWeight: 500 }}>Setări firmă</span>
-        </div>
-        <a href="/configurator"
-          className="px-3 py-1.5 rounded-lg text-sm font-medium"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#8B8FA8', textDecoration: 'none' }}>
-          ← Înapoi la configurator
-        </a>
-      </header>
+      <AppHeader />
 
       <div className="max-w-3xl mx-auto px-6 py-10">
         <header className="mb-8">

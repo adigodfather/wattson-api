@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/components/auth-provider";
+import AppHeader from "@/components/AppHeader";
 import { isPhasePT } from "@/lib/constants";
 
 interface ProjectRow {
@@ -39,7 +40,7 @@ function formatDate(iso: string): string {
 }
 
 export default function ProjectsPage() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   // cost in Z-Coins per project.id (din tranzactia 'generation'); lipsa = proiect pre-A5
@@ -86,47 +87,7 @@ export default function ProjectsPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E" }}>
 
-      {/* Header */}
-      <header className="px-8 py-4 flex justify-between items-center sticky top-0 z-50"
-        style={{ background: "rgba(10,11,14,0.88)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
-        <div className="flex items-center gap-4">
-          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Zynapse" width={34} height={34}
-              style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
-            <span style={{
-              fontSize: 21, fontWeight: 700, letterSpacing: 2, lineHeight: 1,
-              background: "linear-gradient(90deg, #5BB8F5, #CDEBFF, #378ADD)",
-              WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-              backgroundSize: "200% 100%", filter: "drop-shadow(0 0 10px rgba(91,184,245,0.4))",
-            }}>ZYNAPSE</span>
-          </Link>
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-          <Link href="/configurator"
-            className="text-sm font-medium transition-colors duration-150"
-            style={{ color: "#8B8FA8", textDecoration: "none" }}
-            onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-            onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
-            Configurator
-          </Link>
-        </div>
-        <div className="flex items-center gap-3">
-          {user && (
-            <>
-              <span className="text-sm hidden sm:block" style={{ color: "#8B8FA8" }}>
-                {profile?.full_name || user.email}
-              </span>
-              <button onClick={signOut}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium font-[inherit] cursor-pointer"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
-                Deconectare
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader />
 
       {/* Content */}
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "40px 32px" }}>

@@ -5,10 +5,10 @@
 // Emailurile apar DOAR in top 10, randate server-side (NU in URL/query/loguri).
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createServerClient } from "@/lib/supabase";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 import { isPhasePT } from "@/lib/constants";
+import AppHeader from "@/components/AppHeader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";   // mereu proaspat, niciodata cache static
@@ -79,17 +79,14 @@ export default async function AdminPage() {
     }));
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 md:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
+    <>
+      <AppHeader />
+      <main className="min-h-screen bg-slate-50 px-4 py-8 md:px-8">
+        <div className="mx-auto max-w-6xl">
+          <header className="mb-6">
             <h1 className="text-2xl font-bold text-slate-900">Dashboard Admin</h1>
             <p className="text-sm text-slate-500">Vizibilitate business Zynapse — acces restrictionat.</p>
-          </div>
-          <Link href="/home" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
-            &larr; Acasa
-          </Link>
-        </header>
+          </header>
 
         {/* ZONA 1 — cifre globale */}
         <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -140,8 +137,9 @@ export default async function AdminPage() {
             </table>
           )}
         </section>
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }
 

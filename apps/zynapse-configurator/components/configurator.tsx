@@ -10,6 +10,7 @@ import {
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
+import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
 import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
@@ -901,7 +902,7 @@ function CarouselFlux() {
 /* ─── Main configurator ─── */
 export function ZynapseConfigurator() {
   const router = useRouter();
-  const { user, profile, loading: authLoading, signOut, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [status, setStatus] = useState("idle");
@@ -1405,107 +1406,7 @@ export function ZynapseConfigurator() {
       />
 
       {/* ── Header ── */}
-      <header className="px-4 md:px-8 py-4 flex justify-between items-center gap-2 sticky top-0 z-50"
-        style={{
-          background: "rgba(10,11,14,0.88)",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-        }}>
-        <div className="flex items-center gap-3 md:gap-4 min-w-0">
-          <div className="flex items-center gap-3 shrink-0">
-            <Link href="/home" aria-label="Zynapse — acasă" className="flex items-center gap-2 shrink-0" style={{ textDecoration: "none" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo-icon.png" alt="" width={30} height={30} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 5px rgba(91,184,245,0.4))" }} />
-              <span className="text-[19px] font-bold tracking-wide" style={{
-                background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
-                WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
-                filter: "drop-shadow(0 0 8px rgba(91,184,245,0.4))",
-              }}>ZYNAPSE</span>
-            </Link>
-            <span className="hidden sm:inline-flex text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded-md"
-              style={{ background: "rgba(55,138,221,0.12)", color: "#5BB8F5", border: "1px solid rgba(55,138,221,0.2)" }}>
-              Beta
-            </span>
-          </div>
-
-          {/* Desktop nav links */}
-          <div className="hidden md:flex items-center gap-4">
-            <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-            <Link href="/home"
-              className="text-sm font-medium transition-colors duration-150"
-              style={{ color: "#8B8FA8", textDecoration: "none" }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
-              Home
-            </Link>
-            <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-            <Link href="/projects"
-              className="text-sm font-medium transition-colors duration-150"
-              style={{ color: "#8B8FA8", textDecoration: "none" }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
-              Proiectele mele
-            </Link>
-            <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
-            <Link href="/settings"
-              className="text-sm font-medium transition-colors duration-150"
-              style={{ color: "#8B8FA8", textDecoration: "none" }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#E2E4E9")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#8B8FA8")}>
-              Setări firmă
-            </Link>
-          </div>
-
-          {/* Mobile hamburger — CSS-only (<details>), fara state */}
-          <details className="md:hidden relative shrink-0">
-            <summary className="list-none cursor-pointer w-9 h-9 flex items-center justify-center rounded-lg text-base select-none"
-              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}>
-              ☰
-            </summary>
-            <div className="absolute left-0 top-full mt-2 z-50 flex flex-col py-1 rounded-lg min-w-[170px]"
-              style={{ background: "#14161C", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 28px rgba(0,0,0,0.5)" }}>
-              <Link href="/home" className="px-4 py-2.5 text-sm font-medium" style={{ color: "#5BB8F5", textDecoration: "none" }}>
-                Home
-              </Link>
-              <Link href="/projects" className="px-4 py-2.5 text-sm font-medium" style={{ color: "#C8CAD6", textDecoration: "none" }}>
-                Proiectele mele
-              </Link>
-              <Link href="/settings" className="px-4 py-2.5 text-sm font-medium" style={{ color: "#C8CAD6", textDecoration: "none" }}>
-                Setări firmă
-              </Link>
-            </div>
-          </details>
-        </div>
-
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <span className="hidden sm:inline-flex"><StatusBadge status={status} /></span>
-          {user && (
-            <>
-              <span className="text-sm truncate min-w-0 max-w-[140px] sm:max-w-none" style={{ color: "#8B8FA8" }}>
-                {profile?.full_name || user.email}
-              </span>
-              <span
-                className="text-sm flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg font-medium shrink-0"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}
-                title="Z-Coins disponibile">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/z-coin.svg" alt="" width={18} height={18} style={{ display: "block" }} />
-                {authLoading || !profile
-                  ? <>—<span className="hidden sm:inline"> Z-Coins</span></>
-                  : <>{profile.credits_balance ?? 0}<span className="hidden sm:inline"> Z-Coins</span></>}
-              </span>
-              <button onClick={signOut}
-                className="px-2.5 md:px-3 py-1.5 rounded-lg text-sm font-medium font-[inherit] cursor-pointer transition-colors duration-150 shrink-0"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#8B8FA8" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
-                Deconectare
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader rightExtra={<span className="hidden sm:inline-flex"><StatusBadge status={status} /></span>} />
 
       {/* ── Layout ── */}
       <div className="p-4 md:p-8 mx-auto max-w-[1280px] grid grid-cols-1 md:grid-cols-[420px_1fr] gap-6 items-start">
