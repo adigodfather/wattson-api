@@ -1389,6 +1389,14 @@ export function ZynapseConfigurator() {
         </div>
       )}
 
+      {/* ── Generare proiect: ACELASI overlay full-screen ca Vision — cipul centrat pe tot ecranul,
+            NU lateral langa chenar. ── */}
+      {isLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+          <CipProcesare />
+        </div>
+      )}
+
       {/* ── Vision cartuș: modal confirmare → la confirm rulează backend-ul ── */}
       <CartusConfirmModal
         isOpen={showCartusModal}
@@ -2016,8 +2024,6 @@ export function ZynapseConfigurator() {
             )}
 
           </div>
-        ) : isLoading ? (
-          <CipProcesare />
         ) : (
           <CarouselFlux />
         )}

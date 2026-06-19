@@ -2751,10 +2751,11 @@ def _draw_schema_page(cv, panel_name, panel_desc, plansa_nr,
     # Row 0: highlighted project title (full width)
     cv.setFillColor(HexColor("#EFF6FF"))
     cv.rect(TX + s(2.5), TY_ + s(2.5), TW - s(5), rh_t - s(2.5), fill=1, stroke=0)
-    cv.setFont("Helvetica-Bold", max(5.0, FS_CART + 0.5)); cv.setFillColor(CBUSBAR)
-    cv.drawCentredString(TX + TW / 2,
-                         TY_ + rh_t / 2 - (FS_CART + 0.5) * 0.38,
-                         (pi.get("titlu_proiect") or "SCHEMA MONOFILARA")[:60])
+    # Titlu pe MAI MULTE LINII in interiorul chenarului (acelasi wrap ca Beneficiar/Amplasament,
+    # via tbl_cell), nu o singura linie care iese afara la titluri lungi (ex. casa LASAK).
+    tbl_cell(TX + s(2.5), TY_ + s(2.5), TW - s(5), rh_t - s(2.5),
+             (pi.get("titlu_proiect") or "SCHEMA MONOFILARA"),
+             max(5.0, FS_CART + 0.5), 'c', bold=True, col=CBUSBAR)
 
     trow("Beneficiar:", (pi.get("beneficiar") or "")[:40], "", 1)
     trow("Amplasament:", (pi.get("amplasament") or "")[:40], "", 2)
