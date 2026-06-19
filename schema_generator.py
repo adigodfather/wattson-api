@@ -1236,13 +1236,17 @@ def draw_cartouche(c, width_mm: float, request: SchemaRequest,
               width=0.3, color=HexColor('#999999'))
     cy += 6
 
-    draw_text(c, center_x + 3, cy, "Beneficiar:", size=8)
-    draw_text(c, center_x + 28, cy, proiect.beneficiar or "-", font=FONT_BOLD, size=8)
-    cy += 5
-
-    # Polish: amplasament + titlu cu text wrap (max 2 randuri) in loc de trunchiere [:60]
+    # val_x / val_max_chars: folosite de Beneficiar + Amplasament + Titlu (wrap pe max 2 randuri,
+    # ca textul lung sa ramana IN celula, nu sa iasa peste in coloana Plansa).
     val_x = center_x + 28
     val_max_chars = max(18, int((center_w - 30) / 1.5))  # ~1.5mm per char la size 8
+
+    draw_text(c, center_x + 3, cy, "Beneficiar:", size=8)
+    for j, line in enumerate(wrap_text(proiect.beneficiar or "-", max_chars=val_max_chars, max_lines=2)):
+        draw_text(c, val_x, cy + j * 4, line, font=FONT_BOLD, size=8)
+        if j > 0:
+            cy += 4
+    cy += 5
 
     draw_text(c, center_x + 3, cy, "Amplasament:", size=8)
     for j, line in enumerate(wrap_text(proiect.amplasament or "-", max_chars=val_max_chars, max_lines=2)):
