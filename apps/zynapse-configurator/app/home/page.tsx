@@ -126,6 +126,9 @@ export default function HomePage() {
           <nav className="home-nav-desktop">
             <Link href="/projects" style={{ fontSize: 13.5, color: "#8B8FA8", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>Proiectele mele</Link>
             <Link href="/settings" style={{ fontSize: 13.5, color: "#8B8FA8", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>Setări firmă</Link>
+            {profile?.is_admin && (
+              <Link href="/admin" style={{ fontSize: 13.5, color: "#5BB8F5", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap" }}>Admin</Link>
+            )}
             <Link href="/configurator" style={{
               fontSize: 14, fontWeight: 600, color: "#fff", textDecoration: "none",
               padding: "8px 16px", borderRadius: 8, whiteSpace: "nowrap",
@@ -148,6 +151,9 @@ export default function HomePage() {
               <Link href="/configurator" style={{ padding: "9px 14px", fontSize: 13.5, fontWeight: 600, color: "#5BB8F5", textDecoration: "none", borderRadius: 7 }}>Configurator</Link>
               <Link href="/projects" style={{ padding: "9px 14px", fontSize: 13.5, color: "#C8CAD6", textDecoration: "none", borderRadius: 7 }}>Proiectele mele</Link>
               <Link href="/settings" style={{ padding: "9px 14px", fontSize: 13.5, color: "#C8CAD6", textDecoration: "none", borderRadius: 7 }}>Setări firmă</Link>
+              {profile?.is_admin && (
+                <Link href="/admin" style={{ padding: "9px 14px", fontSize: 13.5, fontWeight: 600, color: "#5BB8F5", textDecoration: "none", borderRadius: 7 }}>Admin</Link>
+              )}
             </div>
           </details>
         </div>
