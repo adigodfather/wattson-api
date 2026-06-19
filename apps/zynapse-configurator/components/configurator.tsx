@@ -455,8 +455,8 @@ function EquipmentCards({
 function CipProcesare() {
   return (
     <div className="flex flex-col items-center justify-center text-center min-h-[70vh] md:min-h-[640px] md:self-stretch px-6">
-      <div className="w-full" style={{ maxWidth: 680 }}>
-        <svg viewBox="-50 -50 420 320" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto">
+      <div className="w-full" style={{ maxWidth: "min(1150px, 94vw)" }}>
+        <svg viewBox="-50 -50 420 320" preserveAspectRatio="xMidYMid meet" fill="none" aria-hidden="true" className="block w-full h-auto" style={{ maxHeight: "62vh" }}>
           <defs>
             <filter id="zcGlow" x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="2.2" result="b" />
@@ -552,8 +552,8 @@ function CipProcesare() {
           </g>
         </svg>
       </div>
-      <h3 className="text-[19px] font-semibold m-0 mt-6" style={{ color: "#8B8FA8" }}>Se generează proiectul…</h3>
-      <p className="text-[14px] m-0 mt-2" style={{ color: "#3A3D50" }}>Calculăm circuitele și pregătim planșele</p>
+      <h3 className="text-[22px] md:text-[28px] font-semibold m-0 mt-6" style={{ color: "#8B8FA8" }}>Se generează proiectul…</h3>
+      <p className="text-[14px] md:text-[16px] m-0 mt-2" style={{ color: "#3A3D50" }}>Calculăm circuitele și pregătim planșele</p>
     </div>
   );
 }
