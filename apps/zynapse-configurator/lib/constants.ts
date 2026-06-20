@@ -237,6 +237,7 @@ export interface ProjectResult {
       png_width_px?: number; png_height_px?: number;
     } | null;
     centers?: Array<{ x: number; y: number; label?: string }>;
+    switches?: Array<{ x: number; y: number; angle?: number; room?: number | null }>;
   }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n

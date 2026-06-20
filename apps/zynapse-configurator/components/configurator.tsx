@@ -1309,6 +1309,22 @@ export function ZynapseConfigurator() {
                     rotation: 0,
                   });
                 }
+                for (const sw of (plansa.switches || [])) {
+                  planElements.push({
+                    project_id: projectUuid,
+                    floor,
+                    element_type: "intrerupator_simplu",
+                    plan_type: "iluminat",          // întrerupătoarele apar DOAR pe planșa de iluminat
+                    label: null,
+                    // sw.room e un INDEX într-o listă filtrată pe etaj din backend (NU mapabil sigur
+                    // la nume din data.rooms — ordine/filtrare diferite) -> null; se atribuie în editor.
+                    room: null,
+                    x: sw.x,
+                    y: sw.y,
+                    wall_mounted: true,             // întrerupătoarele sunt pe perete
+                    rotation: sw.angle || 0,
+                  });
+                }
               }
               if (planElements.length > 0) {
                 const { error: peError } = await supabase.from("plan_elements").insert(planElements);
