@@ -216,7 +216,12 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         hlines = _aggregate(h_segs)
         vlines = _aggregate(v_segs)
         have_geom = bool(h_segs or v_segs)
+        doc.close()   # RAM: documentul nu mai e folosit dupa extragerea peretilor/usilor
     except Exception as e:  # pragma: no cover - plan invalid
+        try:
+            doc.close()
+        except Exception:
+            pass
         h_segs, v_segs, doors = [], [], []
         have_geom = False
         for r in (vision_rooms or []):

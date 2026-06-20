@@ -1,4 +1,5 @@
 import base64
+import gc
 import math
 import re
 import fitz  # PyMuPDF
@@ -653,17 +654,19 @@ def draw_plan_elements(data: dict) -> dict:
         png_base64 = None
         png_meta = None
         try:
-            _png_scale = 150 / 72.0
+            _png_dpi = 120                      # 120 DPI (redus de la 150) -> ~36% mai putin RAM/PNG
+            _png_scale = _png_dpi / 72.0        # scale DINAMIC -> png_meta.scale; consumatorii citesc de aici
             _pix = page.get_pixmap(matrix=fitz.Matrix(_png_scale, _png_scale))
             png_base64 = base64.b64encode(_pix.tobytes("png")).decode("utf-8")
             png_meta = {
-                "dpi": 150,
-                "scale": _png_scale,            # factor puncte-PDF -> pixeli-PNG
+                "dpi": _png_dpi,
+                "scale": _png_scale,            # factor puncte-PDF -> pixeli-PNG (= dpi/72)
                 "pdf_width_pt": W,
                 "pdf_height_pt": H,
                 "png_width_px": _pix.width,
                 "png_height_px": _pix.height,
             }
+            _pix = None                          # elibereaza pixmap-ul (raw ~mare) imediat dupa base64
         except Exception:
             png_base64 = None
             png_meta = None
@@ -739,3 +742,11 @@ def draw_plan_elements(data: dict) -> dict:
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+    finally:
+        # RAM: inchide documentul PyMuPDF pe ORICE cale (succes/early-return/exceptie) + colecteaza.
+        # NU schimba raspunsul (out/png_base64 sunt deja extrase ca bytes/str inainte de finally).
+        try:
+            doc.close()
+        except Exception:
+            pass
+        gc.collect()
