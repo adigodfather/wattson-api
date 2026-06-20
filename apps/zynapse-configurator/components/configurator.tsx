@@ -1300,6 +1300,7 @@ export function ZynapseConfigurator() {
                     project_id: projectUuid,
                     floor,
                     element_type: "aplica_tavan",   // default — bec generic; inginerul schimbă în editor
+                    plan_type: "iluminat",          // becurile apar DOAR pe planșa de iluminat
                     label: null,
                     room: c.label || null,
                     x: c.x,
