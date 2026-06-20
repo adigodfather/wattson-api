@@ -1283,6 +1283,42 @@ export function ZynapseConfigurator() {
           }
           const { error: rpcError } = await supabase.rpc("increment_projects_used");
           if (rpcError) console.error("[save project] increment error:", rpcError);
+
+          // ADITIV + NON-BLOCANT: populează plan_elements (becuri) pentru editorul interactiv.
+          // RLS permite owner-ului autenticat INSERT (plan_elements_insert_own). ORICE eroare aici
+          // NU afectează proiectul/planul (deja salvate + afișate) — doar log. Proiect nou la fiecare
+          // generare (uuid nou) -> fără duplicate. Faza DTAC (fără planse_iluminat/centers) -> 0 elemente.
+          try {
+            const projectUuid = inserted?.id;
+            if (projectUuid) {
+              const planElements: Array<Record<string, unknown>> = [];
+              for (const plansa of (data.planse_iluminat || [])) {
+                const tag = `${plansa?.name || ""} ${plansa?.type || ""} ${plansa?.source_plansa_nr || ""}`.toLowerCase();
+                const floor = tag.includes("mansard") ? "mansarda" : tag.includes("etaj") ? "etaj1" : "parter";
+                for (const c of (plansa.centers || [])) {
+                  planElements.push({
+                    project_id: projectUuid,
+                    floor,
+                    element_type: "aplica_tavan",   // default — bec generic; inginerul schimbă în editor
+                    label: null,
+                    room: c.label || null,
+                    x: c.x,
+                    y: c.y,
+                    wall_mounted: false,
+                    rotation: 0,
+                  });
+                }
+              }
+              if (planElements.length > 0) {
+                const { error: peError } = await supabase.from("plan_elements").insert(planElements);
+                if (peError) console.error("[plan_elements] insert failed:", peError);
+                else console.log(`[plan_elements] inserted ${planElements.length} elements`);
+              }
+            }
+          } catch (e) {
+            console.error("[plan_elements] insert exception:", e);
+          }
+
           await refreshProfile();   // re-fetch -> soldul nou apare imediat in UI
           setSaveMessage(msg);
         }

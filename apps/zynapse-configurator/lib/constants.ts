@@ -229,6 +229,14 @@ export interface ProjectResult {
     source_plansa_nr?: string;
     rooms_found?: number;
     elements_drawn?: number;
+    // ADITIV (editor interactiv): forwardate din /draw-plan-elements prin n8n
+    png_base64?: string | null;
+    png_meta?: {
+      dpi?: number; scale?: number;
+      pdf_width_pt?: number; pdf_height_pt?: number;
+      png_width_px?: number; png_height_px?: number;
+    } | null;
+    centers?: Array<{ x: number; y: number; label?: string }>;
   }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
