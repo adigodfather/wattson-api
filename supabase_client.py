@@ -258,3 +258,38 @@ def log_action(
         }).execute()
     except Exception:
         pass
+
+
+# ── Plan elements (editor interactiv) ──────────────────────────────────────────
+
+def save_plan_elements(project_id: str, elements: list) -> int:
+    """Persista elementele de plan (becuri + intrerupatoare) in tabelul plan_elements.
+    OPTIONAL + NON-BLOCANT: client lipsa / project_id gol / lista goala / orice eroare -> return 0,
+    fara a propaga exception (la fel ca save_project_file/log_action).
+    IDEMPOTENT: sterge intai elementele existente pt. (project_id, floor) -> re-generarea INLOCUIESTE,
+    nu dubleaza. Stergerea e limitata STRICT la project_id + floor-urile din batch.
+    Returneaza nr. de elemente inserate (0 daca s-a sarit/esuat)."""
+    sb = _sb()
+    if sb is None:
+        logger.warning("[save_plan_elements] Supabase client not initialised — skip")
+        return 0
+    if not project_id or not elements:
+        return 0
+
+    # IDEMPOTENTA: sterge doar (project_id, floor) prezente in acest batch (de obicei un singur floor)
+    floors = {str(e.get("floor") or "parter") for e in elements}
+    try:
+        for fl in floors:
+            sb.table("plan_elements").delete().eq("project_id", project_id).eq("floor", fl).execute()
+    except Exception as e:
+        logger.error("[save_plan_elements] delete (idempotency) error: %s", e)
+        # continuam: chiar daca delete esueaza, incercam insert (nu blocam)
+
+    try:
+        result = sb.table("plan_elements").insert(elements).execute()
+        n = len(result.data or [])
+        logger.info("[save_plan_elements] inserted %d elements for project %s", n, project_id)
+        return n
+    except Exception as e:
+        logger.error("[save_plan_elements] insert error: %s", e)
+        return 0

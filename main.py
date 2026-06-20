@@ -3229,6 +3229,8 @@ class DrawPlanElementsRequest(BaseModel):
     plan_type: str = "iluminat"  # deocamdată doar iluminat (becuri)
     rooms: Optional[list] = None  # camere cu bbox Vision (fracții 0-1); lipsă -> fallback regex
     apply_geometry: bool = False  # True DOAR pe faza PT (din n8n) -> centroid geometric din pereți
+    project_id: str = ""          # uuid Supabase (din save_project) -> persistă elementele în plan_elements (OPȚIONAL)
+    floor: str = "parter"         # eticheta etaj pt. plan_elements (idempotență per project_id+floor)
 
 
 @app.post("/draw-plan-elements")

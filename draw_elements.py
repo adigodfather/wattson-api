@@ -653,6 +653,39 @@ def draw_plan_elements(data: dict) -> dict:
 
         # rooms_found = nr. camere (o cameră poate avea 2 becuri); elements_drawn = becuri.
         rooms_found = len({c.get("room") for c in centers}) if source == "vision_bbox" else len(centers)
+
+        # ADITIV (editor interactiv): persistă becuri + întrerupătoare în Supabase plan_elements.
+        # OPȚIONAL + NON-BLOCANT: project_id gol / Supabase indisponibil / ORICE eroare -> se sare,
+        # planul se generează NORMAL (pdf_base64/png_base64/centers neafectate). Idempotent în
+        # save_plan_elements (DELETE project_id+floor, apoi INSERT) -> re-generarea înlocuiește.
+        _project_uuid = (data.get("project_id") or "").strip()
+        if _project_uuid:
+            try:
+                from supabase_client import save_plan_elements
+                _floor = str(data.get("floor") or "parter")
+                _elements = []
+                for c in centers:
+                    _elements.append({
+                        "project_id": _project_uuid, "floor": _floor,
+                        "element_type": "aplica_tavan",   # default — becuri generice; inginerul schimbă în editor
+                        "label": None, "room": c.get("label"),
+                        "x": round(c["x"], 1), "y": round(c["y"], 1),
+                        "wall_mounted": False, "rotation": 0,
+                        "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
+                    })
+                for s in switches:
+                    _elements.append({
+                        "project_id": _project_uuid, "floor": _floor,
+                        "element_type": "intrerupator_simplu",
+                        "label": None, "room": None,
+                        "x": round(s["x"], 1), "y": round(s["y"], 1),
+                        "wall_mounted": True, "rotation": round(float(s.get("angle", 0)), 3),
+                        "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
+                    })
+                save_plan_elements(_project_uuid, _elements)
+            except Exception:
+                pass  # NON-BLOCANT: persistența eșuată NU strică generarea planului
+
         return {
             "success": True,
             "source": source,
