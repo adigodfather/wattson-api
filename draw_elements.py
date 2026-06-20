@@ -451,14 +451,31 @@ SWITCH_SNAP_TOL = 32.0   # cat de departe caut o linie de perete pe care sa lipe
 
 
 def _draw_switch(page, x, y, angle):
-    """Simbol întrerupător SR EN 60617: punct PLIN + tijă oblică CLAR vizibilă (maneta), spre cameră.
-    Tija pornește de la MARGINEA punctului (nu din centru) ca să se vadă integral; groasă (2px)."""
-    dx, dy = math.cos(angle), math.sin(angle)
-    c = fitz.Point(x, y)
-    start = fitz.Point(x + SWITCH_R * dx, y + SWITCH_R * dy)
-    end = fitz.Point(x + (SWITCH_R + SWITCH_STEM) * dx, y + (SWITCH_R + SWITCH_STEM) * dy)
-    page.draw_line(start, end, color=RED, width=2.0)              # maneta — vizibila
-    page.draw_circle(c, SWITCH_R, color=RED, fill=RED, width=0.8)  # punct plin peste capat
+    """Simbol întrerupător (Varianta B), de la PERETE spre INTERIORUL camerei:
+    cerc PLIN (bază, lipit de perete, la ancora x,y) -> linie -> cerc GOL (contur) -> linie ->
+    cârlig oblic (maneta). Orientat după `angle` (unghiul ușii): u=(cos,sin)=spre interior,
+    p=(-sin,cos)=perpendicular (pt. cârlig). Ancora (x,y) = centrul cercului plin (la perete)."""
+    ux, uy = math.cos(angle), math.sin(angle)      # direcția spre interiorul camerei
+    px, py = -uy, ux                               # perpendiculara (pentru cârlig)
+    R1 = 2.5            # cerc PLIN (bază, la perete)
+    L1 = 4.0           # linie: bază -> cerc gol
+    R2 = 4.0           # cerc GOL (contur)
+    L2 = 5.0           # linie: cerc gol -> cârlig
+    HK, HKA = 6.0, 0.7  # cârlig (maneta): lungime + unghi (~40°) față de u
+
+    def P(d):  # punct la distanța d pe axa u (spre interior), de la ancoră
+        return fitz.Point(x + d * ux, y + d * uy)
+
+    page.draw_circle(fitz.Point(x, y), R1, color=RED, fill=RED, width=0.8)  # cerc PLIN (la perete)
+    page.draw_line(P(R1), P(R1 + L1), color=RED, width=1.2)                 # linie -> cerc gol
+    oc = R1 + L1 + R2                                                       # centrul cercului gol
+    page.draw_circle(P(oc), R2, color=RED, width=1.2)                      # cerc GOL (contur)
+    base = oc + R2
+    page.draw_line(P(base), P(base + L2), color=RED, width=1.2)            # linie -> cârlig
+    hb = P(base + L2)                                                       # baza cârligului
+    he = fitz.Point(hb.x + HK * (ux * math.cos(HKA) + px * math.sin(HKA)),
+                    hb.y + HK * (uy * math.cos(HKA) + py * math.sin(HKA)))
+    page.draw_line(hb, he, color=RED, width=2.0)                           # cârlig oblic (maneta)
 
 
 def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
