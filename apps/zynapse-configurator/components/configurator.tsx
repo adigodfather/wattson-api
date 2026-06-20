@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +20,9 @@ import {
 import CartusConfirmModal, { type VisionSurfaces } from "./CartusConfirmModal";
 import MultiFileDropZone from "./MultiFileDropZone";
 import { CREDIT_PRICING } from "@/components/CreditCalculator";
+
+// Editor vizual (react-konva) — client-only (canvas/window). Lazy + ssr:false ca să nu pice next build.
+const PlanEditor = dynamic(() => import("./plan-editor"), { ssr: false });
 
 const WEBHOOK_URL = "/api/generate";
 
@@ -925,6 +929,7 @@ export function ZynapseConfigurator() {
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
+  const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
   const [pageFormat, setPageFormat] = useState<string>('');
   const [cartusProiectInput, setCartusProiectInput] = useState<CartusProiect>({
     beneficiar: '',
@@ -959,6 +964,8 @@ export function ZynapseConfigurator() {
 
   // Tab-urile Planșă + Materiale apar DOAR pe faza PT (DTAC+PT). isPhasePT robust la format.
   const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
+  // Editor vizual (PASUL 3.1): prima planșă de iluminat cu PNG -> fundal pt. overlay-ul plan_elements.
+  const editorPlansa = (result?.planse_iluminat || []).find(p => !!p.png_base64) || null;
   useEffect(() => {
     if (!showPlanBom && (activeTab === "plan" || activeTab === "bom")) setActiveTab("circuits");
   }, [showPlanBom, activeTab]);
@@ -1260,6 +1267,7 @@ export function ZynapseConfigurator() {
           console.error("[save project] insert error:", insertError);
           setSaveMessage("Proiectul a fost generat, dar salvarea în istoric a eșuat. Descarcă-l acum din rezultate.");
         } else {
+          setSavedProjectId(inserted?.id ?? null);   // pt. tab-ul Editor (citește plan_elements pe acest uuid)
           // HARD CONSUME — scade creditele real DOAR la succes, idempotent pe uuid-ul proiectului.
           // Costul se calculeaza SERVER-SIDE in functie din surface_mp + faza (clientul nu trimite cost).
           const consumeFaza = cartusOverride?.faza ?? cartusProiectInput.faza;
@@ -1829,8 +1837,13 @@ export function ZynapseConfigurator() {
                 { id: 'bom',      label: 'Materiale' },
                 { id: 'schemas',  label: 'Scheme' },
                 { id: 'plan',     label: 'Planșă' },
+                { id: 'editor',   label: 'Editor' },
                 { id: 'memoriu',  label: 'Memoriu' },
-              ].filter(tab => showPlanBom || (tab.id !== 'bom' && tab.id !== 'plan')).map(tab => (
+              ].filter(tab => {
+                if (tab.id === 'bom' || tab.id === 'plan') return showPlanBom;
+                if (tab.id === 'editor') return showPlanBom && !!editorPlansa && !!savedProjectId;  // PT + PNG + proiect salvat
+                return true;
+              }).map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                   className="flex-1 py-2 px-3 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer transition-all duration-150"
                   style={{
@@ -2023,6 +2036,15 @@ export function ZynapseConfigurator() {
                 ? <PlanPdfSection planse={planseSursa} />
                 : <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există planuri.</p>;
             })()}
+
+            {/* ── Tab: Editor vizual (PASUL 3.1, read-only) — PNG plan + overlay plan_elements ── */}
+            {activeTab === 'editor' && editorPlansa && savedProjectId && (
+              <PlanEditor
+                projectId={savedProjectId}
+                pngBase64={editorPlansa.png_base64}
+                pngMeta={editorPlansa.png_meta}
+              />
+            )}
 
             {/* ── Tab: Memoriu tehnic ── */}
             {activeTab === 'memoriu' && (
