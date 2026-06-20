@@ -628,6 +628,29 @@ def draw_plan_elements(data: dict) -> dict:
             _draw_switch(page, s["x"], s["y"], s["angle"])
 
         out = doc.tobytes(deflate=True)
+
+        # ADITIV (editor interactiv): versiune PNG a planului final, din ACELAȘI `page`
+        # (după ce becurile + întrerupătoarele sunt desenate -> pixel-identic cu PDF-ul),
+        # + metadate de mapare puncte-PDF -> pixeli-PNG (overlay aliniat).
+        # Defensiv: ORICE eroare la raster -> png None; NU afectează pdf_base64/centers.
+        png_base64 = None
+        png_meta = None
+        try:
+            _png_scale = 150 / 72.0
+            _pix = page.get_pixmap(matrix=fitz.Matrix(_png_scale, _png_scale))
+            png_base64 = base64.b64encode(_pix.tobytes("png")).decode("utf-8")
+            png_meta = {
+                "dpi": 150,
+                "scale": _png_scale,            # factor puncte-PDF -> pixeli-PNG
+                "pdf_width_pt": W,
+                "pdf_height_pt": H,
+                "png_width_px": _pix.width,
+                "png_height_px": _pix.height,
+            }
+        except Exception:
+            png_base64 = None
+            png_meta = None
+
         # rooms_found = nr. camere (o cameră poate avea 2 becuri); elements_drawn = becuri.
         rooms_found = len({c.get("room") for c in centers}) if source == "vision_bbox" else len(centers)
         return {
@@ -636,6 +659,8 @@ def draw_plan_elements(data: dict) -> dict:
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
             "filename": f"Plan_{data.get('plansa_nr','') or 'IE'}_iluminat.pdf",
             "size_bytes": len(out),
+            "png_base64": png_base64,
+            "png_meta": png_meta,
             "detected": {
                 "rooms_found": rooms_found,
                 "elements_drawn": len(centers),
