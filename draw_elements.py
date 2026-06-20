@@ -686,6 +686,14 @@ def draw_plan_elements(data: dict) -> dict:
             except Exception:
                 pass  # NON-BLOCANT: persistența eșuată NU strică generarea planului
 
+        # NUMELE camerei pentru întrerupător, din indexul intern (rboxes // rooms, aceeași ordine) —
+        # rezolvat AICI unde lista `rooms` e cea corectă (becurile fac la fel via .get("name")).
+        # Defensiv: index None / out-of-range -> None (niciodată crash, niciodată nume greșit).
+        def _switch_room_name(idx):
+            if isinstance(idx, int) and 0 <= idx < len(rooms or []):
+                return ((rooms or [])[idx] or {}).get("name") or None
+            return None
+
         return {
             "success": True,
             "source": source,
@@ -707,7 +715,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "switches": [{"x": round(s["x"], 1), "y": round(s["y"], 1),
                               "angle": round(float(s.get("angle", 0)), 3),
-                              "room": s.get("room")} for s in switches],
+                              "room": _switch_room_name(s.get("room"))} for s in switches],
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                              "label": c["label"][:40]} for c in centers],
             },

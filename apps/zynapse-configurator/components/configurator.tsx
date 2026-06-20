@@ -1316,9 +1316,8 @@ export function ZynapseConfigurator() {
                     element_type: "intrerupator_simplu",
                     plan_type: "iluminat",          // întrerupătoarele apar DOAR pe planșa de iluminat
                     label: null,
-                    // sw.room e un INDEX într-o listă filtrată pe etaj din backend (NU mapabil sigur
-                    // la nume din data.rooms — ordine/filtrare diferite) -> null; se atribuie în editor.
-                    room: null,
+                    // sw.room = NUMELE camerei, rezolvat în backend din index (sau null). Nu mai ghicim.
+                    room: sw.room || null,
                     x: sw.x,
                     y: sw.y,
                     wall_mounted: true,             // întrerupătoarele sunt pe perete
