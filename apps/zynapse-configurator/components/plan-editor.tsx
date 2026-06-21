@@ -34,7 +34,7 @@ type PlanElement = {
 const COL_BULB = "#1E63D6";
 const COL_SWITCH = "#D62828";
 const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selectat
-const DISPLAY_W_FALLBACK = 880;   // lățime inițială până măsurăm containerul
+const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -60,10 +60,20 @@ function elName(el: PlanElement): string {
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
 const inputStyle: CSSProperties = {
-  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "7px 9px", fontSize: 12,
-  color: "#E6E8F0", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)",
-  borderRadius: 6, outline: "none", fontFamily: "inherit",
+  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px", fontSize: 12.5,
+  color: "#E6E8F0", borderRadius: 7, outline: "none", fontFamily: "inherit",
 };
+
+// Stari de interactiune (focus/hover/placeholder). border+background traiesc aici (nu inline) ca
+// focus-ul accent sa poata suprascrie fara !important. Injectate o data in componenta.
+const FIELD_CSS = `
+.zy-ed-field { border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);
+  transition: border-color .15s ease, background-color .15s ease; }
+.zy-ed-field:hover:not(:focus):not(:disabled) { border-color: rgba(255,255,255,0.18); }
+.zy-ed-field:focus { border-color: #378ADD; background: rgba(55,138,221,0.08); }
+.zy-ed-field::placeholder { color: #5B6076; }
+.zy-ed-field:disabled { opacity: .85; cursor: default; }
+`;
 const panelStyle: CSSProperties = {
   boxSizing: "border-box", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)",
   background: "rgba(255,255,255,0.02)", padding: 12,
@@ -226,6 +236,7 @@ export default function PlanEditor({
         <label style={fieldLabel}>Nume</label>
         <input
           type="text"
+          className="zy-ed-field"
           placeholder="ex: B1"
           value={selected.label ?? ""}
           onChange={(e) => setLocalField(selected.id, { label: e.target.value === "" ? null : e.target.value })}
@@ -237,6 +248,7 @@ export default function PlanEditor({
         <label style={fieldLabel}>Tip</label>
         {typeOptions.length ? (
           <select
+            className="zy-ed-field"
             value={selected.element_type}
             onChange={(e) => {
               const v = e.target.value;
@@ -249,7 +261,7 @@ export default function PlanEditor({
           </select>
         ) : (
           // tip din afara categoriilor bec/întrerupător (nu apare în datele curente) -> read-only
-          <input type="text" value={selected.element_type} disabled style={{ ...inputStyle, color: "#8B8FA8" }} />
+          <input type="text" className="zy-ed-field" value={selected.element_type} disabled style={{ ...inputStyle, color: "#8B8FA8" }} />
         )}
 
         {/* Putere (power_w) — DOAR la becuri; gol -> null (coloană integer) */}
@@ -258,6 +270,7 @@ export default function PlanEditor({
             <label style={fieldLabel}>Putere (W)</label>
             <input
               type="number"
+              className="zy-ed-field"
               min={0}
               placeholder="ex: 9"
               value={selected.power_w ?? ""}
@@ -285,11 +298,19 @@ export default function PlanEditor({
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      <style>{FIELD_CSS}</style>
+
+      {/* antet editor — afordanță (ce poți face aici), pe toată lățimea, deasupra coloanelor */}
+      <div style={{ flexBasis: "100%", display: "flex", alignItems: "baseline", gap: 10, marginBottom: 2 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E4E9", letterSpacing: "-0.2px" }}>Editor plan</h3>
+        <span style={{ fontSize: 12, color: "#545870" }}>Trage elementele pentru a le repoziționa · click pentru a edita</span>
+      </div>
+
       {/* ── STÂNGA: panou editare + listă ── */}
-      <div style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ width: 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={panelStyle}>{renderEditPanel()}</div>
 
-        <div style={{ ...panelStyle, padding: 10, maxHeight: "56vh", overflowY: "auto" }}>
+        <div style={{ ...panelStyle, padding: 10, maxHeight: "calc(100vh - 250px)", overflowY: "auto" }}>
           <div className="px-1 mb-1" style={{ fontSize: 11, color: "#8B8FA8" }}>
             {loading ? "Se încarcă elementele…" : err ? `Eroare: ${err}` : `${elements.length} elemente`}
           </div>

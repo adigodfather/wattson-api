@@ -966,6 +966,8 @@ export function ZynapseConfigurator() {
   const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
   // Editor vizual (PASUL 3.1): prima planșă de iluminat cu PNG -> fundal pt. overlay-ul plan_elements.
   const editorPlansa = (result?.planse_iluminat || []).find(p => !!p.png_base64) || null;
+  // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
+  const editorFull = activeTab === "editor" && !!result;
   useEffect(() => {
     if (!showPlanBom && (activeTab === "plan" || activeTab === "bom")) setActiveTab("circuits");
   }, [showPlanBom, activeTab]);
@@ -1469,10 +1471,12 @@ export function ZynapseConfigurator() {
       <AppHeader rightExtra={<span className="hidden sm:inline-flex"><StatusBadge status={status} /></span>} />
 
       {/* ── Layout ── */}
-      <div className="p-4 md:p-8 mx-auto max-w-[1280px] grid grid-cols-1 md:grid-cols-[420px_1fr] gap-6 items-start">
+      {/* Tab Editor: o singură coloană pe toată lățimea (formularul se ascunde) ca planul să fie mare.
+          Restul taburilor: layout neschimbat (formular 420px stânga + rezultat 1fr dreapta). */}
+      <div className={`p-4 mx-auto grid grid-cols-1 gap-6 items-start ${editorFull ? "md:px-6 md:py-6 max-w-[1760px]" : "md:p-8 max-w-[1280px] md:grid-cols-[420px_1fr]"}`}>
 
-        {/* ── Form panel ── */}
-        <div className="rounded-2xl p-6 md:sticky md:top-[58px] md:max-h-[calc(100vh-82px)] md:overflow-y-auto"
+        {/* ── Form panel ── (ascuns în tab Editor: display:none, fără remount -> state-ul formularului rămâne) */}
+        <div className={`rounded-2xl p-6 md:sticky md:top-[58px] md:max-h-[calc(100vh-82px)] md:overflow-y-auto ${editorFull ? "hidden" : ""}`}
           style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
 
           <div className="mb-5">
