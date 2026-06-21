@@ -8,7 +8,7 @@
 // Remove = DELETE manual (cu confirm inline), fără paritate automată.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Stage, Layer, Image as KonvaImage, Circle, Rect, Text, Group } from "react-konva";
+import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Text, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 
@@ -29,6 +29,7 @@ type PlanElement = {
   rotation: number | null;
   plan_type: string | null;
   floor: string | null;
+  status: string | null;   // doar tablouri: 'nou' | 'existent' (altele null)
 };
 
 const COL_BULB = "#1E63D6";
@@ -37,7 +38,7 @@ const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selecta
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor";
+const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -53,14 +54,28 @@ const SWITCH_TYPES = [
   { value: "intrerupator_triplu",    label: "Întrerupător triplu" },
   { value: "intrerupator_cap_scara", label: "Întrerupător cap scară" },
 ];
+// Tablouri (panouri) — desenate distinct: dreptunghi împărțit diagonal în 2 culori + conector scurt.
+// colA = triunghi sus-dreapta, colB = triunghi jos-stânga. (Plasarea + selectorul nou/existent vin separat.)
+const PANEL_TYPES = [
+  { value: "tablou_teg",    label: "Tablou TEG",    short: "TEG",   colA: "#F0F0F0", colB: "#22C55E" },
+  { value: "tablou_te_ct",  label: "Tablou TE-CT",  short: "TE-CT", colA: "#EF4444", colB: "#3B82F6" },
+  { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#D1D5DB", colB: "#6B7280" },
+  { value: "transformator", label: "Transformator", short: "TR",    colA: "#D1D5DB", colB: "#6B7280" },
+];
+
 const BULB_SET = new Set(BULB_TYPES.map(o => o.value));
 const SWITCH_SET = new Set(SWITCH_TYPES.map(o => o.value));
+const PANEL_SET = new Set(PANEL_TYPES.map(o => o.value));
 const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
+const isPanelType = (t: string) => PANEL_SET.has(t);
+// culori + etichetă scurtă pt. simbolul de tablou
+const PANEL_INFO: Record<string, { short: string; colA: string; colB: string }> =
+  Object.fromEntries(PANEL_TYPES.map(o => [o.value, { short: o.short, colA: o.colA, colB: o.colB }]));
 
 // etichetă prietenoasă pt. tip (ex. aplica_tavan -> "Aplică tavan"); fallback la valoarea brută
 const TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  [...BULB_TYPES, ...SWITCH_TYPES].map(o => [o.value, o.label])
+  [...BULB_TYPES, ...SWITCH_TYPES, ...PANEL_TYPES].map(o => [o.value, o.label])
 );
 const typeLabel = (t: string) => TYPE_LABEL[t] || t;
 
@@ -293,8 +308,8 @@ export default function PlanEditor({
             {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         ) : (
-          // tip din afara categoriilor bec/întrerupător (nu apare în datele curente) -> read-only
-          <input type="text" className="zy-ed-field" value={selected.element_type} disabled style={{ ...inputStyle, color: "#8B8FA8" }} />
+          // tip din afara categoriilor bec/întrerupător (ex. tablou) -> read-only (etichetă prietenoasă)
+          <input type="text" className="zy-ed-field" value={typeLabel(selected.element_type)} disabled style={{ ...inputStyle, color: "#8B8FA8" }} />
         )}
 
         {/* Putere (power_w) — DOAR la becuri; gol -> null (coloană integer). Placeholder 25 = doar hint. */}
@@ -322,6 +337,20 @@ export default function PlanEditor({
           </>
         )}
 
+        {/* Stare (status) — DOAR la tablouri, read-only deocamdată (selectorul nou/existent vine separat) */}
+        {isPanelType(selected.element_type) && (
+          <>
+            <label style={fieldLabel}>Stare</label>
+            <input
+              type="text"
+              className="zy-ed-field"
+              disabled
+              value={selected.status === "nou" ? "Nou propus" : selected.status === "existent" ? "Existent" : "—"}
+              style={{ ...inputStyle, color: "#8B8FA8", marginBottom: 6 }}
+            />
+          </>
+        )}
+
         {selected.room && (
           <div style={{ fontSize: 11, color: "#8B8FA8", marginTop: 2 }}>Cameră: <span style={{ color: "#C5C8D6" }}>{selected.room}</span></div>
         )}
@@ -333,6 +362,8 @@ export default function PlanEditor({
   const renderElementRow = (el: PlanElement, indexSuffix: string) => {
     const isSel = selectedId === el.id;
     const isBulb = isBulbType(el.element_type);
+    const isPanel = isPanelType(el.element_type);
+    const pInfo = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
     const confirming = confirmDeleteId === el.id;
     return (
       <div
@@ -349,15 +380,19 @@ export default function PlanEditor({
           className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-90"
           style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
         >
-          <span
-            aria-hidden
-            style={{
+          {pInfo ? (
+            <span aria-hidden style={{
+              width: 11, height: 11, flexShrink: 0, borderRadius: 2, border: "1px solid #1F2433",
+              background: `linear-gradient(135deg, ${pInfo.colA} 0 50%, ${pInfo.colB} 50% 100%)`,
+            }} />
+          ) : (
+            <span aria-hidden style={{
               width: 10, height: 10, flexShrink: 0,
               borderRadius: isBulb ? "50%" : 2,
               border: `2px solid ${isBulb ? COL_BULB : COL_SWITCH}`,
               background: isBulb ? "rgba(30,99,214,0.25)" : "rgba(214,40,40,0.25)",
-            }}
-          />
+            }} />
+          )}
           <span style={{ fontSize: 12, color: isSel ? "#DCEBFB" : "#C5C8D6", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {typeLabel(el.element_type)}{indexSuffix}
           </span>
@@ -382,9 +417,10 @@ export default function PlanEditor({
     const list = byRoom.get(key) || [];
     const rbulbs = list.filter(e => isBulbType(e.element_type));
     const rsw = list.filter(e => isSwitchType(e.element_type));
-    const rother = list.filter(e => !isBulbType(e.element_type) && !isSwitchType(e.element_type));
+    const rpanels = list.filter(e => isPanelType(e.element_type));
+    const rother = list.filter(e => !isBulbType(e.element_type) && !isSwitchType(e.element_type) && !isPanelType(e.element_type));
     const open = expandedRooms.has(key);
-    const count = `${rbulbs.length} bec${rbulbs.length === 1 ? "" : "uri"} · ${rsw.length} întrer.`;
+    const count = `${rbulbs.length} bec${rbulbs.length === 1 ? "" : "uri"} · ${rsw.length} întrer.${rpanels.length ? ` · ${rpanels.length} tablou${rpanels.length === 1 ? "" : "ri"}` : ""}`;
     return (
       <div key={key} style={{ marginBottom: 5 }}>
         <button
@@ -402,6 +438,7 @@ export default function PlanEditor({
           <div className="zy-acc-body" style={{ padding: "5px 2px 7px" }}>
             {rbulbs.map((el, i) => renderElementRow(el, rbulbs.length > 1 ? ` #${i + 1}` : ""))}
             {rsw.map((el, i) => renderElementRow(el, rsw.length > 1 ? ` #${i + 1}` : ""))}
+            {rpanels.map((el, i) => renderElementRow(el, rpanels.length > 1 ? ` #${i + 1}` : ""))}
             {rother.map((el) => renderElementRow(el, ""))}
             <div className="flex gap-1.5 mt-2 pl-1">
               <button type="button" className="zy-add-btn" onClick={() => addElement(key, "bulb")}>+ Bec</button>
@@ -449,8 +486,10 @@ export default function PlanEditor({
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
+                  const isPanel = isPanelType(el.element_type);
                   const isSel = selectedId === el.id;
                   const col = isBulb ? COL_BULB : COL_SWITCH;
+                  const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   return (
                     // Group la (px,py); copiii relativi la origine -> e.target.x() = poziția absolută în Layer
                     <Group
@@ -468,11 +507,25 @@ export default function PlanEditor({
                       {/* contur de selecție (galben), nu fură evenimente */}
                       {isSel && (isBulb
                         ? <Circle x={0} y={0} radius={15} stroke={COL_SEL} strokeWidth={3} listening={false} />
-                        : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
-                      {isBulb
-                        ? <Circle x={0} y={0} radius={9} stroke={col} strokeWidth={2} fill="rgba(30,99,214,0.22)" />
-                        : <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />}
-                      {el.room && <Text x={11} y={-6} text={el.room} fontSize={11} fill={col} listening={false} />}
+                        : isPanel
+                          ? <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                          : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
+                      {panel ? (
+                        <>
+                          {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB) */}
+                          <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} listening={false} />
+                          <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} listening={false} />
+                          <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
+                          {/* conector vertical scurt deasupra */}
+                          <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
+                          {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
+                        </>
+                      ) : isBulb ? (
+                        <Circle x={0} y={0} radius={9} stroke={col} strokeWidth={2} fill="rgba(30,99,214,0.22)" />
+                      ) : (
+                        <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
+                      )}
+                      {el.room && !isPanel && <Text x={11} y={-6} text={el.room} fontSize={11} fill={col} listening={false} />}
                     </Group>
                   );
                 })}
