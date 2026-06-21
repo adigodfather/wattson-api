@@ -451,11 +451,15 @@ SWITCH_COL_CLEAR = 30.0  # distanta minima fata de un sambure (px)
 SWITCH_SNAP_TOL = 32.0   # cat de departe caut o linie de perete pe care sa lipesc
 
 
-def _draw_switch(page, x, y, angle):
+def _draw_switch(page, x, y, angle, element_type="intrerupator_simplu"):
     """Simbol întrerupător (Varianta B), de la PERETE spre INTERIORUL camerei:
-    cerc PLIN (bază, lipit de perete, la ancora x,y) -> linie -> cerc GOL (contur) -> linie ->
-    cârlig oblic (maneta). Orientat după `angle` (unghiul ușii): u=(cos,sin)=spre interior,
-    p=(-sin,cos)=perpendicular (pt. cârlig). Ancora (x,y) = centrul cercului plin (la perete)."""
+    cerc PLIN (bază, lipit de perete, la ancora x,y) -> linie -> cerc GOL (contur) -> linie -> cârlig(e).
+    BAZA (cerc plin + cerc gol + tijă) e IDENTICĂ pentru toate tipurile; diferă DOAR cârligele:
+      - intrerupator_simplu      -> 1 cârlig (oblic, +HKA);
+      - intrerupator_dublu       -> 2 cârlige din vârful tijei (+HKA și -HKA), "V";
+      - intrerupator_triplu      -> 3 cârlige din vârful tijei (+HKA, 0, -HKA);
+      - intrerupator_cap_scara   -> 2 cârlige PARALELE (aceeași înclinare), offset ±p -> aspect "scară".
+    Orientat după `angle`: u=(cos,sin)=spre interior, p=(-sin,cos)=perpendicular. Ancora (x,y)=cerc plin."""
     ux, uy = math.cos(angle), math.sin(angle)      # direcția spre interiorul camerei
     px, py = -uy, ux                               # perpendiculara (pentru cârlig)
     R1 = 2.5            # cerc PLIN (bază, la perete)
@@ -467,16 +471,32 @@ def _draw_switch(page, x, y, angle):
     def P(d):  # punct la distanța d pe axa u (spre interior), de la ancoră
         return fitz.Point(x + d * ux, y + d * uy)
 
+    def hook(start, theta):  # cârlig de lungime HK din `start`, pe u rotit cu theta în baza (u,p)
+        dx = ux * math.cos(theta) + px * math.sin(theta)
+        dy = uy * math.cos(theta) + py * math.sin(theta)
+        page.draw_line(start, fitz.Point(start.x + HK * dx, start.y + HK * dy), color=RED, width=2.0)
+
+    # BAZA (identică pentru toate tipurile)
     page.draw_circle(fitz.Point(x, y), R1, color=RED, fill=RED, width=0.8)  # cerc PLIN (la perete)
     page.draw_line(P(R1), P(R1 + L1), color=RED, width=1.2)                 # linie -> cerc gol
     oc = R1 + L1 + R2                                                       # centrul cercului gol
     page.draw_circle(P(oc), R2, color=RED, width=1.2)                      # cerc GOL (contur)
     base = oc + R2
-    page.draw_line(P(base), P(base + L2), color=RED, width=1.2)            # linie -> cârlig
-    hb = P(base + L2)                                                       # baza cârligului
-    he = fitz.Point(hb.x + HK * (ux * math.cos(HKA) + px * math.sin(HKA)),
-                    hb.y + HK * (uy * math.cos(HKA) + py * math.sin(HKA)))
-    page.draw_line(hb, he, color=RED, width=2.0)                           # cârlig oblic (maneta)
+    page.draw_line(P(base), P(base + L2), color=RED, width=1.2)            # tijă -> cârlig(e)
+    hb = P(base + L2)                                                       # vârful tijei (baza cârligelor)
+
+    # CÂRLIGE pe tip (simplul rămâne IDENTIC cu varianta anterioară: 1 cârlig la +HKA)
+    if element_type == "intrerupator_dublu":
+        hook(hb, +HKA); hook(hb, -HKA)
+    elif element_type == "intrerupator_triplu":
+        hook(hb, +HKA); hook(hb, 0.0); hook(hb, -HKA)
+    elif element_type == "intrerupator_cap_scara":
+        off = R2 * 0.7   # 2 cârlige PARALELE (aceeași înclinare), offset ±p -> distinct de "dublu"
+        a1 = fitz.Point(hb.x + off * px, hb.y + off * py)
+        a2 = fitz.Point(hb.x - off * px, hb.y - off * py)
+        hook(a1, +HKA); hook(a2, +HKA)
+    else:  # intrerupator_simplu (default) — NESCHIMBAT
+        hook(hb, +HKA)
 
 
 def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
@@ -682,7 +702,7 @@ def draw_plan_elements(data: dict) -> dict:
 
         # APARATAJ: desenează întrerupătoarele (după becuri, pe aceeași planșă)
         for s in switches:
-            _draw_switch(page, s["x"], s["y"], s["angle"])
+            _draw_switch(page, s["x"], s["y"], s["angle"], s.get("element_type", "intrerupator_simplu"))
 
         out = doc.tobytes(deflate=True)
 

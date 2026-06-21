@@ -49,6 +49,8 @@ const BULB_TYPES = [
 ];
 const SWITCH_TYPES = [
   { value: "intrerupator_simplu",    label: "Întrerupător simplu" },
+  { value: "intrerupator_dublu",     label: "Întrerupător dublu" },
+  { value: "intrerupator_triplu",    label: "Întrerupător triplu" },
   { value: "intrerupator_cap_scara", label: "Întrerupător cap scară" },
 ];
 const BULB_SET = new Set(BULB_TYPES.map(o => o.value));
