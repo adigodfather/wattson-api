@@ -1,11 +1,13 @@
 "use client";
 
-// Editor vizual plan — PASUL 3.3: panou-listă (stânga) + selectare bidirecțională (listă <-> plan).
-// Peste 3.1 (afișare PNG + overlay) și 3.2 (DRAG cu persistare poziție). READ-ONLY pe date.
+// Editor vizual plan — PASUL 3.4b: panou de EDITARE pentru elementul selectat (nume / tip / putere),
+// cu salvare în plan_elements. Peste 3.1 (PNG+overlay), 3.2 (DRAG cu persistare), 3.3/3.4a (listă + selecție).
 // Coordonate: afișare px = x_pdf * png_meta.scale (spațiul PNG, în Layer). Stage are scaleX/scaleY =
 // displayScale (PNG->ecran), transform SEPARAT. Salvare drag: x_pdf = e.target.x() / scale (invers exact).
+// Categorisarea (bec/întrerupător) e pe APARTENENȚĂ LA SET (nu egalitate) -> schimbarea subtipului
+// (ex. aplica_tavan -> lustra_led) păstrează elementul în aceeași secțiune + aceeași formă pe plan.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Text, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
@@ -29,18 +31,43 @@ type PlanElement = {
   floor: string | null;
 };
 
-const BULB = "aplica_tavan";
-const SWITCH = "intrerupator_simplu";
 const COL_BULB = "#1E63D6";
 const COL_SWITCH = "#D62828";
 const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selectat
-const ACCENT = "#378ADD";
 const DISPLAY_W_FALLBACK = 880;   // lățime inițială până măsurăm containerul
 
-// numele afișat în listă: label -> room -> fallback pe tip
+// Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
+const BULB_TYPES = [
+  { value: "lustra_led",    label: "Lustră LED" },
+  { value: "aplica_tavan",  label: "Aplică tavan" },
+  { value: "aplica_perete", label: "Aplică perete" },
+  { value: "aplica_senzor", label: "Aplică cu senzor" },
+  { value: "banda_led",     label: "Bandă LED" },
+];
+const SWITCH_TYPES = [
+  { value: "intrerupator_simplu",    label: "Întrerupător simplu" },
+  { value: "intrerupator_cap_scara", label: "Întrerupător cap scară" },
+];
+const BULB_SET = new Set(BULB_TYPES.map(o => o.value));
+const SWITCH_SET = new Set(SWITCH_TYPES.map(o => o.value));
+const isBulbType = (t: string) => BULB_SET.has(t);
+const isSwitchType = (t: string) => SWITCH_SET.has(t);
+
+// numele afișat în listă: label -> room -> fallback pe categorie
 function elName(el: PlanElement): string {
-  return el.label || el.room || (el.element_type === BULB ? "Bec" : el.element_type === SWITCH ? "Întrerupător" : "Element");
+  return el.label || el.room || (isBulbType(el.element_type) ? "Bec" : isSwitchType(el.element_type) ? "Întrerupător" : "Element");
 }
+
+const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
+const inputStyle: CSSProperties = {
+  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "7px 9px", fontSize: 12,
+  color: "#E6E8F0", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)",
+  borderRadius: 6, outline: "none", fontFamily: "inherit",
+};
+const panelStyle: CSSProperties = {
+  boxSizing: "border-box", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)",
+  background: "rgba(255,255,255,0.02)", padding: 12,
+};
 
 export default function PlanEditor({
   projectId, pngBase64, pngMeta,
@@ -53,7 +80,7 @@ export default function PlanEditor({
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
-  // client Supabase reutilizat (citire la mount + UPDATE la drag)
+  // client Supabase reutilizat (citire la mount + UPDATE la drag/editare)
   const supabase = useMemo(() => createClient(), []);
 
   // lățimea disponibilă pentru plan (coloana dreapta) -> planul umple spațiul rămas, responsiv
@@ -96,16 +123,23 @@ export default function PlanEditor({
     return () => { cancelled = true; };
   }, [projectId, supabase]);
 
+  // mută elementul în state imediat (optimist) — lista + planul reflectă schimbarea instant
+  function setLocalField(id: string, patch: Partial<PlanElement>) {
+    setElements(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  }
+  // persistă în plan_elements, NON-BLOCANT (eroarea doar se loghează)
+  function persist(id: string, patch: Partial<PlanElement>) {
+    supabase.from("plan_elements").update(patch).eq("id", id)
+      .then(({ error }) => { if (error) console.error("[plan_elements] UPDATE esuat", id, error.message); });
+  }
+
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
   // (spațiul PNG), iar Stage-scale (displayScale) e separat și NU intervine. Inversul exact al afișării.
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
     const xPdf = e.target.x() / scale;
     const yPdf = e.target.y() / scale;
-    // optimist: mută elementul în state imediat (controlled prop va fi px = xPdf*scale = poziția curentă -> fără salt)
-    setElements(prev => prev.map(p => (p.id === el.id ? { ...p, x: xPdf, y: yPdf } : p)));
-    // persistă NON-BLOCANT: eroarea doar se loghează, elementul rămâne mutat vizual
-    supabase.from("plan_elements").update({ x: xPdf, y: yPdf }).eq("id", el.id)
-      .then(({ error }) => { if (error) console.error("[plan_elements] UPDATE esuat", el.id, error.message); });
+    setLocalField(el.id, { x: xPdf, y: yPdf });
+    persist(el.id, { x: xPdf, y: yPdf });
   }
 
   // cursor "move" la hover peste element draggable
@@ -125,8 +159,9 @@ export default function PlanEditor({
   const stageW = Math.round(pngW * displayScale);
   const stageH = Math.round(pngH * displayScale);
 
-  const bulbs = elements.filter(e => e.element_type === BULB);
-  const switches = elements.filter(e => e.element_type === SWITCH);
+  const bulbs = elements.filter(e => isBulbType(e.element_type));
+  const switches = elements.filter(e => isSwitchType(e.element_type));
+  const selected = selectedId ? (elements.find(e => e.id === selectedId) ?? null) : null;
 
   // desenează selectatul ULTIMUL -> conturul lui (+ Group) e deasupra vecinilor
   const ordered = selectedId
@@ -136,7 +171,7 @@ export default function PlanEditor({
   // un rând din listă (click -> selectează; highlight când e selectat)
   const renderRow = (el: PlanElement) => {
     const isSel = selectedId === el.id;
-    const isBulb = el.element_type === BULB;
+    const isBulb = isBulbType(el.element_type);
     return (
       <button
         key={el.id}
@@ -173,27 +208,100 @@ export default function PlanEditor({
     </div>
   );
 
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
-      {/* ── STÂNGA: panou-listă ── */}
-      <div
-        style={{
-          width: 260, flexShrink: 0, boxSizing: "border-box",
-          borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)",
-          padding: 10, maxHeight: "72vh", overflowY: "auto",
-        }}
-      >
-        <div className="px-1 mb-1" style={{ fontSize: 11, color: "#8B8FA8" }}>
-          {loading ? "Se încarcă elementele…" : err ? `Eroare: ${err}` : `${elements.length} elemente · read-only`}
+  // ── panou de editare pentru elementul selectat ──
+  const renderEditPanel = () => {
+    if (!selected) {
+      return <div style={{ fontSize: 12, color: "#545870" }}>Selectează un element pentru a-l edita.</div>;
+    }
+    const isBulbSel = isBulbType(selected.element_type);
+    const isSwitchSel = isSwitchType(selected.element_type);
+    const typeOptions = isBulbSel ? BULB_TYPES : isSwitchSel ? SWITCH_TYPES : [];
+    return (
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#8B8FA8", marginBottom: 8 }}>
+          Editare element
         </div>
 
-        {sectionTitle("Becuri", bulbs.length)}
-        {bulbs.length ? bulbs.map(renderRow)
-          : <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>niciun bec</div>}
+        {/* Nume (label) */}
+        <label style={fieldLabel}>Nume</label>
+        <input
+          type="text"
+          placeholder="ex: B1"
+          value={selected.label ?? ""}
+          onChange={(e) => setLocalField(selected.id, { label: e.target.value === "" ? null : e.target.value })}
+          onBlur={(e) => persist(selected.id, { label: e.target.value === "" ? null : e.target.value })}
+          style={inputStyle}
+        />
 
-        {sectionTitle("Întrerupătoare", switches.length)}
-        {switches.length ? switches.map(renderRow)
-          : <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>niciun întrerupător</div>}
+        {/* Tip (element_type) — DOAR opțiuni din aceeași categorie; valoarea = exact valoarea din CHECK */}
+        <label style={fieldLabel}>Tip</label>
+        {typeOptions.length ? (
+          <select
+            value={selected.element_type}
+            onChange={(e) => {
+              const v = e.target.value;
+              setLocalField(selected.id, { element_type: v });
+              persist(selected.id, { element_type: v });   // schimbare deliberată -> salvează imediat
+            }}
+            style={inputStyle}
+          >
+            {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        ) : (
+          // tip din afara categoriilor bec/întrerupător (nu apare în datele curente) -> read-only
+          <input type="text" value={selected.element_type} disabled style={{ ...inputStyle, color: "#8B8FA8" }} />
+        )}
+
+        {/* Putere (power_w) — DOAR la becuri; gol -> null (coloană integer) */}
+        {isBulbSel && (
+          <>
+            <label style={fieldLabel}>Putere (W)</label>
+            <input
+              type="number"
+              min={0}
+              placeholder="ex: 9"
+              value={selected.power_w ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                setLocalField(selected.id, { power_w: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              onBlur={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                persist(selected.id, { power_w: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              style={inputStyle}
+            />
+          </>
+        )}
+
+        {selected.room && (
+          <div style={{ fontSize: 11, color: "#8B8FA8", marginTop: 2 }}>Cameră: <span style={{ color: "#C5C8D6" }}>{selected.room}</span></div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      {/* ── STÂNGA: panou editare + listă ── */}
+      <div style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={panelStyle}>{renderEditPanel()}</div>
+
+        <div style={{ ...panelStyle, padding: 10, maxHeight: "56vh", overflowY: "auto" }}>
+          <div className="px-1 mb-1" style={{ fontSize: 11, color: "#8B8FA8" }}>
+            {loading ? "Se încarcă elementele…" : err ? `Eroare: ${err}` : `${elements.length} elemente`}
+          </div>
+
+          {sectionTitle("Becuri", bulbs.length)}
+          {bulbs.length ? bulbs.map(renderRow)
+            : <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>niciun bec</div>}
+
+          {sectionTitle("Întrerupătoare", switches.length)}
+          {switches.length ? switches.map(renderRow)
+            : <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>niciun întrerupător</div>}
+        </div>
       </div>
 
       {/* ── DREAPTA: planul (Stage), umple spațiul rămas ── */}
@@ -206,7 +314,7 @@ export default function PlanEditor({
                 {ordered.map((el) => {
                   const px = el.x * scale;
                   const py = el.y * scale;
-                  const isBulb = el.element_type === BULB;
+                  const isBulb = isBulbType(el.element_type);
                   const isSel = selectedId === el.id;
                   const col = isBulb ? COL_BULB : COL_SWITCH;
                   return (
@@ -223,7 +331,7 @@ export default function PlanEditor({
                       onMouseEnter={(e) => setCursor(e, "move")}
                       onMouseLeave={(e) => setCursor(e, "default")}
                     >
-                      {/* contur de selecție (galben), desenat dedesubt */}
+                      {/* contur de selecție (galben), nu fură evenimente */}
                       {isSel && (isBulb
                         ? <Circle x={0} y={0} radius={15} stroke={COL_SEL} strokeWidth={3} listening={false} />
                         : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
