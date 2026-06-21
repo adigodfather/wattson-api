@@ -53,9 +53,9 @@ const SWITCH_SET = new Set(SWITCH_TYPES.map(o => o.value));
 const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
 
-// numele afișat în listă: label -> room -> fallback pe categorie
+// numele afișat în listă: room (camera) -> fallback pe categorie. (Câmpul Nume/label nu mai e editat.)
 function elName(el: PlanElement): string {
-  return el.label || el.room || (isBulbType(el.element_type) ? "Bec" : isSwitchType(el.element_type) ? "Întrerupător" : "Element");
+  return el.room || (isBulbType(el.element_type) ? "Bec" : isSwitchType(el.element_type) ? "Întrerupător" : "Element");
 }
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
@@ -232,18 +232,6 @@ export default function PlanEditor({
           Editare element
         </div>
 
-        {/* Nume (label) */}
-        <label style={fieldLabel}>Nume</label>
-        <input
-          type="text"
-          className="zy-ed-field"
-          placeholder="ex: B1"
-          value={selected.label ?? ""}
-          onChange={(e) => setLocalField(selected.id, { label: e.target.value === "" ? null : e.target.value })}
-          onBlur={(e) => persist(selected.id, { label: e.target.value === "" ? null : e.target.value })}
-          style={inputStyle}
-        />
-
         {/* Tip (element_type) — DOAR opțiuni din aceeași categorie; valoarea = exact valoarea din CHECK */}
         <label style={fieldLabel}>Tip</label>
         {typeOptions.length ? (
@@ -272,7 +260,7 @@ export default function PlanEditor({
               type="number"
               className="zy-ed-field"
               min={0}
-              placeholder="ex: 9"
+              placeholder="25"
               value={selected.power_w ?? ""}
               onChange={(e) => {
                 const raw = e.target.value;
