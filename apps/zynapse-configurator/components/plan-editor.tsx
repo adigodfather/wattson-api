@@ -1,10 +1,13 @@
 "use client";
 
-// Editor vizual plan — PASUL 3.1: READ-ONLY (doar afișare PNG + overlay elemente din plan_elements,
-// la coordonatele corecte). Validează maparea puncte-PDF -> pixeli-PNG. Fără drag/click/editare.
+// Editor vizual plan — PASUL 3.2: DRAG (mută becuri/întrerupătoare; salvează x,y în plan_elements).
+// Afișare: px = x_pdf * png_meta.scale (spațiul PNG, în Layer). Stage are scaleX/scaleY = displayScale
+// (PNG->ecran) ca transform SEPARAT -> Konva raportează e.target.x() în coordonate Layer, NU ecran.
+// Salvare: x_pdf = e.target.x() / scale = INVERSUL exact al afișării (round-trip simetric, fără displayScale).
 // react-konva e client-only (canvas/window) -> componenta e importată cu dynamic ssr:false în configurator.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Text, Group } from "react-konva";
+import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 
 type PngMeta = {
@@ -36,6 +39,8 @@ export default function PlanEditor({
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
+  // client Supabase reutilizat (citire la mount + UPDATE la drag)
+  const supabase = useMemo(() => createClient(), []);
 
   // încarcă PNG-ul ca HTMLImageElement (fundal Konva)
   useEffect(() => {
@@ -50,7 +55,6 @@ export default function PlanEditor({
   useEffect(() => {
     let cancelled = false;
     if (!projectId) { setLoading(false); return; }
-    const supabase = createClient();
     supabase
       .from("plan_elements")
       .select("id, element_type, room, x, y, rotation, plan_type, floor")
@@ -62,7 +66,25 @@ export default function PlanEditor({
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, supabase]);
+
+  // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
+  // (spațiul PNG), iar Stage-scale (displayScale) e separat și NU intervine. Inversul exact al afișării.
+  function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
+    const xPdf = e.target.x() / scale;
+    const yPdf = e.target.y() / scale;
+    // optimist: mută elementul în state imediat (controlled prop va fi px = xPdf*scale = poziția curentă -> fără salt)
+    setElements(prev => prev.map(p => (p.id === el.id ? { ...p, x: xPdf, y: yPdf } : p)));
+    // persistă NON-BLOCANT: eroarea doar se loghează, elementul rămâne mutat vizual
+    supabase.from("plan_elements").update({ x: xPdf, y: yPdf }).eq("id", el.id)
+      .then(({ error }) => { if (error) console.error("[plan_elements] UPDATE esuat", el.id, error.message); });
+  }
+
+  // cursor "move" la hover peste element draggable
+  function setCursor(e: KonvaEventObject<MouseEvent>, c: string) {
+    const stage = e.target.getStage();
+    if (stage) stage.container().style.cursor = c;
+  }
 
   if (!pngBase64) {
     return <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există imagine PNG a planului pentru editare.</p>;
@@ -98,11 +120,21 @@ export default function PlanEditor({
                 const isBulb = el.element_type === "aplica_tavan";
                 const col = isBulb ? "#1E63D6" : "#D62828";
                 return (
-                  <Group key={el.id} listening={false}>
+                  // Group poziționat la (px,py); copiii sunt relativi la origine -> e.target.x() = poziția absolută în Layer
+                  <Group
+                    key={el.id}
+                    x={px}
+                    y={py}
+                    draggable
+                    onDragStart={(e) => e.target.moveToTop()}
+                    onDragEnd={(e) => handleDragEnd(el, e)}
+                    onMouseEnter={(e) => setCursor(e, "move")}
+                    onMouseLeave={(e) => setCursor(e, "default")}
+                  >
                     {isBulb
-                      ? <Circle x={px} y={py} radius={9} stroke={col} strokeWidth={2} fill="rgba(30,99,214,0.22)" />
-                      : <Rect x={px - 7} y={py - 7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />}
-                    {el.room && <Text x={px + 11} y={py - 6} text={el.room} fontSize={11} fill={col} />}
+                      ? <Circle x={0} y={0} radius={9} stroke={col} strokeWidth={2} fill="rgba(30,99,214,0.22)" />
+                      : <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />}
+                    {el.room && <Text x={11} y={-6} text={el.room} fontSize={11} fill={col} />}
                   </Group>
                 );
               })}
