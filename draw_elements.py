@@ -495,62 +495,95 @@ def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
     return best
 
 
-def _switch_centers(doors, columns, h_segs, v_segs, W, H, room_boxes=None):
-    """Poziția întrerupătorului per ușă: latura de deschidere (mâner), LIPIT pe linia peretelui lângă
-    toc, spre interiorul camerei; evită sâmburii; fallback la incertitudine.
-    Tag 'room' = camera pe care o SERVEȘTE (în care se deschide ușa) — pt. regula 'bec garantat'.
-    -> [{x,y,angle,certain,room}]."""
-    def served_room(d):
-        # camera = bbox-ul care conține un punct ÎN FAȚA ușii, pe direcția de deschidere (swing)
-        if not room_boxes:
-            return None
-        ux, uy = d["swing"]
-        px = d["x"] + ux * 55.0; py = d["y"] + uy * 55.0
-        for k, b in enumerate(room_boxes):
-            if b and b[0] <= px <= b[0]+b[2] and b[1] <= py <= b[1]+b[3]:
-                return k
-        return None
+def _switch_pos_at_door(d, columns, h_segs, v_segs):
+    """Poziția+unghiul întrerupătorului lângă o ușă: latura de deschidere (mâner), LIPIT pe linia
+    peretelui lângă toc, spre interiorul camerei; evită sâmburii. Extras din vechea logică per-ușă
+    (neschimbată), refolosit acum per-bec. -> (sx, sy, angle)."""
+    hinge = d["hinge"]; strike = d["strike"]; ux, uy = d["swing"]
+    if d["certain"]:
+        # directia peretelui = de la balama spre strike (strike e pe perete)
+        wx, wy = strike[0]-hinge[0], strike[1]-hinge[1]
+        wl = math.hypot(wx, wy) or 1.0; wx, wy = wx/wl, wy/wl
+        sx = strike[0] + wx * SWITCH_FROM_JAMB
+        sy = strike[1] + wy * SWITCH_FROM_JAMB
+        wall_h = abs(wx) >= abs(wy)          # peretele e orizontal?
+    else:
+        # incert (usa la colt): plasa de siguranta — langa toc, spre interiorul camerei
+        sx = d["x"] + ux * 12.0
+        sy = d["y"] + uy * 12.0
+        wall_h = abs(ux) < abs(uy)           # deschidere ⟂ perete -> peretele e pe axa opusa
 
-    out = []
-    for d in doors:
-        hinge = d["hinge"]; strike = d["strike"]; ux, uy = d["swing"]
-        if d["certain"]:
-            # directia peretelui = de la balama spre strike (strike e pe perete)
-            wx, wy = strike[0]-hinge[0], strike[1]-hinge[1]
-            wl = math.hypot(wx, wy) or 1.0; wx, wy = wx/wl, wy/wl
-            sx = strike[0] + wx * SWITCH_FROM_JAMB
-            sy = strike[1] + wy * SWITCH_FROM_JAMB
-            wall_h = abs(wx) >= abs(wy)          # peretele e orizontal?
-        else:
-            # incert (usa la colt): plasa de siguranta — langa toc, spre interiorul camerei
-            sx = d["x"] + ux * 12.0
-            sy = d["y"] + uy * 12.0
-            wall_h = abs(ux) < abs(uy)           # deschidere ⟂ perete -> peretele e pe axa opusa
+    # SNAP pe linia EXACTĂ a peretelui, pe axa corectă (lipit pe zid, nu pe arc)
+    if wall_h:
+        wyc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "H")
+        if wyc is not None: sy = wyc
+    else:
+        wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
+        if wxc is not None: sx = wxc
 
-        # SNAP pe linia EXACTĂ a peretelui, pe axa corectă (lipit pe zid, nu pe arc)
+    # coliziune sambure -> aluneca DE-A LUNGUL peretelui, departe de sambure, apoi re-snap
+    for _ in range(3):
+        hit = next(((cx, cy) for (cx, cy) in columns if math.hypot(cx-sx, cy-sy) < SWITCH_COL_CLEAR), None)
+        if hit is None:
+            break
         if wall_h:
+            sx += 18.0 if sx >= hit[0] else -18.0
             wyc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "H")
             if wyc is not None: sy = wyc
         else:
+            sy += 18.0 if sy >= hit[1] else -18.0
             wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
             if wxc is not None: sx = wxc
 
-        # coliziune sambure -> aluneca DE-A LUNGUL peretelui, departe de sambure, apoi re-snap
-        for _ in range(3):
-            hit = next(((cx, cy) for (cx, cy) in columns if math.hypot(cx-sx, cy-sy) < SWITCH_COL_CLEAR), None)
-            if hit is None:
-                break
-            if wall_h:
-                sx += 18.0 if sx >= hit[0] else -18.0
-                wyc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "H")
-                if wyc is not None: sy = wyc
-            else:
-                sy += 18.0 if sy >= hit[1] else -18.0
-                wxc = _nearest_wall_coord(sx, sy, h_segs, v_segs, "V")
-                if wxc is not None: sx = wxc
+    return sx, sy, math.atan2(uy, ux)
 
-        out.append({"x": sx, "y": sy, "angle": math.atan2(uy, ux), "certain": d["certain"],
-                    "room": served_room(d)})
+
+def _door_room_index(d, room_boxes):
+    """Indexul camerei pe care o SERVEȘTE ușa (punct 55pt în față, pe direcția de deschidere swing).
+    None dacă nu cade în nicio cameră. (Aceeași logică ca vechiul served_room.)"""
+    if not room_boxes:
+        return None
+    ux, uy = d["swing"]
+    px = d["x"] + ux * 55.0; py = d["y"] + uy * 55.0
+    for k, b in enumerate(room_boxes):
+        if b and b[0] <= px <= b[0]+b[2] and b[1] <= py <= b[1]+b[3]:
+            return k
+    return None
+
+
+def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=None):
+    """REGULĂ NOUĂ — paritate 1:1: UN întrerupător per BEC.
+    Pentru fiecare bec: dacă camera lui (bec.room = index) are o ușă NECONSUMATĂ -> întrerupător
+    lângă acea ușă (refolosește plasarea lângă-ușă); o ușă consumată de un bec nu se reia pentru
+    alt bec din aceeași cameră. Altfel -> lângă bec (35pt lateral). `room` = NUMELE camerei becului
+    (bec.label), MEREU (niciodată null). GARANTAT: len(rezultat) == len(centers).
+    -> [{x,y,angle,certain,room}]."""
+    # uși grupate pe camera servită (index) — pentru a le potrivi cu becul din aceeași cameră
+    doors_by_room = {}
+    for d in doors:
+        ri = _door_room_index(d, room_boxes)
+        if ri is not None:
+            doors_by_room.setdefault(ri, []).append(d)
+
+    used = set()   # id(ușă) deja folosită -> nu se reia pentru alt bec
+    out = []
+    for c in centers:
+        idx = c.get("room")            # index cameră (pt. potrivirea ușii)
+        name = c.get("label")          # numele camerei becului (pt. expunere) — MEREU camera becului
+        bx, by = c["x"], c["y"]
+        free = [d for d in doors_by_room.get(idx, []) if id(d) not in used]
+        if free:
+            # cea mai apropiată ușă neconsumată de bec
+            d = min(free, key=lambda dd: math.hypot(dd["x"]-bx, dd["y"]-by))
+            used.add(id(d))
+            sx, sy, angle = _switch_pos_at_door(d, columns, h_segs, v_segs)
+            certain = d["certain"]
+        else:
+            # fără ușă disponibilă în cameră -> lângă bec (35pt lateral, cârlig orientat spre bec)
+            sx, sy = bx + 35.0, by
+            angle = math.pi
+            certain = False
+        out.append({"x": sx, "y": sy, "angle": angle, "certain": certain, "room": name})
     return out
 
 
@@ -593,16 +626,8 @@ def draw_plan_elements(data: dict) -> dict:
             except (TypeError, ValueError, KeyError):
                 rboxes.append(None)
 
-        switches = []
-        if data.get("apply_geometry"):
-            try:
-                import geometry
-                doors = geometry.extract_doors(page, W, H)
-                columns = geometry.extract_columns(page)
-                h_segs, v_segs, _dd = geometry._collect(page)
-                switches = _switch_centers(doors, columns, h_segs, v_segs, W, H, rboxes)
-            except Exception:
-                switches = []
+        # APARATAJ: întrerupătoarele se calculează MAI JOS, DUPĂ `centers` (paritate 1:1 — un
+        # întrerupător per bec). rboxes (de mai sus) e folosit acolo pentru maparea bec->ușă.
 
         # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
         # desenăm becurile din centrele lor — robust, independent de text/regex.
@@ -634,6 +659,20 @@ def draw_plan_elements(data: dict) -> dict:
                              "bbox_fixed": 0, "bulbs_dedup": 0, "bulbs_guaranteed": 0,
                              "note": "Nicio cameră detectată. Plan nemodificat."},
             }
+
+        # APARATAJ (paritate 1:1): UN întrerupător per BEC, calculat din `centers`. DOAR pe faza PT
+        # (apply_geometry), cale vectorială. Aditiv, defensiv: ORICE eroare -> fără întrerupătoare,
+        # becurile NU sunt afectate. (Plasare: la ușa camerei becului dacă există, altfel lângă bec.)
+        switches = []
+        if data.get("apply_geometry"):
+            try:
+                import geometry
+                doors = geometry.extract_doors(page, W, H)
+                columns = geometry.extract_columns(page)
+                h_segs, v_segs, _dd = geometry._collect(page)
+                switches = _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, rboxes)
+            except Exception:
+                switches = []
 
         # vision_bbox: cy e deja centrul camerei -> fără offset (bec în centru).
         # text_regex: cy e poziția textului "A:" -> -22 (bec deasupra textului).
@@ -697,7 +736,7 @@ def draw_plan_elements(data: dict) -> dict:
                     _elements.append({
                         "project_id": _project_uuid, "floor": _floor,
                         "element_type": "intrerupator_simplu",
-                        "label": None, "room": None,
+                        "label": None, "room": s.get("room"),   # = camera becului (paritate 1:1)
                         "x": round(s["x"], 1), "y": round(s["y"], 1),
                         "wall_mounted": True, "rotation": round(float(s.get("angle", 0)), 3),
                         "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
@@ -705,14 +744,6 @@ def draw_plan_elements(data: dict) -> dict:
                 save_plan_elements(_project_uuid, _elements)
             except Exception:
                 pass  # NON-BLOCANT: persistența eșuată NU strică generarea planului
-
-        # NUMELE camerei pentru întrerupător, din indexul intern (rboxes // rooms, aceeași ordine) —
-        # rezolvat AICI unde lista `rooms` e cea corectă (becurile fac la fel via .get("name")).
-        # Defensiv: index None / out-of-range -> None (niciodată crash, niciodată nume greșit).
-        def _switch_room_name(idx):
-            if isinstance(idx, int) and 0 <= idx < len(rooms or []):
-                return ((rooms or [])[idx] or {}).get("name") or None
-            return None
 
         return {
             "success": True,
@@ -735,7 +766,7 @@ def draw_plan_elements(data: dict) -> dict:
                 "switches_certain": sum(1 for s in switches if s.get("certain")),
                 "switches": [{"x": round(s["x"], 1), "y": round(s["y"], 1),
                               "angle": round(float(s.get("angle", 0)), 3),
-                              "room": _switch_room_name(s.get("room"))} for s in switches],
+                              "room": s.get("room")} for s in switches],   # room = numele camerei becului
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                              "label": c["label"][:40]} for c in centers],
             },
