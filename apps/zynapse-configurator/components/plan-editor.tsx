@@ -123,6 +123,7 @@ export default function PlanEditor({
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
+  const [tectNotNeeded, setTectNotNeeded] = useState(false);   // TE-CT: opțiunea "nu este nevoie" (doar UI)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
@@ -234,6 +235,33 @@ export default function PlanEditor({
     if (error) { console.error("[plan_elements] DELETE esuat", id, error.message); return; }
     setElements(prev => prev.filter(p => p.id !== id));
     if (selectedId === id) setSelectedId(null);
+  }
+
+  // ADD TABLOU: TEG / TE-CT pe plan (același tipar de INSERT ca addElement) cu status nou/existent.
+  // Global (room=null), poziție inițială = centrul planului; max 1 per tip. NON-BLOCANT.
+  async function addPanel(panelType: string, status: "nou" | "existent") {
+    if (elements.some(e => e.element_type === panelType)) return;   // un singur TEG / TE-CT
+    const floor = elements[0]?.floor || "parter";
+    const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
+    const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
+    const off = panelType === "tablou_te_ct" ? 44 : 0;   // separă TEG vs TE-CT dacă ambele sunt în centru
+    const row = {
+      project_id: projectId,
+      floor,
+      element_type: panelType,
+      plan_type: "iluminat",
+      label: null as string | null,
+      room: null as string | null,   // tabloul e global, nu per cameră
+      x: cx,
+      y: cy + off,
+      wall_mounted: true,
+      rotation: 0,
+      status,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT tablou esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
   }
 
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
@@ -450,6 +478,53 @@ export default function PlanEditor({
     );
   };
 
+  // un bloc de tablou (TEG / TE-CT): dacă există deja -> rândul lui (select + ștergere), altfel selectorul.
+  const renderPanelBlock = (title: string, panelType: string, allowNotNeeded: boolean) => {
+    const existing = elements.find(e => e.element_type === panelType) || null;
+    const badge = (st: string | null) => (
+      <span style={{
+        fontSize: 10, padding: "1px 7px", borderRadius: 4, marginLeft: 8,
+        background: st === "nou" ? "rgba(34,197,94,0.14)" : "rgba(139,143,168,0.14)",
+        color: st === "nou" ? "#4ADE80" : "#A8ACC2",
+        border: `1px solid ${st === "nou" ? "rgba(34,197,94,0.35)" : "rgba(139,143,168,0.3)"}`,
+      }}>{st === "nou" ? "Nou propus" : st === "existent" ? "Existent" : "—"}</span>
+    );
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#C5C8D6", marginBottom: 5, display: "flex", alignItems: "center" }}>
+          {title}{existing && badge(existing.status)}
+        </div>
+        {existing ? (
+          renderElementRow(existing, "")
+        ) : allowNotNeeded && tectNotNeeded ? (
+          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
+            Nu este nevoie.
+            <button type="button" className="zy-add-btn" onClick={() => setTectNotNeeded(false)}>Modifică</button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={() => addPanel(panelType, "nou")}>+ Nou propus</button>
+            <button type="button" className="zy-add-btn" onClick={() => addPanel(panelType, "existent")}>+ Existent</button>
+            {allowNotNeeded && (
+              <button type="button" className="zy-add-btn" onClick={() => setTectNotNeeded(true)}>Nu este nevoie</button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // secțiunea Tablouri (sub camere): TEG (nou/existent) + TE-CT (nou/existent/nu e nevoie)
+  const renderPanelsSection = () => (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+        Tablouri generale
+      </div>
+      {renderPanelBlock("Tablou general (TEG)", "tablou_teg", false)}
+      {renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
+    </div>
+  );
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -472,6 +547,7 @@ export default function PlanEditor({
             <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>Niciun element pe acest plan.</div>
           )}
           {roomKeys.map(renderRoom)}
+          {renderPanelsSection()}
         </div>
       </div>
 
