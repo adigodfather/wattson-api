@@ -107,7 +107,13 @@ const FIELD_CSS = `
   border-radius: 5px; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 11px; }
 .zy-del-no { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #C5C8D6;
   border-radius: 5px; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 11px; }
-@media (prefers-reduced-motion: reduce) { .zy-chev { transition: none; } .zy-acc-body { animation: none; } }
+.zy-getplan { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 14px; border-radius: 9px; border: 1px solid #378ADD; background: #378ADD; color: #fff;
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color .15s ease; }
+.zy-getplan:hover { background: #4A97E6; }
+.zy-soon-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+  padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,0.22); color: #fff; }
+@media (prefers-reduced-motion: reduce) { .zy-chev { transition: none; } .zy-acc-body { animation: none; } .zy-getplan { transition: none; } }
 `;
 const panelStyle: CSSProperties = {
   boxSizing: "border-box", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)",
@@ -125,6 +131,7 @@ export default function PlanEditor({
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [tectNotNeeded, setTectNotNeeded] = useState(false);   // TE-CT: opțiunea "nu este nevoie" (doar UI)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [planSoon, setPlanSoon] = useState(false);   // buton "Obține plan" = placeholder (mesaj "în curând")
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -309,15 +316,22 @@ export default function PlanEditor({
   // ── panou de editare pentru elementul selectat ──
   const renderEditPanel = () => {
     if (!selected) {
-      return <div style={{ fontSize: 12, color: "#545870" }}>Selectează un element pentru a-l edita.</div>;
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#545870", fontSize: 12, padding: "1px 0" }}>
+          <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(255,255,255,0.12)", flexShrink: 0 }} />
+          Selectează un element pentru a-l edita
+        </div>
+      );
     }
     const isBulbSel = isBulbType(selected.element_type);
     const isSwitchSel = isSwitchType(selected.element_type);
     const typeOptions = isBulbSel ? BULB_TYPES : isSwitchSel ? SWITCH_TYPES : [];
     return (
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#8B8FA8", marginBottom: 8 }}>
-          Editare element
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: "#378ADD", flexShrink: 0, boxShadow: "0 0 6px rgba(55,138,221,0.85)" }} />
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#5BB8F5" }}>Editare</span>
+          <span style={{ fontSize: 12, color: "#C5C8D6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {typeLabel(selected.element_type)}</span>
         </div>
 
         {/* Tip (element_type) — DOAR opțiuni din aceeași categorie; valoarea = exact valoarea din CHECK */}
@@ -535,11 +549,20 @@ export default function PlanEditor({
         <span style={{ fontSize: 12, color: "#545870" }}>Trage pentru repoziționare · click pentru editare · adaugă/șterge per cameră</span>
       </div>
 
-      {/* ── STÂNGA: panou editare + accordion camere ── */}
-      <div style={{ width: 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={panelStyle}>{renderEditPanel()}</div>
+      {/* ── STÂNGA: panou editare (sticky) + accordion camere + Obține plan ── */}
+      <div style={{ width: 300, flexShrink: 0, alignSelf: "flex-start", position: "sticky", top: 70, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* panou editare — iese în evidență la selecție (border accent + tint + ring), discret altfel */}
+        <div style={{
+          ...panelStyle,
+          border: selected ? "1px solid #378ADD" : "1px dashed rgba(255,255,255,0.10)",
+          background: selected ? "rgba(55,138,221,0.07)" : "rgba(255,255,255,0.015)",
+          boxShadow: selected ? "0 0 0 1px rgba(55,138,221,0.30)" : "none",
+          transition: "border-color .18s ease, background-color .18s ease, box-shadow .18s ease",
+        }}>
+          {renderEditPanel()}
+        </div>
 
-        <div style={{ ...panelStyle, padding: 10, maxHeight: "calc(100vh - 250px)", overflowY: "auto" }}>
+        <div style={{ ...panelStyle, padding: 10, maxHeight: "calc(100vh - 330px)", overflowY: "auto" }}>
           <div className="px-1 mb-2" style={{ fontSize: 11, color: "#8B8FA8" }}>
             {loading ? "Se încarcă elementele…" : err ? `Eroare: ${err}` : `${roomKeys.length} camere · ${elements.length} elemente`}
           </div>
@@ -548,6 +571,20 @@ export default function PlanEditor({
           )}
           {roomKeys.map(renderRoom)}
           {renderPanelsSection()}
+        </div>
+
+        {/* Obține plan — PLACEHOLDER: la click doar mesaj "în curând", NU regenerează nimic */}
+        <div>
+          <button type="button" className="zy-getplan" onClick={() => setPlanSoon(true)}>
+            Obține plan iluminat
+            <span className="zy-soon-badge">în curând</span>
+          </button>
+          {planSoon && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11.5, lineHeight: 1.45,
+              color: "#9DA2BC", background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.18)" }}>
+              În curând — această funcție va regenera planul cu modificările tale. (Momentan nu face nicio acțiune.)
+            </div>
+          )}
         </div>
       </div>
 
