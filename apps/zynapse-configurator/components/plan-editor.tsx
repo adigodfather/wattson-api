@@ -8,7 +8,7 @@
 // Remove = DELETE manual (cu confirm inline), fără paritate automată.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Text, Group } from "react-konva";
+import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 
@@ -35,6 +35,7 @@ type PlanElement = {
 const COL_BULB = "#1E63D6";
 const COL_SWITCH = "#D62828";
 const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selectat
+const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
@@ -78,6 +79,76 @@ const TYPE_LABEL: Record<string, string> = Object.fromEntries(
   [...BULB_TYPES, ...SWITCH_TYPES, ...PANEL_TYPES].map(o => [o.value, o.label])
 );
 const typeLabel = (t: string) => TYPE_LABEL[t] || t;
+
+// X (2 diagonale) înscris într-un cerc de rază r — refolosit la tavan / lustră / senzor
+function bulbX(r: number) {
+  const d = r * 0.7071;
+  return (
+    <>
+      <Line points={[-d, -d, d, d]} stroke={COL_BULB} strokeWidth={2} listening={false} />
+      <Line points={[-d, d, d, -d]} stroke={COL_BULB} strokeWidth={2} listening={false} />
+    </>
+  );
+}
+
+// Simbol bec per tip (Konva), contur albastru COL_BULB, relativ la origine (0,0). Senzor = fill galben.
+function bulbSymbol(type: string) {
+  switch (type) {
+    case "aplica_perete":   // semicerc (partea curbă în jos) + punct plin
+      return (
+        <>
+          <Arc x={0} y={0} innerRadius={0} outerRadius={9} angle={180} rotation={0} stroke={COL_BULB} strokeWidth={2} />
+          <Circle x={0} y={4} radius={1.8} fill={COL_BULB} listening={false} />
+        </>
+      );
+    case "lustra_led":      // cerc + X, mai mare, cu 2 cercuri concentrice exterioare
+      return (
+        <>
+          <Circle x={0} y={0} radius={24} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
+          <Circle x={0} y={0} radius={18} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
+          <Circle x={0} y={0} radius={12} stroke={COL_BULB} strokeWidth={2} />
+          {bulbX(12)}
+        </>
+      );
+    case "banda_led":       // dreptunghi alungit rotunjit + liniuțe interioare (LED-uri)
+      return (
+        <>
+          <Rect x={-30} y={-7} width={60} height={14} cornerRadius={7} stroke={COL_BULB} strokeWidth={2} />
+          {[-18, -6, 6, 18].map(tx => (
+            <Line key={tx} points={[tx, -3, tx, 3]} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
+          ))}
+        </>
+      );
+    case "aplica_senzor":   // cerc + X, dar cu interior GALBEN
+      return (
+        <>
+          <Circle x={0} y={0} radius={9} stroke={COL_BULB} strokeWidth={2} fill={COL_SENZOR_FILL} />
+          {bulbX(9)}
+        </>
+      );
+    default:                // aplica_tavan: cerc (fără fill) + X
+      return (
+        <>
+          <Circle x={0} y={0} radius={9} stroke={COL_BULB} strokeWidth={2} />
+          {bulbX(9)}
+        </>
+      );
+  }
+}
+
+// Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
+function bulbHit(type: string) {
+  if (type === "banda_led") return <Rect x={-32} y={-9} width={64} height={18} cornerRadius={7} fill="rgba(0,0,0,0.001)" />;
+  const r = type === "lustra_led" ? 26 : 11;
+  return <Circle x={0} y={0} radius={r} fill="rgba(0,0,0,0.001)" />;
+}
+
+// Contur de selecție (galben) adaptat la mărimea/forma fiecărui tip de bec
+function bulbSelRing(type: string) {
+  if (type === "banda_led") return <Rect x={-35} y={-12} width={70} height={24} cornerRadius={6} stroke={COL_SEL} strokeWidth={3} listening={false} />;
+  const r = type === "lustra_led" ? 29 : 15;
+  return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
+}
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
 const inputStyle: CSSProperties = {
@@ -619,7 +690,7 @@ export default function PlanEditor({
                     >
                       {/* contur de selecție (galben), nu fură evenimente */}
                       {isSel && (isBulb
-                        ? <Circle x={0} y={0} radius={15} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                        ? bulbSelRing(el.element_type)
                         : isPanel
                           ? <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
                           : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
@@ -636,7 +707,10 @@ export default function PlanEditor({
                           {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                         </>
                       ) : isBulb ? (
-                        <Circle x={0} y={0} radius={9} stroke={col} strokeWidth={2} fill="rgba(30,99,214,0.22)" />
+                        <>
+                          {bulbHit(el.element_type)}
+                          {bulbSymbol(el.element_type)}
+                        </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
