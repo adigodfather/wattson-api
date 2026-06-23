@@ -234,12 +234,13 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
             pass
 
 
-def _mask_margins(page, rooms, pad_frac=0.08, protect_top_frac=0.08):
+def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad_right=0.02, protect_top_frac=0.08):
     """Curatare partiala (~80%): maschera gunoiul din MARGINI pastrand arhitectura centrala.
-    rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding GENEROS = zona arhitecturii.
-    Maschera cu alb cele 4 benzi din AFARA zonei; pastreaza o banda subtire sus (nord/titlu).
-    NON-DESTRUCTIV pe arhitectura (padding). rooms gol/None -> nu maschera nimic (backward-compatible).
-    Axele interioare RAMAN (cioturi) — acceptat la Pas 1. Intoarce [X0,Y0,X1,Y1] puncte PDF sau None."""
+    rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding ASIMETRIC = zona pastrata.
+    Padding mic pe DREAPTA (pad_right=0.02) fiindca blocul arhitect (BILANT/NOTA) abuta cladirea acolo;
+    generos pe stanga/sus/jos (sigur — doar cote). Maschera cu alb cele 4 benzi din AFARA zonei; pastreaza
+    o banda subtire sus (nord/titlu). NON-DESTRUCTIV (marja acopera peretele exterior). rooms gol/None ->
+    nu maschera nimic (backward-compatible). Axele interioare RAMAN (cioturi). Intoarce [X0,Y0,X1,Y1] pct PDF sau None."""
     if not rooms:
         return None
     xs0, ys0, xs1, ys1 = [], [], [], []
@@ -253,11 +254,11 @@ def _mask_margins(page, rooms, pad_frac=0.08, protect_top_frac=0.08):
     if not xs0:
         return None
 
-    # union in fractii + padding generos, clamp [0,1]
-    ux0 = max(0.0, min(xs0) - pad_frac)
-    uy0 = max(0.0, min(ys0) - pad_frac)
-    ux1 = min(1.0, max(xs1) + pad_frac)
-    uy1 = min(1.0, max(ys1) + pad_frac)
+    # union in fractii + padding ASIMETRIC pe 4 laturi, clamp [0,1]
+    ux0 = max(0.0, min(xs0) - pad_left)
+    uy0 = max(0.0, min(ys0) - pad_top)
+    ux1 = min(1.0, max(xs1) + pad_right)    # MIC -> prinde blocul arhitect lipit de cladire pe dreapta
+    uy1 = min(1.0, max(ys1) + pad_bottom)
 
     W, H = page.rect.width, page.rect.height
     X0, Y0, X1, Y1 = ux0 * W, uy0 * H, ux1 * W, uy1 * H
