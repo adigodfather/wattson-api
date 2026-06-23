@@ -3207,6 +3207,7 @@ class SwapCartusRequest(BaseModel):
     cartus_proiect: SwapCartusProiect = SwapCartusProiect()
     plansa_nr: str = ""
     plansa_titlu: str = ""
+    rooms: Optional[list] = None   # bbox-uri Vision (fracții 0-1, {x,y,w,h}) -> mascare margini. Lipsă -> fără mascare.
 
 
 @app.post("/swap-cartus-plan")

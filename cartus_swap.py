@@ -234,6 +234,49 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
             pass
 
 
+def _mask_margins(page, rooms, pad_frac=0.08, protect_top_frac=0.08):
+    """Curatare partiala (~80%): maschera gunoiul din MARGINI pastrand arhitectura centrala.
+    rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding GENEROS = zona arhitecturii.
+    Maschera cu alb cele 4 benzi din AFARA zonei; pastreaza o banda subtire sus (nord/titlu).
+    NON-DESTRUCTIV pe arhitectura (padding). rooms gol/None -> nu maschera nimic (backward-compatible).
+    Axele interioare RAMAN (cioturi) — acceptat la Pas 1. Intoarce [X0,Y0,X1,Y1] puncte PDF sau None."""
+    if not rooms:
+        return None
+    xs0, ys0, xs1, ys1 = [], [], [], []
+    for r in rooms:
+        bb = (r or {}).get("bbox") or {}
+        try:
+            x = float(bb["x"]); y = float(bb["y"]); w = float(bb["w"]); h = float(bb["h"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        xs0.append(x); ys0.append(y); xs1.append(x + w); ys1.append(y + h)
+    if not xs0:
+        return None
+
+    # union in fractii + padding generos, clamp [0,1]
+    ux0 = max(0.0, min(xs0) - pad_frac)
+    uy0 = max(0.0, min(ys0) - pad_frac)
+    ux1 = min(1.0, max(xs1) + pad_frac)
+    uy1 = min(1.0, max(ys1) + pad_frac)
+
+    W, H = page.rect.width, page.rect.height
+    X0, Y0, X1, Y1 = ux0 * W, uy0 * H, ux1 * W, uy1 * H
+    top = protect_top_frac * H   # banda subtire de sus protejata (nord/titlu)
+    WHITE = (1, 1, 1)
+
+    def rect(x0, y0, x1, y1):
+        if x1 - x0 > 0.5 and y1 - y0 > 0.5:
+            page.draw_rect(fitz.Rect(x0, y0, x1, y1), color=WHITE, fill=WHITE)
+
+    # SUS (sub banda protejata, pana la arhitectura) — prinde blocul arhitect dreapta-sus
+    if Y0 > top:
+        rect(0.0, top, W, Y0)
+    rect(0.0, Y1, W, H)        # JOS
+    rect(0.0, Y0, X0, Y1)      # STANGA (doar inaltimea arhitecturii)
+    rect(X1, Y0, W, Y1)        # DREAPTA
+    return [round(X0, 1), round(Y0, 1), round(X1, 1), round(Y1, 1)]
+
+
 def swap_cartus_plan(data: dict) -> dict:
     """Detecteaza cartusul arhitectului si il inlocuieste cu cartusul firmei.
     Returneaza dict cu success/pdf_base64/detected sau success:false/error."""
@@ -308,6 +351,10 @@ def swap_cartus_plan(data: dict) -> dict:
             tables_bbox_mijloc = [round(rm[0], 1), round(rm[1], 1),
                                   round(rm[2], 1), round(rm[3], 1)]
 
+    # 5c. Curatare partiala: maschera marginile (bloc arhitect, cote/bule exterioare, legende vechi)
+    # pe baza union(rooms.bbox)+padding. INAINTE de cartus -> cartusul Zynapse ramane DEASUPRA mastii.
+    margins_bbox = _mask_margins(page, data.get("rooms"))
+
     # 6. Cartus nou (acelasi bbox, scara detectata)
     _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
 
@@ -330,5 +377,6 @@ def swap_cartus_plan(data: dict) -> dict:
                             if tables_bbox is not None else None),
             "tables_bbox_stanga": tables_bbox_stanga,
             "tables_bbox_mijloc": tables_bbox_mijloc,
+            "margins_masked": margins_bbox,   # [X0,Y0,X1,Y1] pct PDF (None daca fara rooms)
         },
     }
