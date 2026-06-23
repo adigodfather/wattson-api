@@ -274,7 +274,9 @@ def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad
         rect(0.0, top, W, Y0)
     rect(0.0, Y1, W, H)        # JOS
     rect(0.0, Y0, X0, Y1)      # STANGA (doar inaltimea arhitecturii)
-    rect(X1, Y0, W, Y1)        # DREAPTA
+    # DREAPTA pe TOATA inaltimea (0->H) -> acopera si coltul dreapta-sus (titlul arhitect).
+    # Nordul e in centru (x < X1) -> ramane in banda de sus protejata, neatins.
+    rect(X1, 0.0, W, H)        # DREAPTA (full height)
     return [round(X0, 1), round(Y0, 1), round(X1, 1), round(Y1, 1)]
 
 
