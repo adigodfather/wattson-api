@@ -625,9 +625,11 @@ export default function PlanEditor({
                           : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
-                          {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB) */}
-                          <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} listening={false} />
-                          <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} listening={false} />
+                          {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
+                              Triunghiurile PLINE rămân "listening" (default) -> zona de hit a Group-ului
+                              draggable (analog cercului becului). Restul (contur/conector/etichetă) listening=false. */}
+                          <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} />
+                          <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} />
                           <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
                           {/* conector vertical scurt deasupra */}
                           <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
