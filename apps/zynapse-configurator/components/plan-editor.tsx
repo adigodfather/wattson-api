@@ -714,7 +714,7 @@ export default function PlanEditor({
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
-                      {el.room && !isPanel && <Text x={11} y={-6} text={el.room} fontSize={11} fill={col} listening={false} />}
+                      {el.room && !isPanel && <Text x={12} y={-7} text={el.room} fontSize={13} fill={col} listening={false} />}
                     </Group>
                   );
                 })}
