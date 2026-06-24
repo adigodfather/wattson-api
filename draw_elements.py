@@ -699,6 +699,20 @@ def _cable_l_path(a, b):
     return [a, mid, b]
 
 
+_CABLE_COLOR = (0.85, 0.45, 0.45)   # rosu mai deschis (familia iluminat, dar distinct de simboluri prin nuanta + dash)
+
+
+def _draw_cable(page, path, color=None, width=0.7):
+    """Cablu = polilinie SUBTIRE INTRERUPTA (dashed) pe traseu (path = [(x,y),...]).
+    Defensiv: path lipsa / <2 puncte -> skip."""
+    if not path or len(path) < 2:
+        return
+    col = color or _CABLE_COLOR
+    for i in range(len(path) - 1):
+        page.draw_line(fitz.Point(path[i][0], path[i][1]), fitz.Point(path[i + 1][0], path[i + 1][1]),
+                       color=col, width=width, dashes="[3 2] 0")
+
+
 def compute_cables(elements):
     """PAS 3 (LOGICA pura, FARA desen): asociaza becuri->intrerupatoare (pe room + tip) si
     intrerupatoare->tablou, cu trasee L. Reguli:
@@ -809,6 +823,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
         n_bulb = n_sw = n_panel = n_skip = 0
+        # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
+        # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
+        n_cable = 0
+        try:
+            _cables, _cstats = compute_cables(elements)
+            for _c in _cables:
+                _draw_cable(page, _c.get("path"))
+                n_cable += 1
+        except Exception:
+            n_cable = 0
+        # SIMBOLURILE deasupra cablurilor (bucla existenta, neschimbata)
         for el in (elements or []):
             try:
                 et = (el.get("element_type") or "")
@@ -833,7 +858,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
             "filename": "Plan_iluminat_editat.pdf",
             "size_bytes": len(out),
-            "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel, "skipped": n_skip},
+            "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
+                         "cables_drawn": n_cable, "skipped": n_skip},
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
