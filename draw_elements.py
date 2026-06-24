@@ -741,7 +741,7 @@ def compute_cables(elements):
     tect = panels.get("tablou_te_ct")
 
     cables = []
-    stats = {"bec_sw": 0, "senzor_teg": 0, "sw_tablou": 0,
+    stats = {"bec_sw": 0, "senzor_teg": 0, "sw_tablou": 0, "cap_scara": 0,
              "skip_sw_room_null": sum(1 for el in (elements or [])
                                       if (el.get("element_type") in _SWITCH_TYPES) and not el.get("room")),
              "skip_bec_fara_sw": 0, "skip_tablou_lipsa": 0}
@@ -778,11 +778,32 @@ def compute_cables(elements):
         if not rsw:                        # bec non-senzor fara intrerupator -> skip v1
             stats["skip_bec_fara_sw"] += len(normale)
             continue
+
+        # CAP-SCARA: EXACT 2 intrerupatoare cap_scara in camera -> comanda ACELASI bec: sw1 -> bec -> sw2.
+        # (Ambele cap_scara se alimenteaza din tablou -> bucla switch->tablou de mai jos le include automat.)
+        cap = [s for s in rsw if s["et"] == "intrerupator_cap_scara"]
+        if len(cap) == 2:
+            mx = (cap[0]["x"] + cap[1]["x"]) / 2.0
+            my = (cap[0]["y"] + cap[1]["y"]) / 2.0
+            bec = nearest((mx, my), normale)                                                      # becul comandat
+            bxy = (bec["x"], bec["y"])
+            add(cap[0]["et"], (cap[0]["x"], cap[0]["y"]), bec["et"], bxy, "cap_scara", room)       # sw1 -> bec
+            add(bec["et"], bxy, cap[1]["et"], (cap[1]["x"], cap[1]["y"]), "cap_scara", room)       # bec -> sw2
+            stats["cap_scara"] += 1
+            normale = [b for b in normale if b is not bec]                                         # bec CONSUMAT
+            rsw = [s for s in rsw if s["et"] != "intrerupator_cap_scara"]                          # cap-scara consumate
+            if not normale:
+                continue
+            if not rsw:                    # becuri ramase fara alt switch -> skip
+                stats["skip_bec_fara_sw"] += len(normale)
+                continue
+
         cx = sum(b["x"] for b in normale) / len(normale)
         cy = sum(b["y"] for b in normale) / len(normale)
         sw = nearest((cx, cy), rsw)        # intrerupatorul cel mai apropiat de centroidul becurilor
         swxy = (sw["x"], sw["y"])
-        if sw["et"] == "intrerupator_simplu":
+        # simplu SAU 1/3+ cap_scara ramas -> LANT in serie (fallback simplu); dublu/triplu -> PARALEL
+        if sw["et"] in ("intrerupator_simplu", "intrerupator_cap_scara"):
             rem = list(normale); prev_xy = swxy; prev_type = sw["et"]; cur = swxy
             while rem:                     # LANT: switch -> nearest -> next nearest -> ...
                 nb = nearest(cur, rem); rem.remove(nb)
@@ -790,7 +811,7 @@ def compute_cables(elements):
                 add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room)
                 stats["bec_sw"] += 1
                 prev_xy = bxy; prev_type = nb["et"]; cur = bxy
-        else:                              # dublu/triplu/cap_scara -> PARALEL
+        else:                              # dublu/triplu -> PARALEL
             for b in normale:
                 add(b["et"], (b["x"], b["y"]), sw["et"], swxy, "bec_paralel", room)
                 stats["bec_sw"] += 1
