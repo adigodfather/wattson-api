@@ -1335,6 +1335,7 @@ export function ZynapseConfigurator() {
                     y: c.y,
                     wall_mounted: false,
                     rotation: 0,
+                    power_w: 25,                    // valoare REALA implicita (editabila); apare "25" + eticheta "Aplica LED 25W"
                   });
                 }
                 for (const sw of (plansa.switches || [])) {

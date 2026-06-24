@@ -301,6 +301,7 @@ export default function PlanEditor({
       y: baseY + stagger * 6,
       wall_mounted: category !== "bulb",
       rotation: 0,
+      power_w: category === "bulb" ? 25 : null,   // bec nou -> 25 REAL (editabil); intrerupator -> null
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT esuat", error?.message); return; }
