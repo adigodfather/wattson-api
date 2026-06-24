@@ -612,6 +612,35 @@ _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator"}
 
+# Culori tablou (RGB 0-1) + eticheta scurta — portate din Konva (PANEL_INFO).
+# (colA = triunghi sus-dreapta, colB = triunghi jos-stanga).
+_PANEL_DARK = (0.122, 0.141, 0.200)   # #1F2433 contur + conector + eticheta
+_PANEL_INFO = {
+    "tablou_teg":    ((0.941, 0.941, 0.941), (0.133, 0.773, 0.369), "TEG"),    # alb + verde
+    "tablou_te_ct":  ((0.937, 0.267, 0.267), (0.231, 0.510, 0.965), "TE-CT"),  # rosu + albastru
+    "tablou_tes":    ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TES"),    # gri
+    "transformator": ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TR"),     # gri
+}
+
+
+def _draw_panel(page, x, y, element_type):
+    """Simbol tablou (analog Konva): dreptunghi 24x16 impartit DIAGONAL in 2 triunghiuri
+    (TEG alb+verde, TE-CT rosu+albastru) + conector vertical scurt deasupra + eticheta (TEG/TE-CT).
+    Centrat la (x,y) in PUNCTE PDF (direct, ca _draw_bulb/_draw_switch)."""
+    colA, colB, short = _PANEL_INFO.get(element_type, ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TAB"))
+
+    def P(dx, dy):
+        return fitz.Point(x + dx, y + dy)
+
+    # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
+    page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
+    page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
+    # contur dreptunghi + conector vertical deasupra
+    page.draw_rect(fitz.Rect(x - 12, y - 8, x + 12, y + 8), color=_PANEL_DARK, width=1.0)
+    page.draw_line(P(0, -8), P(0, -16), color=_PANEL_DARK, width=1.4)
+    # eticheta scurta sub dreptunghi
+    page.insert_text(P(-12, 18), short, fontsize=8, fontname="hebo", color=_PANEL_DARK)
+
 
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
@@ -625,7 +654,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
         pdf_bytes = base64.b64decode(raw)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
-        n_bulb = n_sw = n_skip = 0
+        n_bulb = n_sw = n_panel = n_skip = 0
         for el in (elements or []):
             try:
                 et = (el.get("element_type") or "")
@@ -638,15 +667,18 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             elif et in _SWITCH_TYPES:
                 _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
                 n_sw += 1
+            elif et in _PANEL_TYPES:
+                _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
+                n_panel += 1
             else:
-                n_skip += 1                                                          # tablouri/altele -> SKIP (1c)
+                n_skip += 1                                                          # alt tip necunoscut -> SKIP
         out = doc.tobytes(deflate=True)
         return {
             "success": True,
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
             "filename": "Plan_iluminat_editat.pdf",
             "size_bytes": len(out),
-            "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "skipped": n_skip},
+            "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel, "skipped": n_skip},
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
