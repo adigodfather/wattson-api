@@ -234,7 +234,7 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
             pass
 
 
-def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad_right=0.02, protect_top_frac=0.08):
+def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad_right=0.02, right_cap=0.82, protect_top_frac=0.08):
     """Curatare partiala (~80%): maschera gunoiul din MARGINI pastrand arhitectura centrala.
     rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding ASIMETRIC = zona pastrata.
     Padding mic pe DREAPTA (pad_right=0.02) fiindca blocul arhitect (BILANT/NOTA) abuta cladirea acolo;
@@ -257,7 +257,9 @@ def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad
     # union in fractii + padding ASIMETRIC pe 4 laturi, clamp [0,1]
     ux0 = max(0.0, min(xs0) - pad_left)
     uy0 = max(0.0, min(ys0) - pad_top)
-    ux1 = min(1.0, max(xs1) + pad_right)    # MIC -> prinde blocul arhitect lipit de cladire pe dreapta
+    # DREAPTA: union+pad_right, dar CAP HARD la right_cap -> marginea dreapta NU depinde de cat de lat
+    # da Vision (non-determinist: o camera/terasa cu bbox lat ar impinge zona pastrata peste blocul arhitect).
+    ux1 = min(min(max(xs1) + pad_right, right_cap), 1.0)
     uy1 = min(1.0, max(ys1) + pad_bottom)
 
     W, H = page.rect.width, page.rect.height
