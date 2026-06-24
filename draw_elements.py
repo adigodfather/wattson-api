@@ -607,6 +607,58 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
     return out
 
 
+# Seturi de tip (categorisire la redraw din plan_elements editat) — aceleasi valori ca CHECK + frontend.
+_BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "banda_led"}
+_SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
+_PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator"}
+
+
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
+    """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
+    pe BAZA CURATA (planuri[].pdf_base64 = cartus + mask-margins, FARA becuri).
+    Coordonate = PUNCTE PDF (direct el.x, el.y; y_offset=0 — fara scale). Becuri = simbol GENERIC
+    (NU pe tip — vine la 1b). Switches = pe tip (deja). Tablouri = SKIP (1c). Fara cabluri.
+    Defensiv: element invalid -> sarit; orice eroare -> success:false, fara crash."""
+    doc = None
+    try:
+        raw = base_pdf_base64.split(",", 1)[1] if "," in base_pdf_base64 else base_pdf_base64
+        pdf_bytes = base64.b64decode(raw)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        n_bulb = n_sw = n_skip = 0
+        for el in (elements or []):
+            try:
+                et = (el.get("element_type") or "")
+                x = float(el["x"]); y = float(el["y"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if et in _BULB_TYPES:
+                _draw_bulb(page, x, y, y_offset=0)                                   # 1a: simbol generic
+                n_bulb += 1
+            elif et in _SWITCH_TYPES:
+                _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
+                n_sw += 1
+            else:
+                n_skip += 1                                                          # tablouri/altele -> SKIP (1c)
+        out = doc.tobytes(deflate=True)
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(out).decode("utf-8"),
+            "filename": "Plan_iluminat_editat.pdf",
+            "size_bytes": len(out),
+            "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "skipped": n_skip},
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+        gc.collect()
+
+
 def draw_plan_elements(data: dict) -> dict:
     """Desenează becuri în centrul camerelor.
     Cale 1 (preferată): bbox-uri Vision din data['rooms'] (fracții 0-1) -> robust.

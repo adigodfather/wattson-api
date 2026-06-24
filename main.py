@@ -3243,6 +3243,40 @@ def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
 
 
 # -------------------------------------------------
+#  REGENERATE PLAN (Obtine plan, sub-pas 1a)  —  POST /regenerate-plan
+# -------------------------------------------------
+
+class RegeneratePlanRequest(BaseModel):
+    project_id: str = ""
+    floor: str = "parter"
+    base_pdf_base64: str = ""   # BAZA CURATA = planuri[].pdf_base64 (cartus+mask, FARA becuri)
+
+
+@app.post("/regenerate-plan")
+def regenerate_plan_endpoint(request: RegeneratePlanRequest):
+    """SUB-PAS 1a: citeste plan_elements EDITAT din DB (service-role, ocoleste RLS) si
+    redeseneaza becuri+intrerupatoare pe baza curata. Tablouri SKIP (1c), fara cabluri."""
+    try:
+        if not request.base_pdf_base64:
+            return {"success": False, "error": "base_pdf_base64 lipseste (baza curata)"}
+        if not request.project_id:
+            return {"success": False, "error": "project_id lipseste"}
+        # citeste elementele EDITATE din DB (service-role)
+        try:
+            from supabase_client import supabase
+            rows = (supabase.table("plan_elements").select("*")
+                    .eq("project_id", request.project_id)
+                    .eq("floor", request.floor)
+                    .eq("plan_type", "iluminat")
+                    .execute().data) or []
+        except Exception as e:
+            return {"success": False, "error": "citire plan_elements esuata: {}".format(e)}
+        return draw_elements.redraw_from_plan_elements(request.base_pdf_base64, rows)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# -------------------------------------------------
 #  SERVIRE FRONTEND STATIC
 # -------------------------------------------------
 

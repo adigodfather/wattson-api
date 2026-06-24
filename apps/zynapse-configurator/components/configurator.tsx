@@ -2047,6 +2047,11 @@ export function ZynapseConfigurator() {
                 projectId={savedProjectId}
                 pngBase64={editorPlansa.png_base64}
                 pngMeta={editorPlansa.png_meta}
+                cleanBasePdf={(result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null}
+                floor={(() => {
+                  const t = `${editorPlansa?.name || ""} ${editorPlansa?.type || ""} ${editorPlansa?.source_plansa_nr || ""}`.toLowerCase();
+                  return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
+                })()}
               />
             )}
 

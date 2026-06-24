@@ -192,8 +192,8 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta,
-}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta }) {
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor,
+}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,7 +202,10 @@ export default function PlanEditor({
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [tectNotNeeded, setTectNotNeeded] = useState(false);   // TE-CT: opțiunea "nu este nevoie" (doar UI)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [planSoon, setPlanSoon] = useState(false);   // buton "Obține plan" = placeholder (mesaj "în curând")
+  // "Obține plan" (sub-pas 1a): regenerare PDF din plan_elements editat, pe baza curată
+  const [regenLoading, setRegenLoading] = useState(false);
+  const [regenPdf, setRegenPdf] = useState<string | null>(null);
+  const [regenErr, setRegenErr] = useState<string | null>(null);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -355,6 +358,35 @@ export default function PlanEditor({
   function setCursor(e: KonvaEventObject<MouseEvent>, c: string) {
     const stage = e.target.getStage();
     if (stage) stage.container().style.cursor = c;
+  }
+
+  // base64 PDF -> URL de blob (pt. descărcare / deschidere)
+  function pdfBlobUrl(b64: string): string {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  }
+
+  // "Obține plan" (1a): trimite baza curată + project_id/floor -> backend citește plan_elements EDITAT
+  // și redesenează -> primim PDF nou. Baza curată lipsă -> mesaj clar; erori -> mesaj, fără crash.
+  async function handleRegenerate() {
+    if (!cleanBasePdf) { setRegenErr("Baza curată (planul fără becuri) lipsește pentru acest proiect."); return; }
+    setRegenLoading(true); setRegenErr(null); setRegenPdf(null);
+    try {
+      const res = await fetch("/api/regenerate-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, floor: floor || "parter", base_pdf_base64: cleanBasePdf }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success || !data?.pdf_base64) setRegenErr(data?.error || "Regenerare eșuată.");
+      else setRegenPdf(pdfBlobUrl(data.pdf_base64));   // stocăm URL-ul de blob (nu base64) -> fără re-creare
+    } catch (e) {
+      setRegenErr(e instanceof Error ? e.message : "Eroare de rețea.");
+    } finally {
+      setRegenLoading(false);
+    }
   }
 
   if (!pngBase64) {
@@ -644,16 +676,25 @@ export default function PlanEditor({
           {renderPanelsSection()}
         </div>
 
-        {/* Obține plan — PLACEHOLDER: la click doar mesaj "în curând", NU regenerează nimic */}
+        {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
         <div>
-          <button type="button" className="zy-getplan" onClick={() => setPlanSoon(true)}>
-            Obține plan iluminat
-            <span className="zy-soon-badge">în curând</span>
+          <button type="button" className="zy-getplan" onClick={handleRegenerate} disabled={regenLoading}>
+            {regenLoading ? "Se regenerează…" : "Obține plan iluminat"}
           </button>
-          {planSoon && (
+          {regenErr && (
             <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11.5, lineHeight: 1.45,
-              color: "#9DA2BC", background: "rgba(55,138,221,0.06)", border: "1px solid rgba(55,138,221,0.18)" }}>
-              În curând — această funcție va regenera planul cu modificările tale. (Momentan nu face nicio acțiune.)
+              color: "#F0A9A9", background: "rgba(214,40,40,0.08)", border: "1px solid rgba(214,40,40,0.22)" }}>
+              {regenErr}
+            </div>
+          )}
+          {regenPdf && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+              background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.22)" }}>
+              <div style={{ marginBottom: 6, color: "#C5C8D6" }}>Plan regenerat din modificările tale ✓</div>
+              <div className="flex gap-1.5">
+                <a className="zy-add-btn" href={regenPdf} download="Plan_iluminat_editat.pdf">Descarcă</a>
+                <a className="zy-add-btn" href={regenPdf} target="_blank" rel="noopener noreferrer">Deschide</a>
+              </div>
             </div>
           )}
         </div>
