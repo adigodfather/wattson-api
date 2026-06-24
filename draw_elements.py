@@ -6,6 +6,7 @@ import fitz  # PyMuPDF
 
 # Roșu pentru planșa de iluminat (RGB 0-1)
 RED = (0.86, 0.16, 0.16)
+_BULB_YELLOW = (0.980, 0.780, 0.459)   # #FAC775 — umplutură DOAR la aplica_senzor
 
 # Pattern suprafață cameră: "A: 20.41 mp" / "A:20.41mp" / "S = 12.3 mp" etc.
 AREA_RE = re.compile(r'\b(?:A|S)\s*[:=]?\s*\d{1,3}[.,]\d{1,2}\s*mp\b', re.IGNORECASE)
@@ -59,20 +60,67 @@ def _find_room_centers(page, W, H):
     return centers
 
 
-def _draw_bulb(page, cx, cy, r=9.0, y_offset=-22):
-    """Simbol standard corp de iluminat: cerc cu X (două diametre la 45°), roșu.
-    y_offset: deplasare verticală față de (cx, cy). Default -22 = deasupra ancorei
-    de suprafață (cale text_regex). vision_bbox cheamă cu y_offset=0 (centrul real)."""
-    center = fitz.Point(cx, cy + y_offset)  # y_offset negativ = în sus
-    # cerc
-    page.draw_circle(center, r, color=RED, width=1.2)
-    # X = două diagonale la 45°, rază = r
-    import math
-    d = r * math.cos(math.radians(45))
-    page.draw_line(fitz.Point(center.x - d, center.y - d),
-                   fitz.Point(center.x + d, center.y + d), color=RED, width=1.2)
-    page.draw_line(fitz.Point(center.x - d, center.y + d),
-                   fitz.Point(center.x + d, center.y - d), color=RED, width=1.2)
+def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22):
+    """Simbol corp de iluminat PE TIP (contur roșu; senzor cu umplutură galbenă), portat din Konva:
+      aplica_tavan: cerc + X | aplica_perete: semicerc + punct | lustra_led: cerc+X + 2 inele |
+      banda_led: dreptunghi alungit + liniuțe | aplica_senzor: cerc + X cu fill galben.
+    y_offset: deplasare verticală (cale text_regex -22; vision_bbox/regenerare 0). aplica_tavan = aspectul vechi."""
+    cx0 = cx; cy0 = cy + y_offset   # centrul simbolului
+
+    def X(rr):  # X = două diagonale la 45° pe rază rr
+        d = rr * math.cos(math.radians(45))
+        page.draw_line(fitz.Point(cx0 - d, cy0 - d), fitz.Point(cx0 + d, cy0 + d), color=RED, width=1.2)
+        page.draw_line(fitz.Point(cx0 - d, cy0 + d), fitz.Point(cx0 + d, cy0 - d), color=RED, width=1.2)
+
+    center = fitz.Point(cx0, cy0)
+    et = element_type or "aplica_tavan"
+    if et == "aplica_perete":
+        page.draw_sector(center, fitz.Point(cx0 + 9, cy0), 180, color=RED, width=1.2, fullSector=True)
+        page.draw_circle(fitz.Point(cx0, cy0 + 4), 1.8, color=RED, fill=RED, width=0.8)
+    elif et == "lustra_led":
+        page.draw_circle(center, 24, color=RED, width=1.2)
+        page.draw_circle(center, 18, color=RED, width=1.2)
+        page.draw_circle(center, 12, color=RED, width=1.2)
+        X(12)
+    elif et == "banda_led":
+        page.draw_rect(fitz.Rect(cx0 - 30, cy0 - 7, cx0 + 30, cy0 + 7), color=RED, width=1.2)
+        for tx in (-18, -6, 6, 18):
+            page.draw_line(fitz.Point(cx0 + tx, cy0 - 3), fitz.Point(cx0 + tx, cy0 + 3), color=RED, width=1.0)
+    elif et == "aplica_senzor":
+        page.draw_circle(center, 9, color=RED, fill=_BULB_YELLOW, width=1.2)
+        X(9)
+    else:  # aplica_tavan (default) — NESCHIMBAT: cerc + X la raza r
+        page.draw_circle(center, r, color=RED, width=1.2)
+        X(r)
+
+
+# eticheta becului: "{Nume} LED[ SP] {power}W" — power_w gol/None -> fara watt (NU inventa default)
+_BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
+              "aplica_senzor": "Aplica", "banda_led": "Banda"}
+_BULB_TOP = {"lustra_led": 25, "banda_led": 8}   # extinderea simbolului in sus (pt. pozitia etichetei)
+
+
+def _bulb_label(element_type, power_w):
+    name = _BULB_NAME.get(element_type, "Corp")
+    suffix = " SP" if element_type == "aplica_senzor" else ""
+    txt = "{} LED{}".format(name, suffix)
+    if power_w is not None and power_w != "":
+        try:
+            txt += " {}W".format(int(power_w))
+        except (TypeError, ValueError):
+            pass
+    return txt
+
+
+def _draw_bulb_label(page, cx, cy, element_type, power_w):
+    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil)."""
+    txt = _bulb_label(element_type, power_w)
+    if not txt:
+        return
+    fs = 7.5
+    w = len(txt) * fs * 0.46                      # latime aproximativa (centrare)
+    top = _BULB_TOP.get(element_type, 10)
+    page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 4.0), txt, fontsize=fs, fontname="helv", color=RED)
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -662,7 +710,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             except (TypeError, ValueError, KeyError):
                 continue
             if et in _BULB_TYPES:
-                _draw_bulb(page, x, y, y_offset=0)                                   # 1a: simbol generic
+                _draw_bulb(page, x, y, et, y_offset=0)                               # forma PE TIP (1b)
+                _draw_bulb_label(page, x, y, et, el.get("power_w"))                  # eticheta deasupra
                 n_bulb += 1
             elif et in _SWITCH_TYPES:
                 _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
