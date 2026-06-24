@@ -699,10 +699,10 @@ def _cable_l_path(a, b):
     return [a, mid, b]
 
 
-_CABLE_COLOR = (0.85, 0.45, 0.45)   # rosu mai deschis (familia iluminat, dar distinct de simboluri prin nuanta + dash)
+_CABLE_COLOR = (0.082, 0.396, 0.753)   # ALBASTRU #1565C0 — distinct de axele ROSII intrerupte ale planului
 
 
-def _draw_cable(page, path, color=None, width=0.7):
+def _draw_cable(page, path, color=None, width=0.8):
     """Cablu = polilinie SUBTIRE INTRERUPTA (dashed) pe traseu (path = [(x,y),...]).
     Defensiv: path lipsa / <2 puncte -> skip."""
     if not path or len(path) < 2:
