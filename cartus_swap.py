@@ -234,7 +234,7 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
             pass
 
 
-def _mask_margins(page, rooms, pad_left=0.08, pad_top=0.08, pad_bottom=0.08, pad_right=0.02, right_cap=0.82, protect_top_frac=0.08):
+def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad_right=0.02, right_cap=0.82, protect_top_frac=0.08):
     """Curatare partiala (~80%): maschera gunoiul din MARGINI pastrand arhitectura centrala.
     rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding ASIMETRIC = zona pastrata.
     Padding mic pe DREAPTA (pad_right=0.02) fiindca blocul arhitect (BILANT/NOTA) abuta cladirea acolo;
