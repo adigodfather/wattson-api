@@ -690,6 +690,112 @@ def _draw_panel(page, x, y, element_type):
     page.insert_text(P(-12, 18), short, fontsize=8, fontname="hebo", color=_PANEL_DARK)
 
 
+def _cable_l_path(a, b):
+    """Traseu L (3 puncte) intre a=(x,y) si b=(x,y). Orientare dupa Δ mai mare:
+    |Δx|>=|Δy| -> orizontal intai [a,(b.x,a.y),b]; altfel vertical intai [a,(a.x,b.y),b]."""
+    ax, ay = a
+    bx, by = b
+    mid = (bx, ay) if abs(bx - ax) >= abs(by - ay) else (ax, by)
+    return [a, mid, b]
+
+
+def compute_cables(elements):
+    """PAS 3 (LOGICA pura, FARA desen): asociaza becuri->intrerupatoare (pe room + tip) si
+    intrerupatoare->tablou, cu trasee L. Reguli:
+      - intrerupator_simplu + N becuri -> LANT in serie (switch -> bec nearest -> next nearest ...);
+      - dublu/triplu/cap_scara -> fiecare bec -> switch (PARALEL);
+      - aplica_senzor -> direct TEG (NU la intrerupator);
+      - intrerupator -> TEG, EXCEPTIE room contine 'tehnic' -> TE-CT.
+    Skip sigure: intrerupator cu room null (legacy), bec non-senzor fara switch in camera, tablou lipsa.
+    Returneaza (cables, stats). cable = {from_type, from_xy, to_type, to_xy, path:[(x,y)..], kind, length, room}."""
+    bulbs, switches, panels = [], [], {}
+    for el in (elements or []):
+        try:
+            et = el.get("element_type") or ""
+            x = float(el["x"]); y = float(el["y"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        room = el.get("room")
+        if et in _BULB_TYPES:
+            bulbs.append({"et": et, "x": x, "y": y, "room": room})
+        elif et in _SWITCH_TYPES:
+            if room:                       # skip intrerupator cu room null (legacy)
+                switches.append({"et": et, "x": x, "y": y, "room": room})
+        elif et in _PANEL_TYPES:
+            panels[et] = (x, y)            # de obicei 1 per tip
+    teg = panels.get("tablou_teg")
+    tect = panels.get("tablou_te_ct")
+
+    cables = []
+    stats = {"bec_sw": 0, "senzor_teg": 0, "sw_tablou": 0,
+             "skip_sw_room_null": sum(1 for el in (elements or [])
+                                      if (el.get("element_type") in _SWITCH_TYPES) and not el.get("room")),
+             "skip_bec_fara_sw": 0, "skip_tablou_lipsa": 0}
+
+    def add(ft, a, tt, b, kind, room):
+        path = _cable_l_path(a, b)
+        length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
+                     for i in range(len(path) - 1))
+        cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
+                       "path": path, "kind": kind, "length": round(length, 1), "room": room})
+
+    def nearest(p, items):
+        return min(items, key=lambda q: math.hypot(q["x"] - p[0], q["y"] - p[1]))
+
+    bulbs_by_room, sw_by_room = {}, {}
+    for b in bulbs:
+        bulbs_by_room.setdefault(b["room"], []).append(b)
+    for s in switches:
+        sw_by_room.setdefault(s["room"], []).append(s)
+
+    # BEC -> INTRERUPATOR (pe tip) + SENZOR -> TEG
+    for room, rb in bulbs_by_room.items():
+        senzori = [b for b in rb if b["et"] == "aplica_senzor"]
+        normale = [b for b in rb if b["et"] != "aplica_senzor"]
+        for b in senzori:                  # senzor -> TEG direct
+            if teg:
+                add("aplica_senzor", (b["x"], b["y"]), "tablou_teg", teg, "senzor_teg", room)
+                stats["senzor_teg"] += 1
+            else:
+                stats["skip_tablou_lipsa"] += 1
+        if not normale:
+            continue
+        rsw = sw_by_room.get(room, [])
+        if not rsw:                        # bec non-senzor fara intrerupator -> skip v1
+            stats["skip_bec_fara_sw"] += len(normale)
+            continue
+        cx = sum(b["x"] for b in normale) / len(normale)
+        cy = sum(b["y"] for b in normale) / len(normale)
+        sw = nearest((cx, cy), rsw)        # intrerupatorul cel mai apropiat de centroidul becurilor
+        swxy = (sw["x"], sw["y"])
+        if sw["et"] == "intrerupator_simplu":
+            rem = list(normale); prev_xy = swxy; prev_type = sw["et"]; cur = swxy
+            while rem:                     # LANT: switch -> nearest -> next nearest -> ...
+                nb = nearest(cur, rem); rem.remove(nb)
+                bxy = (nb["x"], nb["y"])
+                add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room)
+                stats["bec_sw"] += 1
+                prev_xy = bxy; prev_type = nb["et"]; cur = bxy
+        else:                              # dublu/triplu/cap_scara -> PARALEL
+            for b in normale:
+                add(b["et"], (b["x"], b["y"]), sw["et"], swxy, "bec_paralel", room)
+                stats["bec_sw"] += 1
+
+    # INTRERUPATOR -> TABLOU (TEG; TE-CT daca room contine 'tehnic')
+    for s in switches:
+        is_tech = "tehnic" in (s["room"] or "").lower()
+        if is_tech and tect:
+            add(s["et"], (s["x"], s["y"]), "tablou_te_ct", tect, "sw_tablou", s["room"])
+            stats["sw_tablou"] += 1
+        elif teg:
+            add(s["et"], (s["x"], s["y"]), "tablou_teg", teg, "sw_tablou", s["room"])
+            stats["sw_tablou"] += 1
+        else:
+            stats["skip_tablou_lipsa"] += 1
+
+    return cables, stats
+
+
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
     pe BAZA CURATA (planuri[].pdf_base64 = cartus + mask-margins, FARA becuri).
