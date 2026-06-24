@@ -238,6 +238,7 @@ export interface ProjectResult {
     } | null;
     centers?: Array<{ x: number; y: number; label?: string }>;
     switches?: Array<{ x: number; y: number; angle?: number; room?: string | number | null }>;
+    regenerated?: boolean;   // true după "Obține plan" -> pdf_base64 = planul regenerat (cabluri+editări), nu ciorna Vision
   }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
@@ -276,4 +277,17 @@ export interface ProjectResult {
     unit: string;
     notes?: string;
   }> | null;
+}
+
+// Planșa de iluminat REGENERATĂ (după "Obține plan": cabluri + editări) ÎNLOCUIEȘTE tot ce se afișează;
+// draftul Vision (neregenerat) se ASCUNDE (e doar ciornă). DTAC (fără planse_iluminat) -> planuri ca înainte.
+type ShownPlansa = { name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string };
+export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlansa[]; draftPending: boolean } {
+  const il = result.planse_iluminat || [];
+  if (il.length) {
+    const regen = il.filter(p => p.regenerated);
+    if (regen.length) return { planse: regen, draftPending: false };
+    return { planse: [], draftPending: true };   // doar ciornă Vision -> ascunde + placeholder
+  }
+  return { planse: result.planuri || [], draftPending: false };   // DTAC: planuri ca înainte
 }

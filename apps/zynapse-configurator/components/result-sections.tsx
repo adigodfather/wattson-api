@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { isPhasePT } from "@/lib/constants";
+import { isPhasePT, iluminatPlanseToShow } from "@/lib/constants";
 import type { Circuit, RoomResult, ProjectResult } from "@/lib/constants";
 
 export { type ProjectResult };
@@ -390,13 +390,12 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
 
       {/* Planșă (iluminat / plan adnotat) — DOAR pe faza PT (DTAC+PT) */}
       {isPhasePT(result.output_phase ?? result.project_info?.faza ?? "") && (() => {
-        // Planurile cu straturi (iluminat cu becuri etc.) sunt planul principal.
-        // Fallback la planul adnotat doar pentru proiecte vechi fără planșe cu straturi.
-        const planseStrat: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }> | null =
-          result.planse_iluminat?.length
-            ? result.planse_iluminat
-            : (result.planuri?.length ? result.planuri : null);
-        if (planseStrat) return <PlanPdfSection planse={planseStrat} />;
+        // 1d: planul REGENERAT (cabluri+editari) e planul principal; ciorna Vision (neregenerata) se ASCUNDE.
+        const { planse, draftPending } = iluminatPlanseToShow(result);
+        if (draftPending) {
+          return <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Planul de iluminat nu a fost generat din editor (ciornă).</p>;
+        }
+        if (planse.length) return <PlanPdfSection planse={planse} />;
         if (result.annotated_plan_base64) return <AnnotatedPlanSection src={result.annotated_plan_base64} />;
         return null;
       })()}

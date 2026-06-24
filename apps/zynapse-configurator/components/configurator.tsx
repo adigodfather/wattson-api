@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT,
+  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -968,6 +968,24 @@ export function ZynapseConfigurator() {
   const editorPlansa = (result?.planse_iluminat || []).find(p => !!p.png_base64) || null;
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
+
+  // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
+  async function handleRegenerated(pdfBase64: string) {
+    if (!result || !editorPlansa || !savedProjectId) return;
+    const updated: ProjectResult = {
+      ...result,
+      planse_iluminat: (result.planse_iluminat || []).map(p =>
+        p === editorPlansa ? { ...p, pdf_base64: pdfBase64, regenerated: true } : p),
+    };
+    setResult(updated);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("projects").update({ result_data: updated }).eq("id", savedProjectId);
+      if (error) console.error("[regenerate] persist result_data esuat:", error.message);
+    } catch (e) {
+      console.error("[regenerate] persist exception:", e);
+    }
+  }
   useEffect(() => {
     if (!showPlanBom && (activeTab === "plan" || activeTab === "bom")) setActiveTab("circuits");
   }, [showPlanBom, activeTab]);
@@ -2030,14 +2048,20 @@ export function ZynapseConfigurator() {
 
             {/* ── Tab: Planșe (arhitectură cu cartuș Zynapse) — DOAR pe DTAC+PT ── */}
             {showPlanBom && activeTab === 'plan' && (() => {
-              // DTAC+PT: planul cu becuri (planse_iluminat) INLOCUIESTE planul de baza (planuri).
-              // DTAC: planse_iluminat lipseste -> afiseaza planuri ca inainte.
-              const planseSursa: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }> =
-                (result!.planse_iluminat && result!.planse_iluminat.length)
-                  ? result!.planse_iluminat
-                  : (result!.planuri || []);
-              return planseSursa.length
-                ? <PlanPdfSection planse={planseSursa} />
+              // 1d: arata DOAR planul REGENERAT (dupa "Obtine plan"); ciorna Vision se ascunde (placeholder).
+              const { planse, draftPending } = iluminatPlanseToShow(result!);
+              if (draftPending) {
+                return (
+                  <div className="text-center py-10">
+                    <p className="text-sm m-0" style={{ color: "#8B8FA8" }}>Planul de iluminat e încă ciornă.</p>
+                    <p className="text-[13px] mt-1 m-0" style={{ color: "#545870" }}>
+                      Mergi la tab-ul <b style={{ color: "#8B8FA8" }}>Editor</b>, ajustează elementele și apasă <b style={{ color: "#5BB8F5" }}>„Obține plan iluminat"</b> ca să generezi planul final (cu cabluri).
+                    </p>
+                  </div>
+                );
+              }
+              return planse.length
+                ? <PlanPdfSection planse={planse} />
                 : <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există planuri.</p>;
             })()}
 
@@ -2052,6 +2076,7 @@ export function ZynapseConfigurator() {
                   const t = `${editorPlansa?.name || ""} ${editorPlansa?.type || ""} ${editorPlansa?.source_plansa_nr || ""}`.toLowerCase();
                   return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
                 })()}
+                onRegenerated={handleRegenerated}
               />
             )}
 

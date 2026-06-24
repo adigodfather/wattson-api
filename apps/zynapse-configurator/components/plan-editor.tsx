@@ -192,8 +192,9 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor,
-}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string }) {
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated,
+}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
+     onRegenerated?: (pdfBase64: string) => void }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -380,8 +381,12 @@ export default function PlanEditor({
         body: JSON.stringify({ project_id: projectId, floor: floor || "parter", base_pdf_base64: cleanBasePdf }),
       });
       const data = await res.json();
-      if (!res.ok || !data?.success || !data?.pdf_base64) setRegenErr(data?.error || "Regenerare eșuată.");
-      else setRegenPdf(pdfBlobUrl(data.pdf_base64));   // stocăm URL-ul de blob (nu base64) -> fără re-creare
+      if (!res.ok || !data?.success || !data?.pdf_base64) {
+        setRegenErr(data?.error || "Regenerare eșuată.");
+      } else {
+        setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open
+        onRegenerated?.(data.pdf_base64);             // trimite PDF-ul sus -> configurator salveaza + afiseaza
+      }
     } catch (e) {
       setRegenErr(e instanceof Error ? e.message : "Eroare de rețea.");
     } finally {
