@@ -125,6 +125,69 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w):
     page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 4.0), txt, fontsize=fs, fontname="helv", color=RED)
 
 
+# ── C4: simbol PRIZA pe PDF (semicerc curba SUS + 2 contacte) + eticheta "C{circuit} - h={h}m". ──
+def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0):
+    """Simbol priza (portat din Konva P2): semicerc cu partea curba SUS + 2 contacte sub diametru; rosu.
+    Distinct de bec (cerc+X) si aplica_perete (semicerc curba JOS). 4 variante. scale -> dimensiune."""
+    s = scale
+
+    def disc(dx, r):   # semicerc (curba SUS): arc + diametru. beta=-180 din STANGA -> dome SUS (vs perete: jos)
+        page.draw_sector(fitz.Point(cx + dx, cy), fitz.Point(cx + dx - r, cy), -180,
+                         color=RED, width=1.4, fullSector=True)
+
+    def contacts(dx):  # 2 contacte verticale sub diametru
+        for off in (-3.0 * s, 3.0 * s):
+            page.draw_line(fitz.Point(cx + dx + off, cy + 2.0 * s), fitz.Point(cx + dx + off, cy + 6.0 * s),
+                           color=RED, width=1.1)
+
+    et = element_type or "priza_simpla"
+    if et == "priza_dubla":
+        disc(-8 * s, 7 * s); contacts(-8 * s)
+        disc(8 * s, 7 * s);  contacts(8 * s)
+    elif et == "priza_16a":
+        disc(0, 8 * s); contacts(0)
+        page.insert_text(fitz.Point(cx - 9 * s, cy + 13 * s), "16A", fontsize=7.0 * s, fontname="hebo", color=RED)
+    elif et == "priza_exterior_ip44":
+        page.draw_rect(fitz.Rect(cx - 11 * s, cy - 11 * s, cx + 11 * s, cy + 10 * s), color=RED, width=1.0)
+        disc(0, 8 * s); contacts(0)
+        page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s), "IP44", fontsize=6.0 * s, fontname="hebo", color=RED)
+    else:  # priza_simpla
+        disc(0, 8 * s); contacts(0)
+
+
+def _fmt_height(h):
+    """Inaltime curata (trim zerouri): 0.6 -> '0.6', 1.1 -> '1.1', 1.0 -> '1'. None/gol -> None."""
+    if h is None or h == "":
+        return None
+    try:
+        return ("%.2f" % float(h)).rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return None
+
+
+def _priza_label(el):
+    """Eticheta priza: 'C{circuit_id} - h={mount_height_m}m'. Circuit lipsa -> doar inaltime;
+    ambele lipsa -> ''. Ex: circuit_id='C4', mount_height_m=0.6 -> 'C4 - h=0.6m'."""
+    parts = []
+    cid = ((el or {}).get("circuit_id") or "").strip()
+    if cid:
+        parts.append(cid)
+    h = _fmt_height((el or {}).get("mount_height_m"))
+    if h is not None:
+        parts.append("h=%sm" % h)
+    return " - ".join(parts)
+
+
+def _draw_priza_label(page, cx, cy, el):
+    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (rosu, lizibil)."""
+    txt = _priza_label(el)
+    if not txt:
+        return
+    fs = 7.5
+    w = len(txt) * fs * 0.46
+    page.insert_text(fitz.Point(cx - w / 2.0, cy - 16.0), txt, fontsize=fs, fontname="helv", color=RED)
+
+
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
 # Nume de baza becuri in legenda. Tablouri/intrerupatoare = text descriptiv. FARA diacritice (ca restul planului).
 _LEGEND_BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
@@ -1206,7 +1269,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
         pdf_bytes = base64.b64decode(raw)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
-        n_bulb = n_sw = n_panel = n_skip = 0
+        n_bulb = n_sw = n_panel = n_priza = n_skip = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
@@ -1235,6 +1298,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             elif et in _PANEL_TYPES:
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
+            elif et in _PRIZA_TYPES:
+                _draw_priza(page, x, y, et)                                          # simbol priza (C4)
+                _draw_priza_label(page, x, y, el)                                    # eticheta "C{circuit} - h={h}m"
+                n_priza += 1
             elif et == "legenda":
                 continue                                                             # caseta legenda = overlay separat (L3); NU simbol, NU skip
             else:
@@ -1256,7 +1323,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             "filename": "Plan_iluminat_editat.pdf",
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
-                         "cables_drawn": n_cable, "skipped": n_skip, "legend_drawn": n_legend},
+                         "prizas_drawn": n_priza, "cables_drawn": n_cable, "skipped": n_skip,
+                         "legend_drawn": n_legend},
             # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
             # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
             "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],
