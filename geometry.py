@@ -13,10 +13,32 @@ import math
 
 import fitz  # PyMuPDF
 
-# Layere OCG care contin pereti (confirmate pe planul real cu doc.get_ocgs()).
-WALL_LAYERS = ("PERETI EXTERIORI", "Structural - Bearing")
-# Arcele de usa (door swing) sunt desenate pe layerul peretilor exteriori.
-DOOR_LAYER = "PERETI EXTERIORI"
+# ── AUTO-DETECTIE layere OCG (substring, case-insensitive) — generalizeaza pe arhitecti/CAD diferiti. ──
+# Confirmat pe 5 planuri reale: Revit ("PERETI EXTERIORI"), AutoCAD ("Pereti"/"1Pereti"),
+# ArchiCAD ("400_TBF - Pereti exteriori portanti" etc.). Inlocuieste lista hardcodata (prindea doar Revit).
+WALL_KW = ("pereti", "perete", "wall", "zid")
+COLUMN_KW = ("bearing", "stalp", "stâlp", "portant", "column", "coloana")
+DOOR_KW = ("usa", "usi", "uși", "ușa", "door", "tamplarie", "tâmplarie")
+
+
+def _is_wall_layer(name):
+    """True daca numele layerului indica PERETI (substring RO/EN)."""
+    lc = (name or "").lower()
+    return any(k in lc for k in WALL_KW)
+
+
+def _is_column_layer(name):
+    """True daca layerul e de SAMBURI/STALPI: substring COLUMN_KW DAR NU perete.
+    Prioritate PERETE > SAMBURE: 'pereti exteriori portanti' ramane PERETE, nu coloana."""
+    lc = (name or "").lower()
+    return (not _is_wall_layer(name)) and any(k in lc for k in COLUMN_KW)
+
+
+def _is_door_layer(name):
+    """Layere candidate pt. arcele de usa: dedicat (tamplarie/usa/door) SAU layerul peretilor
+    (ex. Revit deseneaza arcele de usa pe layerul peretilor exteriori)."""
+    lc = (name or "").lower()
+    return _is_wall_layer(name) or any(k in lc for k in DOOR_KW)
 
 # pt^2 -> m^2 la scara planului (identic cu draw_elements._PT2_TO_M2).
 _PT2_TO_M2 = 6.205e-4
@@ -58,8 +80,8 @@ def _collect(page):
     h_segs, v_segs, doors = [], [], []
     for d in page.get_drawings():
         lay = d.get("layer")
-        is_wall = lay in WALL_LAYERS
-        is_door = (lay == DOOR_LAYER)
+        is_wall = _is_wall_layer(lay)
+        is_door = _is_door_layer(lay)
         for it in d.get("items", []):
             kind = it[0]
             if kind == "l" and is_wall:
@@ -462,7 +484,7 @@ def extract_doors(page, W, H):
     h_segs, v_segs, _doors = _collect(page)
     out = []
     for d in page.get_drawings():
-        if d.get("layer") != DOOR_LAYER:
+        if not _is_door_layer(d.get("layer")):
             continue
         for it in d.get("items", []):
             if it[0] != "c":
@@ -499,7 +521,7 @@ def extract_columns(page):
     Intoarce lista de (x,y) centre in puncte PDF — pentru evitarea coliziunii aparatajului."""
     sq = []
     for d in page.get_drawings():
-        if d.get("layer") != WALL_LAYERS[1]:   # "Structural - Bearing"
+        if not _is_column_layer(d.get("layer")):   # samburi/stalpi (auto-detect, NU pereti)
             continue
         r = d.get("rect")
         if r is None:
