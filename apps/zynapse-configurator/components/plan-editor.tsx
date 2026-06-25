@@ -30,6 +30,7 @@ type PlanElement = {
   plan_type: string | null;
   floor: string | null;
   status: string | null;   // doar tablouri: 'nou' | 'existent' (altele null)
+  cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
 };
 
 const COL_BULB = "#1E63D6";
@@ -39,7 +40,7 @@ const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status";
+const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, cable_path";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -71,6 +72,7 @@ const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
 const isPanelType = (t: string) => PANEL_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
+const isTraseuType = (t: string) => t === "traseu";
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -381,6 +383,49 @@ export default function PlanEditor({
     if (error || !data) { console.error("[plan_elements] INSERT legenda esuat", error?.message); return; }
     setElements(prev => [...prev, data as PlanElement]);
     setSelectedId((data as PlanElement).id);
+  }
+
+  // ADD TRASEU (dunga hol): linie dreapta cu 2 capete, punctele in cable_path (puncte PDF). Max 1/plansa.
+  // B1: doar dunga vizibila/mutabila in editor; routing-ul (switch->dunga->tablou) vine la B2. ancora x,y = points[0].
+  async function addTraseu() {
+    if (elements.some(e => e.element_type === "traseu")) return;   // max 1 traseu / plansa
+    const floor = elements[0]?.floor || "parter";
+    const pdfW = pngW > 0 ? pngW / scale : 400;
+    const pdfH = pngH > 0 ? pngH / scale : 400;
+    const x0 = pdfW * 0.35, y0 = pdfH * 0.5;        // dunga orizontala default peste centru (mutabila)
+    const x1 = pdfW * 0.65, y1 = pdfH * 0.5;
+    const row = {
+      project_id: projectId,
+      floor,
+      element_type: "traseu",
+      plan_type: "iluminat",
+      label: null as string | null,
+      room: null as string | null,
+      x: x0,
+      y: y0,                              // ancora = capatul 0 (sincron cu NOT NULL x,y)
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,
+      cable_path: [[x0, y0], [x1, y1]] as number[][],
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT traseu esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+  }
+
+  // Drag pe un CAPAT al dungii: updateaza cable_path[i] (+ x,y daca i=0 = ancora) si persista.
+  function handleTraseuVertexDragEnd(el: PlanElement, i: number, e: KonvaEventObject<DragEvent>) {
+    const xPdf = e.target.x() / scale;
+    const yPdf = e.target.y() / scale;
+    const base = (el.cable_path && el.cable_path.length >= 2)
+      ? el.cable_path.map(p => [p[0], p[1]])
+      : [[el.x, el.y], [el.x + 120, el.y]];
+    base[i] = [xPdf, yPdf];
+    const patch: Partial<PlanElement> = { cable_path: base };
+    if (i === 0) { patch.x = xPdf; patch.y = yPdf; }   // capatul 0 = ancora -> tine x,y in sync
+    setLocalField(el.id, patch);
+    persist(el.id, patch);
   }
 
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
@@ -708,6 +753,29 @@ export default function PlanEditor({
     );
   };
 
+  // secțiunea Traseu cabluri (hol): o dungă (linie 2 capete) draggable pe care, la B2, vor merge cablurile.
+  // B1: doar dunga vizibilă/mutabilă; fără routing încă.
+  const renderTraseuSection = () => {
+    const existing = elements.find(e => e.element_type === "traseu") || null;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Traseu cabluri (hol)
+        </div>
+        {existing ? (
+          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
+            Dungă adăugată — trage-i capetele pe hol.
+            <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={addTraseu}>+ Adaugă traseu</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -741,6 +809,7 @@ export default function PlanEditor({
           {roomKeys.map(renderRoom)}
           {renderPanelsSection()}
           {renderLegendSection()}
+          {renderTraseuSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
@@ -790,6 +859,7 @@ export default function PlanEditor({
                   />
                 ))}
                 {ordered.map((el) => {
+                  if (isTraseuType(el.element_type)) return null;   // traseu (dunga) randat separat (Line + capete)
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -850,6 +920,28 @@ export default function PlanEditor({
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
                       {el.room && !isPanel && <Text x={12} y={-7} text={el.room} fontSize={13} fill={col} listening={false} />}
+                    </Group>
+                  );
+                })}
+                {/* TRASEU (dunga hol): linie 2 capete draggable; punctele in cable_path. B1: vizibil/editabil, FARA routing (B2). */}
+                {elements.filter(e => isTraseuType(e.element_type)).map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y], [el.x + 120, el.y]];
+                  const isSel = selectedId === el.id;
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <Group key={el.id}>
+                      <Line points={flat} stroke="#1565C0" strokeWidth={isSel ? 3.5 : 2.5} dash={[9, 5]}
+                            lineCap="round" hitStrokeWidth={14}
+                            onClick={() => selectElement(el.id)} onTap={() => selectElement(el.id)}
+                            onMouseEnter={(e) => setCursor(e, "pointer")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      {pts.map((p, i) => (
+                        <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={isSel ? 7 : 5}
+                                fill="#fff" stroke="#1565C0" strokeWidth={2} draggable
+                                onClick={() => selectElement(el.id)}
+                                onDragStart={(e) => { selectElement(el.id); e.target.moveToTop(); }}
+                                onDragEnd={(e) => handleTraseuVertexDragEnd(el, i, e)}
+                                onMouseEnter={(e) => setCursor(e, "move")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      ))}
                     </Group>
                   );
                 })}
