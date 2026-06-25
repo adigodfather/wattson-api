@@ -60,11 +60,13 @@ def _find_room_centers(page, W, H):
     return centers
 
 
-def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22):
+def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, scale=1.0):
     """Simbol corp de iluminat PE TIP (contur roșu; senzor cu umplutură galbenă), portat din Konva:
       aplica_tavan: cerc + X | aplica_perete: semicerc + punct | lustra_led: cerc+X + 2 inele |
       banda_led: dreptunghi alungit + liniuțe | aplica_senzor: cerc + X cu fill galben.
-    y_offset: deplasare verticală (cale text_regex -22; vision_bbox/regenerare 0). aplica_tavan = aspectul vechi."""
+    y_offset: deplasare verticală (cale text_regex -22; vision_bbox/regenerare 0). aplica_tavan = aspectul vechi.
+    scale: factor pe TOATE razele/offset-urile (forma identica, mai mica) — pt. legenda (L3). scale=1.0 = neschimbat."""
+    s = scale
     cx0 = cx; cy0 = cy + y_offset   # centrul simbolului
 
     def X(rr):  # X = două diagonale la 45° pe rază rr
@@ -75,23 +77,23 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22):
     center = fitz.Point(cx0, cy0)
     et = element_type or "aplica_tavan"
     if et == "aplica_perete":
-        page.draw_sector(center, fitz.Point(cx0 + 9, cy0), 180, color=RED, width=1.2, fullSector=True)
-        page.draw_circle(fitz.Point(cx0, cy0 + 4), 1.8, color=RED, fill=RED, width=0.8)
+        page.draw_sector(center, fitz.Point(cx0 + 9 * s, cy0), 180, color=RED, width=1.2, fullSector=True)
+        page.draw_circle(fitz.Point(cx0, cy0 + 4 * s), 1.8 * s, color=RED, fill=RED, width=0.8)
     elif et == "lustra_led":
-        page.draw_circle(center, 24, color=RED, width=1.2)
-        page.draw_circle(center, 18, color=RED, width=1.2)
-        page.draw_circle(center, 12, color=RED, width=1.2)
-        X(12)
+        page.draw_circle(center, 24 * s, color=RED, width=1.2)
+        page.draw_circle(center, 18 * s, color=RED, width=1.2)
+        page.draw_circle(center, 12 * s, color=RED, width=1.2)
+        X(12 * s)
     elif et == "banda_led":
-        page.draw_rect(fitz.Rect(cx0 - 30, cy0 - 7, cx0 + 30, cy0 + 7), color=RED, width=1.2)
+        page.draw_rect(fitz.Rect(cx0 - 30 * s, cy0 - 7 * s, cx0 + 30 * s, cy0 + 7 * s), color=RED, width=1.2)
         for tx in (-18, -6, 6, 18):
-            page.draw_line(fitz.Point(cx0 + tx, cy0 - 3), fitz.Point(cx0 + tx, cy0 + 3), color=RED, width=1.0)
+            page.draw_line(fitz.Point(cx0 + tx * s, cy0 - 3 * s), fitz.Point(cx0 + tx * s, cy0 + 3 * s), color=RED, width=1.0)
     elif et == "aplica_senzor":
-        page.draw_circle(center, 9, color=RED, fill=_BULB_YELLOW, width=1.2)
-        X(9)
+        page.draw_circle(center, 9 * s, color=RED, fill=_BULB_YELLOW, width=1.2)
+        X(9 * s)
     else:  # aplica_tavan (default) — NESCHIMBAT: cerc + X la raza r
-        page.draw_circle(center, r, color=RED, width=1.2)
-        X(r)
+        page.draw_circle(center, r * s, color=RED, width=1.2)
+        X(r * s)
 
 
 # eticheta becului: "{Nume} LED[ SP] {power}W" — power_w gol/None -> fara watt (NU inventa default)
@@ -735,23 +737,27 @@ _PANEL_INFO = {
 }
 
 
-def _draw_panel(page, x, y, element_type):
+def _draw_panel(page, x, y, element_type, scale=1.0, with_label=True):
     """Simbol tablou (analog Konva): dreptunghi 24x16 impartit DIAGONAL in 2 triunghiuri
     (TEG alb+verde, TE-CT rosu+albastru) + conector vertical scurt deasupra + eticheta (TEG/TE-CT).
-    Centrat la (x,y) in PUNCTE PDF (direct, ca _draw_bulb/_draw_switch)."""
+    Centrat la (x,y) in PUNCTE PDF (direct, ca _draw_bulb/_draw_switch).
+    scale: factor pe geometrie (forma identica, mai mica) — pt. legenda (L3).
+    with_label=False -> NU deseneaza eticheta scurta (in legenda textul randului o spune). Default = neschimbat."""
     colA, colB, short = _PANEL_INFO.get(element_type, ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TAB"))
+    s = scale
 
     def P(dx, dy):
-        return fitz.Point(x + dx, y + dy)
+        return fitz.Point(x + dx * s, y + dy * s)
 
     # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
     page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
     page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
     # contur dreptunghi + conector vertical deasupra
-    page.draw_rect(fitz.Rect(x - 12, y - 8, x + 12, y + 8), color=_PANEL_DARK, width=1.0)
+    page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
     page.draw_line(P(0, -8), P(0, -16), color=_PANEL_DARK, width=1.4)
-    # eticheta scurta sub dreptunghi
-    page.insert_text(P(-12, 18), short, fontsize=8, fontname="hebo", color=_PANEL_DARK)
+    # eticheta scurta sub dreptunghi (omisa in legenda)
+    if with_label:
+        page.insert_text(P(-12, 18), short, fontsize=8, fontname="hebo", color=_PANEL_DARK)
 
 
 def _cable_l_path(a, b):
@@ -775,6 +781,59 @@ def _draw_cable(page, path, color=None, width=0.8):
     for i in range(len(path) - 1):
         page.draw_line(fitz.Point(path[i][0], path[i][1]), fitz.Point(path[i + 1][0], path[i + 1][1]),
                        color=col, width=width, dashes="[3 2] 0")
+
+
+# ── LEGENDA (L3): deseneaza caseta legendei pe PDF (chenar + titlu + randuri simbol+text). ──
+# Ancora (x,y) = COLT STANGA-SUS (consistent cu caseta Konva din editor). Fundal ALB OPAC (acopera
+# planul dedesubt). Simbolurile se redeseneaza MIC prin `scale` (o singura sursa de forme — regula Dan).
+_LEGEND_BORDER = (0.20, 0.22, 0.28)   # chenar gri inchis
+_LEGEND_TITLE = (0.07, 0.09, 0.14)    # titlu
+
+
+def _draw_legend(page, x, y, rows):
+    """Caseta legenda la (x,y)=colt stanga-sus. rows = build_legend_rows(...) [{kind, element_type?, text}].
+    Fiecare rand: simbol mic (stanga, prin scale) + text (dreapta). Chenar + fundal alb opac."""
+    rows = rows or []
+    PAD = 7.0
+    TITLE_FS = 9.5
+    TITLE_H = 15.0
+    ROW_H = 17.0
+    SYM_W = 30.0          # latimea celulei de simbol (stanga)
+    ROW_FS = 8.0
+    GAP = 5.0             # spatiu simbol -> text
+    WHITE = (1, 1, 1)
+
+    # dimensiuni casetei: latime = celula simbol + cel mai lat text (estimare ca la _draw_bulb_label) + padding
+    txt_w = max([len(r.get("text") or "") * ROW_FS * 0.46 for r in rows] + [0.0])
+    title_w = len("LEGENDA") * TITLE_FS * 0.5
+    box_w = max(PAD + SYM_W + GAP + txt_w + PAD, PAD + title_w + PAD)
+    box_h = PAD + TITLE_H + len(rows) * ROW_H + PAD
+
+    # 1) chenar + fundal alb opac (acopera planul dedesubt)
+    page.draw_rect(fitz.Rect(x, y, x + box_w, y + box_h), color=_LEGEND_BORDER, fill=WHITE, width=1.0)
+    # 2) titlu + linie subtire sub el
+    page.insert_text(fitz.Point(x + PAD, y + PAD + TITLE_FS), "LEGENDA",
+                     fontsize=TITLE_FS, fontname="hebo", color=_LEGEND_TITLE)
+    ty = y + PAD + TITLE_H - 2.0
+    page.draw_line(fitz.Point(x + PAD, ty), fitz.Point(x + box_w - PAD, ty), color=_LEGEND_BORDER, width=0.6)
+
+    # 3) randuri: simbol mic (stanga) + text (dreapta)
+    text_x = x + PAD + SYM_W + GAP
+    for i, r in enumerate(rows):
+        row_top = y + PAD + TITLE_H + i * ROW_H
+        cy = row_top + ROW_H / 2.0
+        cx = x + PAD + SYM_W / 2.0
+        kind = r.get("kind")
+        if kind == "bulb":
+            _draw_bulb(page, cx, cy, r.get("element_type") or "aplica_tavan", y_offset=0, scale=0.42)
+        elif kind == "panel":
+            # +2 vertical: conectorul tabloului urca ~8pt -> centreaza simbolul in celula
+            _draw_panel(page, cx, cy + 2.0, r.get("element_type") or "", scale=0.5, with_label=False)
+        elif kind == "cable":
+            _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)], width=1.0)
+        # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
+        page.insert_text(fitz.Point(text_x, cy + ROW_FS * 0.35), r.get("text") or "",
+                         fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
 
 
 def compute_cables(elements):
@@ -936,8 +995,20 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             elif et in _PANEL_TYPES:
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
+            elif et == "legenda":
+                continue                                                             # caseta legenda = overlay separat (L3); NU simbol, NU skip
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
+        # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
+        n_legend = 0
+        try:
+            _leg = next((e for e in (elements or [])
+                         if ((e or {}).get("element_type") or "") == "legenda"), None)
+            if _leg is not None:
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements))
+                n_legend = 1
+        except Exception:
+            n_legend = 0
         out = doc.tobytes(deflate=True)
         return {
             "success": True,
@@ -945,7 +1016,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             "filename": "Plan_iluminat_editat.pdf",
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
-                         "cables_drawn": n_cable, "skipped": n_skip},
+                         "cables_drawn": n_cable, "skipped": n_skip, "legend_drawn": n_legend},
             # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
             # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
             "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],
