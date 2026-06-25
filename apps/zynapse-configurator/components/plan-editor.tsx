@@ -30,6 +30,7 @@ type PlanElement = {
   plan_type: string | null;
   floor: string | null;
   status: string | null;   // doar tablouri: 'nou' | 'existent' (altele null)
+  wall_mounted?: boolean | null;   // true pt. aparataj pe perete (intrerupatoare/prize)
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
 };
 
@@ -40,7 +41,7 @@ const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, cable_path";
+const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, wall_mounted, cable_path";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -64,15 +65,25 @@ const PANEL_TYPES = [
   { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#D1D5DB", colB: "#6B7280" },
   { value: "transformator", label: "Transformator", short: "TR",    colA: "#D1D5DB", colB: "#6B7280" },
 ];
+// Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
+const PRIZA_TYPES = [
+  { value: "priza_simpla",        label: "Priză simplă" },
+  { value: "priza_dubla",         label: "Priză dublă" },
+  { value: "priza_16a",           label: "Priză 16A" },
+  { value: "priza_exterior_ip44", label: "Priză exterior (IP44)" },
+];
 
 const BULB_SET = new Set(BULB_TYPES.map(o => o.value));
 const SWITCH_SET = new Set(SWITCH_TYPES.map(o => o.value));
 const PANEL_SET = new Set(PANEL_TYPES.map(o => o.value));
+const PRIZA_SET = new Set(PRIZA_TYPES.map(o => o.value));
 const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
 const isPanelType = (t: string) => PANEL_SET.has(t);
+const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
+const COL_PRIZA = "#D62828";   // simbol priza in editor (rosu, ca aparatajul de pe plan)
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -82,7 +93,7 @@ const PANEL_INFO: Record<string, { short: string; colA: string; colB: string }> 
 
 // etichetă prietenoasă pt. tip (ex. aplica_tavan -> "Aplică tavan"); fallback la valoarea brută
 const TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  [...BULB_TYPES, ...SWITCH_TYPES, ...PANEL_TYPES].map(o => [o.value, o.label])
+  [...BULB_TYPES, ...SWITCH_TYPES, ...PANEL_TYPES, ...PRIZA_TYPES].map(o => [o.value, o.label])
 );
 const typeLabel = (t: string) => TYPE_LABEL[t] || t;
 
@@ -154,6 +165,38 @@ function bulbSelRing(type: string) {
   if (type === "banda_led") return <Rect x={-35} y={-12} width={70} height={24} cornerRadius={6} stroke={COL_SEL} strokeWidth={3} listening={false} />;
   const r = type === "lustra_led" ? 29 : 15;
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
+}
+
+// Simbol PRIZA (Konva): semicerc (half-disc, partea curbă SUS) + 2 contacte sub el; roșu COL_PRIZA.
+// Distinct de bec (cerc+X), întrerupător (linie+cercuri) și aplica_perete (semicerc curbat în JOS).
+function prizaSymbol(type: string) {
+  const C = COL_PRIZA;
+  const disc = (cx: number, r = 8) => (
+    <Arc x={cx} y={0} innerRadius={0} outerRadius={r} angle={180} rotation={180} stroke={C} strokeWidth={2} />
+  );
+  const contacts = (cx: number) => (
+    <>
+      <Line points={[cx - 3, 2, cx - 3, 6]} stroke={C} strokeWidth={1.5} listening={false} />
+      <Line points={[cx + 3, 2, cx + 3, 6]} stroke={C} strokeWidth={1.5} listening={false} />
+    </>
+  );
+  switch (type) {
+    case "priza_dubla":
+      return <>{disc(-8, 7)}{contacts(-8)}{disc(8, 7)}{contacts(8)}</>;
+    case "priza_16a":
+      return <>{disc(0)}{contacts(0)}<Text x={-9} y={7} text="16A" fontSize={7.5} fontStyle="bold" fill={C} listening={false} /></>;
+    case "priza_exterior_ip44":
+      return <><Rect x={-11} y={-11} width={22} height={21} cornerRadius={3} stroke={C} strokeWidth={1.3} listening={false} />{disc(0)}{contacts(0)}<Text x={-10} y={11} text="IP44" fontSize={6.5} fill={C} listening={false} /></>;
+    default: // priza_simpla
+      return <>{disc(0)}{contacts(0)}</>;
+  }
+}
+function prizaHit() {   // zonă de hit invizibilă (simbolul e fără fill) -> Group draggable
+  return <Circle x={0} y={0} radius={13} fill="rgba(0,0,0,0.001)" />;
+}
+function prizaSelRing(type: string) {
+  const w = type === "priza_dubla" ? 40 : 28;
+  return <Rect x={-w / 2} y={-15} width={w} height={28} cornerRadius={3} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
@@ -370,6 +413,31 @@ export default function PlanEditor({
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT tablou esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+  }
+
+  // ADD PRIZA: aparataj pe perete, MULTIPLE per plansa (fara guard). Plasare LIBERA in centru;
+  // inginerul o trage (snap pe perete = P3). wall_mounted=true. Acelasi tipar de INSERT ca addPanel.
+  async function addPriza(prizaType: string) {
+    const floor = elements[0]?.floor || "parter";
+    const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
+    const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
+    const row = {
+      project_id: projectId,
+      floor,
+      element_type: prizaType,
+      plan_type: "iluminat",
+      label: null as string | null,
+      room: null as string | null,
+      x: cx,
+      y: cy,
+      wall_mounted: true,
+      rotation: 0,
+      status: null as string | null,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT priza esuat", error?.message); return; }
     setElements(prev => [...prev, data as PlanElement]);
     setSelectedId((data as PlanElement).id);
   }
@@ -784,6 +852,20 @@ export default function PlanEditor({
     </div>
   );
 
+  // secțiunea Prize (aparataj pe perete): 4 tipuri, MULTIPLE. Plasare liberă; snap pe perete = P3.
+  const renderPrizaSection = () => (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+        Prize
+      </div>
+      <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+        {PRIZA_TYPES.map(p => (
+          <button key={p.value} type="button" className="zy-add-btn" onClick={() => addPriza(p.value)}>+ {p.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+
   // secțiunea Legendă plan (sub Tablouri): un singur element "legenda" draggable, mutabil în editor.
   // Caseta-placeholder aici; conținutul (simboluri + text) se desenează pe PDF la "Obține plan" (L3).
   const renderLegendSection = () => {
@@ -862,6 +944,7 @@ export default function PlanEditor({
           )}
           {roomKeys.map(renderRoom)}
           {renderPanelsSection()}
+          {renderPrizaSection()}
           {renderLegendSection()}
           {renderTraseuSection()}
         </div>
@@ -933,7 +1016,8 @@ export default function PlanEditor({
                   const isBulb = isBulbType(el.element_type);
                   const isPanel = isPanelType(el.element_type);
                   const isSel = selectedId === el.id;
-                  const col = isBulb ? COL_BULB : COL_SWITCH;
+                  const isPriza = isPrizaType(el.element_type);
+                  const col = isBulb ? COL_BULB : isPriza ? COL_PRIZA : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   const isLegend = isLegendType(el.element_type);
                   const legW = LEG_W * scale, legH = LEG_H * scale;   // caseta legenda (puncte PDF x scale)
@@ -958,7 +1042,9 @@ export default function PlanEditor({
                           ? <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
                           : isLegend
                             ? <Rect x={-3} y={-3} width={legW + 6} height={legH + 6} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />
-                            : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
+                            : isPriza
+                              ? prizaSelRing(el.element_type)
+                              : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
                           {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
@@ -983,6 +1069,11 @@ export default function PlanEditor({
                               Anchor = colț stânga-sus la (x,y); caseta se extinde dreapta+jos. */}
                           <Rect x={0} y={0} width={legW} height={legH} cornerRadius={3} stroke="#1F2433" strokeWidth={1.4} fill="rgba(255,255,255,0.9)" />
                           <Text x={0} y={0} width={legW} height={legH} align="center" verticalAlign="middle" text="LEGENDĂ" fontSize={Math.max(10, legH * 0.18)} fontStyle="bold" fill="#1F2433" listening={false} />
+                        </>
+                      ) : isPriza ? (
+                        <>
+                          {prizaHit()}
+                          {prizaSymbol(el.element_type)}
                         </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
