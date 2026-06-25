@@ -207,6 +207,9 @@ export default function PlanEditor({
   const [regenLoading, setRegenLoading] = useState(false);
   const [regenPdf, setRegenPdf] = useState<string | null>(null);
   const [regenErr, setRegenErr] = useState<string | null>(null);
+  // Traseele cablurilor primite la "Obține plan" (snapshot din compute_cables, puncte PDF).
+  // Desenate ca linii Konva SUB simboluri. Se reîmprospătează la fiecare "Obține plan".
+  const [overlayCables, setOverlayCables] = useState<{ path: number[][]; kind?: string }[]>([]);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -387,6 +390,7 @@ export default function PlanEditor({
       } else {
         setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open
         onRegenerated?.(data.pdf_base64);             // trimite PDF-ul sus -> configurator salveaza + afiseaza
+        setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
       }
     } catch (e) {
       setRegenErr(e instanceof Error ? e.message : "Eroare de rețea.");
@@ -713,6 +717,21 @@ export default function PlanEditor({
             <Stage width={stageW} height={stageH} scaleX={displayScale} scaleY={displayScale}>
               <Layer>
                 {img && <KonvaImage image={img} width={pngW} height={pngH} listening={false} />}
+                {/* CABLURI (snapshot "Obține plan") SUB simboluri: albastru, ne-interactiv.
+                    points = path (puncte PDF) × scale, ACELAȘI scale ca x,y ale elementelor. */}
+                {overlayCables.map((cab, i) => (
+                  <Line
+                    key={`cable-${i}`}
+                    points={(cab.path || []).flatMap((pt) => [pt[0] * scale, pt[1] * scale])}
+                    stroke="#1565C0"
+                    strokeWidth={2}
+                    dash={[7, 4]}
+                    lineCap="round"
+                    lineJoin="round"
+                    opacity={0.95}
+                    listening={false}
+                  />
+                ))}
                 {ordered.map((el) => {
                   const px = el.x * scale;
                   const py = el.y * scale;

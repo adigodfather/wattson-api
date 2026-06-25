@@ -847,6 +847,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
+        _cables = []   # traseele cablurilor (path = puncte PDF) -> expuse in raspuns pt. overlay-ul editorului
         try:
             _cables, _cstats = compute_cables(elements)
             for _c in _cables:
@@ -881,6 +882,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
                          "cables_drawn": n_cable, "skipped": n_skip},
+            # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
+            # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
+            "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],
+                        "kind": c.get("kind")} for c in _cables],
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
