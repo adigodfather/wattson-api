@@ -31,6 +31,8 @@ type PlanElement = {
   floor: string | null;
   status: string | null;   // doar tablouri: 'nou' | 'existent' (altele null)
   wall_mounted?: boolean | null;   // true pt. aparataj pe perete (intrerupatoare/prize)
+  mount_height_m?: number | null;   // doar prize (metri); default 0.6, editabil per priza
+  circuit_id?: string | null;       // atribuit AUTOMAT la "Obtine plan" (C3); incarcat pt. eticheta (C4)
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
 };
 
@@ -41,7 +43,7 @@ const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, wall_mounted, cable_path";
+const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -454,6 +456,7 @@ export default function PlanEditor({
       x: cx,
       y: cy,
       wall_mounted: true,
+      mount_height_m: 0.6,            // inaltime precompletata (editabila in panou)
       rotation: 0,
       status: null as string | null,
     };
@@ -716,6 +719,32 @@ export default function PlanEditor({
                 const raw = e.target.value;
                 const n = parseInt(raw, 10);
                 persist(selected.id, { power_w: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              style={inputStyle}
+            />
+          </>
+        )}
+
+        {/* Înălțime (mount_height_m) — DOAR la prize; precompletat 0.6, editabil (metri). Becurile NU au (pe tavan). */}
+        {isPrizaType(selected.element_type) && (
+          <>
+            <label style={fieldLabel}>Înălțime (m)</label>
+            <input
+              type="number"
+              className="zy-ed-field"
+              min={0}
+              step={0.1}
+              placeholder="0.6"
+              value={selected.mount_height_m ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseFloat(raw);
+                setLocalField(selected.id, { mount_height_m: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              onBlur={(e) => {
+                const raw = e.target.value;
+                const n = parseFloat(raw);
+                persist(selected.id, { mount_height_m: raw === "" || !Number.isFinite(n) ? null : n });
               }}
               style={inputStyle}
             />
