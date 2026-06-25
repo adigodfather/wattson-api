@@ -804,6 +804,69 @@ def _cable_l_path(a, b):
     return [a, mid, b]
 
 
+# ── SOL B: routing pe "dunga" (traseu) trasa de inginer pe hol. ──
+def _extract_stripe(elements):
+    """Punctele dungii 'traseu' (cable_path) din elements, ca lista de (x,y) tuple (>=2 puncte).
+    None daca nu exista dunga sau e malformata -> consumatorul cade pe L direct (fallback)."""
+    for el in (elements or []):
+        if (el.get("element_type") or "") != "traseu":
+            continue
+        cp = el.get("cable_path")
+        if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+            return None
+        pts = []
+        for p in cp:
+            try:
+                pts.append((float(p[0]), float(p[1])))
+            except (TypeError, ValueError, IndexError):
+                return None
+        return pts if len(pts) >= 2 else None
+    return None
+
+
+def _project_point_on_polyline(p, pts):
+    """Proiectia lui p=(x,y) pe polilinia pts=[(x,y),...]: pe fiecare segment, proiectie
+    punct-pe-segment cu t clampat in [0,1]; pastreaza cea mai apropiata. Returneaza
+    (proj=(x,y), seg_idx, t). pts cu <2 puncte -> (p, 0, 0.0)."""
+    if not pts or len(pts) < 2:
+        return p, 0, 0.0
+    px, py = p
+    best = None   # (dist2, proj, seg_idx, t)
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]; bx, by = pts[i + 1]
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        if seg2 <= 1e-9:
+            t = 0.0
+        else:
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
+        qx, qy = ax + t * dx, ay + t * dy
+        d2 = (px - qx) ** 2 + (py - qy) ** 2
+        if best is None or d2 < best[0]:
+            best = (d2, (qx, qy), i, t)
+    return best[1], best[2], best[3]
+
+
+def _stripe_path(a, b, pts):
+    """Traseu prin dunga: a -> proiectie_a -> (varfurile dungii STRICT intre proiectii, in ordinea
+    corecta a poliliniei, eventual inversata) -> proiectie_b -> b. = iesire perpendiculara pe dunga +
+    mers pe dunga + intrare la b. pts lipsa/<2 -> L direct (fallback)."""
+    if not pts or len(pts) < 2:
+        return _cable_l_path(a, b)
+    pa, ia, ta = _project_point_on_polyline(a, pts)
+    pb, ib, tb = _project_point_on_polyline(b, pts)
+    if ia + ta <= ib + tb:                       # inainte pe dunga
+        mids = [pts[j] for j in range(ia + 1, ib + 1)]
+    else:                                        # inapoi pe dunga -> varfuri in ordine inversa
+        mids = [pts[j] for j in range(ib + 1, ia + 1)][::-1]
+    raw = [a, pa] + mids + [pb, b]
+    out = []                                     # elimina duplicate consecutive (ex. proiectie == varf)
+    for q in raw:
+        if not out or abs(out[-1][0] - q[0]) > 1e-6 or abs(out[-1][1] - q[1]) > 1e-6:
+            out.append((q[0], q[1]))
+    return out if len(out) >= 2 else _cable_l_path(a, b)
+
+
 _CABLE_COLOR = (0.082, 0.396, 0.753)   # ALBASTRU #1565C0 — distinct de axele ROSII intrerupte ale planului
 
 
@@ -911,8 +974,11 @@ def compute_cables(elements):
                                       if (el.get("element_type") in _SWITCH_TYPES) and not el.get("room")),
              "skip_bec_fara_sw": 0, "skip_tablou_lipsa": 0}
 
-    def add(ft, a, tt, b, kind, room):
-        path = _cable_l_path(a, b)
+    stripe = _extract_stripe(elements)   # dunga 'traseu' (SOL B) sau None -> fallback L direct
+
+    def add(ft, a, tt, b, kind, room, via_stripe=False):
+        # traseele ...->tablou trec prin dunga daca exista (SOL B); bec->switch local = L direct.
+        path = _stripe_path(a, b, stripe) if (via_stripe and stripe) else _cable_l_path(a, b)
         length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
                      for i in range(len(path) - 1))
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
@@ -931,9 +997,9 @@ def compute_cables(elements):
     for room, rb in bulbs_by_room.items():
         senzori = [b for b in rb if b["et"] == "aplica_senzor"]
         normale = [b for b in rb if b["et"] != "aplica_senzor"]
-        for b in senzori:                  # senzor -> TEG direct
+        for b in senzori:                  # senzor -> TEG (prin dunga daca exista)
             if teg:
-                add("aplica_senzor", (b["x"], b["y"]), "tablou_teg", teg, "senzor_teg", room)
+                add("aplica_senzor", (b["x"], b["y"]), "tablou_teg", teg, "senzor_teg", room, via_stripe=True)
                 stats["senzor_teg"] += 1
             else:
                 stats["skip_tablou_lipsa"] += 1
@@ -985,10 +1051,10 @@ def compute_cables(elements):
     for s in switches:
         is_tech = "tehnic" in (s["room"] or "").lower()
         if is_tech and tect:
-            add(s["et"], (s["x"], s["y"]), "tablou_te_ct", tect, "sw_tablou", s["room"])
+            add(s["et"], (s["x"], s["y"]), "tablou_te_ct", tect, "sw_tablou", s["room"], via_stripe=True)
             stats["sw_tablou"] += 1
         elif teg:
-            add(s["et"], (s["x"], s["y"]), "tablou_teg", teg, "sw_tablou", s["room"])
+            add(s["et"], (s["x"], s["y"]), "tablou_teg", teg, "sw_tablou", s["room"], via_stripe=True)
             stats["sw_tablou"] += 1
         else:
             stats["skip_tablou_lipsa"] += 1
