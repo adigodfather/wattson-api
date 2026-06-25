@@ -123,6 +123,70 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w):
     page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 4.0), txt, fontsize=fs, fontname="helv", color=RED)
 
 
+# ── LEGENDA (L2): randuri din plan_elements — LOGICA PURA, fara desen (desenul vine la L3) ──
+# Nume afisat tablouri in legenda (mirror al PANEL_TYPES din editor; FARA diacritice ca restul planului).
+_PANEL_NAME = {
+    "tablou_teg":    "Tablou TEG",
+    "tablou_tes":    "Tablou TES",
+    "tablou_te_ct":  "Tablou TE-CT",
+    "transformator": "Transformator",
+}
+# Ordinea tablourilor in legenda (deterministica; _PANEL_TYPES e un set neordonat).
+_PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator")
+# Cablul de iluminat e MEREU acelasi (decizia Dan).
+_LEGEND_CABLE_TEXT = "CYYF 3x1.5 mmp"
+
+
+def _legend_pw(pw):
+    """Normalizeaza puterea pt. grupare/sortare: int daca se poate, altfel None (gol/None/nenumeric)."""
+    if pw is None or pw == "":
+        return None
+    try:
+        return int(float(pw))
+    except (TypeError, ValueError):
+        return None
+
+
+def build_legend_rows(elements):
+    """LOGICA PURA (fara desen): construieste randurile legendei din plan_elements.
+    Returneaza lista de dict-uri {kind, element_type?, power_w?, text}:
+      - BECURI grupate pe (element_type, power_w) UNIC -> 1 rand/combinatie, text = _bulb_label(et, pw).
+        (aplica_tavan/perete/senzor au acelasi nume "Aplica" dar element_type diferit -> randuri distincte;
+         simbolul le diferentiaza la L3.)
+      - TABLOURI doar tipurile PREZENTE in proiect -> 1 rand/tip, text = _PANEL_NAME[et].
+      - CABLU fix -> 1 rand "CYYF 3x1.5 mmp".
+    Sortare: becuri (pe element_type, apoi power_w crescator; None la sfarsit) -> tablouri -> cablu.
+    Pura: zero efecte secundare, nu deseneaza, nu modifica `elements`."""
+    elements = elements or []
+
+    # a) BECURI: combinatii unice (element_type, power_w normalizat)
+    seen = set()
+    bulbs = []
+    for el in elements:
+        et = (el or {}).get("element_type") or ""
+        if et not in _BULB_TYPES:
+            continue
+        pw = _legend_pw(el.get("power_w"))
+        key = (et, pw)
+        if key in seen:
+            continue
+        seen.add(key)
+        bulbs.append({"kind": "bulb", "element_type": et, "power_w": pw,
+                      "text": _bulb_label(et, pw)})
+    # sortare: pe tip, apoi putere crescator (None la sfarsit)
+    bulbs.sort(key=lambda r: (r["element_type"], r["power_w"] is None, r["power_w"] or 0))
+
+    # b) TABLOURI: doar tipurile prezente, in ordine deterministica
+    present = {((el or {}).get("element_type") or "") for el in elements}
+    panels = [{"kind": "panel", "element_type": et, "text": _PANEL_NAME.get(et, et)}
+              for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
+
+    # c) CABLU fix (iluminatul foloseste mereu acest cablu)
+    cable = [{"kind": "cable", "text": _LEGEND_CABLE_TEXT}]
+
+    return bulbs + panels + cable
+
+
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
 ROOM_LARGE_M2 = 25.0
 # Factor pt² -> m² la scara planului (~1:71); folosit ca proxy când lipsește area_m2.
