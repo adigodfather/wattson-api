@@ -760,6 +760,7 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "banda_led"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator"}
+_PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
 
 # Culori tablou (RGB 0-1) + eticheta scurta — portate din Konva (PANEL_INFO).
 # (colA = triunghi sus-dreapta, colB = triunghi jos-stanga).
@@ -1060,6 +1061,54 @@ def compute_cables(elements):
             stats["skip_tablou_lipsa"] += 1
 
     return cables, stats
+
+
+# ── C3a: asociere PRIZA -> CAMERA (point-in-bbox Vision). PUR: doar calcul, fara circuit_id/desen. ──
+def _room_of_point(px, py, rooms, W, H):
+    """Camera al carei bbox×(W,H) CONTINE (px,py) — refoloseste math-ul in_room_bbox.
+    OVERLAP (mai multe bbox-uri contin punctul) -> cea mai MICA bbox (w*h minim = cea mai specifica).
+    FALLBACK (nicio bbox) -> cea mai apropiata camera (min dist la centrul bbox). rooms gol -> None."""
+    if not rooms:
+        return None
+    containing = []   # (aria_bbox_frac, name)
+    nearest = None    # (dist, name)
+    for r in rooms:
+        bb = (r or {}).get("bbox") or {}
+        try:
+            x = float(bb["x"]); y = float(bb["y"]); w = float(bb["w"]); h = float(bb["h"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        name = str((r or {}).get("name") or "")
+        if x * W <= px <= (x + w) * W and y * H <= py <= (y + h) * H:
+            containing.append((w * h, name))
+        cx, cy = (x + w / 2.0) * W, (y + h / 2.0) * H
+        d = math.hypot(px - cx, py - cy)
+        if nearest is None or d < nearest[0]:
+            nearest = (d, name)
+    if containing:
+        return min(containing, key=lambda c: c[0])[1]   # cea mai mica bbox conținatoare
+    return nearest[1] if nearest else None              # fallback: cea mai apropiata camera
+
+
+def assign_rooms_to_prizas(elements, rooms, W, H):
+    """Pentru fiecare PRIZA cu room null/gol -> seteaza el['room'] = camera ei (in-memory, pt. C3b).
+    Prizele care au deja room raman neatinse. PUR pt. restul elementelor. C3a: NU scrie circuit_id,
+    NU persista, NU deseneaza. Intoarce lista [(x, y, room)] pt. logare/test."""
+    out = []
+    for el in (elements or []):
+        if ((el or {}).get("element_type") or "") not in _PRIZA_TYPES:
+            continue
+        try:
+            px = float(el["x"]); py = float(el["y"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if (el.get("room") or ""):
+            out.append((px, py, el.get("room")))   # are deja camera -> pastreaza
+            continue
+        room = _room_of_point(px, py, rooms, W, H)
+        el["room"] = room                          # in-memory (pt. C3b)
+        out.append((px, py, room))
+    return out
 
 
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
