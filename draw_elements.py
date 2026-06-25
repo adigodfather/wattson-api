@@ -1111,6 +1111,61 @@ def assign_rooms_to_prizas(elements, rooms, W, H):
     return out
 
 
+# ── C3b: numerotare circuite (PUR). Reguli Dan: iluminat n=max(ceil(W/1000),ceil(becuri/12)); ──
+# prize/camera: bucatarie=2, else ceil(nr/5). C1..Cn iluminat -> C{n+1}+ prize. Determinist. NU scrie pe elemente.
+_BULB_DEFAULT_W = 25   # bec fara power_w -> 25W (valoarea reala precompletata)
+
+
+def compute_circuits(elements):
+    """Numara circuitele de iluminat + grupeaza prizele pe camera in circuite, dupa regulile Dan.
+    PUR: nu modifica `elements`, nu scrie circuit_id (C3c), nu deseneaza. Determinist (ordine fixa:
+    camere pe nume, prize pe (y,x)) -> re-rulare = aceleasi C-uri.
+    Intoarce {n_iluminat, total_bulb_w, nr_becuri, n_circuits,
+              circuits:[{id,kind,room,priza_indices}], priza_circuit:{index_element -> 'Cx'}}."""
+    elements = elements or []
+
+    # ── ILUMINAT: n = max(ceil(total_W/1000), ceil(nr_becuri/12)) ──
+    bulb_idx = [i for i, el in enumerate(elements)
+                if ((el or {}).get("element_type") or "") in _BULB_TYPES]
+    nr_becuri = len(bulb_idx)
+    total_W = 0
+    for i in bulb_idx:
+        pw = elements[i].get("power_w")
+        try:
+            total_W += int(pw) if pw not in (None, "") else _BULB_DEFAULT_W
+        except (TypeError, ValueError):
+            total_W += _BULB_DEFAULT_W
+    n_iluminat = max(math.ceil(total_W / 1000.0), math.ceil(nr_becuri / 12.0), 1) if nr_becuri else 0
+
+    circuits = []
+    for i in range(n_iluminat):
+        circuits.append({"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "priza_indices": []})
+
+    # ── PRIZE per camera (din el['room'], setat de C3a) ──
+    by_room = {}
+    for i, el in enumerate(elements):
+        if ((el or {}).get("element_type") or "") in _PRIZA_TYPES:
+            by_room.setdefault((el.get("room") or "(fara camera)"), []).append(i)
+
+    priza_circuit = {}
+    next_c = n_iluminat + 1
+    for room in sorted(by_room.keys()):                                   # ordine camere FIXA (nume)
+        idxs = sorted(by_room[room],                                      # ordine prize FIXA (y,x)
+                      key=lambda i: (float(elements[i].get("y") or 0), float(elements[i].get("x") or 0)))
+        k = 2 if "bucatarie" in room.lower() else max(1, math.ceil(len(idxs) / 5.0))
+        per = math.ceil(len(idxs) / k) if k else len(idxs)
+        for ci in range(k):
+            cid = "C%d" % next_c
+            chunk = idxs[ci * per:(ci + 1) * per]
+            circuits.append({"id": cid, "kind": "priza", "room": room, "priza_indices": chunk})
+            for j in chunk:
+                priza_circuit[j] = cid
+            next_c += 1
+
+    return {"n_iluminat": n_iluminat, "total_bulb_w": total_W, "nr_becuri": nr_becuri,
+            "n_circuits": len(circuits), "circuits": circuits, "priza_circuit": priza_circuit}
+
+
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
     pe BAZA CURATA (planuri[].pdf_base64 = cartus + mask-margins, FARA becuri).
