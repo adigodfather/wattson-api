@@ -362,8 +362,8 @@ export default function PlanEditor({
     const floor = elements[0]?.floor || "parter";
     const pdfW = pngW > 0 ? pngW / scale : 400;
     const pdfH = pngH > 0 ? pngH / scale : 400;
-    const x = pdfW * 0.05;                          // colt stanga
-    const y = Math.max(0, pdfH * 0.80 - LEG_H);     // jos, lasand loc casetei (anchor = colt stanga-sus)
+    const x = pdfW * 0.55;                          // mai in DREAPTA (legenda lata cu text descriptiv); draggable oricum
+    const y = pdfH * 0.30;                           // zona dreapta-sus relativ libera (anchor = colt stanga-sus)
     const row = {
       project_id: projectId,
       floor,

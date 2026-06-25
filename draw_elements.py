@@ -125,16 +125,25 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w):
     page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 4.0), txt, fontsize=fs, fontname="helv", color=RED)
 
 
-# ── LEGENDA (L2): randuri din plan_elements — LOGICA PURA, fara desen (desenul vine la L3) ──
-# Nume afisat tablouri in legenda (mirror al PANEL_TYPES din editor; FARA diacritice ca restul planului).
-_PANEL_NAME = {
-    "tablou_teg":    "Tablou TEG",
-    "tablou_tes":    "Tablou TES",
-    "tablou_te_ct":  "Tablou TE-CT",
+# ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
+# Nume de baza becuri in legenda. Tablouri/intrerupatoare = text descriptiv. FARA diacritice (ca restul planului).
+_LEGEND_BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
+                     "banda_led": "Banda", "aplica_senzor": "Aplica"}
+_PANEL_LEGEND_NAME = {
+    "tablou_teg":    "TEG: Tablou electric general",
+    "tablou_te_ct":  "TE-CT: Tablou electric camera-tehnica",
+    "tablou_tes":    "TES: Tablou electric secundar",
     "transformator": "Transformator",
 }
-# Ordinea tablourilor in legenda (deterministica; _PANEL_TYPES e un set neordonat).
+_SWITCH_LEGEND_TEXT = {
+    "intrerupator_simplu":    "Intrerupator simplu montat la h=1.10 m",
+    "intrerupator_dublu":     "Intrerupator dublu montat la h=1.10 m",
+    "intrerupator_triplu":    "Intrerupator triplu montat la h=1.10 m",
+    "intrerupator_cap_scara": "Intrerupator cap-scara montat la h=1.10 m",
+}
+# Ordini deterministice in legenda (seturile _PANEL_TYPES/_SWITCH_TYPES sunt neordonate).
 _PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator")
+_SWITCH_ORDER = ("intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara")
 # Cablul de iluminat e MEREU acelasi (decizia Dan).
 _LEGEND_CABLE_TEXT = "CYYF 3x1.5 mmp"
 
@@ -149,17 +158,40 @@ def _legend_pw(pw):
         return None
 
 
+def _legend_label(kind, element_type, power_w=None):
+    """Text DESCRIPTIV pt. LEGENDA (separat de _bulb_label, care ramane SCURT pt. etichetele de pe plan):
+      - bulb non-senzor: "{Nume} LED[ cu puterea de {W}W]" (Nume: Aplica/Lustra/Banda);
+      - bulb senzor:     "Aplica LED cu senzor de prezenta[ cu puterea de {W}W]";
+      - switch:          "Intrerupator {tip} montat la h=1.10 m";
+      - panel:           text descriptiv pe tip ("TEG: Tablou electric general" ...);
+      - cable:           "CYYF 3x1.5 mmp".
+    Putere goala/None -> fara segmentul " cu puterea de {W}W"."""
+    if kind == "switch":
+        return _SWITCH_LEGEND_TEXT.get(element_type, element_type)
+    if kind == "panel":
+        return _PANEL_LEGEND_NAME.get(element_type, element_type)
+    if kind == "cable":
+        return _LEGEND_CABLE_TEXT
+    # bulb (default)
+    name = _LEGEND_BULB_NAME.get(element_type, "Corp")
+    base = "{} LED cu senzor de prezenta".format(name) if element_type == "aplica_senzor" else "{} LED".format(name)
+    pw = _legend_pw(power_w)
+    if pw is not None:
+        base += " cu puterea de {}W".format(pw)
+    return base
+
+
 def build_legend_rows(elements):
     """LOGICA PURA (fara desen): construieste randurile legendei din plan_elements.
-    Returneaza lista de dict-uri {kind, element_type?, power_w?, text}:
-      - BECURI grupate pe (element_type, power_w) UNIC -> 1 rand/combinatie, text = _bulb_label(et, pw).
-        (aplica_tavan/perete/senzor au acelasi nume "Aplica" dar element_type diferit -> randuri distincte;
-         simbolul le diferentiaza la L3.)
-      - TABLOURI doar tipurile PREZENTE in proiect -> 1 rand/tip, text = _PANEL_NAME[et].
-      - CABLU fix -> 1 rand "CYYF 3x1.5 mmp".
-    Sortare: becuri (pe element_type, apoi power_w crescator; None la sfarsit) -> tablouri -> cablu.
+    Returneaza lista de dict-uri {kind, element_type?, power_w?, text} cu text DESCRIPTIV (_legend_label):
+      - BECURI grupate pe (element_type, power_w) UNIC -> 1 rand/combinatie;
+      - INTRERUPATOARE grupate pe element_type PREZENT -> 1 rand/tip;
+      - TABLOURI doar tipurile PREZENTE -> 1 rand/tip;
+      - CABLU fix -> 1 rand.
+    Ordine: becuri (pe tip, apoi putere crescator; None la sfarsit) -> intrerupatoare -> tablouri -> cablu.
     Pura: zero efecte secundare, nu deseneaza, nu modifica `elements`."""
     elements = elements or []
+    present = {((el or {}).get("element_type") or "") for el in elements}
 
     # a) BECURI: combinatii unice (element_type, power_w normalizat)
     seen = set()
@@ -174,19 +206,21 @@ def build_legend_rows(elements):
             continue
         seen.add(key)
         bulbs.append({"kind": "bulb", "element_type": et, "power_w": pw,
-                      "text": _bulb_label(et, pw)})
-    # sortare: pe tip, apoi putere crescator (None la sfarsit)
+                      "text": _legend_label("bulb", et, pw)})
     bulbs.sort(key=lambda r: (r["element_type"], r["power_w"] is None, r["power_w"] or 0))
 
-    # b) TABLOURI: doar tipurile prezente, in ordine deterministica
-    present = {((el or {}).get("element_type") or "") for el in elements}
-    panels = [{"kind": "panel", "element_type": et, "text": _PANEL_NAME.get(et, et)}
+    # b) INTRERUPATOARE (NOU): doar tipurile prezente, 1 rand/tip, in ordine deterministica
+    switches = [{"kind": "switch", "element_type": et, "text": _legend_label("switch", et)}
+                for et in _SWITCH_ORDER if et in present and et in _SWITCH_TYPES]
+
+    # c) TABLOURI: doar tipurile prezente
+    panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
-    # c) CABLU fix (iluminatul foloseste mereu acest cablu)
-    cable = [{"kind": "cable", "text": _LEGEND_CABLE_TEXT}]
+    # d) CABLU fix (iluminatul foloseste mereu acest cablu)
+    cable = [{"kind": "cable", "text": _legend_label("cable", None)}]
 
-    return bulbs + panels + cable
+    return bulbs + switches + panels + cable
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -565,7 +599,7 @@ SWITCH_COL_CLEAR = 30.0  # distanta minima fata de un sambure (px)
 SWITCH_SNAP_TOL = 32.0   # cat de departe caut o linie de perete pe care sa lipesc
 
 
-def _draw_switch(page, x, y, angle, element_type="intrerupator_simplu"):
+def _draw_switch(page, x, y, angle, element_type="intrerupator_simplu", scale=1.0):
     """Simbol întrerupător (Varianta B), de la PERETE spre INTERIORUL camerei:
     cerc PLIN (bază, lipit de perete, la ancora x,y) -> linie -> cerc GOL (contur) -> linie -> cârlig(e).
     BAZA (cerc plin + cerc gol + tijă) e IDENTICĂ pentru toate tipurile; diferă DOAR cârligele:
@@ -576,11 +610,12 @@ def _draw_switch(page, x, y, angle, element_type="intrerupator_simplu"):
     Orientat după `angle`: u=(cos,sin)=spre interior, p=(-sin,cos)=perpendicular. Ancora (x,y)=cerc plin."""
     ux, uy = math.cos(angle), math.sin(angle)      # direcția spre interiorul camerei
     px, py = -uy, ux                               # perpendiculara (pentru cârlig)
-    R1 = 2.5            # cerc PLIN (bază, la perete)
-    L1 = 4.0           # linie: bază -> cerc gol
-    R2 = 4.0           # cerc GOL (contur)
-    L2 = 5.0           # linie: cerc gol -> cârlig
-    HK, HKA = 6.0, 0.7  # cârlig (maneta): lungime + unghi (~40°) față de u
+    s = scale          # factor pe geometrie (forma identica, mai mica) — pt. legenda. scale=1.0 = neschimbat
+    R1 = 2.5 * s        # cerc PLIN (bază, la perete)
+    L1 = 4.0 * s       # linie: bază -> cerc gol
+    R2 = 4.0 * s       # cerc GOL (contur)
+    L2 = 5.0 * s       # linie: cerc gol -> cârlig
+    HK, HKA = 6.0 * s, 0.7  # cârlig: lungime (*scale) + unghi (~40°, NEscalat)
 
     def P(d):  # punct la distanța d pe axa u (spre interior), de la ancoră
         return fitz.Point(x + d * ux, y + d * uy)
@@ -803,9 +838,10 @@ def _draw_legend(page, x, y, rows):
     GAP = 5.0             # spatiu simbol -> text
     WHITE = (1, 1, 1)
 
-    # dimensiuni casetei: latime = celula simbol + cel mai lat text (estimare ca la _draw_bulb_label) + padding
-    txt_w = max([len(r.get("text") or "") * ROW_FS * 0.46 for r in rows] + [0.0])
-    title_w = len("LEGENDA") * TITLE_FS * 0.5
+    # dimensiuni casetei: latime = celula simbol + cel mai lat text + padding.
+    # latimea textului EXACTA via fitz.get_text_length (nu estimare) -> textul lung NU e taiat/depasit.
+    txt_w = max([fitz.get_text_length(r.get("text") or "", fontname="helv", fontsize=ROW_FS) for r in rows] + [0.0])
+    title_w = fitz.get_text_length("LEGENDA", fontname="hebo", fontsize=TITLE_FS)
     box_w = max(PAD + SYM_W + GAP + txt_w + PAD, PAD + title_w + PAD)
     box_h = PAD + TITLE_H + len(rows) * ROW_H + PAD
 
@@ -829,6 +865,12 @@ def _draw_legend(page, x, y, rows):
         elif kind == "panel":
             # +2 vertical: conectorul tabloului urca ~8pt -> centreaza simbolul in celula
             _draw_panel(page, cx, cy + 2.0, r.get("element_type") or "", scale=0.5, with_label=False)
+        elif kind == "switch":
+            # intrerupatorul porneste din ancora si se intinde pe directia angle (0=spre dreapta);
+            # centram orizontal in celula (extent ~25.5pt la scale 1 -> offset jumatate)
+            _sw_s = 0.5
+            _draw_switch(page, cx - 12.75 * _sw_s, cy, 0.0,
+                         r.get("element_type") or "intrerupator_simplu", scale=_sw_s)
         elif kind == "cable":
             _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)], width=1.0)
         # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
