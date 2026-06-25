@@ -234,7 +234,8 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
             pass
 
 
-def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad_right=0.02, right_cap=0.82, protect_top_frac=0.08):
+def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad_right=0.02,
+                  right_cap=0.82, top_cap=0.10, left_cap=0.16, bottom_cap=0.84, protect_top_frac=0.08):
     """Curatare partiala (~80%): maschera gunoiul din MARGINI pastrand arhitectura centrala.
     rooms = [{bbox:{x,y,w,h}} fractii 0-1] (de la Vision). union(bbox) + padding ASIMETRIC = zona pastrata.
     Padding mic pe DREAPTA (pad_right=0.02) fiindca blocul arhitect (BILANT/NOTA) abuta cladirea acolo;
@@ -254,13 +255,18 @@ def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad
     if not xs0:
         return None
 
-    # union in fractii + padding ASIMETRIC pe 4 laturi, clamp [0,1]
-    ux0 = max(0.0, min(xs0) - pad_left)
-    uy0 = max(0.0, min(ys0) - pad_top)
-    # DREAPTA: union+pad_right, dar CAP HARD la right_cap -> marginea dreapta NU depinde de cat de lat
-    # da Vision (non-determinist: o camera/terasa cu bbox lat ar impinge zona pastrata peste blocul arhitect).
-    ux1 = min(min(max(xs1) + pad_right, right_cap), 1.0)
-    uy1 = min(1.0, max(ys1) + pad_bottom)
+    # union in fractii + padding ASIMETRIC pe 4 laturi, cu CAP-uri HARD pe toate laturile, clamp [0,1].
+    # Vision e non-determinist: poate detecta camera de margine MAI SPRE INTERIOR decat peretele real
+    # (ex. camera de sus la y0=0.25 cand peretele e la 0.11) -> zona pastrata ar intra in cladire si masca
+    # ar TAIA peretele. Cap-urile leaga zona pastrata de EXTINDEREA REALA STABILA a cladirii (calibrari 132/134):
+    # stanga ~0.18, sus ~0.11-0.13, jos ~0.81, dreapta ~0.78. Asezate JUST IN AFARA cladirii, cap-urile
+    # garanteaza ca zona pastrata CONTINE MEREU cladirea (stanga<=left_cap, sus<=top_cap, jos>=bottom_cap,
+    # dreapta>=right_cap) indiferent ce da Vision. Union poate doar largi conservator zona, niciodata taia.
+    # min() pe SUS/STANGA + max() pe JOS => cap-urile DOAR REDUC mascarea (NEW subset al OLD): nu pot taia nimic.
+    ux0 = max(0.0, min(min(xs0) - pad_left, left_cap))    # STANGA: cap la left_cap (sub peretele stang ~0.18)
+    uy0 = max(0.0, min(min(ys0) - pad_top,  top_cap))     # SUS:    cap la top_cap (deasupra peretelui sus ~0.11)
+    ux1 = min(min(max(xs1) + pad_right, right_cap), 1.0)  # DREAPTA: cap la right_cap (peste blocul arhitect)
+    uy1 = min(1.0, max(max(ys1) + pad_bottom, bottom_cap))  # JOS:   cap la bottom_cap (sub peretele jos ~0.81)
 
     W, H = page.rect.width, page.rect.height
     X0, Y0, X1, Y1 = ux0 * W, uy0 * H, ux1 * W, uy1 * H
