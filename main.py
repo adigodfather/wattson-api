@@ -3271,6 +3271,27 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                     .execute().data) or []
         except Exception as e:
             return {"success": False, "error": "citire plan_elements esuata: {}".format(e)}
+        # C3c: asociaza prize->camera (din result_data.rooms) + numeroteaza circuite -> scrie circuit_id
+        # pe prize (in-memory pt. C4 + persista in DB). Defensiv: ORICE eroare NU strica regenerarea.
+        try:
+            import fitz
+            from supabase_client import supabase as _supa
+            _raw = request.base_pdf_base64.split(",", 1)[1] if "," in request.base_pdf_base64 else request.base_pdf_base64
+            _doc = fitz.open(stream=base64.b64decode(_raw), filetype="pdf")
+            _W, _H = _doc[0].rect.width, _doc[0].rect.height
+            _doc.close()
+            _proj = (_supa.table("projects").select("result_data")
+                     .eq("id", request.project_id).single().execute().data) or {}
+            # NOTA multi-etaj: result_data.rooms = camere (azi TOATE proiectele sunt mono-etaj/parter).
+            # Follow-up: cand apar etaje, rooms ar trebui tag-uite pe floor + filtrate pe request.floor.
+            _rooms = ((_proj.get("result_data") or {}).get("rooms")) or []
+            _ci = draw_elements.assign_circuits(rows, _rooms, _W, _H)
+            for _u in _ci.get("updates", []):
+                if _u.get("changed"):
+                    _supa.table("plan_elements").update(
+                        {"circuit_id": _u["circuit_id"], "room": _u["room"]}).eq("id", _u["id"]).execute()
+        except Exception as _e:
+            print("[regenerate-plan] assign_circuits skip:", _e)   # defensiv: regenerarea continua
         return draw_elements.redraw_from_plan_elements(request.base_pdf_base64, rows)
     except Exception as e:
         return {"success": False, "error": str(e)}

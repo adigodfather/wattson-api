@@ -1166,6 +1166,34 @@ def compute_circuits(elements):
             "n_circuits": len(circuits), "circuits": circuits, "priza_circuit": priza_circuit}
 
 
+def assign_circuits(elements, rooms, W, H):
+    """C3c orchestrator: asociaza prize->camera (C3a) + numeroteaza circuite (C3b) + scrie circuit_id
+    pe fiecare priza IN-MEMORY (pt. C4/desen). DOAR prizele primesc circuit_id (becurile doar numara
+    iluminatul). Determinist/idempotent (din compute_circuits). Intoarce {n_iluminat, circuits,
+    updates:[{id, room, circuit_id, changed}]} -> caller-ul persista in DB DOAR `changed`."""
+    elements = elements or []
+    # snapshot vechi (inainte de mutatie) pt. detectarea schimbarilor -> persistare doar daca s-a schimbat
+    old = {}
+    for el in elements:
+        if ((el or {}).get("element_type") or "") in _PRIZA_TYPES and el.get("id"):
+            old[el["id"]] = (el.get("room"), el.get("circuit_id"))
+
+    assign_rooms_to_prizas(elements, rooms, W, H)   # seteaza el['room'] pe prize (point-in-bbox + fallback)
+    info = compute_circuits(elements)               # priza_circuit: index_element -> "Cx"
+
+    updates = []
+    for idx, cid in info["priza_circuit"].items():
+        el = elements[idx]
+        el["circuit_id"] = cid                      # IN-MEMORY (pt. C4)
+        pid = el.get("id")
+        if pid:
+            new = (el.get("room"), cid)
+            updates.append({"id": pid, "room": el.get("room"), "circuit_id": cid,
+                            "changed": old.get(pid) != new})
+    return {"n_iluminat": info["n_iluminat"], "n_circuits": info["n_circuits"],
+            "circuits": info["circuits"], "updates": updates}
+
+
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
     pe BAZA CURATA (planuri[].pdf_base64 = cartus + mask-margins, FARA becuri).
