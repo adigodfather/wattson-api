@@ -199,6 +199,27 @@ function prizaSelRing(type: string) {
   return <Rect x={-w / 2} y={-15} width={w} height={28} cornerRadius={3} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
+// ── SNAP PRIZA PE PERETE (P3): proiectie punct-pe-segment CLAMPAT (t in [0,1]) — aceeasi matematica ca B2. ──
+type WallSeg = { x1: number; y1: number; x2: number; y2: number };
+function projectOnSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 <= 1e-9 ? 0 : ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));   // CLAMPAT pe segment (nu linie infinita)
+  const qx = x1 + t * dx, qy = y1 + t * dy;
+  return { x: qx, y: qy, dist: Math.hypot(px - qx, py - qy) };
+}
+// cel mai apropiat perete; daca sub prag -> proiectie (snapped), altfel pozitie libera. walls gol -> fara snap.
+function snapToWall(px: number, py: number, walls: WallSeg[], threshold = 40) {
+  let best: { x: number; y: number; dist: number } | null = null;
+  for (const w of walls) {
+    const p = projectOnSegment(px, py, w.x1, w.y1, w.x2, w.y2);
+    if (!best || p.dist < best.dist) best = p;
+  }
+  if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true };
+  return { x: px, y: py, snapped: false };
+}
+
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
 const inputStyle: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px", fontSize: 12.5,
@@ -553,8 +574,17 @@ export default function PlanEditor({
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
   // (spațiul PNG), iar Stage-scale (displayScale) e separat și NU intervine. Inversul exact al afișării.
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
-    const xPdf = e.target.x() / scale;
-    const yPdf = e.target.y() / scale;
+    let xPdf = e.target.x() / scale;
+    let yPdf = e.target.y() / scale;
+    // SNAP P3: DOAR prize, DOAR daca avem pereti -> lipeste pe cel mai apropiat perete sub prag (~40pt).
+    // Peste prag SAU walls gol -> ramane unde a fost pus (plasare libera, ex. hol fara pereti).
+    if (isPrizaType(el.element_type) && walls.length) {
+      const s = snapToWall(xPdf, yPdf, walls);
+      if (s.snapped) {
+        xPdf = s.x; yPdf = s.y;
+        e.target.position({ x: xPdf * scale, y: yPdf * scale });   // muta Group-ul vizual pe perete imediat
+      }
+    }
     setLocalField(el.id, { x: xPdf, y: yPdf });
     persist(el.id, { x: xPdf, y: yPdf });
   }
