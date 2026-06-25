@@ -1183,17 +1183,55 @@ def assign_rooms_to_prizas(elements, rooms, W, H):
 _BULB_DEFAULT_W = 25   # bec fara power_w -> 25W (valoarea reala precompletata)
 
 
-def compute_circuits(elements):
-    """Numara circuitele de iluminat + grupeaza prizele pe camera in circuite, dupa regulile Dan.
-    PUR: nu modifica `elements`, nu scrie circuit_id (C3c), nu deseneaza. Determinist (ordine fixa:
-    camere pe nume, prize pe (y,x)) -> re-rulare = aceleasi C-uri.
-    Intoarce {n_iluminat, total_bulb_w, nr_becuri, n_circuits,
-              circuits:[{id,kind,room,priza_indices}], priza_circuit:{index_element -> 'Cx'}}."""
-    elements = elements or []
+def _detect_tech_room(elements, rooms, W, H):
+    """Camera TE-CT = camera care CONTINE elementul tablou_te_ct (point-in-bbox, ca prizele).
+    None daca lipseste tabloul TE-CT pe plan -> fara grup -TECT (toate elementele raman TEG)."""
+    for el in (elements or []):
+        if ((el or {}).get("element_type") or "") == "tablou_te_ct":
+            try:
+                return _room_of_point(float(el["x"]), float(el["y"]), rooms, W, H)
+            except (TypeError, ValueError, KeyError):
+                return None
+    return None
 
-    # ── ILUMINAT: n = max(ceil(total_W/1000), ceil(nr_becuri/12)) ──
+
+def compute_circuits(elements, tech_room=None):
+    """Numara/grupeaza circuitele dupa regulile Dan. Daca tech_room (camera cu tablou_te_ct) e dat ->
+    elementele din ea = grup -TECT (becuri -> C1-TECT iluminat; prize/alimentari -> C2-TECT, C3-TECT...
+    cate 1/element, decuplat de schema). Restul casei = TEG (becuri count -> n_iluminat; prize C{n+1}+),
+    EXCLUZAND camera tehnica. PUR: nu modifica `elements`. Determinist (camere pe nume, elemente pe (y,x)).
+    Intoarce {n_iluminat, tech_room, total_bulb_w, nr_becuri, n_circuits,
+              circuits:[{id,kind,room,indices}], element_circuit:{index -> 'Cx'}} (becuri tech + TOATE prizele)."""
+    elements = elements or []
+    tech_l = (tech_room or "").strip().lower()
+
+    def is_tech(i):
+        return bool(tech_l) and ((elements[i].get("room") or "").strip().lower() == tech_l)
+
+    circuits = []
+    element_circuit = {}
+
+    # ── TE-CT (camera tehnica): becuri -> C1-TECT (1 circuit); prize/alimentari -> C2-TECT, C3-TECT... ──
+    if tech_l:
+        tech_bulbs = [i for i, el in enumerate(elements)
+                      if ((el or {}).get("element_type") or "") in _BULB_TYPES and is_tech(i)]
+        if tech_bulbs:
+            circuits.append({"id": "C1-TECT", "kind": "iluminat", "room": tech_room, "indices": tech_bulbs})
+            for i in tech_bulbs:
+                element_circuit[i] = "C1-TECT"
+        tech_prizas = sorted([i for i, el in enumerate(elements)
+                              if ((el or {}).get("element_type") or "") in _PRIZA_TYPES and is_tech(i)],
+                             key=lambda i: (float(elements[i].get("y") or 0), float(elements[i].get("x") or 0)))
+        nt = 2
+        for i in tech_prizas:                                             # cate 1 circuit/element (decuplat)
+            cid = "C%d-TECT" % nt
+            circuits.append({"id": cid, "kind": "priza", "room": tech_room, "indices": [i]})
+            element_circuit[i] = cid
+            nt += 1
+
+    # ── TEG: n = max(ceil(total_W/1000), ceil(nr_becuri/12)) — becuri NON-tech ──
     bulb_idx = [i for i, el in enumerate(elements)
-                if ((el or {}).get("element_type") or "") in _BULB_TYPES]
+                if ((el or {}).get("element_type") or "") in _BULB_TYPES and not is_tech(i)]
     nr_becuri = len(bulb_idx)
     total_W = 0
     for i in bulb_idx:
@@ -1203,18 +1241,15 @@ def compute_circuits(elements):
         except (TypeError, ValueError):
             total_W += _BULB_DEFAULT_W
     n_iluminat = max(math.ceil(total_W / 1000.0), math.ceil(nr_becuri / 12.0), 1) if nr_becuri else 0
-
-    circuits = []
     for i in range(n_iluminat):
-        circuits.append({"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "priza_indices": []})
+        circuits.append({"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "indices": []})
 
-    # ── PRIZE per camera (din el['room'], setat de C3a) ──
+    # ── PRIZE TEG per camera (din el['room'], setat de C3a), EXCLUZAND camera tehnica ──
     by_room = {}
     for i, el in enumerate(elements):
-        if ((el or {}).get("element_type") or "") in _PRIZA_TYPES:
+        if ((el or {}).get("element_type") or "") in _PRIZA_TYPES and not is_tech(i):
             by_room.setdefault((el.get("room") or "(fara camera)"), []).append(i)
 
-    priza_circuit = {}
     next_c = n_iluminat + 1
     for room in sorted(by_room.keys()):                                   # ordine camere FIXA (nume)
         idxs = sorted(by_room[room],                                      # ordine prize FIXA (y,x)
@@ -1224,41 +1259,49 @@ def compute_circuits(elements):
         for ci in range(k):
             cid = "C%d" % next_c
             chunk = idxs[ci * per:(ci + 1) * per]
-            circuits.append({"id": cid, "kind": "priza", "room": room, "priza_indices": chunk})
+            circuits.append({"id": cid, "kind": "priza", "room": room, "indices": chunk})
             for j in chunk:
-                priza_circuit[j] = cid
+                element_circuit[j] = cid
             next_c += 1
 
-    return {"n_iluminat": n_iluminat, "total_bulb_w": total_W, "nr_becuri": nr_becuri,
-            "n_circuits": len(circuits), "circuits": circuits, "priza_circuit": priza_circuit}
+    return {"n_iluminat": n_iluminat, "tech_room": tech_room, "total_bulb_w": total_W,
+            "nr_becuri": nr_becuri, "n_circuits": len(circuits),
+            "circuits": circuits, "element_circuit": element_circuit}
 
 
 def assign_circuits(elements, rooms, W, H):
-    """C3c orchestrator: asociaza prize->camera (C3a) + numeroteaza circuite (C3b) + scrie circuit_id
-    pe fiecare priza IN-MEMORY (pt. C4/desen). DOAR prizele primesc circuit_id (becurile doar numara
-    iluminatul). Determinist/idempotent (din compute_circuits). Intoarce {n_iluminat, circuits,
+    """C3c+T1 orchestrator: asociaza prize->camera (C3a) + detecteaza camera TE-CT (din tablou_te_ct) +
+    numeroteaza circuite (T1: tech -> -TECT, rest -> TEG) + scrie circuit_id IN-MEMORY (pt. C4/desen).
+    Becuri tech -> C1-TECT; prize/alimentari tech -> C2-TECT+; prize rest -> TEG C{n+1}+; becuri rest -> None.
+    Determinist/idempotent. Intoarce {n_iluminat, tech_room, n_circuits, circuits,
     updates:[{id, room, circuit_id, changed}]} -> caller-ul persista in DB DOAR `changed`."""
     elements = elements or []
-    # snapshot vechi (inainte de mutatie) pt. detectarea schimbarilor -> persistare doar daca s-a schimbat
+    # snapshot vechi (room+circuit_id) INAINTE de mutatie -> persistare doar daca s-a schimbat
     old = {}
     for el in elements:
-        if ((el or {}).get("element_type") or "") in _PRIZA_TYPES and el.get("id"):
+        et = (el or {}).get("element_type") or ""
+        if (et in _PRIZA_TYPES or et in _BULB_TYPES) and el.get("id"):
             old[el["id"]] = (el.get("room"), el.get("circuit_id"))
 
-    assign_rooms_to_prizas(elements, rooms, W, H)   # seteaza el['room'] pe prize (point-in-bbox + fallback)
-    info = compute_circuits(elements)               # priza_circuit: index_element -> "Cx"
+    assign_rooms_to_prizas(elements, rooms, W, H)          # seteaza el['room'] pe prize (point-in-bbox)
+    tech_room = _detect_tech_room(elements, rooms, W, H)   # camera cu tablou_te_ct (sau None -> fara -TECT)
+    info = compute_circuits(elements, tech_room=tech_room)
+    ec = info["element_circuit"]                           # index -> circuit_id (becuri tech + TOATE prizele)
 
     updates = []
-    for idx, cid in info["priza_circuit"].items():
-        el = elements[idx]
-        el["circuit_id"] = cid                      # IN-MEMORY (pt. C4)
+    for idx, el in enumerate(elements):
+        et = (el or {}).get("element_type") or ""
+        if et not in _PRIZA_TYPES and et not in _BULB_TYPES:
+            continue
+        cid = ec.get(idx)                                  # None pt. becuri non-tech (neetichetate)
+        el["circuit_id"] = cid                             # IN-MEMORY (pt. C4)
         pid = el.get("id")
         if pid:
             new = (el.get("room"), cid)
-            updates.append({"id": pid, "room": el.get("room"), "circuit_id": cid,
-                            "changed": old.get(pid) != new})
-    return {"n_iluminat": info["n_iluminat"], "n_circuits": info["n_circuits"],
-            "circuits": info["circuits"], "updates": updates}
+            if old.get(pid) != new:
+                updates.append({"id": pid, "room": el.get("room"), "circuit_id": cid, "changed": True})
+    return {"n_iluminat": info["n_iluminat"], "tech_room": tech_room,
+            "n_circuits": info["n_circuits"], "circuits": info["circuits"], "updates": updates}
 
 
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
