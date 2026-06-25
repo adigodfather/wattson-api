@@ -70,6 +70,10 @@ const PANEL_SET = new Set(PANEL_TYPES.map(o => o.value));
 const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
 const isPanelType = (t: string) => PANEL_SET.has(t);
+const isLegendType = (t: string) => t === "legenda";
+// caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
+// Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
+const LEG_W = 90, LEG_H = 60;
 // culori + etichetă scurtă pt. simbolul de tablou
 const PANEL_INFO: Record<string, { short: string; colA: string; colB: string }> =
   Object.fromEntries(PANEL_TYPES.map(o => [o.value, { short: o.short, colA: o.colA, colB: o.colB }]));
@@ -346,6 +350,35 @@ export default function PlanEditor({
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT tablou esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+  }
+
+  // ADD LEGENDA: caseta legenda (element draggable global, room=null), max 1 per plansa.
+  // Acelasi tipar de INSERT ca addPanel; pozitie initiala = colt stanga-jos (in PUNCTE PDF).
+  // L1: DOAR caseta-placeholder in editor; desenul continutului pe PDF vine la L3.
+  async function addLegend() {
+    if (elements.some(e => e.element_type === "legenda")) return;   // max 1 legenda / plansa
+    const floor = elements[0]?.floor || "parter";
+    const pdfW = pngW > 0 ? pngW / scale : 400;
+    const pdfH = pngH > 0 ? pngH / scale : 400;
+    const x = pdfW * 0.05;                          // colt stanga
+    const y = Math.max(0, pdfH * 0.80 - LEG_H);     // jos, lasand loc casetei (anchor = colt stanga-sus)
+    const row = {
+      project_id: projectId,
+      floor,
+      element_type: "legenda",
+      plan_type: "iluminat",
+      label: null as string | null,
+      room: null as string | null,      // legenda e globala, nu per camera
+      x,
+      y,
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,    // legenda nu are nou/existent
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT legenda esuat", error?.message); return; }
     setElements(prev => [...prev, data as PlanElement]);
     setSelectedId((data as PlanElement).id);
   }
@@ -652,6 +685,29 @@ export default function PlanEditor({
     </div>
   );
 
+  // secțiunea Legendă plan (sub Tablouri): un singur element "legenda" draggable, mutabil în editor.
+  // Caseta-placeholder aici; conținutul (simboluri + text) se desenează pe PDF la "Obține plan" (L3).
+  const renderLegendSection = () => {
+    const existing = elements.find(e => e.element_type === "legenda") || null;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Legendă plan
+        </div>
+        {existing ? (
+          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
+            Casetă adăugată — trage-o pe plan unde vrei.
+            <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={addLegend}>+ Adaugă legendă</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -684,6 +740,7 @@ export default function PlanEditor({
           )}
           {roomKeys.map(renderRoom)}
           {renderPanelsSection()}
+          {renderLegendSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
@@ -740,6 +797,8 @@ export default function PlanEditor({
                   const isSel = selectedId === el.id;
                   const col = isBulb ? COL_BULB : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
+                  const isLegend = isLegendType(el.element_type);
+                  const legW = LEG_W * scale, legH = LEG_H * scale;   // caseta legenda (puncte PDF x scale)
                   return (
                     // Group la (px,py); copiii relativi la origine -> e.target.x() = poziția absolută în Layer
                     <Group
@@ -759,7 +818,9 @@ export default function PlanEditor({
                         ? bulbSelRing(el.element_type)
                         : isPanel
                           ? <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
-                          : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
+                          : isLegend
+                            ? <Rect x={-3} y={-3} width={legW + 6} height={legH + 6} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                            : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
                           {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
@@ -776,6 +837,14 @@ export default function PlanEditor({
                         <>
                           {bulbHit(el.element_type)}
                           {bulbSymbol(el.element_type)}
+                        </>
+                      ) : isLegend ? (
+                        <>
+                          {/* caseta-placeholder: chenar + "LEGENDĂ". Rect PLIN = zona de hit a Group-ului
+                              draggable. Conținutul real (simboluri + text) se desenează pe PDF la L3.
+                              Anchor = colț stânga-sus la (x,y); caseta se extinde dreapta+jos. */}
+                          <Rect x={0} y={0} width={legW} height={legH} cornerRadius={3} stroke="#1F2433" strokeWidth={1.4} fill="rgba(255,255,255,0.9)" />
+                          <Text x={0} y={0} width={legW} height={legH} align="center" verticalAlign="middle" text="LEGENDĂ" fontSize={Math.max(10, legH * 0.18)} fontStyle="bold" fill="#1F2433" listening={false} />
                         </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
