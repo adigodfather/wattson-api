@@ -428,6 +428,42 @@ export default function PlanEditor({
     persist(el.id, patch);
   }
 
+  // Click pe LINIE (cand dunga e selectata): insereaza un varf nou pe cel mai apropiat segment (il sparge).
+  function addTraseuVertex(el: PlanElement, e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const pos = e.target.getRelativePointerPosition();   // coordonate Layer (px PNG)
+    if (!pos) return;
+    const cx = pos.x / scale, cy = pos.y / scale;        // -> puncte PDF
+    const pts = (el.cable_path && el.cable_path.length >= 2)
+      ? el.cable_path.map(p => [p[0], p[1]])
+      : [[el.x, el.y], [el.x + 120, el.y]];
+    // cel mai apropiat segment + proiectia clickului pe el (varful nou cade PE linie, apoi se trage)
+    let bestI = 0, bestD = Infinity, bestPt: number[] = [cx, cy];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0], by = pts[i + 1][1];
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((cx - ax) * dx + (cy - ay) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const px2 = ax + t * dx, py2 = ay + t * dy;
+      const d = Math.hypot(cx - px2, cy - py2);
+      if (d < bestD) { bestD = d; bestI = i; bestPt = [px2, py2]; }
+    }
+    const next = [...pts.slice(0, bestI + 1), bestPt, ...pts.slice(bestI + 1)];   // intre capetele segmentului
+    setLocalField(el.id, { cable_path: next });   // varful 0 neschimbat -> x,y raman in sync
+    persist(el.id, { cable_path: next });
+  }
+
+  // Dublu-click pe un VARF: il sterge (pastreaza minim 2 puncte). Re-sincronizeaza x,y daca se sterge capatul 0.
+  function removeTraseuVertex(el: PlanElement, i: number) {
+    const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path.map(p => [p[0], p[1]]) : [];
+    if (pts.length <= 2) return;   // minim o linie (2 puncte)
+    pts.splice(i, 1);
+    const patch: Partial<PlanElement> = { cable_path: pts };
+    if (i === 0) { patch.x = pts[0][0]; patch.y = pts[0][1]; }
+    setLocalField(el.id, patch);
+    persist(el.id, patch);
+  }
+
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
   // (spațiul PNG), iar Stage-scale (displayScale) e separat și NU intervine. Inversul exact al afișării.
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
@@ -764,7 +800,7 @@ export default function PlanEditor({
         </div>
         {existing ? (
           <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
-            Dungă adăugată — trage-i capetele pe hol.
+            Dungă adăugată — trage vârfurile; click pe linie = adaugă vârf, dublu-click pe vârf = șterge.
             <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
           </div>
         ) : (
@@ -923,7 +959,8 @@ export default function PlanEditor({
                     </Group>
                   );
                 })}
-                {/* TRASEU (dunga hol): linie 2 capete draggable; punctele in cable_path. B1: vizibil/editabil, FARA routing (B2). */}
+                {/* TRASEU (dunga hol): polilinie N puncte (cable_path) = <Line> + un <Circle draggable> per varf.
+                    Click pe linie (cand selectata) = adauga varf; dublu-click pe varf = sterge. B1/B3: vizibil/editabil, FARA routing (B2). */}
                 {elements.filter(e => isTraseuType(e.element_type)).map((el) => {
                   const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y], [el.x + 120, el.y]];
                   const isSel = selectedId === el.id;
@@ -931,13 +968,16 @@ export default function PlanEditor({
                   return (
                     <Group key={el.id}>
                       <Line points={flat} stroke="#1565C0" strokeWidth={isSel ? 3.5 : 2.5} dash={[9, 5]}
-                            lineCap="round" hitStrokeWidth={14}
-                            onClick={() => selectElement(el.id)} onTap={() => selectElement(el.id)}
-                            onMouseEnter={(e) => setCursor(e, "pointer")} onMouseLeave={(e) => setCursor(e, "default")} />
+                            lineCap="round" lineJoin="round" hitStrokeWidth={14}
+                            onClick={(e) => { if (selectedId === el.id) addTraseuVertex(el, e); else selectElement(el.id); }}
+                            onTap={(e) => { if (selectedId === el.id) addTraseuVertex(el, e); else selectElement(el.id); }}
+                            onMouseEnter={(e) => setCursor(e, isSel ? "copy" : "pointer")} onMouseLeave={(e) => setCursor(e, "default")} />
                       {pts.map((p, i) => (
                         <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={isSel ? 7 : 5}
                                 fill="#fff" stroke="#1565C0" strokeWidth={2} draggable
                                 onClick={() => selectElement(el.id)}
+                                onDblClick={() => removeTraseuVertex(el, i)}
+                                onDblTap={() => removeTraseuVertex(el, i)}
                                 onDragStart={(e) => { selectElement(el.id); e.target.moveToTop(); }}
                                 onDragEnd={(e) => handleTraseuVertexDragEnd(el, i, e)}
                                 onMouseEnter={(e) => setCursor(e, "move")} onMouseLeave={(e) => setCursor(e, "default")} />
