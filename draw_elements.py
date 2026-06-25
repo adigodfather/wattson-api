@@ -126,31 +126,35 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w):
 
 
 # ── C4: simbol PRIZA pe PDF (semicerc curba SUS + 2 contacte) + eticheta "C{circuit} - h={h}m". ──
+_PRIZA_COLOR = (0.082, 0.396, 0.753)   # ALBASTRU #1565C0 (forta) — coerent cu cablurile, distinct de iluminat (rosu)
+
+
 def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0):
-    """Simbol priza (portat din Konva P2): semicerc cu partea curba SUS + 2 contacte sub diametru; rosu.
-    Distinct de bec (cerc+X) si aplica_perete (semicerc curba JOS). 4 variante. scale -> dimensiune."""
+    """Simbol priza (portat din Konva): semicerc cu partea curba SUS + 2 contacte sub diametru; ALBASTRU.
+    priza_16a = ALIMENTARE DIRECTA (cerc gol, consumatori conectati direct). Distinct de bec (cerc+X)
+    si aplica_perete (semicerc curba JOS). 4 variante. scale -> dimensiune."""
     s = scale
+    C = _PRIZA_COLOR
 
     def disc(dx, r):   # semicerc (curba SUS): arc + diametru. beta=-180 din STANGA -> dome SUS (vs perete: jos)
         page.draw_sector(fitz.Point(cx + dx, cy), fitz.Point(cx + dx - r, cy), -180,
-                         color=RED, width=1.4, fullSector=True)
+                         color=C, width=1.4, fullSector=True)
 
     def contacts(dx):  # 2 contacte verticale sub diametru
         for off in (-3.0 * s, 3.0 * s):
             page.draw_line(fitz.Point(cx + dx + off, cy + 2.0 * s), fitz.Point(cx + dx + off, cy + 6.0 * s),
-                           color=RED, width=1.1)
+                           color=C, width=1.1)
 
     et = element_type or "priza_simpla"
     if et == "priza_dubla":
         disc(-8 * s, 7 * s); contacts(-8 * s)
         disc(8 * s, 7 * s);  contacts(8 * s)
-    elif et == "priza_16a":
-        disc(0, 8 * s); contacts(0)
-        page.insert_text(fitz.Point(cx - 9 * s, cy + 13 * s), "16A", fontsize=7.0 * s, fontname="hebo", color=RED)
+    elif et == "priza_16a":   # ALIMENTARE DIRECTA = cerc gol (fara semicerc/contacte/text)
+        page.draw_circle(fitz.Point(cx, cy), 8 * s, color=C, width=1.4)
     elif et == "priza_exterior_ip44":
-        page.draw_rect(fitz.Rect(cx - 11 * s, cy - 11 * s, cx + 11 * s, cy + 10 * s), color=RED, width=1.0)
+        page.draw_rect(fitz.Rect(cx - 11 * s, cy - 11 * s, cx + 11 * s, cy + 10 * s), color=C, width=1.0)
         disc(0, 8 * s); contacts(0)
-        page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s), "IP44", fontsize=6.0 * s, fontname="hebo", color=RED)
+        page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s), "IP44", fontsize=6.0 * s, fontname="hebo", color=C)
     else:  # priza_simpla
         disc(0, 8 * s); contacts(0)
 
@@ -179,13 +183,13 @@ def _priza_label(el):
 
 
 def _draw_priza_label(page, cx, cy, el):
-    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (rosu, lizibil)."""
+    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (albastru, ca simbolul)."""
     txt = _priza_label(el)
     if not txt:
         return
     fs = 7.5
     w = len(txt) * fs * 0.46
-    page.insert_text(fitz.Point(cx - w / 2.0, cy - 16.0), txt, fontsize=fs, fontname="helv", color=RED)
+    page.insert_text(fitz.Point(cx - w / 2.0, cy - 16.0), txt, fontsize=fs, fontname="helv", color=_PRIZA_COLOR)
 
 
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──

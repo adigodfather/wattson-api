@@ -71,7 +71,7 @@ const PANEL_TYPES = [
 const PRIZA_TYPES = [
   { value: "priza_simpla",        label: "Priză simplă" },
   { value: "priza_dubla",         label: "Priză dublă" },
-  { value: "priza_16a",           label: "Priză 16A" },
+  { value: "priza_16a",           label: "Alimentare directă" },
   { value: "priza_exterior_ip44", label: "Priză exterior (IP44)" },
 ];
 
@@ -85,7 +85,7 @@ const isPanelType = (t: string) => PANEL_SET.has(t);
 const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
-const COL_PRIZA = "#D62828";   // simbol priza in editor (rosu, ca aparatajul de pe plan)
+const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -169,8 +169,8 @@ function bulbSelRing(type: string) {
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
-// Simbol PRIZA (Konva): semicerc (half-disc, partea curbă SUS) + 2 contacte sub el; roșu COL_PRIZA.
-// Distinct de bec (cerc+X), întrerupător (linie+cercuri) și aplica_perete (semicerc curbat în JOS).
+// Simbol PRIZA (Konva): semicerc (half-disc, partea curbă SUS) + 2 contacte sub el; ALBASTRU COL_PRIZA (forța).
+// priza_16a = ALIMENTARE DIRECTĂ (cerc gol). Distinct de bec (cerc+X) și aplica_perete (semicerc curbat în JOS).
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
   const disc = (cx: number, r = 8) => (
@@ -185,8 +185,8 @@ function prizaSymbol(type: string) {
   switch (type) {
     case "priza_dubla":
       return <>{disc(-8, 7)}{contacts(-8)}{disc(8, 7)}{contacts(8)}</>;
-    case "priza_16a":
-      return <>{disc(0)}{contacts(0)}<Text x={-9} y={7} text="16A" fontSize={7.5} fontStyle="bold" fill={C} listening={false} /></>;
+    case "priza_16a":   // ALIMENTARE DIRECTĂ = cerc gol (consumatori conectați direct, fără priză)
+      return <Circle x={0} y={0} radius={8} stroke={C} strokeWidth={2} />;
     case "priza_exterior_ip44":
       return <><Rect x={-11} y={-11} width={22} height={21} cornerRadius={3} stroke={C} strokeWidth={1.3} listening={false} />{disc(0)}{contacts(0)}<Text x={-10} y={11} text="IP44" fontSize={6.5} fill={C} listening={false} /></>;
     default: // priza_simpla
