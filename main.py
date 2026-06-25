@@ -3277,6 +3277,45 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
 
 
 # -------------------------------------------------
+#  EXTRACT GEOMETRY (pereti din cleanBasePdf, P1)  —  POST /extract-geometry
+# -------------------------------------------------
+
+class ExtractGeometryRequest(BaseModel):
+    pdf_base64: str = ""   # cleanBasePdf (planuri[].pdf_base64) -> coordonate IDENTICE cu plan_elements x,y
+
+
+@app.post("/extract-geometry")
+def extract_geometry_endpoint(request: ExtractGeometryRequest):
+    """P1: extrage peretii GLOBALI (segmente H/V) din PDF-ul curat, in PUNCTE PDF (acelasi spatiu ca
+    plan_elements). Pt. snap prize pe perete (viitor). _collect = auto-detect layere (5/5 arhitecti).
+    Defensiv: fara layere de pereti -> walls:[]; orice eroare -> success:false + walls:[] (nu strica editorul)."""
+    try:
+        raw = request.pdf_base64 or ""
+        if "," in raw:
+            raw = raw.split(",", 1)[1]
+        if not raw:
+            return {"success": False, "error": "pdf_base64 lipseste", "walls": [], "doors": []}
+        import fitz
+        import geometry
+        doc = fitz.open(stream=base64.b64decode(raw), filetype="pdf")
+        try:
+            page = doc[0]
+            W, H = page.rect.width, page.rect.height
+            h_segs, v_segs, doors = geometry._collect(page)
+        finally:
+            doc.close()
+        walls = ([{"x1": round(x0, 1), "y1": round(y, 1), "x2": round(x1, 1), "y2": round(y, 1), "orientation": "h"}
+                  for (x0, x1, y) in h_segs]
+                 + [{"x1": round(x, 1), "y1": round(y0, 1), "x2": round(x, 1), "y2": round(y1, 1), "orientation": "v"}
+                    for (y0, y1, x) in v_segs])
+        doors_out = [{"x": round(cx, 1), "y": round(cy, 1), "r": round(r, 1)} for (cx, cy, r) in doors]
+        return {"success": True, "walls": walls, "doors": doors_out,
+                "pdf_width_pt": W, "pdf_height_pt": H}
+    except Exception as e:
+        return {"success": False, "error": str(e), "walls": [], "doors": []}
+
+
+# -------------------------------------------------
 #  SERVIRE FRONTEND STATIC
 # -------------------------------------------------
 

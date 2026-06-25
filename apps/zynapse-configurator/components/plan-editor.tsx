@@ -216,6 +216,9 @@ export default function PlanEditor({
   // Traseele cablurilor primite la "Obține plan" (snapshot din compute_cables, puncte PDF).
   // Desenate ca linii Konva SUB simboluri. Se reîmprospătează la fiecare "Obține plan".
   const [overlayCables, setOverlayCables] = useState<{ path: number[][]; kind?: string }[]>([]);
+  // DEBUG P1: peretii din /extract-geometry (puncte PDF, ACELASI spatiu ca x,y) + toggle overlay.
+  const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [showWalls, setShowWalls] = useState(false);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -261,6 +264,21 @@ export default function PlanEditor({
       });
     return () => { cancelled = true; };
   }, [projectId, supabase]);
+
+  // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
+  useEffect(() => {
+    if (!cleanBasePdf) return;
+    let cancelled = false;
+    fetch("/api/extract-geometry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdf_base64: cleanBasePdf }),
+    })
+      .then(r => r.json())
+      .then(d => { if (!cancelled && d?.success && Array.isArray(d.walls)) setWalls(d.walls); })
+      .catch(() => { /* non-blocant: fara pereti -> editorul merge normal */ });
+    return () => { cancelled = true; };
+  }, [cleanBasePdf]);
 
   // mută elementul în state imediat (optimist) — lista + planul reflectă schimbarea instant
   function setLocalField(id: string, patch: Partial<PlanElement>) {
@@ -874,11 +892,25 @@ export default function PlanEditor({
 
       {/* ── DREAPTA: planul (Stage), umple spațiul rămas ── */}
       <div ref={planWrapRef} style={{ flex: 1, minWidth: 280 }}>
+        {/* DEBUG P1: toggle overlay pereti (verde) — confirma alinierea coordonatelor */}
+        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+          <label style={{ fontSize: 11, color: "#8B8FA8", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={showWalls} onChange={(e) => setShowWalls(e.target.checked)} />
+            Arată pereți (debug)
+          </label>
+          {showWalls && <span style={{ fontSize: 11, color: "#16A34A" }}>{walls.length} segmente</span>}
+        </div>
         <div style={{ width: stageW || "100%", maxWidth: "100%", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
           {stageW > 0 && stageH > 0 && (
             <Stage width={stageW} height={stageH} scaleX={displayScale} scaleY={displayScale}>
               <Layer>
                 {img && <KonvaImage image={img} width={pngW} height={pngH} listening={false} />}
+                {/* DEBUG P1: pereti din /extract-geometry (verde) -> confirma alinierea coord. cu planul.
+                    points = (x1,y1)-(x2,y2) puncte PDF × scale (ACELASI scale ca x,y ale elementelor). */}
+                {showWalls && walls.map((w, i) => (
+                  <Line key={`wall-${i}`} points={[w.x1 * scale, w.y1 * scale, w.x2 * scale, w.y2 * scale]}
+                        stroke="#16A34A" strokeWidth={2} opacity={0.7} listening={false} />
+                ))}
                 {/* CABLURI (snapshot "Obține plan") SUB simboluri: albastru, ne-interactiv.
                     points = path (puncte PDF) × scale, ACELAȘI scale ca x,y ale elementelor. */}
                 {overlayCables.map((cab, i) => (
