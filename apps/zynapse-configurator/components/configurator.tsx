@@ -970,6 +970,15 @@ export function ZynapseConfigurator() {
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
 
+  // ── FLUX FORTA (S1): starea fazei din semnale EXISTENTE (zero migratie). ──
+  // editorAvailable = tab-ul Editor e disponibil (PT + plansa cu PNG + proiect salvat) — aceeasi conditie ca filtrul de tab.
+  const editorAvailable = showPlanBom && !!editorPlansa && !!savedProjectId;
+  // iluminatFinalizat = IE.1 generat ("Obtine plan iluminat" -> regenerated=true, semnal persistent in result_data).
+  const iluminatFinalizat = editorPlansa?.regenerated === true;
+  // faza fluxului: iluminat fara IE.1 -> "iluminat-nedefinitivat"; cu IE.1 -> "iluminat-gata"; pe forta -> "forta".
+  const fazaFlux: "iluminat-nedefinitivat" | "iluminat-gata" | "forta" =
+    !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor === "forta" ? "forta" : "iluminat-gata";
+
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
   async function handleRegenerated(pdfBase64: string) {
     if (!result || !editorPlansa || !savedProjectId) return;
@@ -990,6 +999,18 @@ export function ZynapseConfigurator() {
   useEffect(() => {
     if (!showPlanBom && (activeTab === "plan" || activeTab === "bom")) setActiveTab("circuits");
   }, [showPlanBom, activeTab]);
+
+  // S5: dupa generare PORNESTE in tab-ul Editor (iluminat), nu pe Circuite — ca inginerul sa intre
+  // in flux (iluminat -> forta), nu sa vada direct "Finalizare". O SINGURA data per proiect (apoi
+  // navigheaza liber). Editor indisponibil (DTAC / fara plansa) -> ramane pe circuits (zero regresie).
+  const autoEditorRef = useRef(false);
+  useEffect(() => {
+    if (status !== "success") { autoEditorRef.current = false; return; }   // reset pt. urmatorul proiect
+    if (editorAvailable && !autoEditorRef.current) {
+      autoEditorRef.current = true;
+      setActiveTab("editor");
+    }
+  }, [status, editorAvailable]);
 
   // Computed levels string from manual controls
   const levelsString = (form.has_basement ? "D+" : "") + "P" +
@@ -1455,6 +1476,14 @@ export function ZynapseConfigurator() {
   // un modal de feedback (nota 1-10 + nemultumiri daca <5) INAINTE de redirect. Acum doar navigheaza.
   const handleFinalize = () => {
     router.push("/projects");
+  };
+
+  // "Editor Plan Forta" (S2): iluminatul e DEJA salvat (plan_elements persistat + IE.1/regenerated).
+  // Comuta editorul pe forta -> load useEffect din PlanEditor (dep mode) reincarca elementele forta.
+  // Ramai in tab-ul Editor; scroll sus la editor.
+  const handleGoForta = () => {
+    setModeEditor("forta");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -2076,11 +2105,14 @@ export function ZynapseConfigurator() {
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     {([["iluminat", "Iluminat"], ["forta", "Forță"]] as const).map(([m, label]) => {
                       const on = modeEditor === m;
+                      const locked = m === "forta" && !iluminatFinalizat;   // forta blocata pana la IE.1 (coerent cu CTA)
                       return (
-                        <button key={m} type="button" onClick={() => setModeEditor(m)}
+                        <button key={m} type="button" disabled={locked}
+                          onClick={() => !locked && setModeEditor(m)}
+                          title={locked ? "Obtine planul de iluminat intai" : undefined}
                           style={{
-                            padding: "6px 18px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit",
-                            fontSize: 12.5, fontWeight: 600, letterSpacing: 0.2,
+                            padding: "6px 18px", borderRadius: 7, cursor: locked ? "not-allowed" : "pointer", fontFamily: "inherit",
+                            fontSize: 12.5, fontWeight: 600, letterSpacing: 0.2, opacity: locked ? 0.45 : 1,
                             background: on ? "rgba(55,138,221,0.18)" : "transparent",
                             border: on ? "1px solid rgba(55,138,221,0.45)" : "1px solid transparent",
                             color: on ? "#5BB8F5" : "#8B8FA8",
@@ -2139,21 +2171,46 @@ export function ZynapseConfigurator() {
               </div>
             )}
 
-            {/* Finalizare Proiect — calea principala de incheiere (proiectul e deja salvat).
-                Vizibil DOAR pe success. handleFinalize -> /projects (extensibil: modal feedback). */}
-            {status === "success" && (
-              <div className="flex justify-end mt-6 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                <button type="button" onClick={handleFinalize}
-                  className="py-3 px-7 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
-                  style={{
-                    background: "linear-gradient(135deg, #1D9E75 0%, #37C58A 100%)",
-                    border: "none", color: "#fff", cursor: "pointer",
-                    boxShadow: "0 0 24px rgba(29,158,117,0.30)",
-                  }}>
-                  Finalizare Proiect →
-                </button>
-              </div>
-            )}
+            {/* ── CTA flux (S2/S4): STEPPER faze-aware. BUG REPARAT: "Finalizare" NU mai e CTA global pe
+                orice tab (asta scurtcircuita forta) — apare DOAR in faza forta, in tab-ul Editor.
+                Iluminat-in-editor -> "Editor Plan Forta" (gated pe IE.1). Alte tab-uri -> "Continua in
+                Editor". Proiect fara editor (DTAC) -> "Finalizare Proiect" clasic (zero regresie). ── */}
+            {status === "success" && (() => {
+              let label = "Finalizare Proiect →";
+              let onClick: (() => void) | undefined = handleFinalize;
+              let variant: "green" | "blue" = "green";
+              let disabled = false;
+              let hint: string | null = null;
+              if (!editorAvailable) {
+                // proiect fara editor (non-PT / fara plansa editabila) -> iesire clasica (zero regresie)
+              } else if (activeTab !== "editor") {
+                label = "Continuă în Editor →"; onClick = () => setActiveTab("editor"); variant = "blue";
+              } else if (fazaFlux === "iluminat-nedefinitivat") {
+                label = "Editor Plan Forță →"; onClick = undefined; variant = "blue"; disabled = true;
+                hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
+              } else if (fazaFlux === "iluminat-gata") {
+                label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
+              } else {   // fazaFlux === "forta"
+                label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+              }
+              const grad = variant === "blue"
+                ? { background: "linear-gradient(135deg, #2870C2 0%, #378ADD 100%)", boxShadow: "0 0 24px rgba(55,138,221,0.30)" }
+                : { background: "linear-gradient(135deg, #1D9E75 0%, #37C58A 100%)", boxShadow: "0 0 24px rgba(29,158,117,0.30)" };
+              return (
+                <div className="mt-6 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div className="flex justify-end">
+                    <button type="button" disabled={disabled} onClick={onClick}
+                      className="py-3 px-7 rounded-xl text-[14px] font-semibold font-[inherit] tracking-wide transition-all duration-200"
+                      style={{ ...grad, border: "none", color: "#fff",
+                        cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
+                        ...(disabled ? { boxShadow: "none" } : {}) }}>
+                      {label}
+                    </button>
+                  </div>
+                  {hint && <div className="text-right text-[11px] mt-2" style={{ color: "#C8A04D" }}>{hint}</div>}
+                </div>
+              );
+            })()}
 
           </div>
         ) : isLoading ? (
