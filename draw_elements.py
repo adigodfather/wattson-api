@@ -120,10 +120,10 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
     txt = _bulb_label(element_type, power_w, circuit_id)
     if not txt:
         return
-    fs = 7.5
-    w = len(txt) * fs * 0.46                      # latime aproximativa (centrare)
+    fs = 9.0                                      # putin mai mare (era 7.5)
+    w = len(txt) * fs * 0.50                      # latime aproximativa (centrare; bold = chars mai late)
     top = _BULB_TOP.get(element_type, 10)
-    page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 4.0), txt, fontsize=fs, fontname="helv", color=RED)
+    page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 5.0), txt, fontsize=fs, fontname="hebo", color=RED)  # hebo = Helvetica BOLD
 
 
 # ── C4: simbol PRIZA pe PDF (semicerc curba SUS + 2 contacte) + eticheta "C{circuit} - h={h}m". ──
