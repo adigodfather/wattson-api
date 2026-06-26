@@ -267,6 +267,7 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             "name": name, "geometric": False, "centroid": None,
             "wall_segments": [], "doors": [],
             "area_geometric_m2": None, "area_vision_m2": area_vision, "reason": "",
+            "geom_bbox": None,   # V2: bbox wall-to-wall (extins) cand rect robust trece REGULA 1+2; altfel None -> fallback Vision
         }
         try:
             bb = (r or {}).get("bbox") or {}
@@ -345,6 +346,10 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 rec["wall_segments"] = _walls_in_rect(h_segs, v_segs, l, rr, t, b)
                 rec["doors"] = _doors_in_rect(doors, l, rr, t, b)
                 rec["area_geometric_m2"] = round(area_geom, 2)
+                # V2: candidat geom_bbox = rect robust (deja marginit de MAX_AREA_RATIO/SELECT la selectie =
+                # REGULA 1). Capturat AICI, INAINTE de REGULA 3 -> supravietuieste chiar daca centroidul iese
+                # din bbox-ul Vision (cazul open-plan). Validat post-bucla pe REGULA 2 (non-overlap).
+                rec["_grect"] = (l, rr, t, b)
 
                 # REGULA 3 (relaxata calibrat) — bbox-containment ADAPTIV la marimea camerei.
                 # Tol = max(TOL, CONTAIN_FRAC * latura_mica). Camerele mari tolereaza o deplasare
@@ -437,8 +442,33 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             if changed:
                 break
 
+    # ── V2: geom_bbox = rect robust (wall-to-wall) ca BBOX, INLOCUIND REGULA 3 (containment Vision) cu
+    #    REGULA 1 (arie, deja marginita la selectie de MAX_AREA_RATIO=1.8/SELECT_AREA_RATIO=1.5) + REGULA 2
+    #    (non-overlap). Astfel rect-ul robust EXTINDE dincolo de bbox-ul Vision gresit (fix open-plan
+    #    "jumatate", unde REGULA 3 il respingea). Becurile (geometric/centroid) raman pe REGULA 3 neatinse.
+    #    Fallback: fara rect / overlap -> geom_bbox=None -> consumatorul pastreaza bbox-ul Vision (zero regresie).
+    grects = [r for r in out if r.get("_grect")]
+    drop = set()
+    for ia in range(len(grects)):
+        for ib in range(ia + 1, len(grects)):
+            ra, rb = grects[ia], grects[ib]
+            if id(ra) in drop or id(rb) in drop:
+                continue
+            if _rect_overlap_pct(ra["_grect"], rb["_grect"]) > OVERLAP_REJECT:
+                # perdant = raportul arie_geom/arie_cartus mai departe de clusterul sanatos (probabil over-merge)
+                fa = abs((ra.get("area_geometric_m2") or 0) / (ra["area_vision_m2"] or 1e9) - CLUSTER_RATIO)
+                fb = abs((rb.get("area_geometric_m2") or 0) / (rb["area_vision_m2"] or 1e9) - CLUSTER_RATIO)
+                drop.add(id(ra) if fa >= fb else id(rb))
+    for r in grects:
+        if id(r) in drop:
+            r["reason"] = (r.get("reason") or "") + " | geom_bbox respins REGULA 2 (overlap)"
+        else:
+            l, rr, t, b = r["_grect"]
+            r["geom_bbox"] = {"x": round(l / W, 4), "y": round(t / H, 4),
+                              "w": round((rr - l) / W, 4), "h": round((b - t) / H, 4)}
+
     for r in out:   # curatam cheile temporare
-        r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None); r.pop("_bbc", None)
+        r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None); r.pop("_bbc", None); r.pop("_grect", None)
 
     return out
 
