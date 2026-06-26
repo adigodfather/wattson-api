@@ -212,7 +212,7 @@ _SWITCH_LEGEND_TEXT = {
 _PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator")
 _SWITCH_ORDER = ("intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara")
 # Cablul de iluminat e MEREU acelasi (decizia Dan).
-_LEGEND_CABLE_TEXT = "CYYF 3x1.5 mmp"
+_LEGEND_CABLE_TEXT = "Cablu / Manunchi cablu CYY-F 3x1.5 mmp"
 
 
 def _legend_pw(pw):
@@ -915,25 +915,71 @@ def _project_point_on_polyline(p, pts):
     return best[1], best[2], best[3]
 
 
-def _stripe_path(a, b, pts):
-    """Traseu prin dunga: a -> proiectie_a -> (varfurile dungii STRICT intre proiectii, in ordinea
-    corecta a poliliniei, eventual inversata) -> proiectie_b -> b. Intrarea/iesirea (a->pa, pb->b) sunt
-    ORTOGONALE (L Manhattan via _cable_l_path) ca o instalatie reala, NU diagonale. pts lipsa/<2 -> L direct."""
+_BUNDLE_GAP = 3.0   # MANUNCHI: offset lateral (pt) intre cabluri care converg pe ACEEASI dunga (paralele, nu suprapuse)
+
+
+def _offset_polyline(pts, offset):
+    """Deplaseaza polilinia pts LATERAL cu `offset` pt (perpendicular pe directie). Pt. MANUNCHI:
+    fiecare cablu ruteaza pe o COPIE deplasata a dungii -> apar PARALELE pe portiunea comuna.
+    Normala per-varf = media normalelor segmentelor adiacente (miter). offset 0 / <2 puncte -> neschimbat."""
+    n = len(pts)
+    if n < 2 or abs(offset) < 1e-9:
+        return list(pts)
+
+    def _perp(p, q):
+        dx, dy = q[0] - p[0], q[1] - p[1]
+        L = math.hypot(dx, dy) or 1.0
+        return (-dy / L, dx / L)                 # normala stanga (unitara)
+
+    out = []
+    for i in range(n):
+        if i == 0:
+            nx, ny = _perp(pts[0], pts[1])
+        elif i == n - 1:
+            nx, ny = _perp(pts[n - 2], pts[n - 1])
+        else:
+            a1 = _perp(pts[i - 1], pts[i]); a2 = _perp(pts[i], pts[i + 1])
+            nx, ny = a1[0] + a2[0], a1[1] + a2[1]
+            L = math.hypot(nx, ny) or 1.0
+            nx, ny = nx / L, ny / L
+        out.append((pts[i][0] + nx * offset, pts[i][1] + ny * offset))
+    return out
+
+
+def _orthogonalize(guide):
+    """Transforma o polilinie OARECARE (posibil diagonala/stramba) intr-una ORTOGONALA (Manhattan TOTAL):
+    fiecare segment p->q devine un L (H+V) prin coltul din _cable_l_path. Astfel, oricat de STRAMBA
+    e dunga-ghid, cablul iese in TREPTE DREPTE pe langa ea. Elimina duplicate consecutive."""
+    g = []
+    for q in guide:                              # dedupe intrare (proiectie == varf etc.)
+        if not g or abs(g[-1][0] - q[0]) > 1e-6 or abs(g[-1][1] - q[1]) > 1e-6:
+            g.append((q[0], q[1]))
+    if len(g) < 2:
+        return g
+    out = [g[0]]
+    for i in range(len(g) - 1):
+        corner = _cable_l_path(g[i], g[i + 1])[1]
+        for pt in (corner, g[i + 1]):
+            if abs(out[-1][0] - pt[0]) > 1e-6 or abs(out[-1][1] - pt[1]) > 1e-6:
+                out.append(pt)
+    return out
+
+
+def _stripe_path(a, b, pts, offset=0.0):
+    """Traseu prin dunga, ORTOGONAL TOTAL: a -> proiectie_a -> (varfuri dungii intre proiectii) ->
+    proiectie_b -> b, apoi TOT traseul ortogonalizat (trepte drepte). Dunga = doar GHID de directie,
+    NU trebuie sa fie dreapta: oricat de stramba, cablul iese drept. `offset` (MANUNCHI) deplaseaza
+    dunga lateral -> cabluri PARALELE pe portiunea comuna. pts lipsa/<2 -> L direct."""
     if not pts or len(pts) < 2:
         return _cable_l_path(a, b)
-    pa, ia, ta = _project_point_on_polyline(a, pts)
-    pb, ib, tb = _project_point_on_polyline(b, pts)
+    spts = _offset_polyline(pts, offset)         # MANUNCHI: copie deplasata a dungii (offset 0 -> identica)
+    pa, ia, ta = _project_point_on_polyline(a, spts)
+    pb, ib, tb = _project_point_on_polyline(b, spts)
     if ia + ta <= ib + tb:                       # inainte pe dunga
-        mids = [pts[j] for j in range(ia + 1, ib + 1)]
+        mids = [spts[j] for j in range(ia + 1, ib + 1)]
     else:                                        # inapoi pe dunga -> varfuri in ordine inversa
-        mids = [pts[j] for j in range(ib + 1, ia + 1)][::-1]
-    # MANHATTAN: intrare/iesire ORTOGONALA (L) in loc de segment DREPT (a->pa, pb->b = diagonale).
-    # _cable_l_path degenereaza la linie dreapta cand a/pa (sau pb/b) sunt aliniate -> fara colt inutil.
-    raw = _cable_l_path(a, pa) + mids + _cable_l_path(pb, b)
-    out = []                                     # elimina duplicate consecutive (ex. proiectie == varf)
-    for q in raw:
-        if not out or abs(out[-1][0] - q[0]) > 1e-6 or abs(out[-1][1] - q[1]) > 1e-6:
-            out.append((q[0], q[1]))
+        mids = [spts[j] for j in range(ib + 1, ia + 1)][::-1]
+    out = _orthogonalize([a, pa] + mids + [pb, b])
     return out if len(out) >= 2 else _cable_l_path(a, b)
 
 
@@ -1005,7 +1051,9 @@ def _draw_legend(page, x, y, rows):
             _draw_switch(page, cx - 12.75 * _sw_s, cy, 0.0,
                          r.get("element_type") or "intrerupator_simplu", scale=_sw_s)
         elif kind == "cable":
-            _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)], width=1.0)
+            # MANUNCHI: 3 linii paralele scurte (ilustreaza manunchiul de cabluri)
+            for _dy in (-2.3, 0.0, 2.3):
+                _draw_cable(page, [(x + PAD + 3.0, cy + _dy), (x + PAD + SYM_W - 3.0, cy + _dy)], width=0.7)
         # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
         page.insert_text(fitz.Point(text_x, cy + ROW_FS * 0.35), r.get("text") or "",
                          fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
@@ -1052,7 +1100,8 @@ def compute_cables(elements):
         length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
                      for i in range(len(path) - 1))
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
-                       "path": path, "kind": kind, "length": round(length, 1), "room": room})
+                       "path": path, "kind": kind, "length": round(length, 1), "room": room,
+                       "via_stripe": bool(via_stripe and stripe)})
 
     def nearest(p, items):
         return min(items, key=lambda q: math.hypot(q["x"] - p[0], q["y"] - p[1]))
@@ -1128,6 +1177,19 @@ def compute_cables(elements):
             stats["sw_tablou"] += 1
         else:
             stats["skip_tablou_lipsa"] += 1
+
+    # MANUNCHI: cablurile care converg pe ACEEASI dunga (via_stripe) -> offset lateral SIMETRIC
+    # (paralele, nu suprapuse). Re-ruteaza fiecare pe o copie deplasata a dungii; recalculeaza lungimea.
+    bundle = [c for c in cables if c.get("via_stripe")]
+    if stripe and len(bundle) > 1:
+        n = len(bundle)
+        for k, c in enumerate(bundle):
+            off = (k - (n - 1) / 2.0) * _BUNDLE_GAP
+            c["path"] = _stripe_path(c["from_xy"], c["to_xy"], stripe, offset=off)
+            c["length"] = round(sum(math.hypot(c["path"][i + 1][0] - c["path"][i][0],
+                                               c["path"][i + 1][1] - c["path"][i][1])
+                                    for i in range(len(c["path"]) - 1)), 1)
+        stats["bundle"] = n
 
     return cables, stats
 
