@@ -937,7 +937,7 @@ def _stripe_path(a, b, pts):
     return out if len(out) >= 2 else _cable_l_path(a, b)
 
 
-_CABLE_COLOR = (0.082, 0.396, 0.753)   # ALBASTRU #1565C0 — distinct de axele ROSII intrerupte ale planului
+_CABLE_COLOR = RED   # ROSU #DB2929 — ca becurile (circuit iluminat coerent + lizibil; albastrul dungat nu se citea). Prizele forta = _PRIZA_COLOR (raman albastre)
 
 
 def _draw_cable(page, path, color=None, width=0.8):

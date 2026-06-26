@@ -1058,13 +1058,13 @@ export default function PlanEditor({
                   <Line key={`wall-${i}`} points={[w.x1 * scale, w.y1 * scale, w.x2 * scale, w.y2 * scale]}
                         stroke="#16A34A" strokeWidth={2} opacity={0.7} listening={false} />
                 ))}
-                {/* CABLURI (snapshot "Obține plan") SUB simboluri: albastru, ne-interactiv.
+                {/* CABLURI (snapshot "Obține plan") SUB simboluri: rosu (ca becurile), ne-interactiv.
                     points = path (puncte PDF) × scale, ACELAȘI scale ca x,y ale elementelor. */}
                 {overlayCables.map((cab, i) => (
                   <Line
                     key={`cable-${i}`}
                     points={(cab.path || []).flatMap((pt) => [pt[0] * scale, pt[1] * scale])}
-                    stroke="#1565C0"
+                    stroke="#DB2929"
                     strokeWidth={2}
                     dash={[7, 4]}
                     lineCap="round"
