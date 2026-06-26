@@ -264,9 +264,9 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated,
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat",
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string) => void }) {
+     onRegenerated?: (pdfBase64: string) => void; mode?: "iluminat" | "forta" }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -322,6 +322,7 @@ export default function PlanEditor({
       .from("plan_elements")
       .select(SELECT_COLS)
       .eq("project_id", projectId)
+      .in("plan_type", [mode, "ambele"])   // iluminat: iluminat+ambele(tablouri); forta: forta+ambele
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) { setErr(error.message); setElements([]); }
@@ -329,7 +330,7 @@ export default function PlanEditor({
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [projectId, supabase]);
+  }, [projectId, supabase, mode]);
 
   // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
   useEffect(() => {
@@ -425,7 +426,7 @@ export default function PlanEditor({
       project_id: projectId,
       floor,
       element_type: panelType,
-      plan_type: "iluminat",
+      plan_type: "ambele",            // tablourile apar in AMBELE planuri (iluminat + forta)
       label: null as string | null,
       room: null as string | null,   // tabloul e global, nu per cameră
       x: cx,
@@ -450,7 +451,7 @@ export default function PlanEditor({
       project_id: projectId,
       floor,
       element_type: prizaType,
-      plan_type: "iluminat",
+      plan_type: "forta",             // prizele/alimentarile = planul de forta
       label: null as string | null,
       room: null as string | null,
       x: cx,
@@ -480,7 +481,7 @@ export default function PlanEditor({
       project_id: projectId,
       floor,
       element_type: "legenda",
-      plan_type: "iluminat",
+      plan_type: mode,                // legenda apartine modului curent (iluminat sau forta)
       label: null as string | null,
       room: null as string | null,      // legenda e globala, nu per camera
       x,
@@ -508,7 +509,7 @@ export default function PlanEditor({
       project_id: projectId,
       floor,
       element_type: "traseu",
-      plan_type: "iluminat",
+      plan_type: mode,                // dunga apartine modului curent (iluminat sau forta)
       label: null as string | null,
       room: null as string | null,
       x: x0,
@@ -854,10 +855,12 @@ export default function PlanEditor({
             {rsw.map((el, i) => renderElementRow(el, rsw.length > 1 ? ` #${i + 1}` : ""))}
             {rpanels.map((el, i) => renderElementRow(el, rpanels.length > 1 ? ` #${i + 1}` : ""))}
             {rother.map((el) => renderElementRow(el, ""))}
-            <div className="flex gap-1.5 mt-2 pl-1">
-              <button type="button" className="zy-add-btn" onClick={() => addElement(key, "bulb")}>+ Bec</button>
-              <button type="button" className="zy-add-btn" onClick={() => addElement(key, "switch")}>+ Întrerupător</button>
-            </div>
+            {mode === "iluminat" && (
+              <div className="flex gap-1.5 mt-2 pl-1">
+                <button type="button" className="zy-add-btn" onClick={() => addElement(key, "bulb")}>+ Bec</button>
+                <button type="button" className="zy-add-btn" onClick={() => addElement(key, "switch")}>+ Întrerupător</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1002,8 +1005,8 @@ export default function PlanEditor({
             <div className="px-2 py-1" style={{ fontSize: 11, color: "#545870" }}>Niciun element pe acest plan.</div>
           )}
           {roomKeys.map(renderRoom)}
-          {renderPanelsSection()}
-          {renderPrizaSection()}
+          {mode === "iluminat" && renderPanelsSection()}
+          {mode === "forta" && renderPrizaSection()}
           {renderLegendSection()}
           {renderTraseuSection()}
         </div>
