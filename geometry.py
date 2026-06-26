@@ -473,6 +473,67 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
     return out
 
 
+# ── V3: CROP-TO-BUILDING (cladirea mica pe A3 mare -> Vision imprecis). Decupeaza imaginea la conturul
+#    cladirii (din pereti) ca Vision sa vada cladirea mare -> bbox-uri corecte. + re-mapare la pagina. ──
+def building_crop_box(h_segs, v_segs, W, H, margin_frac=0.06):
+    """Bounding-box-ul cladirii din pereti, normalizat 0-1 pe PAGINA, + margine (sa nu taie pereti exteriori).
+    None daca nu sunt pereti (plan scanat/fara vectori) -> caller-ul trimite PDF-ul brut (fallback, zero regresie)."""
+    xs = [s for (x0, x1, _y) in h_segs for s in (x0, x1)] + [x for (_y0, _y1, x) in v_segs]
+    ys = [y for (_x0, _x1, y) in h_segs] + [s for (y0, y1, _x) in v_segs for s in (y0, y1)]
+    if not xs or not ys or W <= 0 or H <= 0:
+        return None
+    bx0, by0, bx1, by1 = min(xs), min(ys), max(xs), max(ys)
+    if bx1 <= bx0 or by1 <= by0:
+        return None
+    mw = (bx1 - bx0) * margin_frac
+    mh = (by1 - by0) * margin_frac
+    return {"x0": max(0.0, (bx0 - mw) / W), "y0": max(0.0, (by0 - mh) / H),
+            "x1": min(1.0, (bx1 + mw) / W), "y1": min(1.0, (by1 + mh) / H)}
+
+
+def remap_bbox_from_crop(bbox, crop_box):
+    """Re-mapeaza un bbox normalizat din spatiul IMAGINII DECUPATE inapoi in spatiul PAGINII intregi.
+    crop_box={x0,y0,x1,y1} (pozitia decupajului in pagina, 0-1). Invers exact al page->crop."""
+    cw = crop_box["x1"] - crop_box["x0"]
+    ch = crop_box["y1"] - crop_box["y0"]
+    if cw <= 0 or ch <= 0:
+        return dict(bbox)
+    return {"x": crop_box["x0"] + float(bbox.get("x", 0)) * cw,
+            "y": crop_box["y0"] + float(bbox.get("y", 0)) * ch,
+            "w": float(bbox.get("w", 0)) * cw,
+            "h": float(bbox.get("h", 0)) * ch}
+
+
+def crop_image_to_building(pdf_bytes, dpi=200, margin_frac=0.06):
+    """Rasterizeaza pagina 1 la `dpi` si o DECUPEAZA la bounding-box-ul cladirii -> {image_base64 (PNG),
+    media_type, crop_box (0-1 pagina, pt. re-mapare), dpi}. None daca nu sunt pereti (fallback: PDF brut).
+    PUR: deschide/inchide documentul, nu modifica nimic."""
+    import base64
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+    try:
+        page = doc[0]
+        W, H = page.rect.width, page.rect.height
+        h_segs, v_segs, _doors = _collect(page)
+        cb = building_crop_box(h_segs, v_segs, W, H, margin_frac=margin_frac)
+        if cb is None:
+            return None
+        zoom = dpi / 72.0
+        clip = fitz.Rect(cb["x0"] * W, cb["y0"] * H, cb["x1"] * W, cb["y1"] * H)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip)
+        return {"image_base64": base64.b64encode(pix.tobytes("png")).decode(),
+                "media_type": "image/png", "crop_box": cb, "dpi": dpi}
+    except Exception:
+        return None
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
 # ── ADITIV (aparataj): geometria usilor + samburi, pentru plasarea intrerupatoarelor ──
 # NU se folosesc in fluxul de becuri/camere; sunt apelate separat din draw_elements.
 
