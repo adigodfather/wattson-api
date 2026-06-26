@@ -917,8 +917,8 @@ def _project_point_on_polyline(p, pts):
 
 def _stripe_path(a, b, pts):
     """Traseu prin dunga: a -> proiectie_a -> (varfurile dungii STRICT intre proiectii, in ordinea
-    corecta a poliliniei, eventual inversata) -> proiectie_b -> b. = iesire perpendiculara pe dunga +
-    mers pe dunga + intrare la b. pts lipsa/<2 -> L direct (fallback)."""
+    corecta a poliliniei, eventual inversata) -> proiectie_b -> b. Intrarea/iesirea (a->pa, pb->b) sunt
+    ORTOGONALE (L Manhattan via _cable_l_path) ca o instalatie reala, NU diagonale. pts lipsa/<2 -> L direct."""
     if not pts or len(pts) < 2:
         return _cable_l_path(a, b)
     pa, ia, ta = _project_point_on_polyline(a, pts)
@@ -927,7 +927,9 @@ def _stripe_path(a, b, pts):
         mids = [pts[j] for j in range(ia + 1, ib + 1)]
     else:                                        # inapoi pe dunga -> varfuri in ordine inversa
         mids = [pts[j] for j in range(ib + 1, ia + 1)][::-1]
-    raw = [a, pa] + mids + [pb, b]
+    # MANHATTAN: intrare/iesire ORTOGONALA (L) in loc de segment DREPT (a->pa, pb->b = diagonale).
+    # _cable_l_path degenereaza la linie dreapta cand a/pa (sau pb/b) sunt aliniate -> fara colt inutil.
+    raw = _cable_l_path(a, pa) + mids + _cable_l_path(pb, b)
     out = []                                     # elimina duplicate consecutive (ex. proiectie == varf)
     for q in raw:
         if not out or abs(out[-1][0] - q[0]) > 1e-6 or abs(out[-1][1] - q[1]) > 1e-6:
