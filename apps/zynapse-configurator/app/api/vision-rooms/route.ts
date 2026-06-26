@@ -105,6 +105,7 @@ async function analyzePlan(
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
         max_tokens: 4096,
+        temperature: 0,   // V1: determinist -> acelasi plan produce ACELASI rezultat (elimina non-determinismul "2 rulari diferite")
         messages: [
           {
             role: "user",
