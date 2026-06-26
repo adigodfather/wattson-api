@@ -1260,6 +1260,26 @@ def _detect_tech_room(elements, rooms, W, H):
     return None
 
 
+def _prize_circuit_group(room_name):
+    """R3: re-deriva circuitGroup (OGLINDA R1 prizeRuleForRoom.circuitGroup) din numele camerei, in Python.
+    Doar BAIE/HOL/KITCHEN = grupuri COMUNE/speciale; restul = numele camerei (circuit propriu).
+    ORDINE IDENTICA cu R1 (specific->generic): terasa/tehnic/depozit/camara/dressing/living -> PROPRIU
+    (chiar daca ar contine alt substring), apoi baie/bucatar/hol -> grup comun. Coerent cu plasarea (R2)."""
+    n = (room_name or "").strip().lower()
+    own = (room_name or "").strip() or "(fara camera)"
+    if ("teras" in n or "spatiu tehnic" in n or "tehnic" in n
+            or "depozit" in n or "camara" in n or "dressing" in n
+            or "living" in n or "camera de zi" in n or " zi" in n):
+        return own                                                   # camere cu nr. fix -> circuit propriu
+    if "baie" in n:
+        return "BAIE"                                                # TOATE baile -> 1 circuit comun
+    if "bucatar" in n:
+        return "KITCHEN"                                             # bucatarie -> 2 circuite (3+3)
+    if "hol" in n:
+        return "HOL"                                                 # TOATE holurile -> 1 circuit comun
+    return own                                                       # dormitor/birou/spalator/garaj/default -> propriu
+
+
 def compute_circuits(elements, tech_room=None):
     """Numara/grupeaza circuitele dupa regulile Dan. Daca tech_room (camera cu tablou_te_ct) e dat ->
     elementele din ea = grup -TECT (becuri -> C1-TECT iluminat; prize/alimentari -> C2-TECT, C3-TECT...
@@ -1329,22 +1349,26 @@ def compute_circuits(elements, tech_room=None):
     for c in ilum_circuits:
         c.pop("_w", None)                                        # curata cheia temporara (LPT)
 
-    # ── PRIZE TEG per camera (din el['room'], setat de C3a), EXCLUZAND camera tehnica ──
-    by_room = {}
+    # ── PRIZE TEG pe circuitGroup (R3, din el['room'] -> _prize_circuit_group), EXCLUZAND camera tehnica ──
+    # BAIE (toate baile) = 1 circuit comun; HOL (toate holurile) = 1 comun; KITCHEN = 2 circuite (3+3);
+    # restul = 1 circuit/camera (INLOCUIESTE ceil/5 — reguli Dan: nr. fix/camera, nu pe nr. prize).
+    by_group = {}
     for i, el in enumerate(elements):
         if ((el or {}).get("element_type") or "") in _PRIZA_TYPES and not is_tech(i):
-            by_room.setdefault((el.get("room") or "(fara camera)"), []).append(i)
+            by_group.setdefault(_prize_circuit_group(el.get("room")), []).append(i)
 
     next_c = n_iluminat + 1
-    for room in sorted(by_room.keys()):                                   # ordine camere FIXA (nume)
-        idxs = sorted(by_room[room],                                      # ordine prize FIXA (y,x)
+    for group in sorted(by_group.keys()):                                 # ordine grupuri FIXA
+        idxs = sorted(by_group[group],                                    # ordine prize FIXA (y,x)
                       key=lambda i: (float(elements[i].get("y") or 0), float(elements[i].get("x") or 0)))
-        k = 2 if "bucatarie" in room.lower() else max(1, math.ceil(len(idxs) / 5.0))
+        k = 2 if group == "KITCHEN" else 1                               # KITCHEN -> 2 circ (3+3); BAIE/HOL/camera -> 1
         per = math.ceil(len(idxs) / k) if k else len(idxs)
         for ci in range(k):
-            cid = "C%d" % next_c
             chunk = idxs[ci * per:(ci + 1) * per]
-            circuits.append({"id": cid, "kind": "priza", "room": room, "indices": chunk})
+            if not chunk:                                                 # k=2 dar <2 prize -> fara circuit gol
+                continue
+            cid = "C%d" % next_c
+            circuits.append({"id": cid, "kind": "priza", "room": group, "indices": chunk})
             for j in chunk:
                 element_circuit[j] = cid
             next_c += 1
