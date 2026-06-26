@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
+import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -264,9 +265,10 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat",
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string) => void; mode?: "iluminat" | "forta" }) {
+     onRegenerated?: (pdfBase64: string) => void; mode?: "iluminat" | "forta";
+     rooms?: { name?: string | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -285,6 +287,9 @@ export default function PlanEditor({
   // DEBUG P1: peretii din /extract-geometry (puncte PDF, ACELASI spatiu ca x,y) + toggle overlay.
   const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
   const [showWalls, setShowWalls] = useState(false);
+  // R2: auto-generare prize (mode forta) — stare buton + feedback inline.
+  const [genLoading, setGenLoading] = useState(false);
+  const [genMsg, setGenMsg] = useState<string | null>(null);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -465,6 +470,58 @@ export default function PlanEditor({
     if (error || !data) { console.error("[plan_elements] INSERT priza esuat", error?.message); return; }
     setElements(prev => [...prev, data as PlanElement]);
     setSelectedId((data as PlanElement).id);
+  }
+
+  // R2: GENEREAZA PRIZE AUTOMAT (mode forta) — per camera: prizeRuleForRoom (R1) + placePrizasInRoom (F5a)
+  // -> batch INSERT (plan_type=forta, h=0.6, tip priza pe regula). IDEMPOTENT: daca exista prize forta ->
+  // confirma inlocuirea (sterge + regenereaza). circuit_id ramane null (R3 il atribuie la "Obtine plan forta").
+  async function generatePrizasAuto() {
+    if (mode !== "forta" || genLoading) return;
+    const pdfW = pngW > 0 ? pngW / scale : 0;
+    const pdfH = pngH > 0 ? pngH / scale : 0;
+    if (!(pdfW > 0 && pdfH > 0)) { setGenMsg("Dimensiunile planului lipsesc."); return; }
+    if (!Array.isArray(rooms) || rooms.length === 0) { setGenMsg("Nu exista camere pentru generare."); return; }
+
+    const existing = elements.filter(e => e.plan_type === "forta" && (e.element_type || "").startsWith("priza"));
+    setGenLoading(true); setGenMsg(null);
+    try {
+      // IDEMPOTENTA: prize forta existente -> confirma inlocuirea (nu dubla niciodata)
+      if (existing.length > 0) {
+        const ok = typeof window !== "undefined" &&
+          window.confirm("Exista deja " + existing.length + " prize de forta. Le inlocuiesti (sterge + regenereaza)?");
+        if (!ok) return;
+        const ids = existing.map(e => e.id);
+        const { error: delErr } = await supabase.from("plan_elements").delete().in("id", ids);
+        if (delErr) { setGenMsg("Stergerea prizelor existente a esuat: " + delErr.message); return; }
+        setElements(prev => prev.filter(e => !ids.includes(e.id)));
+      }
+
+      const fl = elements[0]?.floor || floor || "parter";
+      const rows: Record<string, unknown>[] = [];
+      let nRooms = 0;
+      for (const room of rooms) {
+        const rule = prizeRuleForRoom(room?.name);
+        if (!rule || rule.count <= 0) continue;          // SKIP spatiu tehnic (null) + terasa acces (count 0)
+        if (!room?.bbox) continue;
+        const pos = placePrizasInRoom(room.bbox, rule.count, walls, pdfW, pdfH, { snapThreshold: 70 });
+        if (!pos.length) continue;
+        nRooms++;
+        for (const p of pos) {
+          rows.push({
+            project_id: projectId, floor: fl, element_type: rule.type, plan_type: "forta",
+            label: null, room: room.name ?? null, x: p.x, y: p.y,
+            wall_mounted: true, mount_height_m: 0.6, rotation: 0, status: null,   // circuit_id null -> R3
+          });
+        }
+      }
+      if (rows.length === 0) { setGenMsg("Nicio prize de generat (camere fara regula sau count 0)."); return; }
+      const { data, error } = await supabase.from("plan_elements").insert(rows).select(SELECT_COLS);
+      if (error || !data) { setGenMsg("INSERT prize esuat: " + (error?.message || "necunoscut")); return; }
+      setElements(prev => [...prev, ...(data as PlanElement[])]);
+      setGenMsg("S-au generat " + data.length + " prize in " + nRooms + " camere.");
+    } finally {
+      setGenLoading(false);
+    }
   }
 
   // ADD LEGENDA: caseta legenda (element draggable global, room=null), max 1 per plansa.
@@ -926,6 +983,14 @@ export default function PlanEditor({
         {PRIZA_TYPES.map(p => (
           <button key={p.value} type="button" className="zy-add-btn" onClick={() => addPriza(p.value)}>+ {p.label}</button>
         ))}
+      </div>
+      {/* R2: auto-repartizare prize pe regulile Dan (per tip camera) — idempotent */}
+      <div style={{ marginTop: 8, paddingLeft: 2 }}>
+        <button type="button" className="zy-add-btn" onClick={generatePrizasAuto} disabled={genLoading}
+          style={{ fontWeight: 600, color: "#5BB8F5", borderColor: "rgba(55,138,221,0.45)" }}>
+          {genLoading ? "Se generează…" : "⚡ Generează prize automat"}
+        </button>
+        {genMsg && <div style={{ fontSize: 11, color: "#5BB8F5", marginTop: 6 }}>{genMsg}</div>}
       </div>
     </div>
   );

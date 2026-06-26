@@ -2140,6 +2140,7 @@ export function ZynapseConfigurator() {
                     return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
                   })()}
                   onRegenerated={handleRegenerated}
+                  rooms={result?.rooms ?? []}
                 />
               </div>
             )}
