@@ -616,14 +616,16 @@ export default function PlanEditor({
       const res = await fetch("/api/regenerate-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, floor: floor || "parter", base_pdf_base64: cleanBasePdf }),
+        body: JSON.stringify({ project_id: projectId, floor: floor || "parter", base_pdf_base64: cleanBasePdf, plan_type: mode }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success || !data?.pdf_base64) {
         setRegenErr(data?.error || "Regenerare eșuată.");
       } else {
-        setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open
-        onRegenerated?.(data.pdf_base64);             // trimite PDF-ul sus -> configurator salveaza + afiseaza
+        setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open (ambele moduri)
+        // onRegenerated persista in plansa de ILUMINAT (IE.1) -> DOAR pt. iluminat. Forta: download/open local
+        // (persistarea fortei ca plansa separata IE.2 = follow-up de display, ca sa NU suprascrie iluminatul).
+        if (mode === "iluminat") onRegenerated?.(data.pdf_base64);
         setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
       }
     } catch (e) {
@@ -1014,7 +1016,7 @@ export default function PlanEditor({
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
         <div>
           <button type="button" className="zy-getplan" onClick={handleRegenerate} disabled={regenLoading}>
-            {regenLoading ? "Se regenerează…" : "Obține plan iluminat"}
+            {regenLoading ? "Se regenerează…" : (mode === "forta" ? "Obține plan forță" : "Obține plan iluminat")}
           </button>
           {regenErr && (
             <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11.5, lineHeight: 1.45,

@@ -3250,6 +3250,7 @@ class RegeneratePlanRequest(BaseModel):
     project_id: str = ""
     floor: str = "parter"
     base_pdf_base64: str = ""   # BAZA CURATA = planuri[].pdf_base64 (cartus+mask, FARA becuri)
+    plan_type: str = "iluminat"   # F4: ce DESENAM (iluminat=becuri/...; forta=prize). default backward-compat
 
 
 @app.post("/regenerate-plan")
@@ -3264,10 +3265,11 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
         # citeste elementele EDITATE din DB (service-role)
         try:
             from supabase_client import supabase
+            # F4: citeste TOATE elementele etajului (iluminat+forta+ambele) -> assign_circuits numara
+            # n_iluminat din becuri => prizele continua C3+ cross-plan; redraw deseneaza doar subsetul cerut.
             rows = (supabase.table("plan_elements").select("*")
                     .eq("project_id", request.project_id)
                     .eq("floor", request.floor)
-                    .eq("plan_type", "iluminat")
                     .execute().data) or []
         except Exception as e:
             return {"success": False, "error": "citire plan_elements esuata: {}".format(e)}
@@ -3292,7 +3294,8 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         {"circuit_id": _u["circuit_id"], "room": _u["room"]}).eq("id", _u["id"]).execute()
         except Exception as _e:
             print("[regenerate-plan] assign_circuits skip:", _e)   # defensiv: regenerarea continua
-        return draw_elements.redraw_from_plan_elements(request.base_pdf_base64, rows)
+        return draw_elements.redraw_from_plan_elements(
+            request.base_pdf_base64, rows, draw_plan_type=request.plan_type)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

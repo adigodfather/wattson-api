@@ -11,7 +11,7 @@ export const maxDuration = 120;
 const FASTAPI = "https://wattson-api.onrender.com";
 
 export async function POST(req: NextRequest) {
-  let body: { project_id?: string; floor?: string; base_pdf_base64?: string };
+  let body: { project_id?: string; floor?: string; base_pdf_base64?: string; plan_type?: string };
   try {
     body = await req.json();
   } catch {
@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
   const projectId = String(body.project_id || "");
   const floor = String(body.floor || "parter");
   const base = String(body.base_pdf_base64 || "");
+  const planType = body.plan_type === "forta" ? "forta" : "iluminat";   // F4: doar iluminat/forta
   if (!projectId || !base) {
     return NextResponse.json({ error: "project_id + base_pdf_base64 necesare" }, { status: 400 });
   }
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const resp = await fetch(`${FASTAPI}/regenerate-plan`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ project_id: projectId, floor, base_pdf_base64: base }),
+      body: JSON.stringify({ project_id: projectId, floor, base_pdf_base64: base, plan_type: planType }),
     });
     const text = await resp.text();
     try {

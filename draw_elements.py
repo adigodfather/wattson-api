@@ -1306,18 +1306,22 @@ def assign_circuits(elements, rooms, W, H):
             "n_circuits": info["n_circuits"], "circuits": info["circuits"], "updates": updates}
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
-    """SUB-PAS 1a 'Obtine plan': redeseneaza becuri + intrerupatoare DIN plan_elements EDITAT,
-    pe BAZA CURATA (planuri[].pdf_base64 = cartus + mask-margins, FARA becuri).
-    Coordonate = PUNCTE PDF (direct el.x, el.y; y_offset=0 — fara scale). Becuri = simbol GENERIC
-    (NU pe tip — vine la 1b). Switches = pe tip (deja). Tablouri = SKIP (1c). Fara cabluri.
-    Defensiv: element invalid -> sarit; orice eroare -> success:false, fara crash."""
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat") -> dict:
+    """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
+    F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
+    tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
+    circuit_id e calculat IN AFARA (assign_circuits pe TOATE elementele -> numerotare cross-plan corecta).
+    Coordonate = PUNCTE PDF. Defensiv: element invalid -> sarit; orice eroare -> success:false, fara crash."""
     doc = None
     try:
         raw = base_pdf_base64.split(",", 1)[1] if "," in base_pdf_base64 else base_pdf_base64
         pdf_bytes = base64.b64decode(raw)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
+        # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
+        # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
+        elements = [el for el in (elements or [])
+                    if ((el or {}).get("plan_type") or "iluminat") in (draw_plan_type, "ambele")]
         n_bulb = n_sw = n_panel = n_priza = n_skip = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
@@ -1369,7 +1373,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list) -> dict:
         return {
             "success": True,
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
-            "filename": "Plan_iluminat_editat.pdf",
+            "filename": "Plan_{}_editat.pdf".format(draw_plan_type),
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
                          "prizas_drawn": n_priza, "cables_drawn": n_cable, "skipped": n_skip,
