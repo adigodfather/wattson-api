@@ -102,7 +102,7 @@ _BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led":
 _BULB_TOP = {"lustra_led": 25, "banda_led": 8}   # extinderea simbolului in sus (pt. pozitia etichetei)
 
 
-def _bulb_label(element_type, power_w):
+def _bulb_label(element_type, power_w, circuit_id=None):
     name = _BULB_NAME.get(element_type, "Corp")
     suffix = " SP" if element_type == "aplica_senzor" else ""
     txt = "{} LED{}".format(name, suffix)
@@ -111,12 +111,13 @@ def _bulb_label(element_type, power_w):
             txt += " {}W".format(int(power_w))
         except (TypeError, ValueError):
             pass
-    return txt
+    cid = (circuit_id or "").strip()                 # prefix circuit: "C1 - Aplica LED 25W" (TE-CT: "C1-TECT - ...")
+    return "{} - {}".format(cid, txt) if cid else txt   # fara circuit_id -> eticheta veche (backward-compat)
 
 
-def _draw_bulb_label(page, cx, cy, element_type, power_w):
-    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil)."""
-    txt = _bulb_label(element_type, power_w)
+def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
+    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil). Prefix circuit (C1/C2/C1-TECT)."""
+    txt = _bulb_label(element_type, power_w, circuit_id)
     if not txt:
         return
     fs = 7.5
@@ -1297,16 +1298,36 @@ def compute_circuits(elements, tech_room=None):
     bulb_idx = [i for i, el in enumerate(elements)
                 if ((el or {}).get("element_type") or "") in _BULB_TYPES and not is_tech(i)]
     nr_becuri = len(bulb_idx)
-    total_W = 0
-    for i in bulb_idx:
+
+    def _bw(i):                                                  # putere bec (null/nenumeric -> default 25W)
         pw = elements[i].get("power_w")
         try:
-            total_W += int(pw) if pw not in (None, "") else _BULB_DEFAULT_W
+            return int(pw) if pw not in (None, "") else _BULB_DEFAULT_W
         except (TypeError, ValueError):
-            total_W += _BULB_DEFAULT_W
+            return _BULB_DEFAULT_W
+
+    total_W = sum(_bw(i) for i in bulb_idx)
     n_iluminat = max(math.ceil(total_W / 1000.0), math.ceil(nr_becuri / 12.0), 1) if nr_becuri else 0
+    ilum_circuits = []
     for i in range(n_iluminat):
-        circuits.append({"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "indices": []})
+        c = {"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "indices": [], "_w": 0}
+        circuits.append(c); ilum_circuits.append(c)
+
+    # LPT (egalizare PUTERE + NUMAR): becuri DESC pe putere (tiebreak (y,x) = determinism) -> fiecare la
+    # circuitul cu PUTEREA curenta minima (tiebreak: count minim, apoi index circuit). Scrie element_circuit
+    # -> assign_circuits le pune circuit_id automat. Becurile TECH (C1-TECT) NU sunt aici (excluse de is_tech).
+    if n_iluminat:
+        order = sorted(bulb_idx, key=lambda i: (-_bw(i),
+                                                float(elements[i].get("y") or 0),
+                                                float(elements[i].get("x") or 0)))
+        for i in order:
+            k = min(range(n_iluminat),
+                    key=lambda j: (ilum_circuits[j]["_w"], len(ilum_circuits[j]["indices"]), j))
+            ilum_circuits[k]["indices"].append(i)
+            ilum_circuits[k]["_w"] += _bw(i)
+            element_circuit[i] = ilum_circuits[k]["id"]
+    for c in ilum_circuits:
+        c.pop("_w", None)                                        # curata cheia temporara (LPT)
 
     # ── PRIZE TEG per camera (din el['room'], setat de C3a), EXCLUZAND camera tehnica ──
     by_room = {}
@@ -1405,7 +1426,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 continue
             if et in _BULB_TYPES:
                 _draw_bulb(page, x, y, et, y_offset=0)                               # forma PE TIP (1b)
-                _draw_bulb_label(page, x, y, et, el.get("power_w"))                  # eticheta deasupra
+                _draw_bulb_label(page, x, y, et, el.get("power_w"), el.get("circuit_id"))   # eticheta + prefix circuit
                 n_bulb += 1
             elif et in _SWITCH_TYPES:
                 _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
