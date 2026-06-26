@@ -1089,12 +1089,12 @@ export default function PlanEditor({
                       key={el.id}
                       x={px}
                       y={py}
-                      draggable
+                      draggable={!(isPanel && mode === "forta")}   // F2: tablouri READ-ONLY in forta (mostenite din iluminat)
                       onClick={() => selectElement(el.id)}
                       onTap={() => selectElement(el.id)}
                       onDragStart={(e) => e.target.moveToTop()}
                       onDragEnd={(e) => handleDragEnd(el, e)}
-                      onMouseEnter={(e) => setCursor(e, "move")}
+                      onMouseEnter={(e) => setCursor(e, isPanel && mode === "forta" ? "default" : "move")}
                       onMouseLeave={(e) => setCursor(e, "default")}
                     >
                       {/* contur de selecție (galben), nu fură evenimente */}

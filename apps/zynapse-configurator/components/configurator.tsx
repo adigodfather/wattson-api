@@ -929,6 +929,7 @@ export function ZynapseConfigurator() {
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
+  const [modeEditor, setModeEditor] = useState<"iluminat" | "forta">("iluminat");   // F3: comutator Iluminat/Forta in tab Editor
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
   const [pageFormat, setPageFormat] = useState<string>('');
   const [cartusProiectInput, setCartusProiectInput] = useState<CartusProiect>({
@@ -2068,17 +2069,47 @@ export function ZynapseConfigurator() {
 
             {/* ── Tab: Editor vizual (PASUL 3.1, read-only) — PNG plan + overlay plan_elements ── */}
             {activeTab === 'editor' && editorPlansa && savedProjectId && (
-              <PlanEditor
-                projectId={savedProjectId}
-                pngBase64={editorPlansa.png_base64}
-                pngMeta={editorPlansa.png_meta}
-                cleanBasePdf={(result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null}
-                floor={(() => {
-                  const t = `${editorPlansa?.name || ""} ${editorPlansa?.type || ""} ${editorPlansa?.source_plansa_nr || ""}`.toLowerCase();
-                  return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
-                })()}
-                onRegenerated={handleRegenerated}
-              />
+              <div>
+                {/* F3: comutator Iluminat | Forță (segmented control — accent app #378ADD/#5BB8F5, dark) */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    {([["iluminat", "Iluminat"], ["forta", "Forță"]] as const).map(([m, label]) => {
+                      const on = modeEditor === m;
+                      return (
+                        <button key={m} type="button" onClick={() => setModeEditor(m)}
+                          style={{
+                            padding: "6px 18px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit",
+                            fontSize: 12.5, fontWeight: 600, letterSpacing: 0.2,
+                            background: on ? "rgba(55,138,221,0.18)" : "transparent",
+                            border: on ? "1px solid rgba(55,138,221,0.45)" : "1px solid transparent",
+                            color: on ? "#5BB8F5" : "#8B8FA8",
+                            transition: "background-color .15s ease, color .15s ease, border-color .15s ease",
+                          }}>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span style={{ fontSize: 11, color: "#545870" }}>
+                    {modeEditor === "iluminat"
+                      ? "Becuri, întrerupătoare, tablouri"
+                      : "Prize / alimentări · tablouri moștenite (read-only)"}
+                  </span>
+                </div>
+                <PlanEditor
+                  projectId={savedProjectId}
+                  mode={modeEditor}
+                  pngBase64={editorPlansa.png_base64}
+                  pngMeta={editorPlansa.png_meta}
+                  cleanBasePdf={(result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null}
+                  floor={(() => {
+                    const t = `${editorPlansa?.name || ""} ${editorPlansa?.type || ""} ${editorPlansa?.source_plansa_nr || ""}`.toLowerCase();
+                    return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
+                  })()}
+                  onRegenerated={handleRegenerated}
+                />
+              </div>
             )}
 
             {/* ── Tab: Memoriu tehnic ── */}
