@@ -32,6 +32,44 @@ export function prizeCountPerRoom(circuits: Circuit[] | null | undefined): Recor
   return out;
 }
 
+// ── (1b) REGULA Dan pe TIP de camera (mapare pe `name` substring) — count + tip priza + grup circuit. ──
+// Sursa = regulile FIXE Dan (NU n8n circuits). Ordine specific->generic (evita coliziuni: camara!=camera,
+// terasa acces!=acoperita). null = SKIP (camera tehnica TE-CT, gestionata de T1). circuitGroup: "BAIE"/"HOL"/
+// "KITCHEN" (comun/special, pt. R3) sau numele camerei (circuit propriu). PURA, determinista.
+export type PrizaType = "priza_simpla" | "priza_dubla" | "priza_16a" | "priza_exterior_ip44";
+export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string };
+
+export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | null {
+  const n = (name ?? "").toLowerCase().trim();
+  const own = (name ?? "").trim() || "Camera";   // circuit propriu = numele camerei
+  const S: PrizaType = "priza_simpla";
+  const IP44: PrizaType = "priza_exterior_ip44"; // si pt. IP65 (terasa) — nu exista tip IP65 v1
+
+  // 1-2. TERASA: "acces" -> 0 (manual) INAINTE de terasa generica (acoperita -> 2 IP65->IP44)
+  if (n.includes("teras"))
+    return n.includes("acces")
+      ? { count: 0, type: S, circuitGroup: own }
+      : { count: 2, type: IP44, circuitGroup: own };
+  // 3. SPATIU TEHNIC -> SKIP (camera TE-CT, gestionata de schema/T1, nu auto-repartizata)
+  if (n.includes("spatiu tehnic") || n.includes("tehnic")) return null;
+  // 4. DEPOZIT/CAMARA/DRESSING -> 2 (ATENTIE: "camara" NU prinde "camera" -> inainte de living)
+  if (n.includes("depozit") || n.includes("camara") || n.includes("dressing"))
+    return { count: 2, type: S, circuitGroup: own };
+  // 5. LIVING / CAMERA DE ZI / "zi" -> 4
+  if (n.includes("living") || n.includes("camera de zi") || n.includes(" zi") || n === "zi")
+    return { count: 4, type: S, circuitGroup: own };
+  // 6. restul (specific): garaj, baie(COMUN), bucatarie(KITCHEN), dormitor, birou, spalator, hol(COMUN)
+  if (n.includes("garaj")) return { count: 3, type: IP44, circuitGroup: own };
+  if (n.includes("baie")) return { count: 1, type: IP44, circuitGroup: "BAIE" };
+  if (n.includes("bucatar")) return { count: 6, type: S, circuitGroup: "KITCHEN" };
+  if (n.includes("dormitor")) return { count: 3, type: S, circuitGroup: own };
+  if (n.includes("birou")) return { count: 4, type: S, circuitGroup: own };
+  if (n.includes("spalator")) return { count: 2, type: S, circuitGroup: own };
+  if (n.includes("hol")) return { count: 2, type: S, circuitGroup: "HOL" };
+  // 7. DEFAULT (nume necunoscut) -> 2 simpla, circuit propriu
+  return { count: 2, type: S, circuitGroup: own };
+}
+
 // ── Geometrie pura (proiectie punct-pe-segment CLAMPAT) — IDENTICA cu P3 din plan-editor.tsx ──
 function projectOnSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
   const dx = x2 - x1, dy = y2 - y1;
