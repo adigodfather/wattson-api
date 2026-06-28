@@ -459,11 +459,13 @@ def _wall_clear(px, py, h_segs, v_segs):
 
 
 def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
-    """Niciun bec NON-geometric nu trebuie să cadă în bbox-ul ALTEI camere (Vision dă bbox-uri
-    suprapuse -> becul fallback al unei camere ajunge vizual în zona vecinei = a 2-a 'lumină' acolo).
-    Pentru fiecare astfel de bec, îl mută în propriul bbox la un punct care: NU e în bbox-ul altei
-    camere, e off-wall, și departe de alte becuri. Becul GEOMETRIC (sursă de adevăr) rămâne pe loc.
-    Dacă propriul bbox e complet înghițit (niciun loc liber) -> lasă (limită open-plan). -> nr. mutate."""
+    """Niciun bec nu trebuie să cadă în bbox-ul ALTEI camere (Vision dă bbox-uri DEPLASATE/suprapuse ->
+    becul unei camere ajunge vizual în zona vecinei = a 2-a 'lumină' acolo). Pentru fiecare astfel de bec,
+    îl mută în propriul bbox la un punct care: NU e în bbox-ul altei camere, e off-wall, și departe de alte
+    becuri. GUARD c: becul GEOMETRIC corect (în propriul bbox) rămâne pe loc chiar dacă un bbox vecin se
+    suprapune; DAR dacă a DRIFTAT în afara bbox-ului camerei lui ȘI cade la vecin -> îl clampăm înapoi în al
+    lui (paliativ pt. bbox Vision deplasat; înainte geometricele erau sărite necondiționat -> rămâneau la
+    vecin). Propriul bbox complet înghițit (niciun loc liber) -> lasă (limită open-plan). -> nr. mutate."""
     def in_other(px, py, ri):
         for k, b in enumerate(boxes):
             if k == ri or b is None:
@@ -474,15 +476,18 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
 
     moved = 0
     for c in centers:
-        if c.get("geometric"):
-            continue
         ri = c["room"]
         if ri is None or ri >= len(boxes) or boxes[ri] is None:
             continue
         if not in_other(c["x"], c["y"], ri):
-            continue   # becul e deja DOAR în camera lui -> ok
+            continue   # becul nu cade în bbox-ul niciunei ALTE camere -> ok
         bx, by, bw, bh = boxes[ri]
         bx0, by0, bx1, by1 = bx*W, by*H, (bx+bw)*W, (by+bh)*H
+        # GUARD c: becul GEOMETRIC corect (în propriul bbox) rămâne pe loc chiar dacă un bbox vecin se
+        # suprapune; relochează DOAR dacă a driftat AFARA din bbox-ul lui (atunci e flagrant la vecin).
+        # Becurile non-geometrice (clip/hall) se reloca ca înainte (cad în bbox-ul altei camere).
+        if c.get("geometric") and (bx0 <= c["x"] <= bx1 and by0 <= c["y"] <= by1):
+            continue
         best = None; bestscore = -1e9
         for gi in range(1, 12):
             for gj in range(1, 12):
