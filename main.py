@@ -3340,6 +3340,51 @@ def extract_geometry_endpoint(request: ExtractGeometryRequest):
 
 
 # -------------------------------------------------
+#  CROP TO BUILDING (V3b: decupare la cladire pt. Vision)  —  POST /crop-to-building
+# -------------------------------------------------
+
+class CropToBuildingRequest(BaseModel):
+    pdf_base64: str = ""        # planul brut (parter/etaj) -> se decupeaza la conturul cladirii
+    dpi: int = 200             # rezolutie raster pt. imaginea decupata trimisa la Vision
+    margin_frac: float = 0.11  # V3b: margine 11% in jurul peretilor -> NU taie terasele deschise
+
+
+@app.post("/crop-to-building")
+def crop_to_building_endpoint(request: CropToBuildingRequest):
+    """V3b: decupeaza pagina 1 la bounding-box-ul cladirii (din pereti) -> Vision vede cladirea mare
+    -> bbox-uri camere corecte; intoarce crop_box pt. re-maparea bbox-urilor la pagina intreaga.
+    Wrapper subtire peste geometry.crop_image_to_building (care isi extrage singura peretii via _collect).
+    Fara pereti (plan scanat/fara vectori) -> cropped:false -> caller-ul trimite PDF-ul brut (zero regresie).
+    Defensiv: ORICE eroare -> cropped:false (caller-ul are fallback la PDF brut)."""
+    try:
+        raw = request.pdf_base64 or ""
+        if "," in raw:
+            raw = raw.split(",", 1)[1]
+        if not raw:
+            return {"cropped": False, "error": "pdf_base64 lipseste"}
+        import geometry
+        pdf_bytes = base64.b64decode(raw)
+        res = geometry.crop_image_to_building(
+            pdf_bytes, dpi=request.dpi, margin_frac=request.margin_frac)
+        if not res:
+            logger.info("[crop-to-building] fara pereti -> cropped:false (fallback PDF brut)")
+            return {"cropped": False}
+        cb = res.get("crop_box") or {}
+        logger.info("[crop-to-building] cropped:true crop_box=%s dpi=%s margin=%s",
+                    cb, res.get("dpi"), request.margin_frac)
+        return {
+            "cropped": True,
+            "image_base64": res["image_base64"],
+            "media_type": res.get("media_type", "image/png"),
+            "crop_box": cb,
+            "dpi": res.get("dpi", request.dpi),
+        }
+    except Exception as e:
+        logger.error("[crop-to-building] eroare -> cropped:false: %r", e)
+        return {"cropped": False, "error": str(e)}
+
+
+# -------------------------------------------------
 #  SERVIRE FRONTEND STATIC
 # -------------------------------------------------
 

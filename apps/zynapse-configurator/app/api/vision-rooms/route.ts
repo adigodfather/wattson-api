@@ -11,6 +11,11 @@ export const maxDuration = 120;
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-opus-4-7";
 
+// V3b — crop-to-building: înainte de Vision decupăm imaginea la conturul clădirii (FastAPI),
+// ca Vision să vadă clădirea mare → bbox-uri corecte; după Vision re-mapăm bbox la pagina întreagă.
+const FASTAPI_URL = "https://wattson-api.onrender.com";
+const CROP_MARGIN_FRAC = 0.11; // margine 11% în jurul pereților → NU taie terasele deschise
+
 // Prompt IDENTIC cu nodul existent "Claude Vision – Analiză Plan" (detectează
 // rooms[], building_info, project_info, climate_zone, levels_string, building_category).
 const VISION_PROMPT = `Ești expert în analiza planurilor de construcție românești. Returnează UN SINGUR OBIECT JSON valid (fără alt text).
@@ -85,6 +90,49 @@ function planLabel(floor: number): string {
   return floor === 0 ? "parter" : floor === 1 ? "etaj" : "mansarda";
 }
 
+interface CropBox { x0: number; y0: number; x1: number; y1: number }
+interface CropResult {
+  cropped: boolean;
+  image_base64?: string;
+  media_type?: string;
+  crop_box?: CropBox;
+}
+
+// V3b: cere FastAPI decuparea PDF-ului la clădire. Orice eșec → {cropped:false} (caller trimite PDF brut).
+async function cropToBuilding(base64Pdf: string): Promise<CropResult> {
+  try {
+    const key = process.env.ZYNAPSE_INTERNAL_KEY;
+    const res = await fetch(`${FASTAPI_URL}/crop-to-building`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
+      body: JSON.stringify({ pdf_base64: base64Pdf, margin_frac: CROP_MARGIN_FRAC }),
+    });
+    if (!res.ok) return { cropped: false };
+    return (await res.json()) as CropResult;
+  } catch {
+    return { cropped: false };
+  }
+}
+
+// V3b: port TS al geometry.remap_bbox_from_crop — invers liniar exact al page→crop.
+// bbox (0-1 în spațiul imaginii DECUPATE) → bbox (0-1 în spațiul PAGINII întregi).
+function remapBboxFromCrop(
+  bbox: { x?: number; y?: number; w?: number; h?: number },
+  cropBox: CropBox
+): { x: number; y: number; w: number; h: number } {
+  const cw = cropBox.x1 - cropBox.x0;
+  const ch = cropBox.y1 - cropBox.y0;
+  if (cw <= 0 || ch <= 0) {
+    return { x: bbox.x ?? 0, y: bbox.y ?? 0, w: bbox.w ?? 0, h: bbox.h ?? 0 };
+  }
+  return {
+    x: cropBox.x0 + (bbox.x ?? 0) * cw,
+    y: cropBox.y0 + (bbox.y ?? 0) * ch,
+    w: (bbox.w ?? 0) * cw,
+    h: (bbox.h ?? 0) * ch,
+  };
+}
+
 async function analyzePlan(
   apiKey: string,
   plan: PlanInput,
@@ -93,6 +141,25 @@ async function analyzePlan(
 ) {
   const mime = plan.mime || (plan.plan_type && plan.plan_type.includes("/") ? plan.plan_type : "application/pdf");
   const isPdf = mime === "application/pdf";
+
+  // V3b: DOAR pentru PDF (vector) încercăm crop-to-building. Imagine deja raster → fără crop.
+  // Reușit → trimitem PNG-ul decupat (image block) + reținem crop_box pt. remap. Eșuat → PDF brut.
+  let cropBox: CropBox | null = null;
+  let sourceType: "document" | "image" = isPdf ? "document" : "image";
+  let sourceMime = mime;
+  let sourceData = plan.base64;
+  if (isPdf) {
+    const crop = await cropToBuilding(plan.base64);
+    if (crop.cropped && crop.image_base64 && crop.crop_box) {
+      cropBox = crop.crop_box;
+      sourceType = "image";
+      sourceMime = crop.media_type || "image/png";
+      sourceData = crop.image_base64;
+      console.log(`[vision-rooms] floor ${floor} crop OK crop_box=${JSON.stringify(crop.crop_box)} → image block`);
+    } else {
+      console.log(`[vision-rooms] floor ${floor} fără crop (fără pereți / fallback) → PDF brut`);
+    }
+  }
 
   try {
     const res = await fetch(ANTHROPIC_URL, {
@@ -109,7 +176,7 @@ async function analyzePlan(
           {
             role: "user",
             content: [
-              { type: isPdf ? "document" : "image", source: { type: "base64", media_type: mime, data: plan.base64 } },
+              { type: sourceType, source: { type: "base64", media_type: sourceMime, data: sourceData } },
               { type: "text", text: VISION_PROMPT },
             ],
           },
@@ -137,12 +204,21 @@ async function analyzePlan(
     }
 
     const rawRooms = Array.isArray(parsed.rooms) ? (parsed.rooms as Record<string, unknown>[]) : [];
-    const rooms: Record<string, unknown>[] = rawRooms.map((r) => ({
-      ...r,
-      floor,
-      plan_type: planLabel(floor),
-      name: hasMultiFloor && r.name ? `${r.name} ${floorTag(floor)}` : r.name,
-    }));
+    const rooms: Record<string, unknown>[] = rawRooms.map((r) => {
+      const bb = r.bbox as { x?: number; y?: number; w?: number; h?: number } | undefined;
+      return {
+        ...r,
+        // V3b: dacă Vision a rulat pe imaginea DECUPATĂ, re-mapăm bbox la coordonate pagină-întreagă 0-1.
+        // Fără crop (cropBox=null) → bbox rămâne neschimbat → contract identic cu cel actual.
+        bbox: cropBox && bb ? remapBboxFromCrop(bb, cropBox) : r.bbox,
+        floor,
+        plan_type: planLabel(floor),
+        name: hasMultiFloor && r.name ? `${r.name} ${floorTag(floor)}` : r.name,
+      };
+    });
+    if (cropBox) {
+      console.log(`[vision-rooms] floor ${floor} remap aplicat pe ${rooms.length} camere → coord pagină`);
+    }
 
     const areaSum = rooms.reduce((s, r) => s + (parseFloat(String(r.area_m2 ?? 0)) || 0), 0);
 
