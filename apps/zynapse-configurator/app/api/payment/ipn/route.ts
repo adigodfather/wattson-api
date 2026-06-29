@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 import { decryptIpn } from "@/lib/netopia/crypto";
 import { parseIpnXml, buildIpnResponse } from "@/lib/netopia/xml";
+import { createInvoice } from "@/lib/smartbill";
 
 function xml(body: string): NextResponse {
   return new NextResponse(body, {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient();
     const { data: pay, error: findErr } = await admin
       .from("payments")
-      .select("order_id, amount_ron, credits, status, credited")
+      .select("order_id, amount_ron, credits, status, credited, user_id, invoiced")
       .eq("order_id", orderId)
       .single();
     if (findErr || !pay) {
@@ -75,6 +76,34 @@ export async function POST(req: NextRequest) {
         // eroare temporară -> Netopia reîncearcă (funcția e idempotentă, deci safe)
         return xml(buildIpnResponse({ errorType: 1, errorCode: "0x20", message: "credit retry" }));
       }
+
+      // ── FACTURĂ SmartBill — BEST-EFFORT, idempotent (pe `invoiced`). DUPĂ credite (CRITICE). ──
+      // ⚠️ Eșecul SmartBill NU blochează creditarea/IPN: clientul are deja creditele. Try/catch izolat;
+      // răspundem OK la Netopia oricum; `invoiced` rămâne false -> retry manual ulterior.
+      if (!pay.invoiced) {
+        try {
+          const { data: prof } = await admin
+            .from("profiles")
+            .select("email, full_name, firma_nume, firma_cui, firma_adresa, firma_email")
+            .eq("id", pay.user_id)
+            .single();
+          const inv = await createInvoice(
+            prof || {},
+            { amount_ron: pay.amount_ron, credits: pay.credits, order_id: orderId },
+            { draft: false }
+          );
+          if (inv.success) {
+            await admin.from("payments")
+              .update({ invoiced: true, invoice_number: inv.invoiceNumber ?? null, invoice_series: inv.series ?? null })
+              .eq("order_id", orderId);
+          } else {
+            console.error(`[ipn] SmartBill invoice esuat (order ${orderId}): ${inv.error}`);
+          }
+        } catch (e) {
+          console.error(`[ipn] SmartBill exceptie (order ${orderId}):`, e instanceof Error ? e.message : e);
+        }
+      }
+
       return xml(buildIpnResponse({ crc: parsed.crc }));
     }
 
