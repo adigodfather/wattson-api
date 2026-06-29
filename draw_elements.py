@@ -841,7 +841,7 @@ _PANEL_DARK = (0.122, 0.141, 0.200)   # #1F2433 contur + conector + eticheta
 _PANEL_INFO = {
     "tablou_teg":    ((0.941, 0.941, 0.941), (0.133, 0.773, 0.369), "TEG"),    # alb + verde
     "tablou_te_ct":  ((0.937, 0.267, 0.267), (0.231, 0.510, 0.965), "TE-CT"),  # rosu + albastru
-    "tablou_tes":    ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TES"),    # gri
+    "tablou_tes":    ((0.941, 0.941, 0.941), (0.082, 0.396, 0.753), "TES"),    # alb + albastru #1565C0 (ca TEG, triunghi verde->albastru)
     "transformator": ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TR"),     # gri
 }
 
@@ -1265,6 +1265,17 @@ def _detect_tech_room(elements, rooms, W, H):
     return None
 
 
+def _detect_general_panel(elements):
+    """Tabloul GENERAL al planului (per-etaj). 'TES' daca planul contine un tablou_tes (etaj) ->
+    circuitele generale primesc sufix -TES (C1-TES, C2-TES...), numerotare PROPRIE/locala (analog -TECT).
+    Altfel 'TEG' (parter/implicit) -> FARA sufix (C1, C2...) = backward-compat total.
+    TE-CT ramane subset separat (camera tehnica), neafectat de asta."""
+    for el in (elements or []):
+        if ((el or {}).get("element_type") or "") == "tablou_tes":
+            return "TES"
+    return "TEG"
+
+
 def _prize_circuit_group(room_name):
     """R3: re-deriva circuitGroup (OGLINDA R1 prizeRuleForRoom.circuitGroup) din numele camerei, in Python.
     Doar BAIE/HOL/KITCHEN = grupuri COMUNE/speciale; restul = numele camerei (circuit propriu).
@@ -1285,15 +1296,18 @@ def _prize_circuit_group(room_name):
     return own                                                       # dormitor/birou/spalator/garaj/default -> propriu
 
 
-def compute_circuits(elements, tech_room=None):
+def compute_circuits(elements, tech_room=None, general="TEG"):
     """Numara/grupeaza circuitele dupa regulile Dan. Daca tech_room (camera cu tablou_te_ct) e dat ->
     elementele din ea = grup -TECT (becuri -> C1-TECT iluminat; prize/alimentari -> C2-TECT, C3-TECT...
-    cate 1/element, decuplat de schema). Restul casei = TEG (becuri count -> n_iluminat; prize C{n+1}+),
-    EXCLUZAND camera tehnica. PUR: nu modifica `elements`. Determinist (camere pe nume, elemente pe (y,x)).
+    cate 1/element, decuplat de schema). Restul casei = tabloul GENERAL (becuri count -> n_iluminat;
+    prize C{n+1}+), EXCLUZAND camera tehnica. `general`='TEG' (parter) -> id-uri BARE (C1, C2...);
+    'TES' (etaj) -> sufix -TES (C1-TES, C2-TES...), numerotare PROPRIE/locala (analog -TECT).
+    PUR: nu modifica `elements`. Determinist (camere pe nume, elemente pe (y,x)).
     Intoarce {n_iluminat, tech_room, total_bulb_w, nr_becuri, n_circuits,
               circuits:[{id,kind,room,indices}], element_circuit:{index -> 'Cx'}} (becuri tech + TOATE prizele)."""
     elements = elements or []
     tech_l = (tech_room or "").strip().lower()
+    gsuf = "" if (general or "TEG") == "TEG" else "-%s" % general   # tabloul general etaj -> sufix -TES
 
     def is_tech(i):
         return bool(tech_l) and ((elements[i].get("room") or "").strip().lower() == tech_l)
@@ -1335,7 +1349,7 @@ def compute_circuits(elements, tech_room=None):
     n_iluminat = max(math.ceil(total_W / 1000.0), math.ceil(nr_becuri / 12.0), 1) if nr_becuri else 0
     ilum_circuits = []
     for i in range(n_iluminat):
-        c = {"id": "C%d" % (i + 1), "kind": "iluminat", "room": None, "indices": [], "_w": 0}
+        c = {"id": "C%d%s" % (i + 1, gsuf), "kind": "iluminat", "room": None, "indices": [], "_w": 0}
         circuits.append(c); ilum_circuits.append(c)
 
     # LPT (egalizare PUTERE + NUMAR): becuri DESC pe putere (tiebreak (y,x) = determinism) -> fiecare la
@@ -1372,7 +1386,7 @@ def compute_circuits(elements, tech_room=None):
             chunk = idxs[ci * per:(ci + 1) * per]
             if not chunk:                                                 # k=2 dar <2 prize -> fara circuit gol
                 continue
-            cid = "C%d" % next_c
+            cid = "C%d%s" % (next_c, gsuf)
             circuits.append({"id": cid, "kind": "priza", "room": group, "indices": chunk})
             for j in chunk:
                 element_circuit[j] = cid
@@ -1399,7 +1413,8 @@ def assign_circuits(elements, rooms, W, H):
 
     assign_rooms_to_prizas(elements, rooms, W, H)          # seteaza el['room'] pe prize (point-in-bbox)
     tech_room = _detect_tech_room(elements, rooms, W, H)   # camera cu tablou_te_ct (sau None -> fara -TECT)
-    info = compute_circuits(elements, tech_room=tech_room)
+    general = _detect_general_panel(elements)              # 'TES' daca planul are tablou_tes (etaj) -> sufix -TES; altfel 'TEG'
+    info = compute_circuits(elements, tech_room=tech_room, general=general)
     ec = info["element_circuit"]                           # index -> circuit_id (becuri tech + TOATE prizele)
 
     updates = []
