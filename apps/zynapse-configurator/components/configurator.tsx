@@ -931,6 +931,10 @@ export function ZynapseConfigurator() {
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
   const [modeEditor, setModeEditor] = useState<"iluminat" | "forta">("iluminat");   // F3: comutator Iluminat/Forta in tab Editor
+  // M2b: etajul SELECTAT în editor (index în planse_iluminat = index etaj). Selectabil prin selector multi-etaj.
+  const [editorPlansaIdx, setEditorPlansaIdx] = useState(0);
+  // M2b: etajele cu FORȚA finalizată (tracking în sesiune; persistarea reală = M3). Set de indecși de etaj.
+  const [fortaDoneIdxs, setFortaDoneIdxs] = useState<Set<number>>(new Set());
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
   const [pageFormat, setPageFormat] = useState<string>('');
   const [cartusProiectInput, setCartusProiectInput] = useState<CartusProiect>({
@@ -966,20 +970,32 @@ export function ZynapseConfigurator() {
 
   // Tab-urile Planșă + Materiale apar DOAR pe faza PT (DTAC+PT). isPhasePT robust la format.
   const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
-  // Editor vizual (PASUL 3.1): prima planșă de iluminat cu PNG -> fundal pt. overlay-ul plan_elements.
-  const editorPlansa = (result?.planse_iluminat || []).find(p => !!p.png_base64) || null;
-  // M1 (fix multi-etaj): indexul planșei curente în planse_iluminat = indexul ETAJULUI (0=parter,
-  // 1=etaj, 2=mansarda) = result.rooms[].floor. Scopăm camerele pe etajul planșei curente ca
-  // "Generează prize automat" să NU mai pună prizele altui etaj pe planul curent (bug Dan: P+E).
-  // ?? 0 -> proiecte vechi/single-floor cu floor=null -> parter (index 0) = zero regresie.
-  const editorPlansaIdx = editorPlansa
-    ? Math.max(0, (result?.planse_iluminat || []).indexOf(editorPlansa))
-    : 0;
+  // Editor vizual (PASUL 3.1): planșa de iluminat SELECTATĂ (M2b: editorPlansaIdx selectabil, nu fix [0]).
+  const planseIluminat = result?.planse_iluminat || [];
+  const editorPlansa = planseIluminat[editorPlansaIdx] || null;
+  // Etajele EDITABILE (cu PNG) = opțiunile selectorului de etaj. >1 -> multi-etaj (selector vizibil).
+  const editablePlanse = planseIluminat
+    .map((p, idx) => ({ idx, p }))
+    .filter((x) => !!x.p.png_base64);
+  const multiFloor = editablePlanse.length > 1;
+  const floorName = (idx: number) => {
+    const c = floorCanonic(idx);
+    return c.charAt(0).toUpperCase() + c.slice(1);   // "Parter"/"Etaj"/"Mansarda"
+  };
+  // M1: camere scopate pe etajul SELECTAT (floorIndex robust la cele 3 codificări).
+  // Proiecte vechi/single-floor cu floor=null -> parter (index 0) = zero regresie.
   const roomsScoped = (result?.rooms ?? []).filter(
     (r) => floorIndex((r as { floor?: string | number | null }).floor) === editorPlansaIdx
   );
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
+
+  // M2b: la schimbarea proiectului -> resetează etajul selectat (parter) + tracking forță + mod iluminat.
+  useEffect(() => {
+    setEditorPlansaIdx(0);
+    setFortaDoneIdxs(new Set());
+    setModeEditor("iluminat");
+  }, [savedProjectId]);
 
   // ── FLUX FORTA (S1): starea fazei din semnale EXISTENTE (zero migratie). ──
   // editorAvailable = tab-ul Editor e disponibil (PT + plansa cu PNG + proiect salvat) — aceeasi conditie ca filtrul de tab.
@@ -991,8 +1007,13 @@ export function ZynapseConfigurator() {
     !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor === "forta" ? "forta" : "iluminat-gata";
 
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
-  async function handleRegenerated(pdfBase64: string) {
+  async function handleRegenerated(pdfBase64: string, mode: "iluminat" | "forta") {
     if (!result || !editorPlansa || !savedProjectId) return;
+    // M2b: FORȚA -> marchează etajul curent ca finalizat (tracking în sesiune; persistarea = M3).
+    if (mode === "forta") {
+      setFortaDoneIdxs((prev) => { const n = new Set(prev); n.add(editorPlansaIdx); return n; });
+      return;
+    }
     const updated: ProjectResult = {
       ...result,
       planse_iluminat: (result.planse_iluminat || []).map(p =>
@@ -1495,6 +1516,13 @@ export function ZynapseConfigurator() {
   // Ramai in tab-ul Editor; scroll sus la editor.
   const handleGoForta = () => {
     setModeEditor("forta");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // M2b: navighează la (etaj, fază) în stepper-ul multi-etaj.
+  const goEditorStep = (idx: number, mode: "iluminat" | "forta") => {
+    setEditorPlansaIdx(idx);
+    setModeEditor(mode);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -2113,6 +2141,27 @@ export function ZynapseConfigurator() {
               <div>
                 {/* F3: comutator Iluminat | Forță (segmented control — accent app #378ADD/#5BB8F5, dark) */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                  {/* M2b: selector de etaj (DOAR multi-etaj) — comută planșa/etajul editat (verde). */}
+                  {multiFloor && (
+                    <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 10,
+                      background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                      {editablePlanse.map(({ idx }) => {
+                        const on = editorPlansaIdx === idx;
+                        return (
+                          <button key={idx} type="button"
+                            onClick={() => { setEditorPlansaIdx(idx); if (planseIluminat[idx]?.regenerated !== true) setModeEditor("iluminat"); }}
+                            style={{ padding: "6px 16px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit",
+                              fontSize: 12.5, fontWeight: 600, letterSpacing: 0.2,
+                              background: on ? "rgba(29,158,117,0.18)" : "transparent",
+                              border: on ? "1px solid rgba(29,158,117,0.45)" : "1px solid transparent",
+                              color: on ? "#37C58A" : "#8B8FA8",
+                              transition: "background-color .15s ease, color .15s ease, border-color .15s ease" }}>
+                            {floorName(idx)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 10,
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     {([["iluminat", "Iluminat"], ["forta", "Forță"]] as const).map(([m, label]) => {
@@ -2195,13 +2244,38 @@ export function ZynapseConfigurator() {
                 // proiect fara editor (non-PT / fara plansa editabila) -> iesire clasica (zero regresie)
               } else if (activeTab !== "editor") {
                 label = "Continuă în Editor →"; onClick = () => setActiveTab("editor"); variant = "blue";
-              } else if (fazaFlux === "iluminat-nedefinitivat") {
-                label = "Editor Plan Forță →"; onClick = undefined; variant = "blue"; disabled = true;
-                hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
-              } else if (fazaFlux === "iluminat-gata") {
-                label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
-              } else {   // fazaFlux === "forta"
-                label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+              } else if (!multiFloor) {
+                // ── SINGLE-FLOOR: logica EXISTENTĂ (byte-for-byte) — zero regresie ──
+                if (fazaFlux === "iluminat-nedefinitivat") {
+                  label = "Editor Plan Forță →"; onClick = undefined; variant = "blue"; disabled = true;
+                  hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
+                } else if (fazaFlux === "iluminat-gata") {
+                  label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
+                } else {   // fazaFlux === "forta"
+                  label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+                }
+              } else if (modeEditor === "iluminat") {
+                // ── MULTI-ETAJ · faza ILUMINAT: toate etajele întâi (ordinea Dan) ──
+                const nextIdx = editablePlanse.map(x => x.idx).find(i => planseIluminat[i]?.regenerated !== true);
+                if (planseIluminat[editorPlansaIdx]?.regenerated !== true) {
+                  label = "Continuă →"; onClick = undefined; variant = "blue"; disabled = true;
+                  hint = `Obține planul de iluminat (${floorName(editorPlansaIdx)}) — butonul din editor.`;
+                } else if (nextIdx !== undefined) {
+                  label = `Iluminat ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "iluminat"); variant = "blue";
+                } else {
+                  label = "Editor Plan Forță →"; onClick = () => goEditorStep(editablePlanse[0].idx, "forta"); variant = "blue";
+                }
+              } else {
+                // ── MULTI-ETAJ · faza FORȚĂ: după ce TOATE etajele au iluminat ──
+                const nextIdx = editablePlanse.map(x => x.idx).find(i => !fortaDoneIdxs.has(i));
+                if (!fortaDoneIdxs.has(editorPlansaIdx)) {
+                  label = "Continuă →"; onClick = undefined; variant = "blue"; disabled = true;
+                  hint = `Obține planul de forță (${floorName(editorPlansaIdx)}) — butonul din editor.`;
+                } else if (nextIdx !== undefined) {
+                  label = `Forță ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "forta"); variant = "blue";
+                } else {
+                  label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+                }
               }
               const grad = variant === "blue"
                 ? { background: "linear-gradient(135deg, #2870C2 0%, #378ADD 100%)", boxShadow: "0 0 24px rgba(55,138,221,0.30)" }

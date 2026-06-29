@@ -268,7 +268,7 @@ const panelStyle: CSSProperties = {
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string) => void; mode?: "iluminat" | "forta";
+     onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta") => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
@@ -686,9 +686,9 @@ export default function PlanEditor({
         setRegenErr(data?.error || "Regenerare eșuată.");
       } else {
         setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open (ambele moduri)
-        // onRegenerated persista in plansa de ILUMINAT (IE.1) -> DOAR pt. iluminat. Forta: download/open local
-        // (persistarea fortei ca plansa separata IE.2 = follow-up de display, ca sa NU suprascrie iluminatul).
-        if (mode === "iluminat") onRegenerated?.(data.pdf_base64);
+        // M2b: semnalează finalizarea la părinte pentru AMBELE faze. Iluminat -> persistă IE.1 (regenerated);
+        // forța -> marchează etajul ca finalizat (tracking în sesiune; persistarea ca planșă = M3).
+        onRegenerated?.(data.pdf_base64, mode);
         setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
       }
     } catch (e) {
