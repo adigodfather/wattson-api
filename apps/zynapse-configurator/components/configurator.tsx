@@ -933,8 +933,6 @@ export function ZynapseConfigurator() {
   const [modeEditor, setModeEditor] = useState<"iluminat" | "forta">("iluminat");   // F3: comutator Iluminat/Forta in tab Editor
   // M2b: etajul SELECTAT în editor (index în planse_iluminat = index etaj). Selectabil prin selector multi-etaj.
   const [editorPlansaIdx, setEditorPlansaIdx] = useState(0);
-  // M2b: etajele cu FORȚA finalizată (tracking în sesiune; persistarea reală = M3). Set de indecși de etaj.
-  const [fortaDoneIdxs, setFortaDoneIdxs] = useState<Set<number>>(new Set());
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
   const [pageFormat, setPageFormat] = useState<string>('');
   const [cartusProiectInput, setCartusProiectInput] = useState<CartusProiect>({
@@ -978,6 +976,9 @@ export function ZynapseConfigurator() {
     .map((p, idx) => ({ idx, p }))
     .filter((x) => !!x.p.png_base64);
   const multiFloor = editablePlanse.length > 1;
+  // M3: forța per etaj PERSISTATĂ în planse_forta[idx].regenerated (înlocuiește fortaDoneIdxs din sesiune).
+  const planseForta = result?.planse_forta || [];
+  const fortaDone = (idx: number) => planseForta[idx]?.regenerated === true;
   const floorName = (idx: number) => {
     const c = floorCanonic(idx);
     return c.charAt(0).toUpperCase() + c.slice(1);   // "Parter"/"Etaj"/"Mansarda"
@@ -993,7 +994,6 @@ export function ZynapseConfigurator() {
   // M2b: la schimbarea proiectului -> resetează etajul selectat (parter) + tracking forță + mod iluminat.
   useEffect(() => {
     setEditorPlansaIdx(0);
-    setFortaDoneIdxs(new Set());
     setModeEditor("iluminat");
   }, [savedProjectId]);
 
@@ -1009,16 +1009,27 @@ export function ZynapseConfigurator() {
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
   async function handleRegenerated(pdfBase64: string, mode: "iluminat" | "forta") {
     if (!result || !editorPlansa || !savedProjectId) return;
-    // M2b: FORȚA -> marchează etajul curent ca finalizat (tracking în sesiune; persistarea = M3).
+    // M3: construiește result_data pe mod, apoi PERSISTĂ o singură dată în Supabase.
+    let updated: ProjectResult;
     if (mode === "forta") {
-      setFortaDoneIdxs((prev) => { const n = new Set(prev); n.add(editorPlansaIdx); return n; });
-      return;
+      // planse_forta = oglindă planse_iluminat (per etaj). Lazy-init la prima forță; marchează etajul curent.
+      const base = (result.planse_forta && result.planse_forta.length === planseIluminat.length)
+        ? result.planse_forta
+        : planseIluminat.map(p => ({ type: p.type, name: p.name, source_plansa_nr: p.source_plansa_nr,
+                                     pdf_base64: "", regenerated: false }));
+      updated = {
+        ...result,
+        planse_forta: base.map((f, i) => i === editorPlansaIdx
+          ? { ...f, pdf_base64: pdfBase64, regenerated: true, filename: `Plan_forta_${floorCanonic(editorPlansaIdx)}.pdf` }
+          : f),
+      };
+    } else {
+      updated = {
+        ...result,
+        planse_iluminat: (result.planse_iluminat || []).map(p =>
+          p === editorPlansa ? { ...p, pdf_base64: pdfBase64, regenerated: true } : p),
+      };
     }
-    const updated: ProjectResult = {
-      ...result,
-      planse_iluminat: (result.planse_iluminat || []).map(p =>
-        p === editorPlansa ? { ...p, pdf_base64: pdfBase64, regenerated: true } : p),
-    };
     setResult(updated);
     try {
       const supabase = createClient();
@@ -2267,8 +2278,8 @@ export function ZynapseConfigurator() {
                 }
               } else {
                 // ── MULTI-ETAJ · faza FORȚĂ: după ce TOATE etajele au iluminat ──
-                const nextIdx = editablePlanse.map(x => x.idx).find(i => !fortaDoneIdxs.has(i));
-                if (!fortaDoneIdxs.has(editorPlansaIdx)) {
+                const nextIdx = editablePlanse.map(x => x.idx).find(i => !fortaDone(i));
+                if (!fortaDone(editorPlansaIdx)) {
                   label = "Continuă →"; onClick = undefined; variant = "blue"; disabled = true;
                   hint = `Obține planul de forță (${floorName(editorPlansaIdx)}) — butonul din editor.`;
                 } else if (nextIdx !== undefined) {

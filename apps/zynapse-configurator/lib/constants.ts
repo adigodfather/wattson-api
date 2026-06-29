@@ -240,6 +240,16 @@ export interface ProjectResult {
     switches?: Array<{ x: number; y: number; angle?: number; room?: string | number | null }>;
     regenerated?: boolean;   // true după "Obține plan" -> pdf_base64 = planul regenerat (cabluri+editări), nu ciorna Vision
   }> | null;
+  // M3: planșe de FORȚĂ persistate (oglindă planse_iluminat, per etaj). Fără png separat
+  // (fundalul editorului de forță = png-ul de iluminat). Doar pdf_base64 = planșa forță finală.
+  planse_forta?: Array<{
+    type?: string;
+    name: string;
+    pdf_base64: string;
+    filename?: string;
+    source_plansa_nr?: string;
+    regenerated?: boolean;
+  }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
@@ -281,13 +291,21 @@ export interface ProjectResult {
 
 // Planșa de iluminat REGENERATĂ (după "Obține plan": cabluri + editări) ÎNLOCUIEȘTE tot ce se afișează;
 // draftul Vision (neregenerat) se ASCUNDE (e doar ciornă). DTAC (fără planse_iluminat) -> planuri ca înainte.
-type ShownPlansa = { name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string };
+type ShownPlansa = { name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string; ie_label?: string };
+// M3: planșele FINALE de afișat în istoric/livrabile = iluminat (regenerate) APOI forță (regenerate),
+// numerotate IE.1->IE.N în ordinea: TOATE iluminatele (pe etaje), apoi TOATE forțele (pe etaje).
+// Single-floor: IE.1 iluminat parter, IE.2 forță parter. Numărul se recalculează când se adaugă planșe.
 export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlansa[]; draftPending: boolean } {
   const il = result.planse_iluminat || [];
   if (il.length) {
-    const regen = il.filter(p => p.regenerated);
-    if (regen.length) return { planse: regen, draftPending: false };
-    return { planse: [], draftPending: true };   // doar ciornă Vision -> ascunde + placeholder
+    const regenIl = il.filter(p => p.regenerated);
+    if (!regenIl.length) return { planse: [], draftPending: true };   // doar ciornă Vision -> ascunde + placeholder
+    const regenFo = (result.planse_forta || []).filter(p => p.regenerated);
+    const out: ShownPlansa[] = [];
+    let n = 0;
+    for (const p of regenIl) { n += 1; out.push({ ...p, ie_label: `IE.${n}`, name: `${p.name} — Iluminat` }); }
+    for (const p of regenFo) { n += 1; out.push({ ...p, ie_label: `IE.${n}`, name: `${p.name} — Forță` }); }
+    return { planse: out, draftPending: false };
   }
   return { planse: result.planuri || [], draftPending: false };   // DTAC: planuri ca înainte
 }

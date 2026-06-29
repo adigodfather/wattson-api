@@ -265,14 +265,14 @@ export function AnnotatedPlanSection({ src }: { src: string }) {
 
 /* ─── Planșe PDF cu straturi (iluminat cu becuri, forță... — fiecare planșă separată) ─── */
 export function PlanPdfSection({ planse }: {
-  planse: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string }>;
+  planse: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string; ie_label?: string }>;
 }) {
   if (!planse?.length) return null;
   return (
     <ResultSection title="Planșe" count={planse.length} defaultOpen>
       <div className="flex flex-col gap-4 mt-3">
         {planse.map((p, i) => {
-          const nr = p.plansa_nr || p.source_plansa_nr || "";
+          const nr = p.ie_label || p.plansa_nr || p.source_plansa_nr || "";   // M3: IE.x prioritar
           return (
             <div key={i} className="rounded-xl overflow-hidden"
               style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
