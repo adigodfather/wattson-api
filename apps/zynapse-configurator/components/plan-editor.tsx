@@ -66,7 +66,7 @@ const SWITCH_TYPES = [
 const PANEL_TYPES = [
   { value: "tablou_teg",    label: "Tablou TEG",    short: "TEG",   colA: "#F0F0F0", colB: "#22C55E" },
   { value: "tablou_te_ct",  label: "Tablou TE-CT",  short: "TE-CT", colA: "#EF4444", colB: "#3B82F6" },
-  { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#D1D5DB", colB: "#6B7280" },
+  { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#F0F0F0", colB: "#1565C0" },
   { value: "transformator", label: "Transformator", short: "TR",    colA: "#D1D5DB", colB: "#6B7280" },
 ];
 // Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
@@ -423,14 +423,15 @@ export default function PlanEditor({
   // ADD TABLOU: TEG / TE-CT pe plan (același tipar de INSERT ca addElement) cu status nou/existent.
   // Global (room=null), poziție inițială = centrul planului; max 1 per tip. NON-BLOCANT.
   async function addPanel(panelType: string, status: "nou" | "existent") {
-    if (elements.some(e => e.element_type === panelType)) return;   // un singur TEG / TE-CT
-    const floor = floorCanonic(elements[0]?.floor);
+    // TES: un singur tablou de tip PER ETAJ (floor-scoped) -> parter TEG/TE-CT + etaj TES coexistă.
+    if (elements.some(e => e.element_type === panelType && floorIndex(e.floor) === floorIndex(floor))) return;
+    const floorVal = floorCanonic(floor);   // floor-ul ETAJULUI CURENT (prop), nu al primului element (elements nefiltrat pe etaj)
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
     const off = panelType === "tablou_te_ct" ? 44 : 0;   // separă TEG vs TE-CT dacă ambele sunt în centru
     const row = {
       project_id: projectId,
-      floor,
+      floor: floorVal,
       element_type: panelType,
       plan_type: "ambele",            // tablourile apar in AMBELE planuri (iluminat + forta)
       label: null as string | null,
@@ -934,7 +935,7 @@ export default function PlanEditor({
 
   // un bloc de tablou (TEG / TE-CT): dacă există deja -> rândul lui (select + ștergere), altfel selectorul.
   const renderPanelBlock = (title: string, panelType: string, allowNotNeeded: boolean) => {
-    const existing = elements.find(e => e.element_type === panelType) || null;
+    const existing = elements.find(e => e.element_type === panelType && floorIndex(e.floor) === floorIndex(floor)) || null;
     const badge = (st: string | null) => (
       <span style={{
         fontSize: 10, padding: "1px 7px", borderRadius: 4, marginLeft: 8,
@@ -969,15 +970,26 @@ export default function PlanEditor({
   };
 
   // secțiunea Tablouri (sub camere): TEG (nou/existent) + TE-CT (nou/existent/nu e nevoie)
-  const renderPanelsSection = () => (
-    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-        Tablouri generale
+  // PARTER -> tabloul GENERAL (TEG) + tehnic (TE-CT). ETAJ/MANSARDĂ -> tabloul SECUNDAR (TES),
+  // care se alimentează de la TEG. TE-CT rămâne pe parter în v1 (camera tehnică e de obicei la parter).
+  const renderPanelsSection = () => {
+    const fc = floorCanonic(floor);
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          {fc === "parter" ? "Tablouri generale" : "Tablou secundar etaj"}
+        </div>
+        {fc === "parter" ? (
+          <>
+            {renderPanelBlock("Tablou general (TEG)", "tablou_teg", false)}
+            {renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
+          </>
+        ) : (
+          renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false)
+        )}
       </div>
-      {renderPanelBlock("Tablou general (TEG)", "tablou_teg", false)}
-      {renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
-    </div>
-  );
+    );
+  };
 
   // secțiunea Prize (aparataj pe perete): 4 tipuri, MULTIPLE. Plasare liberă; snap pe perete = P3.
   const renderPrizaSection = () => (
