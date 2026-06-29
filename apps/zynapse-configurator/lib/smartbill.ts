@@ -29,6 +29,7 @@ export interface SmartbillClient {
   isTaxPayer: boolean;
   address?: string;
   email: string;
+  country: string;   // SmartBill cere ţara obligatoriu — platformă RO -> "Romania" automat
   saveToDb: boolean;
 }
 
@@ -87,14 +88,16 @@ export function mapSmartbillClient(p: SmartbillProfile): SmartbillClient {
       vatCode: cui,
       isTaxPayer: /^ro/i.test(cui),          // CUI cu prefix "RO" = plătitor TVA; altfel neplătitor
       address: (p.firma_adresa || "").trim() || undefined,
+      country: "Romania",                    // toți clienții sunt din România (platformă RO)
       email,
       saveToDb: false,
     };
   }
-  // B2C: doar nume + email (fără adresă — decizia Dan)
+  // B2C: nume + email + ţara (fără adresă — decizia Dan)
   return {
     name: (p.full_name || "Client").trim() || "Client",
     isTaxPayer: false,
+    country: "Romania",
     email,
     saveToDb: false,
   };
