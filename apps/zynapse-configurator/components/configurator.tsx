@@ -967,6 +967,16 @@ export function ZynapseConfigurator() {
   const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
   // Editor vizual (PASUL 3.1): prima planșă de iluminat cu PNG -> fundal pt. overlay-ul plan_elements.
   const editorPlansa = (result?.planse_iluminat || []).find(p => !!p.png_base64) || null;
+  // M1 (fix multi-etaj): indexul planșei curente în planse_iluminat = indexul ETAJULUI (0=parter,
+  // 1=etaj, 2=mansarda) = result.rooms[].floor. Scopăm camerele pe etajul planșei curente ca
+  // "Generează prize automat" să NU mai pună prizele altui etaj pe planul curent (bug Dan: P+E).
+  // ?? 0 -> proiecte vechi/single-floor cu floor=null -> parter (index 0) = zero regresie.
+  const editorPlansaIdx = editorPlansa
+    ? Math.max(0, (result?.planse_iluminat || []).indexOf(editorPlansa))
+    : 0;
+  const roomsScoped = (result?.rooms ?? []).filter(
+    (r) => String((r as { floor?: string | number | null }).floor ?? 0) === String(editorPlansaIdx)
+  );
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
 
@@ -2140,7 +2150,7 @@ export function ZynapseConfigurator() {
                     return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
                   })()}
                   onRegenerated={handleRegenerated}
-                  rooms={result?.rooms ?? []}
+                  rooms={roomsScoped}
                 />
               </div>
             )}

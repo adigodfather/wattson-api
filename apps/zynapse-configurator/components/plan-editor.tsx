@@ -268,7 +268,7 @@ export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string) => void; mode?: "iluminat" | "forta";
-     rooms?: { name?: string | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
+     rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -496,10 +496,15 @@ export default function PlanEditor({
         setElements(prev => prev.filter(e => !ids.includes(e.id)));
       }
 
-      const fl = elements[0]?.floor || floor || "parter";
+      // GARDĂ M1: `rooms` vin deja scopate pe etajul curent (din configurator). Ne reasigurăm aici
+      // (defense-in-depth) + scriem floor-ul CANONIC al etajului din INDEX (robust la cele 3 codificări
+      // de etaj), nu hardcodat "parter". fidx = indexul etajului (0=parter/1=etaj/2=mansarda) din rooms[].floor.
+      const fidx = Number(rooms[0]?.floor ?? 0) || 0;
+      const roomsForFloor = rooms.filter((r) => String(r.floor ?? 0) === String(fidx));
+      const fl = ["parter", "etaj", "mansarda"][fidx] || floor || "parter";
       const rows: Record<string, unknown>[] = [];
       let nRooms = 0;
-      for (const room of rooms) {
+      for (const room of roomsForFloor) {
         const rule = prizeRuleForRoom(room?.name);
         if (!rule || rule.count <= 0) continue;          // SKIP spatiu tehnic (null) + terasa acces (count 0)
         if (!room?.bbox) continue;
