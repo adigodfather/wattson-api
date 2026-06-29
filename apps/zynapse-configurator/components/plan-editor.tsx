@@ -12,6 +12,7 @@ import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
+import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -385,7 +386,7 @@ export default function PlanEditor({
   async function addElement(roomKey: string, category: "bulb" | "switch") {
     const list = elements.filter(e => (e.room || NO_ROOM) === roomKey);
     const ref = list[0];   // camera apare în accordion doar dacă are ≥1 element -> ref există
-    const floor = ref?.floor || "parter";
+    const floor = floorCanonic(ref?.floor);
     const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
     const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
     const stagger = list.length;   // evită suprapunerea exactă la adăugări repetate
@@ -423,7 +424,7 @@ export default function PlanEditor({
   // Global (room=null), poziție inițială = centrul planului; max 1 per tip. NON-BLOCANT.
   async function addPanel(panelType: string, status: "nou" | "existent") {
     if (elements.some(e => e.element_type === panelType)) return;   // un singur TEG / TE-CT
-    const floor = elements[0]?.floor || "parter";
+    const floor = floorCanonic(elements[0]?.floor);
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
     const off = panelType === "tablou_te_ct" ? 44 : 0;   // separă TEG vs TE-CT dacă ambele sunt în centru
@@ -449,7 +450,7 @@ export default function PlanEditor({
   // ADD PRIZA: aparataj pe perete, MULTIPLE per plansa (fara guard). Plasare LIBERA in centru;
   // inginerul o trage (snap pe perete = P3). wall_mounted=true. Acelasi tipar de INSERT ca addPanel.
   async function addPriza(prizaType: string) {
-    const floor = elements[0]?.floor || "parter";
+    const floor = floorCanonic(elements[0]?.floor);
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
     const row = {
@@ -499,9 +500,9 @@ export default function PlanEditor({
       // GARDĂ M1: `rooms` vin deja scopate pe etajul curent (din configurator). Ne reasigurăm aici
       // (defense-in-depth) + scriem floor-ul CANONIC al etajului din INDEX (robust la cele 3 codificări
       // de etaj), nu hardcodat "parter". fidx = indexul etajului (0=parter/1=etaj/2=mansarda) din rooms[].floor.
-      const fidx = Number(rooms[0]?.floor ?? 0) || 0;
-      const roomsForFloor = rooms.filter((r) => String(r.floor ?? 0) === String(fidx));
-      const fl = ["parter", "etaj", "mansarda"][fidx] || floor || "parter";
+      const fidx = floorIndex(rooms[0]?.floor);
+      const roomsForFloor = rooms.filter((r) => floorIndex(r.floor) === fidx);
+      const fl = floorCanonic(fidx);
       const rows: Record<string, unknown>[] = [];
       let nRooms = 0;
       for (const room of roomsForFloor) {
@@ -534,7 +535,7 @@ export default function PlanEditor({
   // L1: DOAR caseta-placeholder in editor; desenul continutului pe PDF vine la L3.
   async function addLegend() {
     if (elements.some(e => e.element_type === "legenda")) return;   // max 1 legenda / plansa
-    const floor = elements[0]?.floor || "parter";
+    const floor = floorCanonic(elements[0]?.floor);
     const pdfW = pngW > 0 ? pngW / scale : 400;
     const pdfH = pngH > 0 ? pngH / scale : 400;
     const x = pdfW * 0.55;                          // mai in DREAPTA (legenda lata cu text descriptiv); draggable oricum
@@ -562,7 +563,7 @@ export default function PlanEditor({
   // B1: doar dunga vizibila/mutabila in editor; routing-ul (switch->dunga->tablou) vine la B2. ancora x,y = points[0].
   async function addTraseu() {
     if (elements.some(e => e.element_type === "traseu")) return;   // max 1 traseu / plansa
-    const floor = elements[0]?.floor || "parter";
+    const floor = floorCanonic(elements[0]?.floor);
     const pdfW = pngW > 0 ? pngW / scale : 400;
     const pdfH = pngH > 0 ? pngH / scale : 400;
     const x0 = pdfW * 0.35, y0 = pdfH * 0.5;        // dunga orizontala default peste centru (mutabila)
@@ -678,7 +679,7 @@ export default function PlanEditor({
       const res = await fetch("/api/regenerate-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, floor: floor || "parter", base_pdf_base64: cleanBasePdf, plan_type: mode }),
+        body: JSON.stringify({ project_id: projectId, floor: floorCanonic(floor), base_pdf_base64: cleanBasePdf, plan_type: mode }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success || !data?.pdf_base64) {

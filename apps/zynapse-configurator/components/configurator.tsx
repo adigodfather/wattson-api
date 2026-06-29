@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
+import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard, PlanPdfSection,
@@ -975,7 +976,7 @@ export function ZynapseConfigurator() {
     ? Math.max(0, (result?.planse_iluminat || []).indexOf(editorPlansa))
     : 0;
   const roomsScoped = (result?.rooms ?? []).filter(
-    (r) => String((r as { floor?: string | number | null }).floor ?? 0) === String(editorPlansaIdx)
+    (r) => floorIndex((r as { floor?: string | number | null }).floor) === editorPlansaIdx
   );
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
@@ -1352,9 +1353,10 @@ export function ZynapseConfigurator() {
             const projectUuid = inserted?.id;
             if (projectUuid) {
               const planElements: Array<Record<string, unknown>> = [];
-              for (const plansa of (data.planse_iluminat || [])) {
-                const tag = `${plansa?.name || ""} ${plansa?.type || ""} ${plansa?.source_plansa_nr || ""}`.toLowerCase();
-                const floor = tag.includes("mansard") ? "mansarda" : tag.includes("etaj") ? "etaj1" : "parter";
+              for (const [idx, plansa] of (data.planse_iluminat || []).entries()) {
+                // M2a: floor CANONIC din INDEXUL planșei (0=parter/1=etaj/2=mansarda) — robust,
+                // aliniat cu rooms[].floor + plan_elements. Elimină vechiul "etaj1".
+                const floor = floorCanonic(idx);
                 for (const c of (plansa.centers || [])) {
                   planElements.push({
                     project_id: projectUuid,
@@ -2145,10 +2147,7 @@ export function ZynapseConfigurator() {
                   pngBase64={editorPlansa.png_base64}
                   pngMeta={editorPlansa.png_meta}
                   cleanBasePdf={(result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null}
-                  floor={(() => {
-                    const t = `${editorPlansa?.name || ""} ${editorPlansa?.type || ""} ${editorPlansa?.source_plansa_nr || ""}`.toLowerCase();
-                    return t.includes("mansard") ? "mansarda" : t.includes("etaj") ? "etaj1" : "parter";
-                  })()}
+                  floor={floorCanonic(editorPlansaIdx)}
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}
                 />
