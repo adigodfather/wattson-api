@@ -36,11 +36,44 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. input — DOUĂ moduri: pachet fix {packageId} SAU sumă liberă {credits}
-    let body: { packageId?: string; credits?: number } = {};
+    let body: { packageId?: string; credits?: number; billing?: Record<string, unknown> } = {};
     try { body = await req.json(); } catch { /* gol */ }
     const packageId = body.packageId ? String(body.packageId) : "";
 
     const admin = createAdminClient();
+
+    // ── GATE FACTURARE (G3): alegerea de facturare e OBLIGATORIE + validată SERVER-SIDE ──
+    // (UI-ul o impune, dar o re-validăm aici ca un apel direct la API să NU sară gate-ul.)
+    const billing = (body.billing || {}) as {
+      type?: string; name?: string; vatCode?: string; address?: string; email?: string; adminName?: string;
+    };
+    const bType = String(billing.type || "");
+    if (!["company_profile", "company_custom", "individual"].includes(bType)) {
+      return NextResponse.json({ error: "Alege o opțiune de facturare înainte de plată." }, { status: 400 });
+    }
+    const { data: bProf } = await admin
+      .from("profiles").select("firma_cui, full_name").eq("id", user.id).single();
+    let billingData: Record<string, string> = {};
+    if (bType === "company_profile") {
+      if (!String(bProf?.firma_cui || "").trim()) {
+        return NextResponse.json({ error: "Completează datele firmei în Setări înainte de a factura pe firmă." }, { status: 400 });
+      }
+      const adminName = String(billing.adminName || "").trim();
+      if (!adminName) return NextResponse.json({ error: "Numele administratorului e obligatoriu." }, { status: 400 });
+      billingData = { admin_name: adminName };
+    } else if (bType === "company_custom") {
+      const name = String(billing.name || "").trim();
+      const vatCode = String(billing.vatCode || "").trim();
+      const address = String(billing.address || "").trim();
+      if (!name || !vatCode || !address) {
+        return NextResponse.json({ error: "Completează denumirea firmei, CIF-ul și adresa." }, { status: 400 });
+      }
+      billingData = { name, vatCode, address, email: String(billing.email || "").trim(), admin_name: String(billing.adminName || "").trim() };
+    } else {
+      if (!String(bProf?.full_name || "").trim()) {
+        return NextResponse.json({ error: "Numele lipsește din cont." }, { status: 400 });
+      }
+    }
 
     // valorile finale (credite + sumă) provin EXCLUSIV de pe server, niciodată din client
     let creditsToBuy: number;
@@ -91,10 +124,19 @@ export async function POST(req: NextRequest) {
       credits: creditsToBuy,
       amount_ron: amountRon,
       status: "pending",
+      billing_type: bType,         // G3: alegerea de facturare -> citită de IPN pt. createInvoice
+      billing_data: billingData,
     });
     if (insErr) {
       return NextResponse.json({ error: "Nu am putut crea comanda" }, { status: 500 });
     }
+
+    // persistă alegerea (default editabil la următoarea cumpărare). NON-BLOCANT.
+    try {
+      const upd: Record<string, string> = { last_billing_type: bType };
+      if (bType === "company_profile" && billingData.admin_name) upd.admin_name = billingData.admin_name;
+      await admin.from("profiles").update(upd).eq("id", user.id);
+    } catch { /* non-blocant */ }
 
     // 6. billing din profil
     const { data: prof } = await admin
