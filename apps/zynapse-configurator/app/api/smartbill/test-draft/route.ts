@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { createAdminClient } from "@/lib/supabaseAdmin";
-import { createInvoice, buildInvoicePayload } from "@/lib/smartbill";
+import { createInvoice, buildInvoicePayload, type BillingInput } from "@/lib/smartbill";
 
 async function isAdmin(): Promise<boolean> {
   try {
@@ -25,13 +25,13 @@ async function isAdmin(): Promise<boolean> {
   }
 }
 
-async function handle(orderId: string) {
+async function handle(orderId: string, billingOverride?: BillingInput) {
   if (!orderId) return NextResponse.json({ error: "order_id lipsă" }, { status: 400 });
 
   const admin = createAdminClient();
   const { data: pay } = await admin
     .from("payments")
-    .select("order_id, amount_ron, credits, user_id")
+    .select("order_id, amount_ron, credits, user_id, billing_type, billing_data")
     .eq("order_id", orderId)
     .single();
   if (!pay) return NextResponse.json({ error: "Plată inexistentă" }, { status: 404 });
@@ -42,19 +42,26 @@ async function handle(orderId: string) {
     .eq("id", pay.user_id)
     .single();
 
+  // billing: override din body (testează cele 3 opţiuni) SAU alegerea stocată pe plată.
+  const bd = (pay.billing_data || {}) as Record<string, string>;
+  const billing: BillingInput | undefined = billingOverride
+    || (pay.billing_type
+      ? { type: pay.billing_type as BillingInput["type"], name: bd.name, vatCode: bd.vatCode, address: bd.address, email: bd.email, adminName: bd.admin_name }
+      : undefined);
+
   const payment = { amount_ron: pay.amount_ron, credits: pay.credits, order_id: pay.order_id };
   // payload-ul (transparență pt. Dan — fără secrete) + apelul real cu draft:true (ciornă)
-  const payload = buildInvoicePayload(prof || {}, payment, { draft: true });
-  const result = await createInvoice(prof || {}, payment, { draft: true });
+  const payload = buildInvoicePayload(prof || {}, payment, { draft: true, billing });
+  const result = await createInvoice(prof || {}, payment, { draft: true, billing });
 
-  return NextResponse.json({ draft: true, order_id: orderId, payload, result });
+  return NextResponse.json({ draft: true, order_id: orderId, billing: billing ?? null, payload, result });
 }
 
 export async function POST(req: NextRequest) {
   if (!(await isAdmin())) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
-  let body: { order_id?: string } = {};
+  let body: { order_id?: string; billing?: BillingInput } = {};
   try { body = await req.json(); } catch { /* gol */ }
-  return handle(String(body.order_id || ""));
+  return handle(String(body.order_id || ""), body.billing);
 }
 
 export async function GET(req: NextRequest) {
