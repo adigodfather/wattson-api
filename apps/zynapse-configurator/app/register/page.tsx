@@ -93,9 +93,9 @@ export default function RegisterPage() {
       <div style={{ width: "100%", maxWidth: 400 }}>
         <Link href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 44, justifyContent: "center", textDecoration: "none", maxWidth: "100%" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={200} height={200} style={{
-            objectFit: "contain", maxWidth: "62%", height: "auto",
-            filter: "brightness(2.2) drop-shadow(0 0 30px rgba(91,184,245,0.5)) drop-shadow(0 0 56px rgba(55,138,221,0.25))",
+          <img src="/bgbgbun.png" alt="Zynapse" width={169} height={92} style={{
+            objectFit: "contain", height: "clamp(74px, 16vw, 92px)", width: "auto", maxWidth: "80%",
+            filter: "drop-shadow(0 0 30px rgba(91,184,245,0.5)) drop-shadow(0 0 56px rgba(55,138,221,0.25))",
           }} />
           <span style={{
             fontSize: "clamp(32px, 11vw, 56px)", fontWeight: 700, letterSpacing: "0.14em", lineHeight: 1, fontFamily: "'DM Sans', sans-serif",

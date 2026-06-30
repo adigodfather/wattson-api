@@ -541,9 +541,9 @@ export default function Landing() {
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
-        <a href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", alignItems: "center", gap: 9, textDecoration: "none" }}>
+        <a href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="" width={34} height={34} style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
+          <img src="/bgbgbun.png" alt="" width={73} height={40} style={{ objectFit: "contain", height: 40, width: "auto", filter: "drop-shadow(0 0 8px rgba(91,184,245,0.42))" }} />
           <span className="zynapse-wordmark" style={{
             fontSize: 21, fontWeight: 700, letterSpacing: 2, lineHeight: 1,
             background: "linear-gradient(120deg, #378ADD 0%, #5BB8F5 35%, #CDEBFF 50%, #5BB8F5 65%, #378ADD 100%)",
@@ -626,10 +626,10 @@ export default function Landing() {
             <PulseRing delay={0} /><PulseRing delay={1.3} /><PulseRing delay={2.6} />
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={290} height={290} className="hero-logo" style={{
-            position: "relative", zIndex: 1,
+          <img src="/bgbgbun.png" alt="Zynapse" width={293} height={160} className="hero-logo" style={{
+            position: "relative", zIndex: 1, objectFit: "contain",
             animation: "logo-pulse 3s ease-in-out infinite",
-            filter: "brightness(2.5) contrast(1.1) drop-shadow(0 0 22px rgba(91,184,245,0.32)) drop-shadow(0 0 48px rgba(55,138,221,0.16))",
+            filter: "drop-shadow(0 0 22px rgba(91,184,245,0.34)) drop-shadow(0 0 48px rgba(55,138,221,0.18))",
           }} />
         </div>
 

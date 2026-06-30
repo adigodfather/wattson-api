@@ -33,7 +33,7 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
           font-family: 'DM Sans', system-ui, sans-serif;
         }
         .zh-left, .zh-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .zh-logo { display: flex; align-items: center; gap: 9px; text-decoration: none; flex-shrink: 0; }
+        .zh-logo { display: flex; align-items: center; gap: 11px; text-decoration: none; flex-shrink: 0; }
         .zh-logo span {
           font-size: 20px; font-weight: 700; letter-spacing: 1.5px; line-height: 1;
           background: linear-gradient(120deg,#378ADD 0%,#5BB8F5 35%,#CDEBFF 50%,#5BB8F5 65%,#378ADD 100%);
@@ -119,8 +119,8 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
       <div className="zh-left">
         <Link href="/home" aria-label="Zynapse — acasă" className="zh-logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="" width={32} height={32}
-            style={{ objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))" }} />
+          <img src="/bgbgbun.png" alt="" width={73} height={40}
+            style={{ objectFit: "contain", height: 40, width: "auto", filter: "drop-shadow(0 0 8px rgba(91,184,245,0.42))" }} />
           <span>ZYNAPSE</span>
         </Link>
         <span className="zh-beta">Beta</span>

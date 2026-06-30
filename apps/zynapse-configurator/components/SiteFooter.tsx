@@ -41,10 +41,10 @@ export default function SiteFooter() {
 
       {/* ── ZONA 1 — brand (sus, centrat) ── */}
       <div style={{ textAlign: "center", paddingBottom: 18, borderBottom: "0.5px solid rgba(255,255,255,0.05)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.png" alt="Zynapse" width={26} height={26} style={{
-            objectFit: "contain", filter: "brightness(2.2) drop-shadow(0 0 6px rgba(91,184,245,0.45))",
+          <img src="/bgbgbun.png" alt="Zynapse" width={55} height={30} style={{
+            objectFit: "contain", height: 30, width: "auto", filter: "drop-shadow(0 0 6px rgba(91,184,245,0.42))",
           }} />
           <span style={{
             fontSize: 18, fontWeight: 700, letterSpacing: 3, lineHeight: 1,
