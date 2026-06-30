@@ -7,8 +7,9 @@ import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
 import { CalculatorPanel } from "@/components/CreditCalculator";
-import { startCheckout } from "@/lib/payment/startCheckout";
+import { startCheckout, type BillingChoice } from "@/lib/payment/startCheckout";
 import SiteFooter from "@/components/SiteFooter";
+import BillingModal from "@/components/BillingModal";
 
 // Pachetele vin DIN DB (credit_packages) — sursa de adevăr pt. id/credite/preț.
 interface DbPackage {
@@ -61,8 +62,10 @@ export default function HomePage() {
 
   // Pachetele citite din DB (credit_packages), sortate după sort_order.
   const [packages, setPackages] = useState<DbPackage[] | null>(null);
-  const [buying, setBuying] = useState<string | null>(null);   // packageId în curs
   const [buyError, setBuyError] = useState<string | null>(null);
+  // G5: gate facturare — cumpărarea în așteptare (pachet sau sumă liberă) + starea modalului.
+  const [pending, setPending] = useState<{ packageId: string } | { credits: number } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -78,14 +81,21 @@ export default function HomePage() {
 
   // Click „Cumpără" → cere formularul Netopia de la rută și redirectează la plată.
   // Neautentificat → login (ruta oricum cere auth).
-  async function handleBuy(packageId: string) {
+  // G5: click „Cumpără" -> deschide modalul de facturare (gate). Plata reală abia după confirm.
+  function handleBuy(packageId: string) {
     setBuyError(null);
     if (!user) { router.push("/login"); return; }
-    setBuying(packageId);
-    const r = await startCheckout({ packageId });
+    setPending({ packageId });
+  }
+
+  // după ce clientul alege facturarea în modal -> pornește plata cu billing. Eroare -> modalul rămâne deschis.
+  async function confirmBilling(billing: BillingChoice) {
+    if (!pending) return;
+    setSubmitting(true); setBuyError(null);
+    const r = await startCheckout({ ...pending, billing });
     if (r.authRequired) { router.push("/login"); return; }
-    if (!r.ok) { setBuyError(r.error || "Nu am putut iniția plata."); setBuying(null); }
-    // succes -> pagina navighează spre Netopia; lăsăm butonul în „Se redirecționează…"
+    if (!r.ok) { setBuyError(r.error || "Nu am putut iniția plata."); setSubmitting(false); }
+    // succes -> pagina navighează spre Netopia
   }
 
   // Regula B2B: pachetele apar DOAR pentru conturi cu 30+ zile vechime,
@@ -105,7 +115,7 @@ export default function HomePage() {
         <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: 0 }}>
           Estimează Z-Coins și costul în câteva secunde
         </p>
-        <CalculatorPanel />
+        <CalculatorPanel onBuy={(credits) => { setBuyError(null); if (!user) { router.push("/login"); return; } setPending({ credits }); }} />
       </section>
 
       {/* ── Pachete B2B (doar conturi 30+ zile) ── */}
@@ -124,7 +134,6 @@ export default function HomePage() {
             {packages.map((p, i) => {
               const emphasized = i === 0;        // primul evidențiat vizual; toate cumpărabile
               const lei = Number(p.price_ron);
-              const isThis = buying === p.id;
               return (
                 <div key={p.id} style={{
                   position: "relative", padding: "26px 20px 22px", borderRadius: 18, textAlign: "center",
@@ -139,12 +148,12 @@ export default function HomePage() {
                   <div style={{ fontSize: 15, fontWeight: 600, color: "#9FD2FA", margin: "4px 0 18px" }}>
                     {lei.toLocaleString("ro-RO")} lei
                   </div>
-                  <button type="button" onClick={() => handleBuy(p.id)} disabled={buying !== null} style={{
+                  <button type="button" onClick={() => handleBuy(p.id)} disabled={submitting} style={{
                     width: "100%", padding: "11px 16px", borderRadius: 10, fontSize: 14, fontWeight: 700,
-                    fontFamily: "inherit", cursor: buying !== null ? "wait" : "pointer", color: "#fff",
+                    fontFamily: "inherit", cursor: submitting ? "wait" : "pointer", color: "#fff",
                     background: "linear-gradient(135deg, #378ADD, #5BB8F5)", border: "none",
-                    opacity: buying !== null && !isThis ? 0.55 : 1,
-                  }}>{isThis ? "Se redirecționează…" : "Cumpără"}</button>
+                    opacity: submitting ? 0.55 : 1,
+                  }}>Cumpără</button>
                 </div>
               );
             })}
@@ -168,6 +177,15 @@ export default function HomePage() {
 
       <div style={{ height: 60 }} />
       <SiteFooter />
+
+      {/* G5: gate facturare — modal pe „Cumpără" (pachete + calculator) */}
+      <BillingModal
+        open={pending !== null}
+        submitting={submitting}
+        error={buyError}
+        onCancel={() => { if (!submitting) { setPending(null); setBuyError(null); } }}
+        onConfirm={confirmBilling}
+      />
     </div>
   );
 }

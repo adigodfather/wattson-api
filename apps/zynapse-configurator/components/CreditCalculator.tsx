@@ -56,7 +56,7 @@ function CeprimestiCard({ phase }: { phase: "dtac" | "dtac_pt" }) {
 }
 
 /* Calculator de Z-Coins — pur de prezentare (calcul local, fara apel extern) */
-function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setPhase: (p: "dtac" | "dtac_pt") => void }) {
+function CreditCalculator({ phase, setPhase, onBuy }: { phase: "dtac" | "dtac_pt"; setPhase: (p: "dtac" | "dtac_pt") => void; onBuy?: (credits: number) => void }) {
   const [area, setArea] = useState<number>(1000);
   const { user } = useAuth();
   const router = useRouter();
@@ -76,6 +76,8 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
     setBuyError(null);
     if (credits < 1) { setBuyError("Introdu o suprafață validă."); return; }
     if (!user) { router.push("/login"); return; }
+    // G5: deschide modalul de facturare (gate) în loc să cumperi direct.
+    if (onBuy) { onBuy(credits); return; }
     setBuying(true);
     const r = await startCheckout({ credits });
     if (r.authRequired) { router.push("/login"); return; }
@@ -178,11 +180,11 @@ function CreditCalculator({ phase, setPhase }: { phase: "dtac" | "dtac_pt"; setP
 }
 
 /* Panou calculator: calculator (stânga) + card „Ce primești" dinamic (dreapta) */
-export function CalculatorPanel() {
+export function CalculatorPanel({ onBuy }: { onBuy?: (credits: number) => void } = {}) {
   const [phase, setPhase] = useState<"dtac" | "dtac_pt">("dtac");
   return (
     <div className="calc-row">
-      <div className="calc-mid"><CreditCalculator phase={phase} setPhase={setPhase} /></div>
+      <div className="calc-mid"><CreditCalculator phase={phase} setPhase={setPhase} onBuy={onBuy} /></div>
       <div className="calc-side"><CeprimestiCard phase={phase} /></div>
     </div>
   );
