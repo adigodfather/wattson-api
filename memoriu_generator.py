@@ -288,12 +288,32 @@ def _page_fisa(doc, cp, cf):
     doc.add_page_break()
 
 
-def _page_borderou(doc, planse):
+def _is_pt(faza) -> bool:
+    """True dacă faza include PT (DTAC+PT / PT / 'D.T.A.C + P.T.'). DTAC pur -> False.
+    Gate pentru secțiunile noi de PT (brevier, cerințe, faze determinante, program control)."""
+    s = "".join(c for c in str(faza or "").upper() if c.isalpha())
+    return "PT" in s
+
+
+# Piese desenate STANDARD pentru faza PT (din exemplul de memoriu PT — IE.1..IE.8).
+_PIESE_DESENATE_PT = [
+    ("IE.1", "PLAN PARTER INSTALAȚII ELECTRICE DE ILUMINAT"),
+    ("IE.2", "PLAN PARTER INSTALAȚII ELECTRICE DE FORȚĂ"),
+    ("IE.3", "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC GENERAL"),
+    ("IE.4", "SCHEMA ELECTRICĂ MONOFILARĂ CENTRALĂ TERMICĂ"),
+    ("IE.5", "SCHEMA ELECTRICĂ MONOFILARĂ SISTEM FOTOVOLTAIC"),
+    ("IE.6", "PLAN ÎNVELITOARE SISTEM FOTOVOLTAIC"),
+    ("IE.7", "DETALIU ILUMINAT DE SIGURANȚĂ"),
+    ("IE.8", "DETALIU CONECTARE PRIZĂ DE PĂMÂNT"),
+]
+
+
+def _page_borderou(doc, planse, is_pt=False):
     _add_heading(doc, "II. BORDEROU", level=1, centered=False)
 
     _set_run_font(doc.add_paragraph().add_run("PIESE SCRISE:"),
                   size=11, bold=True)
-    for line in [
+    piese_scrise = [
         "I. FIȘA PROIECTULUI",
         "II. BORDEROU",
         "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE",
@@ -301,15 +321,25 @@ def _page_borderou(doc, planse):
         "    2.5. Distribuția energiei electrice",
         "    2.6. Instalația de prize și forță",
         "IV. CERINȚE DE CALITATE ȘI CRITERII DE PERFORMANȚĂ",
-    ]:
+    ]
+    if is_pt:
+        # secțiunile NOI de PT (conținutul lor se generează în M2-M5)
+        piese_scrise += [
+            "V. BREVIAR DE CALCUL",
+            "VI. FAZE DETERMINANTE PENTRU INSTALAȚII ELECTRICE",
+            "VII. PROGRAM DE CONTROL AL CALITĂȚII LUCRĂRILOR DE INSTALAȚII ELECTRICE",
+        ]
+    for line in piese_scrise:
         _set_run_font(doc.add_paragraph().add_run(line), size=11, bold=False)
 
     _blank(doc, 1)
     _set_run_font(doc.add_paragraph().add_run("PIESE DESENATE:"),
                   size=11, bold=True)
-    for pl in (planse or []):
-        nr = pl.get("nr", "")
-        titlu = pl.get("titlu", "")
+    # PT -> lista standard IE.1..IE.8; DTAC -> planșele din date (NESCHIMBAT).
+    piese_desenate = _PIESE_DESENATE_PT if is_pt else [
+        (pl.get("nr", ""), pl.get("titlu", "")) for pl in (planse or [])
+    ]
+    for nr, titlu in piese_desenate:
         p = doc.add_paragraph()
         _set_run_font(p.add_run("{}  ".format(nr)), size=11, bold=True)
         _set_run_font(p.add_run(titlu), size=11, bold=False)
@@ -503,11 +533,12 @@ def build_memoriu_docx(data: dict) -> bytes:
     cp = data.get("cartus_proiect") or {}
     cf = data.get("cartus_firma") or {}
     planse = data.get("planse") or []
+    is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
 
     doc = _setup_document()
     _page_coperta(doc, cp, cf)
     _page_fisa(doc, cp, cf)
-    _page_borderou(doc, planse)
+    _page_borderou(doc, planse, is_pt=is_pt)
     _page_memoriu(doc, cp, cf)
 
     buf = io.BytesIO()
