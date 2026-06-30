@@ -23,6 +23,18 @@ export interface SmartbillPayment {
   order_id: string;
 }
 
+// Alegerea de facturare (gate Home). company_profile = firma din profil; company_custom = date ad-hoc;
+// individual = persoană fizică (B2C). adminName -> "Reprezentant: X" în observations.
+export type BillingType = "company_profile" | "company_custom" | "individual";
+export interface BillingInput {
+  type: BillingType;
+  name?: string | null;       // company_custom: denumire firmă
+  vatCode?: string | null;    // company_custom: CIF
+  address?: string | null;    // company_custom: adresă
+  email?: string | null;      // company_custom: email facturare
+  adminName?: string | null;  // nume administrator/reprezentant -> observations
+}
+
 export interface SmartbillClient {
   name: string;
   vatCode?: string;
@@ -39,6 +51,7 @@ export interface SmartbillInvoicePayload {
   issueDate: string;
   seriesName: string;
   isDraft: boolean;
+  observations?: string;   // mențiuni pe factură (ex. "Reprezentant: X")
   products: Array<{
     name: string;
     measuringUnitName: string;
@@ -78,10 +91,37 @@ function todayYmd(): string {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
 }
 
-/** Mapare client: FIRMĂ (B2B) dacă firma_cui completat; altfel PERSOANĂ FIZICĂ (B2C, name+email). */
-export function mapSmartbillClient(p: SmartbillProfile): SmartbillClient {
+/** Mapare client în funcţie de alegerea de facturare (billing). Fără billing -> comportamentul vechi
+ *  (firma_cui completat = B2B firmă; altfel B2C) pentru BACKWARD-COMPAT (plăţi vechi). */
+export function mapSmartbillClient(p: SmartbillProfile, billing?: BillingInput | null): SmartbillClient {
+  const b2c = (): SmartbillClient => ({
+    name: (p.full_name || "Client").trim() || "Client",
+    isTaxPayer: false,
+    country: "Romania",
+    email: (p.email || "").trim(),
+    saveToDb: false,
+  });
+
+  // OPŢIUNEA 3 — persoană fizică (B2C)
+  if (billing?.type === "individual") return b2c();
+
+  // OPŢIUNEA 2 — firmă cu date AD-HOC (din billing, NU din profil)
+  if (billing?.type === "company_custom") {
+    const cui = (billing.vatCode || "").trim();
+    return {
+      name: (billing.name || p.full_name || "Client").trim() || "Client",
+      vatCode: cui || undefined,
+      isTaxPayer: /^ro/i.test(cui),
+      address: (billing.address || "").trim() || undefined,
+      country: "Romania",
+      email: (billing.email || p.email || "").trim(),
+      saveToDb: false,
+    };
+  }
+
+  // OPŢIUNEA 1 (company_profile) SAU fără billing (backward-compat): firma din profil dacă firma_cui;
+  // altfel B2C (safety — UI/G3 împiedică opt.1 fără firma_cui).
   const cui = (p.firma_cui || "").trim();
-  const email = (p.firma_email || p.email || "").trim();
   if (cui) {
     return {
       name: (p.firma_nume || p.full_name || "Client").trim() || "Client",
@@ -89,33 +129,29 @@ export function mapSmartbillClient(p: SmartbillProfile): SmartbillClient {
       isTaxPayer: /^ro/i.test(cui),          // CUI cu prefix "RO" = plătitor TVA; altfel neplătitor
       address: (p.firma_adresa || "").trim() || undefined,
       country: "Romania",                    // toți clienții sunt din România (platformă RO)
-      email,
+      email: (p.firma_email || p.email || "").trim(),
       saveToDb: false,
     };
   }
-  // B2C: nume + email + ţara (fără adresă — decizia Dan)
-  return {
-    name: (p.full_name || "Client").trim() || "Client",
-    isTaxPayer: false,
-    country: "Romania",
-    email,
-    saveToDb: false,
-  };
+  return b2c();
 }
 
 /** Construiește payload-ul facturii. PUR (fără rețea) -> testabil. */
 export function buildInvoicePayload(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean }
+  opts?: { draft?: boolean; billing?: BillingInput | null }
 ): SmartbillInvoicePayload {
   const price = Math.round(Number(payment.amount_ron) * 100) / 100;
+  const adminName = (opts?.billing?.adminName || "").trim();
   return {
     companyVatCode: (process.env.SMARTBILL_VAT_CODE || "").trim(),
-    client: mapSmartbillClient(profile),
+    client: mapSmartbillClient(profile, opts?.billing),
     issueDate: todayYmd(),
     seriesName: (process.env.SMARTBILL_SERIES || "").trim(),
     isDraft: opts?.draft === true,
+    // nume administrator/reprezentant pe factură (SmartBill n-are câmp dedicat -> observations)
+    ...(adminName ? { observations: `Reprezentant: ${adminName}` } : {}),
     products: [
       {
         name: `${payment.credits} Z-Coins — credite Zynapse`,
@@ -139,7 +175,7 @@ export function buildInvoicePayload(
 export async function createInvoice(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean }
+  opts?: { draft?: boolean; billing?: BillingInput | null }
 ): Promise<SmartbillResult> {
   const username = (process.env.SMARTBILL_USERNAME || "").trim();
   const token = (process.env.SMARTBILL_TOKEN || "").trim();
