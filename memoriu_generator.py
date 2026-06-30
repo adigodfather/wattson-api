@@ -523,6 +523,36 @@ def _page_memoriu(doc, cp, cf):
     set_table_borders(sig)  # chenar vizibil pe tabelul de semnatura
 
 
+# Faze determinante STANDARD pentru instalaţii electrice (verificări obligatorii — din exemplul PT).
+_FAZE_DETERMINANTE = [
+    "Verificarea rezistenţei la dispersie a prizei de pământ existenta.",
+    "Verificarea rezistenţei la dispersie a prizei de pământ propusa.",
+    "Verificarea legării la pământ a instalației electrice.",
+    "Verificarea legarii la pamant a tuturor maselor metalice.",
+]
+
+
+def _page_faze_determinante(doc, cp, cf):
+    """VI. FAZE DETERMINANTE — DOAR la PT (gate is_pt). Antet din cartus_proiect (cp) +
+    lista standard de verificări + semnături. Stil DTAC (helperele existente)."""
+    doc.add_page_break()
+    _add_heading(doc, "VI. FAZE DETERMINANTE PENTRU INSTALAȚII ELECTRICE", level=1)
+    _add_label_value(doc, "BENEFICIAR: ", cp.get("beneficiar", ""))
+    _add_label_value(doc, "LUCRARE: ", cp.get("titlu_proiect", ""))
+    _add_label_value(doc, "ADRESA: ", cp.get("amplasament", ""))
+    _add_label_value(doc, "FAZA: ", cp.get("faza", ""))
+    _blank(doc, 1)
+    for f in _FAZE_DETERMINANTE:
+        _add_para(doc, "- " + f)
+    _blank(doc, 1)
+    _add_para(doc, "Inspector de specialitate (numele și prenumele) …………………………………………")
+    _add_para(doc, "Semnătura/ștampila …………………………………………………………………………")
+    _blank(doc, 1)
+    _add_centered(doc, "Proiectant de specialitate", size=11, bold=True)
+    _add_centered(doc, cf.get("firma_nume", ""), size=11, bold=False)
+    _add_centered(doc, cf.get("proiectant_nume", ""), size=11, bold=False)
+
+
 # =============================================================================
 # ENTRYPOINT
 # =============================================================================
@@ -540,6 +570,9 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse, is_pt=is_pt)
     _page_memoriu(doc, cp, cf)
+    if is_pt:
+        # secțiuni NOI de PT (V. Brevier = M5 ulterior; VI. Faze determinante = acum; VII. Program = M4)
+        _page_faze_determinante(doc, cp, cf)
 
     buf = io.BytesIO()
     doc.save(buf)
