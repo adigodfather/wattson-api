@@ -66,5 +66,20 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   if (!(await isAdmin())) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
-  return handle(req.nextUrl.searchParams.get("order_id") || "");
+  // billing din QUERY PARAMS (browser-friendly): ?order_id=...&type=company_custom&name=...&vatCode=...
+  // &address=...&adminName=... — ca să poţi testa cele 3 opţiuni direct din browser (GET n-are body).
+  const sp = req.nextUrl.searchParams;
+  const t = sp.get("type");
+  const billing: BillingInput | undefined =
+    t === "company_profile" || t === "company_custom" || t === "individual"
+      ? {
+          type: t,
+          name: sp.get("name") || undefined,
+          vatCode: sp.get("vatCode") || undefined,
+          address: sp.get("address") || undefined,
+          email: sp.get("email") || undefined,
+          adminName: sp.get("adminName") || undefined,
+        }
+      : undefined;
+  return handle(sp.get("order_id") || "", billing);
 }
