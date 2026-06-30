@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient();
     const { data: pay, error: findErr } = await admin
       .from("payments")
-      .select("order_id, amount_ron, credits, status, credited, user_id, invoiced")
+      .select("order_id, amount_ron, credits, status, credited, user_id, invoiced, billing_type, billing_data")
       .eq("order_id", orderId)
       .single();
     if (findErr || !pay) {
@@ -87,10 +87,16 @@ export async function POST(req: NextRequest) {
             .select("email, full_name, firma_nume, firma_cui, firma_adresa, firma_email")
             .eq("id", pay.user_id)
             .single();
+          // G4: alegerea de facturare (din payment) -> override SmartBill. Lipsă (plăți vechi) -> profil.
+          const bd = (pay.billing_data || {}) as Record<string, string>;
+          const billing = pay.billing_type
+            ? { type: pay.billing_type as "company_profile" | "company_custom" | "individual",
+                name: bd.name, vatCode: bd.vatCode, address: bd.address, email: bd.email, adminName: bd.admin_name }
+            : undefined;
           const inv = await createInvoice(
             prof || {},
             { amount_ron: pay.amount_ron, credits: pay.credits, order_id: orderId },
-            { draft: false }
+            { draft: false, billing }
           );
           if (inv.success) {
             await admin.from("payments")
