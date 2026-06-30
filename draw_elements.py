@@ -1074,7 +1074,7 @@ def compute_cables(elements):
       - intrerupator -> TEG, EXCEPTIE room contine 'tehnic' -> TE-CT.
     Skip sigure: intrerupator cu room null (legacy), bec non-senzor fara switch in camera, tablou lipsa.
     Returneaza (cables, stats). cable = {from_type, from_xy, to_type, to_xy, path:[(x,y)..], kind, length, room}."""
-    bulbs, switches, panels = [], [], {}
+    bulbs, switches, panels, prizes = [], [], {}, []
     for el in (elements or []):
         try:
             et = el.get("element_type") or ""
@@ -1089,6 +1089,8 @@ def compute_cables(elements):
                 switches.append({"et": et, "x": x, "y": y, "room": room})
         elif et in _PANEL_TYPES:
             panels[et] = (x, y)            # de obicei 1 per tip
+        elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
+            prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id")})
     teg = panels.get("tablou_teg")
     tect = panels.get("tablou_te_ct")
 
@@ -1183,6 +1185,31 @@ def compute_cables(elements):
             stats["sw_tablou"] += 1
         else:
             stats["skip_tablou_lipsa"] += 1
+
+    # ── PRIZE -> TABLOU (FORTA): lant pe circuit_id + O coborare la tabloul GENERAL al plansei ──
+    # (TEG parter / TES etaj). ADITIV: NU atinge becuri/intrerupatoare/senzori. Realist electric:
+    # un circuit = o singura plecare din tablou (capul lantului, priza cea mai apropiata de tablou).
+    gen_type = "tablou_teg" if panels.get("tablou_teg") else ("tablou_tes" if panels.get("tablou_tes") else None)
+    general_xy = panels.get(gen_type) if gen_type else None
+    if general_xy and prizes:
+        by_circuit = {}
+        for pz in prizes:
+            by_circuit.setdefault(pz.get("cid") or "", []).append(pz)
+        for _cid, group in by_circuit.items():
+            rem = list(group)
+            start = nearest(general_xy, rem)               # capul lantului = priza cea mai apropiata de tablou
+            chain = [start]; rem.remove(start)
+            cur = (start["x"], start["y"])
+            while rem:                                     # lant nearest-neighbor (ca bec_lant)
+                nb = nearest(cur, rem); rem.remove(nb)
+                chain.append(nb); cur = (nb["x"], nb["y"])
+            for i in range(len(chain) - 1):                # priza -> priza (lant pe circuit)
+                a = (chain[i]["x"], chain[i]["y"]); b = (chain[i + 1]["x"], chain[i + 1]["y"])
+                add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", chain[i].get("room"))
+                stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+            # O coborare: capul lantului -> tablou, via dunga hol (ca sw_tablou)
+            add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", start.get("room"), via_stripe=True)
+            stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
     # MANUNCHI: cablurile care converg pe ACEEASI dunga (via_stripe) -> offset lateral SIMETRIC
     # (paralele, nu suprapuse). Re-ruteaza fiecare pe o copie deplasata a dungii; recalculeaza lungimea.
@@ -1457,7 +1484,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         try:
             _cables, _cstats = compute_cables(elements)
             for _c in _cables:
-                _draw_cable(page, _c.get("path"))
+                # C2: forța (prize->tablou) = ALBASTRU (_PRIZA_COLOR); iluminat (bec/întrer./senzor) = roșu (default).
+                _kind = _c.get("kind") or ""
+                _draw_cable(page, _c.get("path"), color=_PRIZA_COLOR if _kind.startswith("priza") else None)
                 n_cable += 1
         except Exception:
             n_cable = 0
