@@ -3158,6 +3158,10 @@ class GenerateMemoriuRequest(BaseModel):
     cartus_proiect: MemoriuCartusProiect = MemoriuCartusProiect()
     cartus_firma: MemoriuCartusFirma = MemoriuCartusFirma()
     planse: List[MemoriuPlansa] = []
+    # M5 (brevier de calcul) — date REALE pt. brevier. Optional (default gol -> backward-compat:
+    # cererile vechi/fara aceste campuri merg normal; brevierul B le foloseste cand exista).
+    circuits: List[dict] = []        # circuite (type/power_w/cable_type) -> putere iluminat reala
+    power_summary: dict = {}         # current_a (Ic TEG), main_breaker_a, installed_kw, ...
 
 
 @app.post("/generate-memoriu")
