@@ -523,6 +523,188 @@ def _page_memoriu(doc, cp, cf):
     set_table_borders(sig)  # chenar vizibil pe tabelul de semnatura
 
 
+# =============================================================================
+# V. BREVIAR DE CALCUL  (M5-B) — DOAR la PT (gate is_pt)
+# =============================================================================
+
+_SQRT3 = 3 ** 0.5
+
+# Tabel selecție cablu (curent_max_A, secţiune_mmp) — replică locală a CABLE_SECTIONS
+# din main.py. Păstrat self-contained: memoriu_generator.py NU importă app-ul FastAPI.
+_CABLE_SECTIONS = [
+    (6, "1.5"), (10, "2.5"), (16, "4"), (25, "6"),
+    (32, "10"), (40, "16"), (63, "25"), (float("inf"), "35"),
+]
+
+
+def _cable_for_current(current_a):
+    """Secţiunea standard de cupru (mmp) al cărei Iz acoperă curentul dat.
+    Convenţie (ca în main.py): se pasează curentul de calcul deja înmulţit cu 1,25."""
+    try:
+        ia = float(current_a)
+    except (TypeError, ValueError):
+        return "1.5"
+    for limit, section in _CABLE_SECTIONS:
+        if ia <= limit:
+            return section
+    return "35"
+
+
+def _sect_ro(section):
+    """Formatare secţiune pentru afişare RO (virgulă zecimală): '2.5' -> '2,5'."""
+    return str(section).replace(".", ",")
+
+
+def _du_trifazat_pct(ic_a, l_m, s_mmp, cosphi=0.92, un_v=400.0, gamma=59.6):
+    """Cădere de tensiune procentuală pe o coloană trifazată:
+        ΔU% = (√3 · Ic · L · cosφ · 100) / (γ · S · Un)
+    Formula standard (verificată pe exemplul TE-CT din PT: 22,95 A / 20 m / 4 mmp -> 0,77%).
+    Notă: exemplul TEG din PT (65,14 A / 40 m / S=10) afişează 1,24%, dar 1,24% corespunde
+    de fapt lui S=14 mmp — sursa e inconsistentă pe secţiune; formula de aici e cea corectă fizic.
+    Robustă: secţiune/tensiune/gamma invalide -> 0.0 (nu crapă)."""
+    try:
+        s = float(s_mmp)
+        ic = float(ic_a)
+        l = float(l_m)
+    except (TypeError, ValueError):
+        return 0.0
+    if s <= 0 or un_v <= 0 or gamma <= 0:
+        return 0.0
+    return (_SQRT3 * ic * l * float(cosphi) * 100.0) / (gamma * s * un_v)
+
+
+# Formule standard pentru curenţii nominali (transcrise din exemplul PT — IE.00 MT.ELECTRICE).
+_BREVIAR_FORMULE_IN = [
+    "In = Pi/(Uf·cosφ), pentru circuite monofazate de lumină, în care Pi este puterea instalată în waţi, Uf=220V, cosφ=1 pentru lămpi incandescente şi 0,95 pentru lămpi fluorescente;",
+    "In = Pi/(Uf·cosφ·η), pentru circuite monofazate de prize, în care Pi este puterea instalată în waţi, Uf=220V; η (randamentul) se consideră 0,85 pentru diferite receptoare introduse în priză;",
+    "In = Cc·Pi/(1,73·Ul·cosφ), pentru coloanele secundare trifazate echilibrate ale tablourilor principale de nivel, în care Pi este puterea instalată în waţi, Ul=400V, Cc este coeficientul de cerere pe coloană, cosφ = factorul de putere mediu calculat al coloanei;",
+    "In = Cc·Pi/(Uf·cosφ), pentru coloanele secundare trifazate dezechilibrate (încărcate asimetric), calculul făcându-se pe faza cea mai încărcată, Uf = tensiunea de fază în volţi, ceilalţi factori având aceeaşi semnificaţie;",
+    "In = Cc·Pi/(1,73·Ul·cosφ), pentru coloanele principale, inclusiv coloana principală a TEG, în care Pi = suma puterilor instalate pe coloanele secundare, Cc = factorul de cerere al coloanei principale, ceilalţi factori având aceeaşi semnificaţie.",
+]
+
+# Formule standard pentru verificarea la cădere de tensiune (transcrise din exemplul PT).
+_BREVIAR_FORMULE_DU = [
+    "ΔU% = [2·100·Σ(Cc·Pi·li)/Si]/(γ·Uf), pentru circuite şi coloane monofazate cu sarcini uniform distribuite.",
+    "ΔU% = [100·Σ(Cc·Pi·li)/Si]/(γ·Ul), pentru circuite trifazate cu mai multe receptoare concentrate.",
+]
+
+
+def _brevier_du_block(doc, titlu, ic_a, l_m, s_ro, du_pct):
+    """Un bloc 'Tablou X' din secţiunea Căderea de tensiune (TEG / TE-CT)."""
+    _add_para(doc, titlu, bold=True)
+    _add_para(doc, "Un = tensiunea de alimentare = 400 V")
+    _add_para(doc, "Ic = curentul electric de calcul = {:.2f} A".format(ic_a))
+    _add_para(doc, "L = lungimea cablului = {:.0f} m".format(l_m))
+    _add_para(doc, "cosφ = factorul de putere = 0,92")
+    _add_para(doc, "S = secţiunea cablului = {} mmp".format(s_ro))
+    _add_para(doc, "γ = conductibilitate cupru = 59,6 Ω·mmp/m")
+    verdict = "< 5%" if du_pct < 5.0 else "≥ 5% (ATENȚIE: depăşeşte limita admisă!)"
+    _add_para(doc, "ΔU = {:.2f}% {}".format(du_pct, verdict))
+    _blank(doc, 1)
+
+
+def _page_brevier(doc, cp, cf, circuits, power_summary):
+    """V. BREVIAR DE CALCUL — DOAR la PT (gate is_pt). Formule standard (transcrise din
+    exemplul PT) + exemple lucrate cu numere REALE din circuits/power_summary (M5-A):
+      - Lumină: circuitul de iluminat cel mai încărcat (power_w maxim) -> Pi real.
+      - Prize : 2000 W FIX (standard, nu se schimbă).
+      - TEG   : Ic real (power_summary.current_a), L=20 m fix, S din main_breaker_a, ΔU calculat.
+      - TE-CT : valori standard reprezentative (nu există date TE-CT în payload-ul memoriului).
+    Backward-compat: fără circuits/power_summary -> valori standard (Pi=360W, Ic=65,14A), NU crapă."""
+    # Coerciție pe TIP (nu pe truthiness): un payload truthy dar de tip greșit
+    # (power_summary listă/string, circuits scalar) nu trebuie să crape build-ul.
+    circuits = circuits if isinstance(circuits, list) else []
+    power_summary = power_summary if isinstance(power_summary, dict) else {}
+
+    # --- Lumină: circuitul de iluminat cel mai încărcat (power_w maxim) ---
+    lum_w = 0.0
+    for c in circuits:
+        if not isinstance(c, dict):
+            continue
+        if str(c.get("type", "")).lower().startswith("iluminat"):
+            try:
+                p = float(c.get("power_w", 0) or 0)
+            except (TypeError, ValueError):
+                p = 0.0
+            if p > lum_w:
+                lum_w = p
+    if lum_w <= 0:
+        lum_w = 360.0                              # backward-compat: standard ca în exemplu
+    ic_lum = lum_w / 230.0                          # Ic = Pi/U (cosφ=1, lumină)
+    s_lum = _cable_for_current(ic_lum * 1.25)       # secţiune (curent de calcul ×1,25)
+
+    # --- TEG: Ic real + S derivat din main breaker ---
+    try:
+        ic_teg = float(power_summary.get("current_a", 0) or 0)
+    except (TypeError, ValueError):
+        ic_teg = 0.0
+    if ic_teg <= 0:
+        ic_teg = 65.14                              # backward-compat: reprezentativ (exemplu)
+    try:
+        mb = float(power_summary.get("main_breaker_a", 0) or 0)
+    except (TypeError, ValueError):
+        mb = 0.0
+    s_teg = _cable_for_current(mb if mb > 0 else ic_teg * 1.25)
+    l_teg = 20.0                                    # L = 20 m FIX (decizie Dan; intenţionat NU 40 m din exemplu)
+    du_teg = _du_trifazat_pct(ic_teg, l_teg, s_teg)
+
+    # --- TE-CT: standard reprezentativ (nu există date TE-CT în payload-ul memoriului) ---
+    ic_tect, l_tect, s_tect = 22.95, 20.0, "4"
+    du_tect = _du_trifazat_pct(ic_tect, l_tect, s_tect)
+
+    # --- Render ---
+    doc.add_page_break()
+    _add_heading(doc, "V. BREVIAR DE CALCUL", level=1)
+    _add_para(doc, "BREVIAR DE CALCUL INSTALAȚII ELECTRICE", bold=True)
+    _add_para(doc, "Determinarea secţiunii circuitelor şi coloanelor de alimentare.")
+    _add_para(doc, "Determinarea curenţilor absorbiţi (nominali) de circuite şi coloane s-a făcut "
+                   "utilizând următoarele formule de calcul:")
+    for f in _BREVIAR_FORMULE_IN:
+        _add_para(doc, f)
+    _add_para(doc, "După calculul secţiunilor circuitelor şi coloanelor, acestea se verifică la "
+                   "pierderile de tensiune. S-au utilizat următoarele formule de calcul:")
+    for f in _BREVIAR_FORMULE_DU:
+        _add_para(doc, f)
+    _add_para(doc, "Datorită distanțelor relativ mici între tabloul TEG și consumatori și a "
+                   "gradului mic de încărcare a circuitelor nu se pune problema unor căderi de "
+                   "tensiune inacceptabile.")
+    _blank(doc, 1)
+
+    # 1. Dimensionarea conductelor electrice
+    _add_para(doc, "1. Dimensionarea conductelor electrice:", bold=True)
+    _add_para(doc, "Pe circuitul de lumină:", bold=True)
+    _add_para(doc, "Ic = Pi : U : cosφ  [A]")
+    _add_para(doc, "Pi = Puterea instalată")
+    _add_para(doc, "U = Tensiunea de alimentare")
+    _add_para(doc, "cosφ = Factorul de putere")
+    _add_para(doc, "Ic = Curentul de calcul")
+    _add_para(doc, "Se va dimensiona pentru circuitul cel mai încărcat: Pi = {:.0f} W".format(lum_w))
+    _add_para(doc, "Ic = {:.0f} : 230".format(lum_w))
+    _add_para(doc, "Ic = {:.2f} A".format(ic_lum))
+    _add_para(doc, "Se alege conductor din cupru {} mmp".format(_sect_ro(s_lum)))
+    _blank(doc, 1)
+
+    # 2. Alegerea siguranțelor automate
+    _add_para(doc, "2. Alegerea siguranțelor automate", bold=True)
+    _add_para(doc, "• Pe circuitul de iluminat:")
+    _add_para(doc, "If < k · Imax")
+    _add_para(doc, "Imax = curentul admis (pentru conductor de Cu de 1,5 mmp = 14 A)")
+    _add_para(doc, "k = coeficientul de siguranță = 0,8")
+    _add_para(doc, "If < 0,8 · 14")
+    _add_para(doc, "If < 11,2")
+    _add_para(doc, "Se alege siguranță automată 1P+N, 10A")
+    _add_para(doc, "Pe circuitul de prize:")
+    _add_para(doc, "Ic = 2000 : 230")
+    _add_para(doc, "Ic = 8,69 A")
+    _add_para(doc, "Se alege conductor din cupru 2,5 mmp")
+    _blank(doc, 1)
+
+    # Căderea de tensiune (TEG real + TE-CT standard)
+    _add_para(doc, "Căderea de tensiune:", bold=True)
+    _brevier_du_block(doc, "Tablou TEG", ic_teg, l_teg, _sect_ro(s_teg), du_teg)
+    _brevier_du_block(doc, "Tablou TE-CT", ic_tect, l_tect, _sect_ro(s_tect), du_tect)
+
+
 # Faze determinante STANDARD pentru instalaţii electrice (verificări obligatorii — din exemplul PT).
 _FAZE_DETERMINANTE = [
     "Verificarea rezistenţei la dispersie a prizei de pământ existenta.",
@@ -563,6 +745,8 @@ def build_memoriu_docx(data: dict) -> bytes:
     cp = data.get("cartus_proiect") or {}
     cf = data.get("cartus_firma") or {}
     planse = data.get("planse") or []
+    circuits = data.get("circuits") or []          # M5-A: circuite (type/power_w) -> brevier
+    power_summary = data.get("power_summary") or {} # M5-A: current_a (Ic TEG), main_breaker_a
     is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
 
     doc = _setup_document()
@@ -571,7 +755,8 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_borderou(doc, planse, is_pt=is_pt)
     _page_memoriu(doc, cp, cf)
     if is_pt:
-        # secțiuni NOI de PT (V. Brevier = M5 ulterior; VI. Faze determinante = acum; VII. Program = M4)
+        # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
+        _page_brevier(doc, cp, cf, circuits, power_summary)
         _page_faze_determinante(doc, cp, cf)
 
     buf = io.BytesIO()
