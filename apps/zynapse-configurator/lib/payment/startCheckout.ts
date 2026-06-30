@@ -23,8 +23,19 @@ function submitNetopiaForm(html: string) {
   form.submit();
 }
 
-// Mod pachet fix SAU sumă liberă (doar numărul de credite; prețul se calculează server-side).
-export type CheckoutBody = { packageId: string } | { credits: number };
+// Alegerea de facturare (gate Home) — trimisă la /api/payment/start (validată server-side).
+export interface BillingChoice {
+  type: "company_profile" | "company_custom" | "individual";
+  name?: string;       // company_custom: denumire firmă
+  vatCode?: string;    // company_custom: CIF
+  address?: string;    // company_custom: adresă
+  email?: string;      // company_custom: email facturare
+  adminName?: string;  // nume administrator/reprezentant -> "Reprezentant: X" pe factură
+}
+
+// Mod pachet fix SAU sumă liberă (doar numărul de credite; prețul se calculează server-side) + facturare.
+// billing OPŢIONAL în tip (gate-ul real e SERVER-SIDE în /api/payment/start); G5 îl trimite mereu din modal.
+export type CheckoutBody = ({ packageId: string } | { credits: number }) & { billing?: BillingChoice };
 
 export interface CheckoutResult {
   ok: boolean;           // true -> a pornit navigarea spre Netopia (pagina se schimbă)
