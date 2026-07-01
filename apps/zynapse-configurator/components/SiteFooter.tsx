@@ -79,7 +79,6 @@ export default function SiteFooter() {
         {/* Contact */}
         <div className="sf-col">
           <span className="sf-label">Contact</span>
-          <a href="tel:+40774484053" className="sf-link sf-contact">+40 774 484 053</a>
           <a href="mailto:office@zynapse.org" className="sf-link sf-contact">office@zynapse.org</a>
           <span style={{ fontSize: 13, color: "#8B8FA8" }}>Jud. Bihor, Aleșd</span>
         </div>

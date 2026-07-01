@@ -33,17 +33,12 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
           font-family: 'DM Sans', system-ui, sans-serif;
         }
         .zh-left, .zh-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .zh-logo { display: flex; align-items: center; gap: 11px; text-decoration: none; flex-shrink: 0; }
+        .zh-logo { display: flex; align-items: center; gap: 6px; text-decoration: none; flex-shrink: 0; }
         .zh-logo span {
           font-size: 20px; font-weight: 700; letter-spacing: 1.5px; line-height: 1;
           background: linear-gradient(120deg,#378ADD 0%,#5BB8F5 35%,#CDEBFF 50%,#5BB8F5 65%,#378ADD 100%);
           -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
           filter: drop-shadow(0 0 8px rgba(91,184,245,0.4));
-        }
-        .zh-beta {
-          display: none; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-          padding: 3px 7px; border-radius: 6px;
-          background: rgba(55,138,221,0.12); color: #5BB8F5; border: 1px solid rgba(55,138,221,0.2);
         }
         .zh-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.08); flex-shrink: 0; }
         .zh-nav { display: none; align-items: center; gap: 4px; }
@@ -105,7 +100,6 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
         .zh-menu a[data-active="true"] { color: #5BB8F5; background: rgba(55,138,221,0.12); font-weight: 600; }
         @media (min-width: 768px) {
           .zh-header { padding: 12px 28px; }
-          .zh-beta { display: inline-flex; }
           .zh-nav { display: flex; }
           .zh-burger { display: none; }
           .zh-name { display: inline; }
@@ -123,7 +117,6 @@ export default function AppHeader({ rightExtra }: { rightExtra?: React.ReactNode
             style={{ objectFit: "contain", height: 40, width: "auto", filter: "drop-shadow(0 0 8px rgba(91,184,245,0.42))" }} />
           <span>ZYNAPSE</span>
         </Link>
-        <span className="zh-beta">Beta</span>
 
         <nav className="zh-nav" aria-label="Navigare principală">
           <span className="zh-divider" />

@@ -40,7 +40,7 @@ function formatDate(iso: string): string {
 }
 
 export default function ProjectsPage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   // cost in Z-Coins per project.id (din tranzactia 'generation'); lipsa = proiect pre-A5
@@ -96,7 +96,7 @@ export default function ProjectsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>Proiectele mele</h1>
             <p className="text-sm mt-1 m-0" style={{ color: "#545870" }}>
-              {profile ? `${profile.projects_used} / ${profile.projects_limit} proiecte folosite` : ""}
+              {loading ? "" : `${projects.length} ${projects.length === 1 ? "proiect" : "proiecte"}`}
             </p>
           </div>
           <Link href="/configurator"

@@ -541,7 +541,7 @@ export default function Landing() {
         background: "rgba(5,7,9,0.85)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(255,255,255,0.03)",
       }}>
-        <a href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none" }}>
+        <a href="/" aria-label="Zynapse — pagina principală" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/bgbgbun.png" alt="" width={73} height={40} style={{ objectFit: "contain", height: 40, width: "auto", filter: "drop-shadow(0 0 8px rgba(91,184,245,0.42))" }} />
           <span className="zynapse-wordmark" style={{
