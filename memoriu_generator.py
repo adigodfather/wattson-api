@@ -736,6 +736,103 @@ def _page_faze_determinante(doc, cp, cf):
 
 
 # =============================================================================
+# VII. PROGRAM DE CONTROL AL CALITĂȚII  (M4) — DOAR la PT (gate is_pt)
+# =============================================================================
+
+# Antet coloane + cele 11 rânduri de control (transcrise fidel din exemplul PT — IE.00
+# MT.ELECTRICE). Conţinutul (cuvintele) e verbatim; s-au normalizat doar salturile de rând
+# din interiorul celulelor (un element pe linie) şi diacriticele evident pierdute.
+_PROGRAM_CONTROL_HEADER = [
+    "Nr. crt.",
+    "Lucrări ce se controlează, verifică sau se recepționează",
+    "Documentul scris care se încheie",
+    "Cine participă",
+    "Nr. / data actului încheiat",
+]
+
+_PROGRAM_CONTROL_ROWS = [
+    ("1", "Verificarea proiectului de instalații electrice de verificatori de proiecte atestați de M.L.P.A.T.",
+     "Referat verificare", "Verificator Atestat\nBeneficiar\nProiectant", ""),
+    ("2", "Predarea proiectului executantului",
+     "Proces verbal", "Beneficiar\nExecutant", ""),
+    ("3", "Verificarea calității materialelor utilizate și a echipamentelor procurate",
+     "Proces verbal", "Beneficiar\nExecutant", ""),
+    ("4", "Verificare priză de pământ",
+     "Proces verbal", "Beneficiar\nExecutant", ""),
+    ("5", "Execuție trasee circuite electrice",
+     "Proces verbal", "Beneficiar\nExecutant", ""),
+    ("6", "Montare aparate electrice, corpuri de iluminat, tablouri electrice, echipament electric",
+     "Proces verbal", "Beneficiar\nExecutant", ""),
+    ("7", "Încercarea continuității electrice a circuitelor electrice\nVerificarea corpurilor de iluminat\n"
+          "Încercarea aparatelor electrice\nÎncercarea tablourilor electrice",
+     "Proces verbal", "Beneficiar\nExecutant\nProiectant\nFurnizori", ""),
+    ("8", "FD: Verificarea rezistenței de dispersie a prizei de pământ\n"
+          "Verificarea legării la pământ a instalației electrice",
+     "Proces verbal\nBuletin de verificare priză de pământ", "Beneficiar\nExecutant\nProiectant", ""),
+    ("9", "Recepția la terminarea lucrărilor",
+     "Proces verbal de constatare funcționării", "Comisia de recepție", ""),
+    ("10", "Urmărirea calității și funcționării instalațiilor",
+     "", "Beneficiar", ""),
+    ("11", "Recepția finală",
+     "", "Comisia de recepție", ""),
+]
+
+# Lăţimi coloane (total ~16,5 cm = lăţimea utilă A4 cu marginile din _setup_document).
+_PROGRAM_CONTROL_WIDTHS = (Cm(1.2), Cm(6.6), Cm(3.3), Cm(3.2), Cm(2.2))
+
+
+def _program_cell(cell, text, width, bold=False, bg=None, size=10):
+    """Scrie o celulă de tabel (multi-linie pe '\\n'), font Arial, opţional bold/fundal."""
+    cell.width = width
+    if bg:
+        set_cell_bg(cell, bg)
+    lines = str(text).split("\n")
+    p = cell.paragraphs[0]
+    _set_run_font(p.add_run(lines[0]), size=size, bold=bold)
+    for ln in lines[1:]:
+        p2 = cell.add_paragraph()
+        _set_run_font(p2.add_run(ln), size=size, bold=bold)
+
+
+def _page_program_control(doc, cp, cf):
+    """VII. PROGRAM DE CONTROL AL CALITĂȚII — DOAR la PT (gate is_pt). ULTIMA secţiune a
+    memoriului PT. Antet din cartus_proiect (cp, ca la VI. Faze determinante) + tabel 12×5
+    (antet + 11 rânduri, transcris fidel din exemplul PT) + semnătură proiectant din cf.
+    Stil DTAC (helperele existente: _set_table_fixed / set_cell_bg / set_table_borders)."""
+    doc.add_page_break()
+    _add_heading(doc, "VII. PROGRAM DE CONTROL AL CALITĂȚII LUCRĂRILOR DE INSTALAȚII ELECTRICE", level=1)
+    _add_label_value(doc, "BENEFICIAR: ", cp.get("beneficiar", ""))
+    _add_label_value(doc, "LUCRARE: ", cp.get("titlu_proiect", ""))
+    _add_label_value(doc, "ADRESA: ", cp.get("amplasament", ""))
+    _add_label_value(doc, "FAZA: ", cp.get("faza", ""))
+    _blank(doc, 1)
+
+    table = doc.add_table(rows=0, cols=5)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.allow_autofit = False
+    _set_table_fixed(table)
+    for col, w in zip(table.columns, _PROGRAM_CONTROL_WIDTHS):
+        col.width = w
+
+    # antet (gri + bold)
+    hdr = table.add_row().cells
+    for cell, txt, w in zip(hdr, _PROGRAM_CONTROL_HEADER, _PROGRAM_CONTROL_WIDTHS):
+        _program_cell(cell, txt, w, bold=True, bg=CELL_BG_GREY)
+    # rânduri de control
+    for row in _PROGRAM_CONTROL_ROWS:
+        cells = table.add_row().cells
+        for cell, txt, w in zip(cells, row, _PROGRAM_CONTROL_WIDTHS):
+            _program_cell(cell, txt, w)
+
+    set_table_borders(table)  # chenare vizibile (stil DTAC)
+
+    _blank(doc, 1)
+    _add_centered(doc, "Proiectant de specialitate", size=11, bold=True)
+    _add_centered(doc, cf.get("firma_nume", ""), size=11, bold=False)
+    _add_centered(doc, cf.get("proiectant_nume", ""), size=11, bold=False)
+
+
+# =============================================================================
 # ENTRYPOINT
 # =============================================================================
 
@@ -758,6 +855,7 @@ def build_memoriu_docx(data: dict) -> bytes:
         # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
         _page_brevier(doc, cp, cf, circuits, power_summary)
         _page_faze_determinante(doc, cp, cf)
+        _page_program_control(doc, cp, cf)
 
     buf = io.BytesIO()
     doc.save(buf)
