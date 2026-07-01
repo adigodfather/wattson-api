@@ -916,6 +916,8 @@ export function ZynapseConfigurator() {
   const [stepIndex, setStepIndex] = useState(0);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [finalizeLoading, setFinalizeLoading] = useState(false);   // Faza 2b: "Finalizeaza" genereaza docs
+  const [finalizeErr, setFinalizeErr] = useState<string | null>(null);
   const [motors, setMotors] = useState<Motor[]>([]);
 
   // Height regime (manual controls)
@@ -1521,6 +1523,50 @@ export function ZynapseConfigurator() {
   const handleFinalize = () => {
     router.push("/projects");
   };
+
+  // Faza 2b — "Finalizeaza documentele": genereaza schema monofilara + memoriu + BOM din datele
+  // FINALE ale proiectului (via /api/finalize -> webhook n8n zynapse-finalize), le stocheaza in
+  // result_data si marcheaza finalized=true. Model de UI: handleRegenerated. Proiect fara editor
+  // (non-PT, fara aceste documente) -> cade pe iesirea clasica.
+  async function handleFinalizeDocs() {
+    if (!result || !savedProjectId) { handleFinalize(); return; }
+    setFinalizeLoading(true);
+    setFinalizeErr(null);
+    try {
+      const res = await fetch("/api/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: savedProjectId }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.success === false || data?.error) {
+        setFinalizeErr(data?.error || "Finalizare esuata.");
+        setFinalizeLoading(false);
+        return;
+      }
+      // Merge documentele proaspete in result + persista result_data + finalized=true (o singura scriere).
+      const updated: ProjectResult = {
+        ...result,
+        schemas: data.schemas ?? result.schemas,
+        schema_monofilara_pdf: data.schema_monofilara_pdf ?? result.schema_monofilara_pdf,
+        memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
+        bom: data.bom ?? result.bom,
+      };
+      setResult(updated);
+      const supabase = createClient();
+      const { error } = await supabase.from("projects")
+        .update({ result_data: updated, finalized: true }).eq("id", savedProjectId);
+      if (error) {
+        setFinalizeErr("Documente generate, dar salvarea a esuat: " + error.message);
+        setFinalizeLoading(false);
+        return;
+      }
+      router.push("/projects");
+    } catch (e) {
+      setFinalizeErr(e instanceof Error ? e.message : "Eroare de retea.");
+      setFinalizeLoading(false);
+    }
+  }
 
   // "Editor Plan Forta" (S2): iluminatul e DEJA salvat (plan_elements persistat + IE.1/regenerated).
   // Comuta editorul pe forta -> load useEffect din PlanEditor (dep mode) reincarca elementele forta.
@@ -2263,7 +2309,7 @@ export function ZynapseConfigurator() {
                 } else if (fazaFlux === "iluminat-gata") {
                   label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
                 } else {   // fazaFlux === "forta"
-                  label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+                  label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }
               } else if (modeEditor === "iluminat") {
                 // ── MULTI-ETAJ · faza ILUMINAT: toate etajele întâi (ordinea Dan) ──
@@ -2285,8 +2331,12 @@ export function ZynapseConfigurator() {
                 } else if (nextIdx !== undefined) {
                   label = `Forță ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "forta"); variant = "blue";
                 } else {
-                  label = "Finalizare proiect →"; onClick = handleFinalize; variant = "green";
+                  label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }
+              }
+              // Faza 2b: cat timp genereaza documentele la finalizare -> buton dezactivat + eticheta de progres.
+              if (onClick === handleFinalizeDocs && finalizeLoading) {
+                label = "Se generează documentele…"; disabled = true; onClick = undefined;
               }
               const grad = variant === "blue"
                 ? { background: "linear-gradient(135deg, #2870C2 0%, #378ADD 100%)", boxShadow: "0 0 24px rgba(55,138,221,0.30)" }
@@ -2303,6 +2353,7 @@ export function ZynapseConfigurator() {
                     </button>
                   </div>
                   {hint && <div className="text-right text-[11px] mt-2" style={{ color: "#C8A04D" }}>{hint}</div>}
+                  {finalizeErr && <div className="text-right text-[11px] mt-2" style={{ color: "#F09595" }}>{finalizeErr}</div>}
                 </div>
               );
             })()}
