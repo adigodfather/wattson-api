@@ -87,7 +87,9 @@ const isPanelType = (t: string) => PANEL_SET.has(t);
 const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
+const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
+const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -291,6 +293,25 @@ export default function PlanEditor({
   // R2: auto-generare prize (mode forta) — stare buton + feedback inline.
   const [genLoading, setGenLoading] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
+  // Faza 3 priza de pamant: mod desenare manuala (click succesiv pe conturul fundatiei).
+  const [drawingGround, setDrawingGround] = useState(false);
+  const [groundPts, setGroundPts] = useState<number[][]>([]);            // colturi fixate (puncte PDF)
+  const [groundHover, setGroundHover] = useState<[number, number] | null>(null);   // rubber-band live
+  // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
+  // fara re-render intre ele, deci finishDrawGround trebuie sa vada colturile adaugate in acelasi gest.
+  const groundPtsRef = useRef<number[][]>([]);
+  // Escape anuleaza / Enter finalizeaza cat timp desenam (finishDrawGround citeste ref-ul -> puncte curente).
+  useEffect(() => {
+    if (!drawingGround) return;
+    const onKey = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (ev.key === "Escape") { ev.preventDefault(); cancelDrawGround(); }
+      else if (ev.key === "Enter") { ev.preventDefault(); void finishDrawGround(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawingGround]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -637,6 +658,69 @@ export default function PlanEditor({
     if (i === 0) { patch.x = pts[0][0]; patch.y = pts[0][1]; }
     setLocalField(el.id, patch);
     persist(el.id, patch);
+  }
+
+  // ── Faza 3: priza de pamant — desenare manuala prin click succesiv pe colturile fundatiei. ──
+  function startDrawGround() {
+    setSelectedId(null);            // fara selectie activa cat desenam
+    groundPtsRef.current = [];
+    setGroundPts([]);
+    setGroundHover(null);
+    setDrawingGround(true);
+  }
+  function cancelDrawGround() {
+    setDrawingGround(false);
+    groundPtsRef.current = [];
+    setGroundPts([]);
+    setGroundHover(null);
+  }
+  // click pe canvas (mod desenare) -> adauga un colt (puncte PDF). Ref-ul se actualizeaza SINCRON (vezi nota la
+  // groundPtsRef) ca dublu-click-ul de finalizare sa vada si colturile plasate in acelasi gest.
+  function addGroundPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const next = [...groundPtsRef.current, [pos.x / scale, pos.y / scale]];
+    groundPtsRef.current = next;
+    setGroundPts(next);
+  }
+  // mousemove -> rubber-band de la ultimul colt fixat la cursor
+  function moveGroundHover(e: KonvaEventObject<MouseEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    setGroundHover([pos.x / scale, pos.y / scale]);
+  }
+  // finalizeaza: INSERT ground_electrode_path (min 3 colturi). floor din PROP (nu elements[0] -> evita bug latent).
+  async function finishDrawGround() {
+    const raw = groundPtsRef.current || [];
+    // dedup colturi consecutive ~identice (ex. cele 2 click-uri ale unui dublu-click pe acelasi punct)
+    const pts: number[][] = [];
+    for (const p of raw) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.5) pts.push([p[0], p[1]]);
+    }
+    if (pts.length < 3) return;     // un contur are nevoie de minim 3 colturi
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),   // PROP curent (parter), NU elements[0]?.floor
+      element_type: "ground_electrode_path",
+      plan_type: "forta",
+      label: null as string | null,
+      room: null as string | null,
+      x: pts[0][0],
+      y: pts[0][1],                 // ancora = coltul 0 (sincron cu NOT NULL x,y)
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,
+      cable_path: pts,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT priza de pamant esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+    setDrawingGround(false);
+    groundPtsRef.current = [];
+    setGroundPts([]);
+    setGroundHover(null);
   }
 
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
@@ -1059,6 +1143,39 @@ export default function PlanEditor({
     );
   };
 
+  // Faza 3: sectiunea priza de pamant (fundatie) — buton de desenare, DOAR plan forta + parter.
+  const renderGroundingSection = () => {
+    if (mode !== "forta" || floorCanonic(floor) !== "parter") return null;
+    const existing = elements.find(e => isGroundType(e.element_type)) || null;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Priză de pământ (fundație)
+        </div>
+        {existing ? (
+          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
+            Priză adăugată — șterge-o ca s-o redesenezi.
+            <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
+          </div>
+        ) : drawingGround ? (
+          <div style={{ paddingLeft: 2 }}>
+            <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+              Click pe fiecare colț al fundației · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+            </div>
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="zy-add-btn" onClick={() => void finishDrawGround()} disabled={groundPts.length < 3}>Finalizează</button>
+              <button type="button" className="zy-add-btn" onClick={cancelDrawGround}>Anulează</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={startDrawGround}>+ Desenează priza de pământ</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -1094,6 +1211,7 @@ export default function PlanEditor({
           {mode === "forta" && renderPrizaSection()}
           {renderLegendSection()}
           {renderTraseuSection()}
+          {renderGroundingSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
@@ -1157,7 +1275,7 @@ export default function PlanEditor({
                   />
                 ))}
                 {ordered.map((el) => {
-                  if (isTraseuType(el.element_type)) return null;   // traseu (dunga) randat separat (Line + capete)
+                  if (isTraseuType(el.element_type) || isGroundType(el.element_type)) return null;   // traseu + priza de pamant randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -1255,6 +1373,42 @@ export default function PlanEditor({
                     </Group>
                   );
                 })}
+                {/* Faza 3: priza de pamant EXISTENTA — poligon inchis portocaliu, read-only (editare = follow-up). */}
+                {elements.filter(e => isGroundType(e.element_type)).map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <Line key={el.id} points={flat} closed stroke={COL_GROUND} strokeWidth={2.5}
+                          lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
+                  );
+                })}
+                {/* Faza 3: MOD DESENARE — strat de captura (blocheaza elementele existente) + preview rubber-band. */}
+                {drawingGround && (() => {
+                  const previewPts = groundHover ? [...groundPts, groundHover] : groundPts;
+                  const flat = previewPts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  const first = groundPts[0], lastFixed = groundPts[groundPts.length - 1];
+                  return (
+                    <>
+                      <Rect x={0} y={0} width={pngW} height={pngH} fill="transparent" listening
+                            onClick={addGroundPoint} onTap={addGroundPoint}
+                            onMouseMove={moveGroundHover}
+                            onDblClick={() => void finishDrawGround()} onDblTap={() => void finishDrawGround()}
+                            onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      {previewPts.length >= 2 && (
+                        <Line points={flat} stroke={COL_GROUND} strokeWidth={2} dash={[6, 4]}
+                              lineCap="round" lineJoin="round" opacity={0.9} listening={false} />
+                      )}
+                      {groundPts.length >= 3 && first && lastFixed && (
+                        <Line points={[lastFixed[0] * scale, lastFixed[1] * scale, first[0] * scale, first[1] * scale]}
+                              stroke={COL_GROUND} strokeWidth={1.2} dash={[3, 4]} opacity={0.5} listening={false} />
+                      )}
+                      {groundPts.map((p, i) => (
+                        <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={4}
+                                fill="#fff" stroke={COL_GROUND} strokeWidth={2} listening={false} />
+                      ))}
+                    </>
+                  );
+                })()}
               </Layer>
             </Stage>
           )}
