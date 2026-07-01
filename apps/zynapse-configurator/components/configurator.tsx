@@ -1696,15 +1696,24 @@ export function ZynapseConfigurator() {
                 </div>
                 {user && (() => {
                   const bal = profile?.credits_balance ?? 0;
-                  return bal >= zcoins ? (
-                    <div className="mt-2 text-[11px]" style={{ color: "#3ECFA0" }}>
-                      Se vor consuma {fmt(zcoins)} Z-Coins · sold: {fmt(bal)}
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-[11px]" style={{ color: "#F09595" }}>
-                      Sold insuficient: ai {fmt(bal)}, ai nevoie de {fmt(zcoins)}.{" "}
-                      <Link href="/home" style={{ color: "#F09595", textDecoration: "underline" }}>Cumpără credite</Link>
-                    </div>
+                  const enough = bal >= zcoins;
+                  return (
+                    <>
+                      {/* Sold curent (gri, discret) + sold ramas dupa scaderea costului (verde / eroare rosie) */}
+                      <div className="mt-2 text-[11px]" style={{ color: "#8B8FA8" }}>
+                        Sold curent: {fmt(bal)} Z-Coins
+                      </div>
+                      {enough ? (
+                        <div className="mt-0.5 text-[11px]" style={{ color: "#3ECFA0" }}>
+                          Sold după consum: {fmt(bal - zcoins)} Z-Coins
+                        </div>
+                      ) : (
+                        <div className="mt-0.5 text-[11px]" style={{ color: "#F09595" }}>
+                          Sold insuficient: ai {fmt(bal)}, ai nevoie de {fmt(zcoins)}.{" "}
+                          <Link href="/home" style={{ color: "#F09595", textDecoration: "underline" }}>Cumpără credite</Link>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
