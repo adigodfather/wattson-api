@@ -921,6 +921,45 @@ def _project_point_on_polyline(p, pts):
     return best[1], best[2], best[3]
 
 
+# ── Priza de pamant (grounding): platbanda 40x4 OL-Zn pe conturul fundatiei + legatura 20x2 la TEG. ──
+_GROUND_COLOR = (0.95, 0.45, 0.05)     # PORTOCALIU — distinct de rosu (iluminat) si albastru (_PRIZA_COLOR forta)
+_GROUND_PLATBANDA_WIDTH = 1.8          # priza 40x4 = cea mai groasa (40x4 > 20x2 > cabluri normale 0.8)
+_GROUND_LEGATURA_WIDTH = 1.2           # legatura TEG->priza 20x2 (mai subtire ca platbanda, mai groasa ca cablurile)
+
+
+def _draw_ground_electrode(page, el_ground, teg_xy=None):
+    """Deseneaza priza de pamant trasata manual de inginer (element ground_electrode_path):
+      - platbanda 40x4 = poligon INCHIS solid portocaliu pe punctele cable_path (conturul fundatiei);
+      - (optional) legatura 20x2 = segment perpendicular TEG -> cel mai apropiat punct de pe contur.
+    cable_path = puncte PDF (>=2). teg_xy=(x,y) sau None (TEG lipsa pe plansa -> DOAR platbanda).
+    Defensiv: cable_path lipsa/malformat -> nu deseneaza nimic (return False, nu crapa).
+    Returneaza True daca a desenat platbanda."""
+    cp = el_ground.get("cable_path")
+    if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+        return False
+    pts = []
+    for p in cp:
+        try:
+            pts.append(fitz.Point(float(p[0]), float(p[1])))
+        except (TypeError, ValueError, IndexError):
+            return False
+    if len(pts) < 2:
+        return False
+    # Platbanda: poligon INCHIS solid (closePath adauga latura ultimul->primul). Fara fill (e o linie, nu suprafata).
+    page.draw_polyline(pts, color=_GROUND_COLOR, width=_GROUND_PLATBANDA_WIDTH, closePath=True)
+    # Legatura TEG->priza: perpendiculara pe cel mai apropiat segment al conturului INCHIS.
+    if teg_xy is not None:
+        try:
+            tx, ty = float(teg_xy[0]), float(teg_xy[1])
+        except (TypeError, ValueError, IndexError):
+            return True
+        ring = [(pt.x, pt.y) for pt in pts] + [(pts[0].x, pts[0].y)]   # inchide inelul pt. proiectie
+        proj, _seg, _t = _project_point_on_polyline((tx, ty), ring)
+        page.draw_line(fitz.Point(tx, ty), fitz.Point(proj[0], proj[1]),
+                       color=_GROUND_COLOR, width=_GROUND_LEGATURA_WIDTH)
+    return True
+
+
 _BUNDLE_GAP = 3.0   # MANUNCHI: offset lateral (pt) intre cabluri care converg pe ACEEASI dunga (paralele, nu suprapuse)
 
 
@@ -1476,7 +1515,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
         elements = [el for el in (elements or [])
                     if ((el or {}).get("plan_type") or "iluminat") in (draw_plan_type, "ambele")]
-        n_bulb = n_sw = n_panel = n_priza = n_skip = 0
+        n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
@@ -1490,6 +1529,15 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_cable += 1
         except Exception:
             n_cable = 0
+        # Priza de pamant: pozitia TEG (o singura data/pagina) pt. legatura perpendiculara TEG->contur.
+        _teg = next((e for e in (elements or [])
+                     if ((e or {}).get("element_type") or "") == "tablou_teg"), None)
+        _teg_xy = None
+        if _teg is not None:
+            try:
+                _teg_xy = (float(_teg["x"]), float(_teg["y"]))
+            except (TypeError, ValueError, KeyError):
+                _teg_xy = None
         # SIMBOLURILE deasupra cablurilor (bucla existenta, neschimbata)
         for el in (elements or []):
             try:
@@ -1513,6 +1561,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_priza += 1
             elif et == "legenda":
                 continue                                                             # caseta legenda = overlay separat (L3); NU simbol, NU skip
+            elif et == "ground_electrode_path":
+                # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
+                if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
+                    n_ground += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
         # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
@@ -1533,7 +1585,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
                          "prizas_drawn": n_priza, "cables_drawn": n_cable, "skipped": n_skip,
-                         "legend_drawn": n_legend},
+                         "legend_drawn": n_legend, "ground_drawn": n_ground},
             # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
             # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
             "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],
