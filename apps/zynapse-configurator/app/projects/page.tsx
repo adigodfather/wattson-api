@@ -51,10 +51,11 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!user) return;
     const supabase = createClient();
-    // faza = result_data->>phase (extras lejer, NU tot result_data)
+    // phase = coloana generata STORED (result_data->>'phase' materializat) -> lista NU mai detoasteaza
+    // intreg result_data (~4.8MB/rand). Toate coloanele de aici sunt scalare mici (zero result_data).
     const pProjects = supabase
       .from("projects")
-      .select("id, project_id, building_type, levels, heating_type, status, created_at, phase:result_data->>phase")
+      .select("id, project_id, building_type, levels, heating_type, status, created_at, phase")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     // costul de generare: legatura curata pe project_id (coloana noua)
