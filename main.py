@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from schema_generator import (
     SchemaRequest as SchemaRequestV2,
     generate_schema_pdf,
@@ -130,18 +130,42 @@ app = FastAPI(
     version="4.0.0",
 )
 
+# CORS restrans la domeniile proprii: nimeni legitim nu apeleaza API-ul din BROWSER
+# (toti apelantii sunt server-side: n8n + rutele Next de pe Vercel — verificat in audit).
+# allow_credentials scos (invalid oricum cu wildcard; nu folosim cookies).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["https://www.zynapse.org", "https://zynapse.org"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── AUTENTIFICARE INTERNA (x-zynapse-key) — ACTIVARE CONDITIONATA ──
+# Env ZYNAPSE_INTERNAL_KEY NESETAT -> middleware NO-OP (comportament identic cu inainte;
+# deploy fara risc). SETAT -> toate endpoint-urile cer header-ul x-zynapse-key cu valoarea
+# exacta (403 altfel), cu exceptia GET / si /health (monitorizare Render) si a preflight-urilor
+# OPTIONS (le raspunde CORSMiddleware). Apelantii legitimi trimit deja cheia: rutele Vercel
+# (extract-geometry, regenerate-plan, vision-rooms) + nodurile n8n (credential/env).
+# Rollback: stergi env-ul de pe Render -> redevine no-op.
+_PUBLIC_PATHS = {"/", "/health"}
+
+
+@app.middleware("http")
+async def _require_zynapse_key(request, call_next):
+    expected = (os.environ.get("ZYNAPSE_INTERNAL_KEY") or "").strip()
+    if expected and request.method != "OPTIONS" and request.url.path not in _PUBLIC_PATHS:
+        if (request.headers.get("x-zynapse-key") or "").strip() != expected:
+            return JSONResponse({"error": "Unauthorized"}, status_code=403)
+    return await call_next(request)
+
 
 logger.info("=== ZYNAPSE STARTUP ===")
 logger.info(f"SUPABASE_URL set: {bool(os.environ.get('SUPABASE_URL'))}")
 logger.info(f"SUPABASE_SERVICE_KEY set: {bool(os.environ.get('SUPABASE_SERVICE_KEY'))}")
 logger.info(f"ANTHROPIC_API_KEY set: {bool(os.environ.get('ANTHROPIC_API_KEY'))}")
+logger.info(f"ZYNAPSE_INTERNAL_KEY set (auth activa): {bool(os.environ.get('ZYNAPSE_INTERNAL_KEY'))}")
 
 # -------------------------------------------------
 #  CONSTANTE
