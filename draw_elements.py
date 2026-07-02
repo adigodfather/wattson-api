@@ -145,15 +145,56 @@ def _bulb_label(element_type, power_w, circuit_id=None):
     return "{} - {}".format(cid, txt) if cid else txt   # fara circuit_id -> eticheta veche (backward-compat)
 
 
-def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
-    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil). Prefix circuit (C1/C2/C1-TECT)."""
+def _bulb_label_spec(cx, cy, element_type, power_w, circuit_id=None):
+    """Spec eticheta bec (pozitia DE BAZA, identica cu desenul vechi): text centrat pe cx, DEASUPRA
+    simbolului (top din _BULB_TOP). None daca nu e nimic de scris. Desenul efectiv = _draw_label_spec."""
     txt = _bulb_label(element_type, power_w, circuit_id)
     if not txt:
-        return
+        return None
     fs = 9.0                                      # putin mai mare (era 7.5)
     w = len(txt) * fs * 0.50                      # latime aproximativa (centrare; bold = chars mai late)
     top = _BULB_TOP.get(element_type, 10)
-    page.insert_text(fitz.Point(cx - w / 2.0, cy - top - 5.0), txt, fontsize=fs, fontname="hebo", color=RED)  # hebo = Helvetica BOLD
+    return {"text": txt, "x0": cx - w / 2.0, "y": cy - top - 5.0, "w": w, "fs": fs,
+            "font": "hebo", "color": RED}         # hebo = Helvetica BOLD
+
+
+def _draw_label_spec(page, sp):
+    """Deseneaza un spec de eticheta (x0 = stanga, y = baseline)."""
+    page.insert_text(fitz.Point(sp["x0"], sp["y"]), sp["text"],
+                     fontsize=sp["fs"], fontname=sp["font"], color=sp["color"])
+
+
+def _resolve_label_overlaps(specs, pad=1.0, max_steps=40):
+    """ANTI-COLIZIUNE etichete (becuri + prize, comuna): etichetele care s-ar suprapune se STIVUIESC
+    IN SUS (in sus = departe de simbol, care e mereu SUB eticheta lui — in jos ar intra peste simbol).
+    Ordine determinista (y, x0): cea mai de sus/stanga ramane PE LOC, urmatoarea urca cate un rand
+    (fs+2) pana nu mai atinge nimic. Etichetele fara suprapunere NU se misca deloc (pozitia de baza
+    ramane identica cu desenul vechi). Muta DOAR pozitia etichetelor — simboluri/text neatinse."""
+    def bb(sp):
+        return (sp["x0"] - pad, sp["y"] - sp["fs"] - pad, sp["x0"] + sp["w"] + pad, sp["y"] + pad)
+
+    def hit(a, b):
+        return a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+
+    placed = []
+    for i in sorted(range(len(specs)), key=lambda k: (round(specs[k]["y"], 1), round(specs[k]["x0"], 1))):
+        sp = specs[i]
+        step = sp["fs"] + 2.0
+        for _ in range(max_steps):
+            b = bb(sp)
+            if not any(hit(b, p) for p in placed):
+                break
+            sp["y"] -= step
+        placed.append(bb(sp))
+    return specs
+
+
+def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
+    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil). Prefix circuit (C1/C2/C1-TECT).
+    Desen IMEDIAT (fara anti-coliziune) — redraw_from_plan_elements foloseste spec+resolve in loc."""
+    sp = _bulb_label_spec(cx, cy, element_type, power_w, circuit_id)
+    if sp:
+        _draw_label_spec(page, sp)
 
 
 # ── C4: simbol PRIZA pe PDF (semicerc curba SUS + 2 contacte) + eticheta "C{circuit} - h={h}m". ──
@@ -225,16 +266,24 @@ def _priza_label(el):
     return " - ".join(parts)
 
 
-def _draw_priza_label(page, cx, cy, el):
-    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (albastru, ca simbolul).
+def _priza_label_spec(cx, cy, el):
+    """Spec eticheta priza (pozitia DE BAZA, identica cu desenul vechi): DEASUPRA prizei, centrata pe cx.
     Offset -24 (era -16): simbolul marit 1.6x + caseta IP44 urca pana la ~-17.6 -> etichetei
-    ii trebuie mai mult aer ca sa nu se suprapuna."""
+    ii trebuie mai mult aer ca sa nu se suprapuna. None daca nu e nimic de scris."""
     txt = _priza_label(el)
     if not txt:
-        return
+        return None
     fs = 7.5
     w = len(txt) * fs * 0.46
-    page.insert_text(fitz.Point(cx - w / 2.0, cy - 24.0), txt, fontsize=fs, fontname="helv", color=_PRIZA_COLOR)
+    return {"text": txt, "x0": cx - w / 2.0, "y": cy - 24.0, "w": w, "fs": fs,
+            "font": "helv", "color": _PRIZA_COLOR}
+
+
+def _draw_priza_label(page, cx, cy, el):
+    """Eticheta prizei, desen IMEDIAT (fara anti-coliziune) — redraw foloseste spec+resolve in loc."""
+    sp = _priza_label_spec(cx, cy, el)
+    if sp:
+        _draw_label_spec(page, sp)
 
 
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
@@ -1621,7 +1670,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _teg_xy = (float(_teg["x"]), float(_teg["y"]))
             except (TypeError, ValueError, KeyError):
                 _teg_xy = None
-        # SIMBOLURILE deasupra cablurilor (bucla existenta, neschimbata)
+        # SIMBOLURILE deasupra cablurilor. Etichetele (bec + priza) NU se mai deseneaza imediat:
+        # se COLECTEAZA ca spec-uri si se deseneaza DUPA toate simbolurile, cu anti-coliziune
+        # (_resolve_label_overlaps) — etichetele suprapuse se stivuiesc in sus, restul raman pe loc.
+        _labels = []
         for el in (elements or []):
             try:
                 et = (el.get("element_type") or "")
@@ -1630,7 +1682,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 continue
             if et in _BULB_TYPES:
                 _draw_bulb(page, x, y, et, y_offset=0)                               # forma PE TIP (1b)
-                _draw_bulb_label(page, x, y, et, el.get("power_w"), el.get("circuit_id"))   # eticheta + prefix circuit
+                _sp = _bulb_label_spec(x, y, et, el.get("power_w"), el.get("circuit_id"))   # eticheta + prefix circuit
+                if _sp:
+                    _labels.append(_sp)
                 n_bulb += 1
             elif et in _SWITCH_TYPES:
                 _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
@@ -1640,7 +1694,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_panel += 1
             elif et in _PRIZA_TYPES:
                 _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0))   # simbol rotit pe perete
-                _draw_priza_label(page, x, y, el)                                    # eticheta "C{circuit} - h={h}m"
+                _sp = _priza_label_spec(x, y, el)                                    # eticheta "C{circuit} - h={h}m"
+                if _sp:
+                    _labels.append(_sp)
                 n_priza += 1
             elif et == "legenda":
                 continue                                                             # caseta legenda = overlay separat (L3); NU simbol, NU skip
@@ -1650,6 +1706,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     n_ground += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
+        # ETICHETELE deasupra tuturor simbolurilor, cu anti-coliziune. Defensiv: orice eroare la
+        # rezolvare NU strica planul — fallback la pozitiile de baza (comportamentul vechi).
+        try:
+            _labels = _resolve_label_overlaps(_labels)
+        except Exception:
+            pass
+        for _sp in _labels:
+            _draw_label_spec(page, _sp)
         # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
         n_legend = 0
         try:
