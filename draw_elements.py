@@ -1631,6 +1631,35 @@ def assign_circuits(elements, rooms, W, H):
             "n_circuits": info["n_circuits"], "circuits": info["circuits"], "updates": updates}
 
 
+def _apply_cartus_suffix(doc, page, suffix):
+    """Titlul plansei PER TIP in cartusul Zynapse ("... DE ILUMINAT" / "... DE FORTA"):
+    citeste celula titlului din metadata PDF (scrisa de cartus_swap la swap) si rescrie
+    DOAR acea celula cu titlul de baza + sufix. PDF fara metadata (vechi / cartus nedetectat)
+    -> no-op, planul ramane neatins. Defensiv: orice eroare -> no-op."""
+    try:
+        kw = (doc.metadata or {}).get("keywords") or ""
+        m = re.search(r"zy_cartus_title=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)\|(.+)", kw)
+        if not m:
+            return False
+        x0, y0, x1, y1 = (float(m.group(i)) for i in range(1, 5))
+        base = m.group(5).strip()
+        full = "{} {}".format(base, suffix).strip()
+        from cartus_swap import _ctext, _wrap2   # acelasi randare ca la desenul cartusului
+        page.draw_rect(fitz.Rect(x0 + 1.0, y0 + 1.0, x1 - 1.0, y1 - 1.0),
+                       color=(1, 1, 1), fill=(1, 1, 1))       # goleste DOAR interiorul celulei
+        rh = (y1 - y0) / 2.0
+        big = max(5.5, min(9.0, rh * 0.78))
+        lines = _wrap2(full, "hebo", big, (x1 - x0) - 6.0)[:2]
+        if len(lines) == 1:
+            _ctext(page, x0, x1, y0 + rh * 1.30, lines[0], big, bold=True)
+        else:
+            for i, ln in enumerate(lines):
+                _ctext(page, x0, x1, y0 + rh * (0.85 + i * 0.95), ln, big, bold=True)
+        return True
+    except Exception:
+        return False
+
+
 def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat") -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
@@ -1643,6 +1672,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         pdf_bytes = base64.b64decode(raw)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
+        # Titlul cartusului PER TIP de plansa (din metadata scrisa la swap; no-op daca lipseste)
+        _apply_cartus_suffix(doc, page, "DE ILUMINAT" if draw_plan_type == "iluminat" else "DE FORTA")
         # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
         elements = [el for el in (elements or [])
@@ -1761,6 +1792,9 @@ def draw_plan_elements(data: dict) -> dict:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
         W, H = page.rect.width, page.rect.height
+        # Titlul cartusului: plansa generata aici e ILUMINAT (n8n "Draw Iluminat Plan").
+        # No-op daca PDF-ul nu are metadata de cartus (vechi / cartus nedetectat la swap).
+        _apply_cartus_suffix(doc, page, "DE ILUMINAT")
 
         # Geometrie CAD (centroizi perete-la-perete) DOAR pe faza PT (apply_geometry din n8n).
         # Defensiv: ORICE eroare -> geoms=None -> fallback TOTAL la centrul bbox Vision.

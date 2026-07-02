@@ -140,28 +140,112 @@ def _detect_tables_bbox(page, W: float, H: float, cy0: float):
     return rect
 
 
-def _line(page, x, y_base, text, size, bold=False, max_w=None):
-    """Scrie o linie de text la baseline (insert_text NU pica silentios pe overflow,
-    spre deosebire de insert_textbox). Trunchiaza daca depaseste latimea disponibila."""
+# Diacritice -> ASCII cu pastrarea CASE-ului (helv/hebo base14 nu au s/t-comma; Excelul
+# de referinta CARTUS.xlsx e oricum fara diacritice: "INSTALATII", "Plansa nr.").
+_DIAC_CASE = {"ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t",
+              "Ă": "A", "Â": "A", "Î": "I", "Ș": "S", "Ş": "S", "Ț": "T", "Ţ": "T"}
+
+
+def _txt(s):
+    return "".join(_DIAC_CASE.get(c, c) for c in str(s or ""))
+
+
+def _fit(text, font, size, max_w, min_size=4.0):
+    """Micsoreaza fontul pana incape; apoi trunchiaza cu '…'. Intoarce (text, size)."""
+    text = _txt(text)
+    while size > min_size and fitz.get_text_length(text, fontname=font, fontsize=size) > max_w:
+        size -= 0.25
+    while len(text) > 1 and fitz.get_text_length(text, fontname=font, fontsize=size) > max_w:
+        text = text[:-2].rstrip() + "…"
+    return text, size
+
+
+def _ctext(page, cx0, cx1, y_base, text, size, bold=False):
+    """Text CENTRAT orizontal intre cx0..cx1, la baseline y_base (cu fit pe latime)."""
     if not text:
         return
     font = "hebo" if bold else "helv"
-    if max_w:
-        # trunchiere aproximativa: ~0.5*size latime medie per caracter (Helvetica)
-        max_chars = max(4, int(max_w / (size * 0.5)))
-        if len(text) > max_chars:
-            text = text[:max_chars - 1] + "…"
-    page.insert_text(fitz.Point(x, y_base), text, fontsize=size,
-                     fontname=font, color=(0, 0, 0))
+    text, size = _fit(text, font, size, (cx1 - cx0) - 3.0)
+    w = fitz.get_text_length(text, fontname=font, fontsize=size)
+    page.insert_text(fitz.Point((cx0 + cx1 - w) / 2.0, y_base), text,
+                     fontsize=size, fontname=font, color=(0, 0, 0))
+
+
+def _pair_text(page, cx0, cx1, y_base, label, value, lsize, vsize):
+    """'Eticheta: Valoare' centrat in celula — eticheta helv mica + valoarea hebo bold."""
+    label, value = _txt(label), _txt(value)
+    max_w = (cx1 - cx0) - 3.0
+    lw = fitz.get_text_length(label, fontname="helv", fontsize=lsize)
+    value, vsize = _fit(value, "hebo", vsize, max(6.0, max_w - lw - 2.0))
+    vw = fitz.get_text_length(value, fontname="hebo", fontsize=vsize)
+    sx = (cx0 + cx1 - (lw + 2.0 + vw)) / 2.0
+    page.insert_text(fitz.Point(sx, y_base), label, fontsize=lsize, fontname="helv", color=(0, 0, 0))
+    if value:
+        page.insert_text(fitz.Point(sx + lw + 2.0, y_base), value, fontsize=vsize, fontname="hebo", color=(0, 0, 0))
+
+
+def _wrap2(text, font, size, max_w):
+    """Titlu pe 1 sau 2 linii: daca nu incape pe o linie, rupe la spatiul cel mai apropiat de mijloc."""
+    text = _txt(text)
+    if fitz.get_text_length(text, fontname=font, fontsize=size) <= max_w or " " not in text:
+        return [text]
+    words = text.split()
+    best, best_d = 1, 1e9
+    for i in range(1, len(words)):
+        d = abs(fitz.get_text_length(" ".join(words[:i]), fontname=font, fontsize=size) -
+                fitz.get_text_length(" ".join(words[i:]), fontname=font, fontsize=size))
+        if d < best_d:
+            best, best_d = i, d
+    return [" ".join(words[:best]), " ".join(words[best:])]
+
+
+def _logo_bytes(url):
+    if not url:
+        return None
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return resp.content
+    except Exception:
+        return None
 
 
 def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
+    """Cartus nou pe structura CARTUS.xlsx: grila 10 randuri x 3 zone verticale.
+      STANGA (~29.5%): titlu proiectant (2r) | SIGLA (4r) | DATE DE CONTACT (1r) | date firma (3r)
+      MIJLOC (~11.6%): 5 casute EGALE a cate 2 randuri (Plansa nr. / Scara / Faza / Nr. proiect / Data),
+                       eticheta mica sus + valoare bold jos, pe ACELEASI linii orizontale ca lateralele
+      DREAPTA (~58.9%): titlu plansa (2r) | semnaturi 2x2 (Sef proiect/Desenat, Proiectant/Verificat)
+                       | Beneficiar (2r) | Amplasament (2r) | Titlu proiect (2r)
+    Toate valorile AUTO (cf = setari firma, cp = date proiect, plansa_nr/titlu per plansa, scara
+    detectata, data = azi). Intoarce (title_rect, title_base) pt. metadata (titlu per tip de plansa)."""
     x0, y0, x1, y1 = bbox.x0, bbox.y0, bbox.x1, bbox.y1
     w, h = (x1 - x0), (y1 - y0)
+    # proportii din CARTUS.xlsx: H-J = 3 col default (25.29) | K = 10.0 | L-Q = 6 col default (50.58)
+    xa = x0 + w * 0.2946                       # granita STANGA | MIJLOC
+    xb = x0 + w * (0.2946 + 0.1164)            # granita MIJLOC | DREAPTA
+    rh = h / 10.0
+    ry = lambda k: y0 + k * rh                 # linia orizontala a randului k (0..10)
 
-    # Chenar exterior negru
-    page.draw_rect(bbox, color=(0, 0, 0), width=1.0)
+    # fonturi adaptive la inaltimea randului (aceleasi linii => aceleasi marimi peste tot)
+    lab = max(4.0, min(6.0, rh * 0.52))        # etichete mici
+    val = max(5.0, min(8.5, rh * 0.72))        # valori bold
+    big = max(5.5, min(9.0, rh * 0.78))        # titluri
 
+    BLACK = (0, 0, 0)
+    # ── GRILA: chenar + verticale + orizontale ALINIATE intre zone (aceeasi ry(k) peste tot) ──
+    page.draw_rect(bbox, color=BLACK, width=1.2)
+    page.draw_line(fitz.Point(xa, y0), fitz.Point(xa, y1), color=BLACK, width=0.8)
+    page.draw_line(fitz.Point(xb, y0), fitz.Point(xb, y1), color=BLACK, width=0.8)
+    xm = (xb + x1) / 2.0                       # mijlocul zonei DREAPTA (split semnaturi L-N | O-Q)
+    page.draw_line(fitz.Point(xm, ry(2)), fitz.Point(xm, ry(4)), color=BLACK, width=0.7)
+    for k, (lx0, lx1) in [(2, (x0, x1)), (6, (x0, x1)),          # linii comune tuturor zonelor
+                          (4, (xa, x1)), (8, (xa, x1)),          # mijloc + dreapta
+                          (3, (xb, x1)),                         # doar dreapta (semnaturi)
+                          (7, (x0, xa))]:                        # doar stanga (DATE DE CONTACT)
+        page.draw_line(fitz.Point(lx0, ry(k)), fitz.Point(lx1, ry(k)), color=BLACK, width=0.7)
+
+    # ── date AUTO ──
     firma_nume = cf.get("firma_nume", "") or ""
     reg = cf.get("firma_reg_com", "") or ""
     cui = cf.get("firma_cui", "") or ""
@@ -169,7 +253,7 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
     email = cf.get("firma_email", "") or ""
     sef = cf.get("sef_proiect", "") or ""
     proiectant = cf.get("proiectant_nume", "") or ""
-
+    verificat = sef                            # fara sursa proprie -> seful de proiect verifica (conventie)
     beneficiar = cp.get("beneficiar", "") or ""
     titlu_proiect = cp.get("titlu_proiect", "") or ""
     amplasament = cp.get("amplasament", "") or ""
@@ -177,61 +261,52 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
     faza = cp.get("faza", "") or ""
     data_azi = datetime.now().strftime("%d.%m.%Y")
 
-    reg_cui = "   ".join(filter(None, [
-        "Reg. Com. {}".format(reg) if reg else "",
-        "C.U.I. {}".format(cui) if cui else "",
-    ]))
-    tel_email = "   ".join(filter(None, [
-        "Tel. {}".format(tel) if tel else "",
-        email,
-    ]))
-
-    # Continut pe randuri: (text, size, bold)
-    rows = [
-        (firma_nume, 8, True),
-        (reg_cui, 6, False),
-        (tel_email, 6, False),
-        ("Beneficiar: {}".format(beneficiar), 7, False),
-        ("Amplasament: {}".format(amplasament), 7, False),
-        ("Lucrare: {}".format(titlu_proiect), 7, False),
-        ("Faza: {}    Proiect nr: {}    Data: {}".format(faza, numar_proiect, data_azi), 7, False),
-        ("Scara: {}    Plansa: {}".format(scara, plansa_nr), 7, True),
-        (plansa_titlu or "", 7, True),
-        ("Sef proiect: {}    Proiectat: {}    Desenat: {}".format(sef, proiectant, proiectant), 6, False),
-    ]
-
-    n = len(rows)
-    row_h = h / n
-    # Font adaptiv la inaltimea randului (cartus mic -> font mic, dar lizibil)
-    base_size = max(4.5, min(9.0, row_h * 0.7))
-    max_w = w - 8
-    for i, (text, size_pref, bold) in enumerate(rows):
-        size = min(size_pref, base_size + (1.0 if (bold and i == 0) else 0.0))
-        y_base = y0 + i * row_h + row_h * 0.72  # baseline catre baza randului
-        _line(page, x0 + 4, y_base, text, size, bold=bold, max_w=max_w)
-
-    # Linii separatoare: dupa header (rand 3) si inainte de semnaturi (ultimul rand)
-    page.draw_line(
-        fitz.Point(x0, y0 + 3 * row_h), fitz.Point(x1, y0 + 3 * row_h),
-        color=(0, 0, 0), width=0.5,
-    )
-    page.draw_line(
-        fitz.Point(x0, y1 - row_h), fitz.Point(x1, y1 - row_h),
-        color=(0, 0, 0), width=0.5,
-    )
-
-    # Logo optional (colt dreapta-sus al cartusului)
-    logo_url = cf.get("firma_logo_url", "") or ""
-    if logo_url:
+    # ── STANGA ──
+    for i, ln in enumerate(_wrap2("PROIECTANT DE SPECIALITATE INSTALATII ELECTRICE",
+                                  "hebo", big, (xa - x0) - 6.0)[:2]):
+        _ctext(page, x0, xa, ry(0) + rh * (0.85 + i * 0.95), ln, big, bold=True)
+    logo = _logo_bytes(cf.get("firma_logo_url", "") or "")
+    if logo:
         try:
-            resp = requests.get(logo_url, timeout=10)
-            resp.raise_for_status()
-            lw = min(28.0, w * 0.18)
-            lh = min(row_h * 1.6, 22.0)
-            img_rect = fitz.Rect(x1 - 3 - lw, y0 + 2, x1 - 3, y0 + 2 + lh)
-            page.insert_image(img_rect, stream=resp.content, keep_proportion=True)
+            page.insert_image(fitz.Rect(x0 + 4, ry(2) + 3, xa - 4, ry(6) - 3),
+                              stream=logo, keep_proportion=True)
         except Exception:
             pass
+    _ctext(page, x0, xa, ry(6) + rh * 0.72, "DATE DE CONTACT", val, bold=True)
+    reg_cui = "   ".join(filter(None, ["J {}".format(reg) if reg else "",
+                                       "C.U.I. {}".format(cui) if cui else ""]))
+    tel_email = "   ".join(filter(None, ["Tel. {}".format(tel) if tel else "", email]))
+    _ctext(page, x0, xa, ry(7) + rh * 0.78, firma_nume, val, bold=True)
+    _ctext(page, x0, xa, ry(8) + rh * 0.75, reg_cui, lab)
+    _ctext(page, x0, xa, ry(9) + rh * 0.72, tel_email, lab)
+
+    # ── MIJLOC: 5 casute egale (2 randuri), eticheta sus + valoare bold jos ──
+    for k, (label, value) in enumerate([("Plansa nr.", plansa_nr), ("Scara", scara),
+                                        ("Faza", faza), ("Nr. proiect", numar_proiect),
+                                        ("Data", data_azi)]):
+        _ctext(page, xa, xb, ry(2 * k) + rh * 0.80, label, lab)
+        _ctext(page, xa, xb, ry(2 * k) + rh * 1.78, value, val, bold=True)
+
+    # ── DREAPTA ──
+    title_base = _txt("{} INSTALATII ELECTRICE".format(plansa_titlu or "PLAN").strip())
+    title_rect = (xb, y0, x1, ry(2))           # celula titlului -> metadata (sufix per tip plansa)
+    lines = _wrap2(title_base, "hebo", big, (x1 - xb) - 6.0)[:2]
+    if len(lines) == 1:
+        _ctext(page, xb, x1, ry(0) + rh * 1.30, lines[0], big, bold=True)
+    else:
+        for i, ln in enumerate(lines):
+            _ctext(page, xb, x1, ry(0) + rh * (0.85 + i * 0.95), ln, big, bold=True)
+    _pair_text(page, xb, xm, ry(2) + rh * 0.72, "Sef proiect:", sef, lab, val)
+    _pair_text(page, xm, x1, ry(2) + rh * 0.72, "Desenat:", proiectant, lab, val)
+    _pair_text(page, xb, xm, ry(3) + rh * 0.72, "Proiectant:", proiectant, lab, val)
+    _pair_text(page, xm, x1, ry(3) + rh * 0.72, "Verificat:", verificat, lab, val)
+    for k, (label, value) in [(4, ("Beneficiar", beneficiar)),
+                              (6, ("Amplasament", amplasament)),
+                              (8, ("Titlu proiect", titlu_proiect))]:
+        _ctext(page, xb, x1, ry(k) + rh * 0.80, label, lab)
+        _ctext(page, xb, x1, ry(k) + rh * 1.78, value, val, bold=True)
+
+    return title_rect, title_base
 
 
 def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad_right=0.02,
@@ -367,7 +442,17 @@ def swap_cartus_plan(data: dict) -> dict:
     margins_bbox = _mask_margins(page, data.get("rooms"))
 
     # 6. Cartus nou (acelasi bbox, scara detectata)
-    _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
+    title_rect, title_base = _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
+
+    # 6b. Celula titlului -> metadata PDF: planasele derivate (iluminat/forta) rescriu DOAR titlul
+    # cu sufixul per tip ("... DE ILUMINAT" / "... DE FORTA") in draw_elements, FARA modificari n8n.
+    try:
+        doc.set_metadata({**(doc.metadata or {}),
+                          "keywords": "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
+                                      % (title_rect[0], title_rect[1], title_rect[2],
+                                         title_rect[3], title_base)})
+    except Exception:
+        pass  # metadata e optionala — fara ea titlul ramane cel generic
 
     out = doc.tobytes(deflate=True)
     doc.close()
