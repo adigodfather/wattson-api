@@ -14,6 +14,11 @@ export async function POST(request: NextRequest) {
 
     const res = await fetch(N8N_VISION_CARTUS_URL, {
       method: 'POST',
+      // FAZA 3A: secretul webhook-ului (n8n îl ignoră până activăm Header Auth pe nod — FAZA 3B).
+      // NU setăm Content-Type manual — fetch pune singur multipart boundary-ul pentru FormData.
+      headers: {
+        ...(process.env.N8N_WEBHOOK_SECRET ? { 'x-webhook-secret': process.env.N8N_WEBHOOK_SECRET } : {}),
+      },
       body: formData,
     });
 
