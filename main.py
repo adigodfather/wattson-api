@@ -3310,12 +3310,16 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
 
 class ExtractGeometryRequest(BaseModel):
     pdf_base64: str = ""   # cleanBasePdf (planuri[].pdf_base64) -> coordonate IDENTICE cu plan_elements x,y
+    rooms: List[dict] = []  # OPTIONAL (V4): camere Vision {name, area_m2, bbox} -> room_geoms (geom_bbox per camera)
 
 
 @app.post("/extract-geometry")
 def extract_geometry_endpoint(request: ExtractGeometryRequest):
     """P1: extrage peretii GLOBALI (segmente H/V) din PDF-ul curat, in PUNCTE PDF (acelasi spatiu ca
     plan_elements). Pt. snap prize pe perete (viitor). _collect = auto-detect layere (5/5 arhitecti).
+    V4 (aditiv): daca request.rooms e nenul -> intoarce si room_geoms (geom_bbox per camera, cu
+    fallback-ul ancora-eticheta din geometry.extract_room_geometry) -> perimetru corect la plasarea
+    prizelor in editor (camerele fara pereti completi: holuri/terase/open-space).
     Defensiv: fara layere de pereti -> walls:[]; orice eroare -> success:false + walls:[] (nu strica editorul)."""
     try:
         raw = request.pdf_base64 or ""
@@ -3325,7 +3329,8 @@ def extract_geometry_endpoint(request: ExtractGeometryRequest):
             return {"success": False, "error": "pdf_base64 lipseste", "walls": [], "doors": []}
         import fitz
         import geometry
-        doc = fitz.open(stream=base64.b64decode(raw), filetype="pdf")
+        pdf_bytes = base64.b64decode(raw)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         try:
             page = doc[0]
             W, H = page.rect.width, page.rect.height
@@ -3337,8 +3342,18 @@ def extract_geometry_endpoint(request: ExtractGeometryRequest):
                  + [{"x1": round(x, 1), "y1": round(y0, 1), "x2": round(x, 1), "y2": round(y1, 1), "orientation": "v"}
                     for (y0, y1, x) in v_segs])
         doors_out = [{"x": round(cx, 1), "y": round(cy, 1), "r": round(r, 1)} for (cx, cy, r) in doors]
+        # V4 (aditiv): geom_bbox per camera Vision (wall SAU label_anchor) — paralel cu request.rooms.
+        # Orice eroare -> room_geoms=[] (editorul cade pe bbox-ul Vision, comportamentul de azi).
+        room_geoms = []
+        if request.rooms:
+            try:
+                geoms = geometry.extract_room_geometry(pdf_bytes, request.rooms, W, H)
+                room_geoms = [{"name": g.get("name"), "geom_bbox": g.get("geom_bbox"),
+                               "geom_source": g.get("geom_source")} for g in geoms]
+            except Exception:
+                room_geoms = []
         return {"success": True, "walls": walls, "doors": doors_out,
-                "pdf_width_pt": W, "pdf_height_pt": H}
+                "pdf_width_pt": W, "pdf_height_pt": H, "room_geoms": room_geoms}
     except Exception as e:
         return {"success": False, "error": str(e), "walls": [], "doors": []}
 

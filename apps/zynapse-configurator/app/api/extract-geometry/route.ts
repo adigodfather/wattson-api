@@ -11,13 +11,14 @@ export const maxDuration = 60;
 const FASTAPI = "https://wattson-api.onrender.com";
 
 export async function POST(req: NextRequest) {
-  let body: { pdf_base64?: string };
+  let body: { pdf_base64?: string; rooms?: unknown[] };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const pdf = String(body.pdf_base64 || "");
+  const rooms = Array.isArray(body.rooms) ? body.rooms : [];   // V4: optional -> room_geoms per camera
   if (!pdf) {
     return NextResponse.json({ error: "pdf_base64 necesar" }, { status: 400 });
   }
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     const resp = await fetch(`${FASTAPI}/extract-geometry`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ pdf_base64: pdf }),
+      body: JSON.stringify({ pdf_base64: pdf, rooms }),
     });
     const text = await resp.text();
     try {

@@ -10,6 +10,8 @@
 # intoarce geometric=False si consumatorul ramane pe fallback-ul Vision (bbox).
 
 import math
+import re
+import unicodedata
 
 import fitz  # PyMuPDF
 
@@ -219,6 +221,102 @@ def _rect_overlap_pct(a, b):
     return inter / amin if amin > 0 else 0.0
 
 
+# ── V4: ETICHETE DE CAMERA din textul vectorial (port fidel al functiei validate in
+#    _geom_fixtures/test_extract_room_labels.py — 16/16 pe LASAK, 7/7 pe VADAN; vezi skill-ul
+#    geom-extraction). Pattern "A: NN" ANCORAT la inceput de linie; numele = linia imediat
+#    deasupra, aliniata orizontal. Determinist, zero Vision. Plan raster -> lista goala. ──
+_AREA_LABEL_PATTERN = r'A:\s*([\d.,]+)'
+
+
+def _collect_text_lines(page):
+    """Liniile de text vectorial ale paginii: [(bbox, text)]. get_text('dict') asambleaza
+    corect randurile (nu 'words' — titlurile pot fi fragmentate per litera)."""
+    lines = []
+    for b in page.get_text("dict")["blocks"]:
+        for l in b.get("lines", []):
+            t = "".join(s["text"] for s in l.get("spans", [])).strip()
+            if t:
+                lines.append((l["bbox"], t))
+    return lines
+
+
+def _room_labels_from_lines(lines, W, H, y_max_ratio=None, label_pattern=_AREA_LABEL_PATTERN):
+    """Etichetele de camera din liniile de text: [{name, area_m2, label_x, label_y}] (normalizat 0-1)."""
+    rx = re.compile(label_pattern)
+    out = []
+    for (abb, at) in lines:
+        m = rx.match(at)                          # ancorat -> nu prinde "Suprafata: NN" din cartus
+        if not m:
+            continue
+        if y_max_ratio is not None and abb[1] / H > y_max_ratio:
+            continue
+        best = None
+        for (nbb, nt) in lines:                   # numele = linia imediat deasupra, aliniata
+            if nbb == abb:
+                continue
+            line_h = max(abb[3] - abb[1], 6.0)
+            dy = abb[1] - nbb[3]
+            if not (-2.0 <= dy <= 1.8 * line_h):
+                continue
+            overlap = min(nbb[2], abb[2]) - max(nbb[0], abb[0])
+            if overlap <= 0 and abs((nbb[0] + nbb[2]) / 2 - (abb[0] + abb[2]) / 2) > 60:
+                continue
+            if not re.search(r'[A-Za-zĂÂÎȘȚăâîșț]', nt):
+                continue
+            if rx.match(nt) or re.match(r'^[+\-±]?\d', nt):
+                continue
+            if best is None or nbb[3] > best[0][3]:
+                best = (nbb, nt)
+        if best is None:
+            continue
+        nbb, name = best
+        try:
+            area = float(m.group(1).replace(",", "."))
+        except (ValueError, IndexError):
+            area = None
+        out.append({"name": re.sub(r'\s+', ' ', name), "area_m2": area,
+                    "label_x": round(((nbb[0] + nbb[2]) / 2) / W, 4),
+                    "label_y": round(((nbb[1] + nbb[3]) / 2) / H, 4)})
+    return out
+
+
+def _norm_room_name(s):
+    """Nume normalizat pentru matching etichete<->camere Vision (lowercase, fara diacritice)."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return " ".join(s.split())
+
+
+def _anchored_room_bbox(ax, ay, area_m2, hlines, vlines):
+    """Metoda (a)+(c) validata in R&D (anchored_geom_sim): ray-cast de productie (_room_rect)
+    seed-uit din ANCORA ETICHETEI, cu raza plafonata de aria arhitectului; laturile fara perete
+    real in raza -> completate din arie, ancorate pe laturile gasite.
+    Returneaza (l, r, t, b, n_laturi_reale) in puncte PDF."""
+    expected = area_m2 / _PT2_TO_M2               # aria asteptata in pt^2 (aceeasi scara ca pipeline-ul)
+    side = math.sqrt(expected)
+    reach = 1.35 * side                            # cap: open-space-ul nu intinde pana la peretele indepartat
+    l, r, t, b = _room_rect(ax, ay, hlines, vlines, reach)
+    n_real = sum(v is not None for v in (l, r, t, b))
+    if l is not None and r is not None:
+        w = r - l
+    elif l is not None:
+        w = side; r = l + w
+    elif r is not None:
+        w = side; l = r - w
+    else:
+        w = side; l = ax - w / 2.0; r = ax + w / 2.0
+    h_needed = min(max(expected / max(w, 1.0), 0.5 * side), 2.0 * side)
+    if t is not None and b is not None:
+        pass
+    elif t is not None:
+        b = t + h_needed
+    elif b is not None:
+        t = b - h_needed
+    else:
+        t = ay - h_needed / 2.0; b = ay + h_needed / 2.0
+    return l, r, t, b, n_real
+
+
 def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
     """Pentru fiecare camera Vision (cu bbox 0-1) incearca centroid geometric din pereti.
 
@@ -238,6 +336,11 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         hlines = _aggregate(h_segs)
         vlines = _aggregate(v_segs)
         have_geom = bool(h_segs or v_segs)
+        # V4: liniile de text (etichete camere) — colectate INAINTE de close (fallback ancora-eticheta)
+        try:
+            _text_lines = _collect_text_lines(page)
+        except Exception:
+            _text_lines = []
         doc.close()   # RAM: documentul nu mai e folosit dupa extragerea peretilor/usilor
     except Exception as e:  # pragma: no cover - plan invalid
         try:
@@ -466,6 +569,48 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             l, rr, t, b = r["_grect"]
             r["geom_bbox"] = {"x": round(l / W, 4), "y": round(t / H, 4),
                               "w": round((rr - l) / W, 4), "h": round((b - t) / H, 4)}
+
+    # ── V4 (STRICT ADITIV): fallback ANCORA-ETICHETA pentru camerele ramase cu geom_bbox=None. ──
+    # Validat in R&D (anchored_geom_sim, LASAK): 6/6 camere fara geom primesc perimetru PE camera
+    # reala; rezolva (1) coliziunile REGULA 2 (holuri), (2) Vision-shift (seed in afara camerei),
+    # (3) open/exterior (terase). NU atinge camerele cu geom_bbox deja setat (raman bit-identice).
+    # Fara eticheta (plan raster / nume negasit) -> ramane None -> fallback-ul Vision existent.
+    for r in out:
+        if r.get("geom_bbox"):
+            r["geom_source"] = "wall"             # sursa clasica: contur inchis de pereti
+    try:
+        _labels = _room_labels_from_lines(_text_lines, W, H) if _text_lines else []
+    except Exception:
+        _labels = []
+    if _labels and have_geom:
+        for rec, vroom in zip(out, (vision_rooms or [])):
+            if rec.get("geom_bbox") is not None:
+                continue                          # aditiv: doar None-urile
+            try:
+                nn = _norm_room_name(rec.get("name"))
+                cands = [lb for lb in _labels if _norm_room_name(lb["name"]) == nn]
+                if not cands:
+                    rec["reason"] = (rec.get("reason") or "") + " | fara eticheta text -> fallback Vision"
+                    continue
+                # dubluri de nume (ex. 'Hol acces' x2) -> eticheta cea mai apropiata de bbox-ul Vision
+                bb = (vroom or {}).get("bbox") or {}
+                bxc = float(bb.get("x", 0)) + float(bb.get("w", 0)) / 2.0
+                byc = float(bb.get("y", 0)) + float(bb.get("h", 0)) / 2.0
+                lab = min(cands, key=lambda lb: (lb["label_x"] - bxc) ** 2 + (lb["label_y"] - byc) ** 2)
+                area = lab.get("area_m2") or rec.get("area_vision_m2") or 0.0
+                if not area or area <= 0:
+                    continue
+                l, rr, t, b, n_real = _anchored_room_bbox(
+                    lab["label_x"] * W, lab["label_y"] * H, float(area), hlines, vlines)
+                if rr <= l or b <= t:
+                    continue
+                rec["geom_bbox"] = {"x": round(l / W, 4), "y": round(t / H, 4),
+                                    "w": round((rr - l) / W, 4), "h": round((b - t) / H, 4)}
+                rec["geom_source"] = "label_anchor"
+                rec["reason"] = (rec.get("reason") or "") + \
+                    " | geom_bbox din ancora etichetei (%d/4 laturi reale)" % n_real
+            except Exception:
+                continue                          # defensiv per camera: fallback-ul nu strica nimic
 
     for r in out:   # curatam cheile temporare
         r.pop("_rect", None); r.pop("_ratio", None); r.pop("_support", None); r.pop("_bbc", None); r.pop("_grect", None)

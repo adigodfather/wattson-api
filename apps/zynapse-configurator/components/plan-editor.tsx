@@ -290,6 +290,12 @@ export default function PlanEditor({
   // DEBUG P1: peretii din /extract-geometry (puncte PDF, ACELASI spatiu ca x,y) + toggle overlay.
   const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
   const [showWalls, setShowWalls] = useState(false);
+  // V4: geom_bbox per camera (sursa: pereti SAU ancora etichetei) din /extract-geometry —
+  // perimetru CORECT la plasarea prizelor (bbox-ul Vision e decalat la holuri/terase/open-space).
+  // Cheie = nume|bbox.x|bbox.y (dublurile 'Hol acces' au bbox-uri diferite -> chei diferite).
+  const [roomGeoms, setRoomGeoms] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({});
+  const roomsRef = useRef(rooms);
+  roomsRef.current = rooms;   // fetch-ul de geometrie citeste rooms-ul curent fara sa fie dependency (evita re-fetch pe fiecare render)
   // R2: auto-generare prize (mode forta) — stare buton + feedback inline.
   const [genLoading, setGenLoading] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
@@ -360,16 +366,29 @@ export default function PlanEditor({
   }, [projectId, supabase, mode]);
 
   // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
+  // V4: trimite si camerele -> primeste room_geoms (geom_bbox per camera, wall/label_anchor).
   useEffect(() => {
     if (!cleanBasePdf) return;
     let cancelled = false;
+    const roomsNow = (roomsRef.current || []).filter(r => r?.bbox);
     fetch("/api/extract-geometry", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdf_base64: cleanBasePdf }),
+      body: JSON.stringify({ pdf_base64: cleanBasePdf, rooms: roomsNow }),
     })
       .then(r => r.json())
-      .then(d => { if (!cancelled && d?.success && Array.isArray(d.walls)) setWalls(d.walls); })
+      .then(d => {
+        if (cancelled || !d?.success) return;
+        if (Array.isArray(d.walls)) setWalls(d.walls);
+        if (Array.isArray(d.room_geoms)) {   // paralel cu roomsNow trimise
+          const map: Record<string, { x: number; y: number; w: number; h: number }> = {};
+          d.room_geoms.forEach((g: { geom_bbox?: { x: number; y: number; w: number; h: number } | null }, i: number) => {
+            const r = roomsNow[i];
+            if (r?.bbox && g?.geom_bbox) map[`${r.name ?? ""}|${r.bbox.x}|${r.bbox.y}`] = g.geom_bbox;
+          });
+          setRoomGeoms(map);
+        }
+      })
       .catch(() => { /* non-blocant: fara pereti -> editorul merge normal */ });
     return () => { cancelled = true; };
   }, [cleanBasePdf]);
@@ -531,7 +550,10 @@ export default function PlanEditor({
         const rule = prizeRuleForRoom(room?.name);
         if (!rule || rule.count <= 0) continue;          // SKIP spatiu tehnic (null) + terasa acces (count 0)
         if (!room?.bbox) continue;
-        const pos = placePrizasInRoom(room.bbox, rule.count, walls, pdfW, pdfH, { snapThreshold: 70 });
+        // V4: perimetrul = geom_bbox (pereti reali SAU ancora etichetei) cand exista; fallback
+        // bbox Vision — ACELASI tipar ca becurile (centroid geometric cu fallback Vision).
+        const gbb = roomGeoms[`${room.name ?? ""}|${room.bbox.x}|${room.bbox.y}`];
+        const pos = placePrizasInRoom(gbb ?? room.bbox, rule.count, walls, pdfW, pdfH, { snapThreshold: 70 });
         if (!pos.length) continue;
         nRooms++;
         for (const p of pos) {
