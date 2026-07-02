@@ -2,6 +2,8 @@ import base64
 import gc
 import math
 import re
+import unicodedata
+
 import fitz  # PyMuPDF
 
 # Roșu pentru planșa de iluminat (RGB 0-1)
@@ -100,6 +102,34 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
 _BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
               "aplica_senzor": "Aplica", "banda_led": "Banda"}
 _BULB_TOP = {"lustra_led": 25, "banda_led": 8}   # extinderea simbolului in sus (pt. pozitia etichetei)
+
+
+def _norm_name_ro(s):
+    """Nume normalizat pt. matching pe camera (lowercase, fara diacritice, fara sufixe de etaj)."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    for suf in (" (parter)", " (etaj)", " (mansarda)"):
+        s = s.replace(suf, "")
+    return " ".join(s.split())
+
+
+def _bulb_rule_for_room(name):
+    """Regula TIP + PUTERE corp de iluminat pe camera (oglinda prizeRuleForRoom; valori BASIC,
+    inginerul le schimba in editor). Decide DOAR tip+putere — CATE corpuri decide _vision_centers.
+      terase (acces + acoperita)     -> aplica_senzor 30W  (SP: FARA intrerupator + direct TEG,
+                                        regula existenta din compute_cables/_switch_centers)
+      living / camera de zi / bucatarie -> lustra_led 40W
+      dormitoare / birouri              -> lustra_led 30W
+      restul (bai, holuri, camara, dressing, spalator, depozitare, spatiu tehnic) -> aplica_tavan 25W
+    Ordine specific->generic (ca la prize). Returneaza (element_type, power_w)."""
+    n = _norm_name_ro(name)
+    if "teras" in n:
+        return ("aplica_senzor", 30)
+    if "living" in n or "camera de zi" in n or " zi" in n or n == "zi" or "bucatar" in n:
+        return ("lustra_led", 40)
+    if "dormitor" in n or "birou" in n:
+        return ("lustra_led", 30)
+    return ("aplica_tavan", 25)
 
 
 def _bulb_label(element_type, power_w, circuit_id=None):
@@ -1675,9 +1705,18 @@ def draw_plan_elements(data: dict) -> dict:
                              "note": "Nicio cameră detectată. Plan nemodificat."},
             }
 
+        # REGULA TIP+PUTERE pe camera (basic, editabil): atasata pe fiecare corp DEJA plasat.
+        # NU schimba cate corpuri / pozitiile (decise de _vision_centers cu geometry).
+        for c in centers:
+            _bt, _bw = _bulb_rule_for_room(c.get("label"))
+            c["_bulb_type"] = _bt
+            c["_bulb_pw"] = _bw
+
         # APARATAJ (paritate 1:1): UN întrerupător per BEC, calculat din `centers`. DOAR pe faza PT
         # (apply_geometry), cale vectorială. Aditiv, defensiv: ORICE eroare -> fără întrerupătoare,
         # becurile NU sunt afectate. (Plasare: la ușa camerei becului dacă există, altfel lângă bec.)
+        # REGULA SP: corpurile cu senzor (aplica_senzor, ex. terase) NU primesc întrerupător —
+        # se exclud din pairing; cablarea lor directa la TEG e deja in compute_cables (senzor_teg).
         switches = []
         if data.get("apply_geometry"):
             try:
@@ -1685,7 +1724,8 @@ def draw_plan_elements(data: dict) -> dict:
                 doors = geometry.extract_doors(page, W, H)
                 columns = geometry.extract_columns(page)
                 h_segs, v_segs, _dd = geometry._collect(page)
-                switches = _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, rboxes)
+                _sw_centers = [c for c in centers if c.get("_bulb_type") != "aplica_senzor"]
+                switches = _switch_centers(_sw_centers, doors, columns, h_segs, v_segs, W, H, rboxes)
             except Exception:
                 switches = []
 
@@ -1693,7 +1733,7 @@ def draw_plan_elements(data: dict) -> dict:
         # text_regex: cy e poziția textului "A:" -> -22 (bec deasupra textului).
         y_offset = 0 if source == "vision_bbox" else -22
         for c in centers:
-            _draw_bulb(page, c["x"], c["y"], y_offset=y_offset)
+            _draw_bulb(page, c["x"], c["y"], c.get("_bulb_type") or "aplica_tavan", y_offset=y_offset)
 
         # APARATAJ: desenează întrerupătoarele (după becuri, pe aceeași planșă)
         for s in switches:
@@ -1741,11 +1781,12 @@ def draw_plan_elements(data: dict) -> dict:
                 for c in centers:
                     _elements.append({
                         "project_id": _project_uuid, "floor": _floor,
-                        "element_type": "aplica_tavan",   # default — becuri generice; inginerul schimbă în editor
+                        # tip + putere din regula pe camera (_bulb_rule_for_room); inginerul schimbă în editor
+                        "element_type": c.get("_bulb_type") or "aplica_tavan",
                         "label": None, "room": c.get("label"),
                         "x": round(c["x"], 1), "y": round(c["y"], 1),
                         "wall_mounted": False, "rotation": 0,
-                        "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
+                        "circuit_id": None, "source_panel": None, "power_w": c.get("_bulb_pw"), "z_index": 0,
                     })
                 for s in switches:
                     _elements.append({
