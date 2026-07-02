@@ -251,7 +251,9 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
     cui = cf.get("firma_cui", "") or ""
     tel = cf.get("firma_tel", "") or ""
     email = cf.get("firma_email", "") or ""
-    sef = cf.get("sef_proiect", "") or ""
+    # sef proiect: PRIORITATE valorii confirmate in modal (cp, propusa de Vision din cartusul
+    # arhitectului), fallback pe profilul firmei (cf) — backward-compatible cu payload-uri vechi.
+    sef = cp.get("sef_proiect", "") or cf.get("sef_proiect", "") or ""
     proiectant = cf.get("proiectant_nume", "") or ""
     verificat = sef                            # fara sursa proprie -> seful de proiect verifica (conventie)
     beneficiar = cp.get("beneficiar", "") or ""

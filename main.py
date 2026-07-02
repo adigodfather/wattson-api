@@ -3203,6 +3203,7 @@ class SwapCartusProiect(BaseModel):
     amplasament: str = ""
     numar_proiect: str = ""
     faza: str = ""
+    sef_proiect: str = ""     # confirmat in modalul cartusului (Vision propune, inginerul confirma)
 
 
 class SwapCartusRequest(BaseModel):
