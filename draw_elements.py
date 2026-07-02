@@ -565,6 +565,23 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             bbox_fixed += 1
         boxes.append((sx, sy, sw, sh))
 
+    # V4: autoritatea "camerei proprii" pentru garzile downstream (dedup, anti-intruziune,
+    # invariant) devine geom_bbox DOAR pentru camerele FARA centroid geometric — exact camerele
+    # ale caror ancore le mutam pe geom_bbox. Fara asta, garzile "reloca" becul ancorat corect
+    # inapoi in bbox-ul Vision DECALAT (in afara cladirii). Camerele CU centroid isi pastreaza
+    # bbox-ul Vision sanitizat ca "acasa" (comportamentul de azi, bit-identic — zero regresie).
+    if geoms:
+        for _i in range(min(len(boxes), len(geoms))):
+            _g = geoms[_i] or {}
+            if _g.get("geometric") and _g.get("centroid"):
+                continue                          # camera cu centroid: autoritatea ramane Vision (ca azi)
+            _gb = _g.get("geom_bbox")
+            if boxes[_i] is not None and _gb:
+                try:
+                    boxes[_i] = (float(_gb["x"]), float(_gb["y"]), float(_gb["w"]), float(_gb["h"]))
+                except (TypeError, ValueError, KeyError):
+                    pass
+
     rooms_geometric = 0
     rooms_fallback = 0
     for idx, r in enumerate(rooms or []):
@@ -594,9 +611,24 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
                 rooms_geometric += 1
             except (TypeError, ValueError, KeyError):
                 used_geometric = False
+        # V4 (oglinda fixului de prize): fara centroid -> ancora = centrul geom_bbox (populat acum
+        # pentru toate camerele: 'wall' SAU 'label_anchor' din ancora etichetei). Repara becurile
+        # care cadeau pe bbox-ul Vision decalat (terase, Spatiu tehnic, Depozitare, Camera de zi).
+        used_geom_bbox = False
         if not used_geometric:
+            _gb = (g or {}).get("geom_bbox") if g else None
+            if _gb:
+                try:
+                    cxc = (float(_gb["x"]) + float(_gb["w"]) / 2.0) * W
+                    cyc = (float(_gb["y"]) + float(_gb["h"]) / 2.0) * H
+                    used_geom_bbox = True
+                    rooms_geometric += 1
+                except (TypeError, ValueError, KeyError):
+                    used_geom_bbox = False
+        if not used_geometric and not used_geom_bbox:
             cxc, cyc = _clip_region(x * W, y * H, w * W, h * H, h_segs, v_segs)
             rooms_fallback += 1
+        _anchored = used_geometric or used_geom_bbox   # ancora de incredere -> protejata la dedup
 
         # COUNT (1 vs 2 becuri) pe ARIA DIN CARTUȘ (area_m2, citită din textul bilanțului):
         # ~0% variație între generări ȘI exactă (= aria reală). NU pe aria GEOMETRICĂ — poligonul
@@ -606,12 +638,12 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc). PROTEJATE (coverage intentionat).
             if w * W >= h * H:
                 dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
-                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
-                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
+                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx, "geometric": _anchored, "protected": True})
+                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx, "geometric": _anchored, "protected": True})
             else:
                 dy = (h / 6.0) * H
-                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
-                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx, "geometric": used_geometric, "protected": True})
+                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx, "geometric": _anchored, "protected": True})
+                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx, "geometric": _anchored, "protected": True})
         else:
             # R2 — HOL alungit (bbox aspect>2, fallback): 1 bec in MIJLOCUL holului, garantat off-wall.
             # Axa SCURTA (perp) = mijloc intre cei 2 pereti lungi; daca DOAR UNUL se gaseste -> mijloc
@@ -619,7 +651,7 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             # LUNGA = centru, apoi NUDGE off-wall daca o partitie transversala cade acolo. Astfel becul
             # nu cade pe perete nici pe zid transversal. 1 bec (consistent cu count-ul pe aria cartus).
             hall_done = False
-            if (not used_geometric) and h_segs is not None and v_segs is not None:
+            if (not _anchored) and h_segs is not None and v_segs is not None:
                 bx, by, bw, bh = x * W, y * H, w * W, h * H
                 if max(bw, bh) / max(min(bw, bh), 1.0) > HALL_ASPECT:
                     horizontal = bw >= bh
@@ -648,8 +680,8 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
                         centers.append({"x": px1, "y": py1, "label": label, "room": idx, "geometric": False, "protected": False})
                         hall_done = True
             if not hall_done:
-                # 1 bec la ANCORĂ (centroid geometric SAU centrul regiunii clipate — deja în interior).
-                centers.append({"x": cxc, "y": cyc, "label": label, "room": idx, "geometric": used_geometric, "protected": used_geometric})
+                # 1 bec la ANCORĂ (centroid geometric / centrul geom_bbox / centrul regiunii clipate).
+                centers.append({"x": cxc, "y": cyc, "label": label, "room": idx, "geometric": _anchored, "protected": _anchored})
 
     # DEDUP (O SINGURĂ trecere, finală): open-plan / bbox-uri suprapuse -> elimină duplicatul
     # NON-geometric, păstrează geometricul, min 1 bec/cameră. INVARIANT: fiecare cameră cu bbox valid
@@ -666,9 +698,16 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
             continue
         x, y, w, h = box
         g = geoms[idx] if (geoms and idx < len(geoms)) else None
+        _gb = (g or {}).get("geom_bbox") if g else None
         if g and g.get("geometric") and g.get("centroid"):
             try:
                 ax, ay = float(g["centroid"]["x"]), float(g["centroid"]["y"])
+            except (TypeError, ValueError, KeyError):
+                ax, ay = _clip_region(x*W, y*H, w*W, h*H, h_segs, v_segs)
+        elif _gb:   # V4: ancora din geom_bbox (aceeasi prioritate 2 ca in bucla principala)
+            try:
+                ax = (float(_gb["x"]) + float(_gb["w"]) / 2.0) * W
+                ay = (float(_gb["y"]) + float(_gb["h"]) / 2.0) * H
             except (TypeError, ValueError, KeyError):
                 ax, ay = _clip_region(x*W, y*H, w*W, h*H, h_segs, v_segs)
         else:
