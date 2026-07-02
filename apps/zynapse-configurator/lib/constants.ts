@@ -236,7 +236,7 @@ export interface ProjectResult {
       pdf_width_pt?: number; pdf_height_pt?: number;
       png_width_px?: number; png_height_px?: number;
     } | null;
-    centers?: Array<{ x: number; y: number; label?: string }>;
+    centers?: Array<{ x: number; y: number; label?: string; element_type?: string; power_w?: number | null }>;
     switches?: Array<{ x: number; y: number; angle?: number; room?: string | number | null }>;
     regenerated?: boolean;   // true după "Obține plan" -> pdf_base64 = planul regenerat (cabluri+editări), nu ciorna Vision
   }> | null;

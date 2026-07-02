@@ -1940,8 +1940,12 @@ def draw_plan_elements(data: dict) -> dict:
                 "switches": [{"x": round(s["x"], 1), "y": round(s["y"], 1),
                               "angle": round(float(s.get("angle", 0)), 3),
                               "room": s.get("room")} for s in switches],   # room = numele camerei becului
+                # element_type + power_w (regula _bulb_rule_for_room, deja calculate ca _bulb_type/_bulb_pw):
+                # frontend-ul le foloseste la INSERT-ul plan_elements -> editorul arata acelasi corp ca PDF-ul.
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
-                             "label": c["label"][:40]} for c in centers],
+                             "label": c["label"][:40],
+                             "element_type": c.get("_bulb_type") or "aplica_tavan",
+                             "power_w": c.get("_bulb_pw")} for c in centers],
             },
         }
     except Exception as e:

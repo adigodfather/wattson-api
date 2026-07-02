@@ -1395,7 +1395,9 @@ export function ZynapseConfigurator() {
                   planElements.push({
                     project_id: projectUuid,
                     floor,
-                    element_type: "aplica_tavan",   // default — bec generic; inginerul schimbă în editor
+                    // tip + putere din REGULA backend (_bulb_rule_for_room, prin detected.centers) —
+                    // aceeasi sursa ca desenul PDF; fallback pe default-urile vechi (raspuns fara campuri).
+                    element_type: c.element_type || "aplica_tavan",
                     plan_type: "iluminat",          // becurile apar DOAR pe planșa de iluminat
                     label: null,
                     room: c.label || null,
@@ -1403,7 +1405,7 @@ export function ZynapseConfigurator() {
                     y: c.y,
                     wall_mounted: false,
                     rotation: 0,
-                    power_w: 25,                    // valoare REALA implicita (editabila); apare "25" + eticheta "Aplica LED 25W"
+                    power_w: c.power_w ?? 25,       // editabil in meniu; apare si in eticheta "Lustra LED 40W"
                   });
                 }
                 for (const sw of (plansa.switches || [])) {
