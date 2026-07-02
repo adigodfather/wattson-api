@@ -173,36 +173,40 @@ function bulbSelRing(type: string) {
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
-// Simbol PRIZA (Konva): semicerc (half-disc, partea curbă SUS) + 2 contacte sub el; ALBASTRU COL_PRIZA (forța).
-// priza_16a = ALIMENTARE DIRECTĂ (cerc gol). Distinct de bec (cerc+X) și aplica_perete (semicerc curbat în JOS).
+// Simbol PRIZA (Konva): semicerc UMPLUT turcoaz (partea curbă SUS) + 2 contacte sub el; contur ALBASTRU COL_PRIZA.
+// priza_16a = ALIMENTARE DIRECTĂ (cerc PLIN albastru). IP44 = cutie turcoaz + semicerc ALB (contur teal).
+// Dimensiuni ×1.6 vs. v1 — sincron cu _draw_priza din draw_elements.py (PDF).
+const PRIZA_TURQ = "#3fd0c9";   // umplutura prizelor interioare
+const PRIZA_TEAL = "#0f766e";   // contur IP44 (teal închis, distinct de interior)
+const PRIZA_DARK = "#0d3c7a";   // contur alimentare directă (albastru închis)
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
-  const disc = (cx: number, r = 8) => (
-    <Arc x={cx} y={0} innerRadius={0} outerRadius={r} angle={180} rotation={180} stroke={C} strokeWidth={2} />
+  const disc = (cx: number, r = 13, fill: string = PRIZA_TURQ, edge: string = C) => (
+    <Arc x={cx} y={0} innerRadius={0} outerRadius={r} angle={180} rotation={180} fill={fill} stroke={edge} strokeWidth={2} />
   );
-  const contacts = (cx: number) => (
+  const contacts = (cx: number, col: string = C) => (
     <>
-      <Line points={[cx - 3, 2, cx - 3, 6]} stroke={C} strokeWidth={1.5} listening={false} />
-      <Line points={[cx + 3, 2, cx + 3, 6]} stroke={C} strokeWidth={1.5} listening={false} />
+      <Line points={[cx - 5, 3, cx - 5, 10]} stroke={col} strokeWidth={1.5} listening={false} />
+      <Line points={[cx + 5, 3, cx + 5, 10]} stroke={col} strokeWidth={1.5} listening={false} />
     </>
   );
   switch (type) {
     case "priza_dubla":
-      return <>{disc(-8, 7)}{contacts(-8)}{disc(8, 7)}{contacts(8)}</>;
-    case "priza_16a":   // ALIMENTARE DIRECTĂ = cerc gol (consumatori conectați direct, fără priză)
-      return <Circle x={0} y={0} radius={8} stroke={C} strokeWidth={2} />;
+      return <>{disc(-13, 11)}{contacts(-13)}{disc(13, 11)}{contacts(13)}</>;
+    case "priza_16a":   // ALIMENTARE DIRECTĂ = cerc PLIN albastru (consumatori conectați direct, fără priză)
+      return <Circle x={0} y={0} radius={13} fill={C} stroke={PRIZA_DARK} strokeWidth={2} />;
     case "priza_exterior_ip44":
-      return <><Rect x={-11} y={-11} width={22} height={21} cornerRadius={3} stroke={C} strokeWidth={1.3} listening={false} />{disc(0)}{contacts(0)}<Text x={-10} y={11} text="IP44" fontSize={6.5} fill={C} listening={false} /></>;
+      return <><Rect x={-18} y={-18} width={36} height={34} cornerRadius={4} fill={PRIZA_TURQ} stroke={PRIZA_TEAL} strokeWidth={1.5} listening={false} />{disc(0, 13, "#ffffff", PRIZA_TEAL)}{contacts(0, PRIZA_TEAL)}<Text x={-16} y={19} text="IP44" fontSize={9} fontStyle="bold" fill={PRIZA_TEAL} listening={false} /></>;
     default: // priza_simpla
       return <>{disc(0)}{contacts(0)}</>;
   }
 }
-function prizaHit() {   // zonă de hit invizibilă (simbolul e fără fill) -> Group draggable
-  return <Circle x={0} y={0} radius={13} fill="rgba(0,0,0,0.001)" />;
+function prizaHit() {   // zonă de hit invizibilă (acoperă simbolul mărit ×1.6) -> Group draggable
+  return <Circle x={0} y={0} radius={21} fill="rgba(0,0,0,0.001)" />;
 }
 function prizaSelRing(type: string) {
-  const w = type === "priza_dubla" ? 40 : 28;
-  return <Rect x={-w / 2} y={-15} width={w} height={28} cornerRadius={3} stroke={COL_SEL} strokeWidth={3} listening={false} />;
+  const w = type === "priza_dubla" ? 60 : 44;
+  return <Rect x={-w / 2} y={-23} width={w} height={46} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
 // ── SNAP PRIZA PE PERETE (P3): proiectie punct-pe-segment CLAMPAT (t in [0,1]) — aceeasi matematica ca B2. ──
@@ -215,15 +219,17 @@ function projectOnSegment(px: number, py: number, x1: number, y1: number, x2: nu
   const qx = x1 + t * dx, qy = y1 + t * dy;
   return { x: qx, y: qy, dist: Math.hypot(px - qx, py - qy) };
 }
-// cel mai apropiat perete; daca sub prag -> proiectie (snapped), altfel pozitie libera. walls gol -> fara snap.
+// cel mai apropiat perete; daca sub prag -> proiectie (snapped) + ORIENTAREA peretelui ("h"/"v",
+// pt. rotatia simbolului), altfel pozitie libera. walls gol -> fara snap. Sincron cu lib/auto-prize.ts.
 function snapToWall(px: number, py: number, walls: WallSeg[], threshold = 40) {
-  let best: { x: number; y: number; dist: number } | null = null;
+  let best: { x: number; y: number; dist: number; wall: "h" | "v" } | null = null;
   for (const w of walls) {
     const p = projectOnSegment(px, py, w.x1, w.y1, w.x2, w.y2);
-    if (!best || p.dist < best.dist) best = p;
+    if (!best || p.dist < best.dist)
+      best = { ...p, wall: Math.abs(w.x2 - w.x1) >= Math.abs(w.y2 - w.y1) ? "h" : "v" };
   }
-  if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true };
-  return { x: px, y: py, snapped: false };
+  if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true, wall: best.wall };
+  return { x: px, y: py, snapped: false, wall: null as "h" | "v" | null };
 }
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
@@ -553,14 +559,20 @@ export default function PlanEditor({
         // V4: perimetrul = geom_bbox (pereti reali SAU ancora etichetei) cand exista; fallback
         // bbox Vision — ACELASI tipar ca becurile (centroid geometric cu fallback Vision).
         const gbb = roomGeoms[`${room.name ?? ""}|${room.bbox.x}|${room.bbox.y}`];
-        const pos = placePrizasInRoom(gbb ?? room.bbox, rule.count, walls, pdfW, pdfH, { snapThreshold: 70 });
+        const bb = gbb ?? room.bbox;
+        const pos = placePrizasInRoom(bb, rule.count, walls, pdfW, pdfH, { snapThreshold: 70 });
         if (!pos.length) continue;
         nRooms++;
+        // Rotatie: baza PE perete, semicercul deschis spre INTERIORUL camerei (centrul perimetrului folosit).
+        const rcx = (bb.x + bb.w / 2) * pdfW, rcy = (bb.y + bb.h / 2) * pdfH;
         for (const p of pos) {
+          const rot = p.wall === "h" ? (rcy < p.y ? 0 : Math.PI)
+                    : p.wall === "v" ? (rcx > p.x ? Math.PI / 2 : -Math.PI / 2)
+                    : 0;
           rows.push({
             project_id: projectId, floor: fl, element_type: rule.type, plan_type: "forta",
             label: null, room: room.name ?? null, x: p.x, y: p.y,
-            wall_mounted: true, mount_height_m: 0.6, rotation: 0, status: null,   // circuit_id null -> R3
+            wall_mounted: true, mount_height_m: 0.6, rotation: rot, status: null,   // circuit_id null -> R3
           });
         }
       }
@@ -755,8 +767,16 @@ export default function PlanEditor({
     if (isPrizaType(el.element_type) && walls.length) {
       const s = snapToWall(xPdf, yPdf, walls);
       if (s.snapped) {
+        // Rotatie: baza (diametrul) PE perete, semicercul deschis spre partea din care a venit drag-ul
+        // (= interiorul camerei). Radiani, conventia intrerupatoarelor: 0=sus, π=jos, ±π/2=lateral.
+        const rot = s.wall === "h" ? (yPdf < s.y ? 0 : Math.PI)
+                  : s.wall === "v" ? (xPdf > s.x ? Math.PI / 2 : -Math.PI / 2)
+                  : (el.rotation ?? 0);
         xPdf = s.x; yPdf = s.y;
         e.target.position({ x: xPdf * scale, y: yPdf * scale });   // muta Group-ul vizual pe perete imediat
+        setLocalField(el.id, { x: xPdf, y: yPdf, rotation: rot });
+        persist(el.id, { x: xPdf, y: yPdf, rotation: rot });
+        return;
       }
     }
     setLocalField(el.id, { x: xPdf, y: yPdf });
@@ -1360,7 +1380,10 @@ export default function PlanEditor({
                       ) : isPriza ? (
                         <>
                           {prizaHit()}
-                          {prizaSymbol(el.element_type)}
+                          {/* rotatia DOAR pe simbol (hit-ul e cerc, nu-i pasa) — radiani DB -> grade Konva */}
+                          <Group rotation={((el.rotation || 0) * 180) / Math.PI} listening={false}>
+                            {prizaSymbol(el.element_type)}
+                          </Group>
                         </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />

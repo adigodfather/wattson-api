@@ -15,7 +15,7 @@
 export type Circuit = { room?: string | null; type?: string | null; outlets?: number | null };
 export type RoomBBox = { x: number; y: number; w: number; h: number }; // 0-1 normalizat (Vision)
 export type WallSeg = { x1: number; y1: number; x2: number; y2: number }; // puncte PDF (/extract-geometry)
-export type PrizaPos = { x: number; y: number; snapped: boolean }; // puncte PDF
+export type PrizaPos = { x: number; y: number; snapped: boolean; wall: "h" | "v" | null }; // puncte PDF + orientarea peretelui de snap
 
 // ── (1) Nr. prize per camera din circuits (regulile Dan, deja calculate) ──
 export function prizeCountPerRoom(circuits: Circuit[] | null | undefined): Record<string, number> {
@@ -79,15 +79,17 @@ function projectOnSegment(px: number, py: number, x1: number, y1: number, x2: nu
   const qx = x1 + t * dx, qy = y1 + t * dy;
   return { x: qx, y: qy, dist: Math.hypot(px - qx, py - qy) };
 }
-// cel mai apropiat perete; sub prag -> proiectie (snapped), altfel pozitia libera. walls gol -> fara snap.
+// cel mai apropiat perete; sub prag -> proiectie (snapped) + ORIENTAREA peretelui ("h"/"v",
+// pt. rotatia simbolului), altfel pozitia libera. walls gol -> fara snap.
 export function snapToWall(px: number, py: number, walls: WallSeg[], threshold = 40) {
-  let best: { x: number; y: number; dist: number } | null = null;
+  let best: { x: number; y: number; dist: number; wall: "h" | "v" } | null = null;
   for (const w of walls) {
     const p = projectOnSegment(px, py, w.x1, w.y1, w.x2, w.y2);
-    if (!best || p.dist < best.dist) best = p;
+    if (!best || p.dist < best.dist)
+      best = { ...p, wall: Math.abs(w.x2 - w.x1) >= Math.abs(w.y2 - w.y1) ? "h" : "v" };
   }
-  if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true };
-  return { x: px, y: py, snapped: false };
+  if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true, wall: best.wall };
+  return { x: px, y: py, snapped: false, wall: null as "h" | "v" | null };
 }
 
 // distribuie N puncte uniform pe perimetrul dreptunghiului (dupa lungime de arc), offset 1/2 pas.
@@ -133,11 +135,11 @@ export function placePrizasInRoom(
   const perimPts = distributeOnRectPerimeter(l, t, r, b, n);
   return perimPts.map((p) => {
     const s = snapToWall(p.x, p.y, wallList, threshold);
-    if (s.snapped) return { x: s.x, y: s.y, snapped: true }; // pe perete real
+    if (s.snapped) return { x: s.x, y: s.y, snapped: true, wall: s.wall }; // pe perete real (+ orientarea lui)
     // fara perete sub prag -> trage usor inspre centru (sa nu stea fix pe linia bbox-ului)
     const vx = cx - p.x, vy = cy - p.y;
     const d = Math.hypot(vx, vy) || 1;
     const k = Math.min(inset, d);
-    return { x: p.x + (vx / d) * k, y: p.y + (vy / d) * k, snapped: false };
+    return { x: p.x + (vx / d) * k, y: p.y + (vy / d) * k, snapped: false, wall: null };
   });
 }

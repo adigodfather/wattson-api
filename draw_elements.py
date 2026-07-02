@@ -160,32 +160,44 @@ def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
 _PRIZA_COLOR = (0.082, 0.396, 0.753)   # ALBASTRU #1565C0 (forta) — coerent cu cablurile, distinct de iluminat (rosu)
 
 
-def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0):
-    """Simbol priza (portat din Konva): semicerc cu partea curba SUS + 2 contacte sub diametru; ALBASTRU.
-    priza_16a = ALIMENTARE DIRECTA (cerc gol, consumatori conectati direct). Distinct de bec (cerc+X)
-    si aplica_perete (semicerc curba JOS). 4 variante. scale -> dimensiune."""
-    s = scale
+_PRIZA_TURQ = (0.247, 0.816, 0.788)    # #3fd0c9 — umplutura prizelor interioare
+_PRIZA_TEAL = (0.059, 0.463, 0.431)    # #0f766e — contur IP44 (teal inchis, distinct de interior)
+_PRIZA_DARK = (0.051, 0.235, 0.478)    # #0d3c7a — contur alimentare directa (albastru inchis)
+
+
+def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0.0):
+    """Simbol priza (portat din Konva): semicerc cu partea curba SUS + 2 contacte sub diametru.
+    Geometria NESCHIMBATA; marit 1.6x + UMPLUT: simpla/dubla turcoaz (contur albastru),
+    IP44 caseta turcoaz + semicerc ALB (contur teal), alimentare directa albastru inchis plin.
+    rotation (radiani, sens orar): 0=deschidere SUS, pi=JOS, +pi/2=DREAPTA, -pi/2=STANGA —
+    baza (diametrul) sta pe perete, deschiderea spre interiorul camerei (ca la _draw_switch)."""
+    s = scale * 1.6                     # marire aprobata (~26pt latime priza simpla)
     C = _PRIZA_COLOR
+    cosr, sinr = math.cos(rotation or 0.0), math.sin(rotation or 0.0)
 
-    def disc(dx, r):   # semicerc (curba SUS): arc + diametru. beta=-180 din STANGA -> dome SUS (vs perete: jos)
-        page.draw_sector(fitz.Point(cx + dx, cy), fitz.Point(cx + dx - r, cy), -180,
-                         color=C, width=1.4, fullSector=True)
+    def P(dx, dy):                      # punct local rotit in jurul ancorei (y-down => sens orar)
+        return fitz.Point(cx + dx * cosr - dy * sinr, cy + dx * sinr + dy * cosr)
 
-    def contacts(dx):  # 2 contacte verticale sub diametru
+    def disc(dx, r, fill=_PRIZA_TURQ, edge=C):   # semicerc (curba SUS in local): sector rotit
+        page.draw_sector(P(dx, 0), P(dx - r, 0), -180, color=edge, fill=fill, width=1.4, fullSector=True)
+
+    def contacts(dx, col=C):            # 2 contacte sub diametru (in local), rotite
         for off in (-3.0 * s, 3.0 * s):
-            page.draw_line(fitz.Point(cx + dx + off, cy + 2.0 * s), fitz.Point(cx + dx + off, cy + 6.0 * s),
-                           color=C, width=1.1)
+            page.draw_line(P(dx + off, 2.0 * s), P(dx + off, 6.0 * s), color=col, width=1.1)
 
     et = element_type or "priza_simpla"
     if et == "priza_dubla":
         disc(-8 * s, 7 * s); contacts(-8 * s)
         disc(8 * s, 7 * s);  contacts(8 * s)
-    elif et == "priza_16a":   # ALIMENTARE DIRECTA = cerc gol (fara semicerc/contacte/text)
-        page.draw_circle(fitz.Point(cx, cy), 8 * s, color=C, width=1.4)
+    elif et == "priza_16a":   # ALIMENTARE DIRECTA = cerc PLIN albastru inchis (iese in evidenta)
+        page.draw_circle(fitz.Point(cx, cy), 8 * s, color=_PRIZA_DARK, fill=_PRIZA_COLOR, width=1.4)
     elif et == "priza_exterior_ip44":
-        page.draw_rect(fitz.Rect(cx - 11 * s, cy - 11 * s, cx + 11 * s, cy + 10 * s), color=C, width=1.0)
-        disc(0, 8 * s); contacts(0)
-        page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s), "IP44", fontsize=6.0 * s, fontname="hebo", color=C)
+        # caseta turcoaz cu contur teal (rotita ca polilinie), semicerc ALB cu contur teal
+        corners = [P(-11 * s, -11 * s), P(11 * s, -11 * s), P(11 * s, 10 * s), P(-11 * s, 10 * s)]
+        page.draw_polyline(corners, color=_PRIZA_TEAL, fill=_PRIZA_TURQ, width=1.0, closePath=True)
+        disc(0, 8 * s, fill=(1, 1, 1), edge=_PRIZA_TEAL); contacts(0, col=_PRIZA_TEAL)
+        page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s + 6), "IP44",
+                         fontsize=6.0 * s, fontname="hebo", color=_PRIZA_TEAL)
     else:  # priza_simpla
         disc(0, 8 * s); contacts(0)
 
@@ -214,13 +226,15 @@ def _priza_label(el):
 
 
 def _draw_priza_label(page, cx, cy, el):
-    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (albastru, ca simbolul)."""
+    """Eticheta DEASUPRA prizei, centrata orizontal pe cx (albastru, ca simbolul).
+    Offset -24 (era -16): simbolul marit 1.6x + caseta IP44 urca pana la ~-17.6 -> etichetei
+    ii trebuie mai mult aer ca sa nu se suprapuna."""
     txt = _priza_label(el)
     if not txt:
         return
     fs = 7.5
     w = len(txt) * fs * 0.46
-    page.insert_text(fitz.Point(cx - w / 2.0, cy - 16.0), txt, fontsize=fs, fontname="helv", color=_PRIZA_COLOR)
+    page.insert_text(fitz.Point(cx - w / 2.0, cy - 24.0), txt, fontsize=fs, fontname="helv", color=_PRIZA_COLOR)
 
 
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
@@ -1625,7 +1639,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
             elif et in _PRIZA_TYPES:
-                _draw_priza(page, x, y, et)                                          # simbol priza (C4)
+                _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0))   # simbol rotit pe perete
                 _draw_priza_label(page, x, y, el)                                    # eticheta "C{circuit} - h={h}m"
                 n_priza += 1
             elif et == "legenda":
