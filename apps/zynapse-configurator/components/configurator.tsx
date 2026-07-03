@@ -1596,6 +1596,31 @@ export function ZynapseConfigurator() {
       } catch (e) {
         console.error("[finalize] bloc Storage memoriu esuat (fallback base64):", e);
       }
+      // ETAPA 2 Storage: schema monofilara PROASPATA de la finalize -> Storage pe acelasi path
+      // (upsert suprascrie versiunea de la generare) + sterge scalarul base64. Duplicatul VECHI
+      // schema_monofilara_pdf_base64 (adus de spread ...result, necitit nicaieri) se sterge MEREU.
+      try {
+        delete (updated as unknown as Record<string, unknown>).schema_monofilara_pdf_base64;   // duplicat mort
+        const freshSch = typeof updated.schema_monofilara_pdf === "string" ? updated.schema_monofilara_pdf : "";
+        if (freshSch.length > 100 && user && savedProjectId) {
+          const schPath = `${user.id}/${savedProjectId}/schema_monofilara.pdf`;
+          const rawSch = freshSch.includes(",") ? freshSch.split(",")[1] : freshSch;
+          const schStr = atob(rawSch);
+          const schBytes = new Uint8Array(schStr.length);
+          for (let i = 0; i < schStr.length; i++) schBytes[i] = schStr.charCodeAt(i);
+          const { error: schUpErr } = await supabase.storage
+            .from("project-files")
+            .upload(schPath, new Blob([schBytes], { type: "application/pdf" }), { upsert: true });
+          if (!schUpErr) {
+            updated.schema_monofilara_path = schPath;
+            delete updated.schema_monofilara_pdf;
+          } else {
+            console.error("[finalize] upload schema in Storage esuat (fallback base64):", schUpErr.message);
+          }
+        }
+      } catch (e) {
+        console.error("[finalize] bloc Storage schema esuat (fallback base64):", e);
+      }
       setResult(updated);
       const { error } = await supabase.from("projects")
         .update({ result_data: updated, finalized: true }).eq("id", savedProjectId);
@@ -2207,18 +2232,22 @@ export function ZynapseConfigurator() {
                       </div>
                     ))}
                   </div>
-                ) : result!.schema_monofilara_pdf ? (
+                ) : (result!.schema_monofilara_pdf || result!.schema_monofilara_path) ? (
                   <div className="rounded-xl overflow-hidden"
                     style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="px-5 py-3 border-b flex justify-end" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-                      <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} />
+                      <SchemaDownloadButton base64Pdf={result!.schema_monofilara_pdf} storagePath={result!.schema_monofilara_path} />
                     </div>
-                    <iframe
-                      src={`data:application/pdf;base64,${result!.schema_monofilara_pdf}`}
-                      className="w-full"
-                      style={{ height: 600, border: "none" }}
-                      title="Schema monofilară"
-                    />
+                    {/* preview inline DOAR pe base64 (proiecte vechi / schema proaspata in memorie);
+                        cu doar path (Storage) ramane butonul de download — schemas[] acopera oricum afisajul */}
+                    {result!.schema_monofilara_pdf ? (
+                      <iframe
+                        src={`data:application/pdf;base64,${result!.schema_monofilara_pdf}`}
+                        className="w-full"
+                        style={{ height: 600, border: "none" }}
+                        title="Schema monofilară"
+                      />
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nicio schemă monofilară în răspuns.</p>

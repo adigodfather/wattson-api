@@ -223,6 +223,44 @@ export async function POST(req: NextRequest) {
           console.error("[/api/generate] bloc Storage memoriu esuat (fallback base64):", e);
         }
 
+        // ── ETAPA 2 Storage: schema monofilară (scalar) -> bucket + ELIMINARE DUPLICAT. ──
+        // result_data avea schema de 2 ori: schema_monofilara_pdf + schema_monofilara_pdf_base64
+        // (identice; ~874 kB dublati). _pdf_base64 NU e citit nicaieri -> se STERGE mereu (duplicat
+        // mort), chiar daca upload-ul esueaza. schema_monofilara_pdf -> Storage + path; fallback
+        // base64 daca upload esueaza. Afisajul principal (schemas[] per tablou) NEATINS in etapa asta.
+        try {
+          const schB64 = typeof data.schema_monofilara_pdf === "string" ? (data.schema_monofilara_pdf as string) : "";
+          if (schB64.length > 100) {
+            const schPath = `${userId}/${projectId}/schema_monofilara.pdf`;
+            const rawSch = schB64.includes(",") ? schB64.split(",", 2)[1] : schB64;
+            const { error: schUpErr } = await supa.storage
+              .from("project-files")
+              .upload(schPath, Buffer.from(rawSch, "base64"), { contentType: "application/pdf", upsert: true });
+            const updated: Record<string, unknown> = { ...data };
+            delete updated.schema_monofilara_pdf_base64;          // duplicatul mort — sters MEREU
+            if (!schUpErr) {
+              updated.schema_monofilara_path = schPath;
+              delete updated.schema_monofilara_pdf;               // originalul e in Storage
+            } else {
+              console.error("[/api/generate] upload schema in Storage esuat (fallback base64):", schUpErr.message);
+            }
+            const { error: schUpdErr } = await supa
+              .from("projects").update({ result_data: updated }).eq("id", projectId);
+            if (schUpdErr) {
+              console.error("[/api/generate] update referinta schema esuat (fallback base64):", schUpdErr.message);
+            } else {
+              // raspunsul catre client = starea din DB
+              delete (data as Record<string, unknown>).schema_monofilara_pdf_base64;
+              if (!schUpErr) {
+                delete (data as Record<string, unknown>).schema_monofilara_pdf;
+                (data as Record<string, unknown>).schema_monofilara_path = schPath;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[/api/generate] bloc Storage schema esuat (fallback base64):", e);
+        }
+
         (data as Record<string, unknown>).saved_project_id = projectId;
       }
       // proiectId null -> NU setăm saved_project_id -> clientul face fallback (insert+consume+increment)

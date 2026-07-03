@@ -212,6 +212,9 @@ export interface ProjectResult {
   plan_annotated_base64?: string | null;
   schema_pdf?: string | null;
   schema_monofilara_pdf?: string | null;
+  // Etapa 2 Storage: referinta schemei scalar in bucket privat (<uid>/<pid>/schema_monofilara.pdf).
+  // Cititorul verifica base64 INTAI, apoi path. Duplicatul schema_monofilara_pdf_base64 e eliminat.
+  schema_monofilara_path?: string | null;
   schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string; page_format?: string }> | null;
   // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
   planuri?: Array<{

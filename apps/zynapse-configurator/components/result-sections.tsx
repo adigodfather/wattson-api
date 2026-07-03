@@ -199,21 +199,45 @@ export function MemoriuDocxButton({ base64Docx, storagePath, label = "Descarcă 
   );
 }
 
-/* ─── Schema monofilară download button ─── */
-export function SchemaDownloadButton({ base64Pdf, label = "Schemă monofilară PDF", fileName = "schema-monofilara.pdf" }: { base64Pdf: string; label?: string; fileName?: string }) {
-  const handleDownload = () => {
-    const raw = base64Pdf.includes(",") ? base64Pdf.split(",")[1] : base64Pdf;
-    const byteStr = atob(raw);
-    const ab = new ArrayBuffer(byteStr.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
-    const blob = new Blob([ab], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+/* ─── Schema monofilară download button ───
+   CITEȘTE-AMBELE (Problema 5, Etapa 2): base64 ÎNTÂI (proiecte vechi + schema proaspătă în
+   memorie), altfel storagePath -> signed URL PROASPĂT la click (bucket privat, expiră 60s). */
+export function SchemaDownloadButton({ base64Pdf, storagePath, label = "Schemă monofilară PDF", fileName = "schema-monofilara.pdf" }: { base64Pdf?: string | null; storagePath?: string | null; label?: string; fileName?: string }) {
+  const handleDownload = async () => {
+    if (base64Pdf) {
+      const raw = base64Pdf.includes(",") ? base64Pdf.split(",")[1] : base64Pdf;
+      const byteStr = atob(raw);
+      const ab = new ArrayBuffer(byteStr.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+      const blob = new Blob([ab], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    if (storagePath) {
+      try {
+        const { createClient } = await import("@/lib/supabase");
+        const { data, error } = await createClient().storage
+          .from("project-files")
+          .createSignedUrl(storagePath, 60, { download: fileName });
+        if (error || !data?.signedUrl) {
+          console.error("[SchemaDownload] signed URL esuat:", error?.message);
+          alert("Nu s-a putut descărca schema. Încearcă din nou.");
+          return;
+        }
+        const a = document.createElement("a");
+        a.href = data.signedUrl;
+        a.click();
+      } catch (e) {
+        console.error("[SchemaDownload] download din Storage esuat:", e);
+        alert("Nu s-a putut descărca schema. Încearcă din nou.");
+      }
+    }
   };
 
   return (
@@ -428,9 +452,9 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
       })()}
       {result.schemas?.length ? (
         <SchemasSection schemas={result.schemas} />
-      ) : result.schema_monofilara_pdf ? (
+      ) : (result.schema_monofilara_pdf || result.schema_monofilara_path) ? (
         <div className="mb-3">
-          <SchemaDownloadButton base64Pdf={result.schema_monofilara_pdf} />
+          <SchemaDownloadButton base64Pdf={result.schema_monofilara_pdf} storagePath={result.schema_monofilara_path} />
         </div>
       ) : null}
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
