@@ -253,6 +253,9 @@ export interface ProjectResult {
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
+  // Etapa 1 Storage (Problema 5): referinta in bucket privat project-files (<uid>/<pid>/memoriu.docx).
+  // Cititorul verifica base64 INTAI (vechi + finalizat proaspat), apoi path (proiecte noi).
+  memoriu_docx_path?: string | null;
   memoriu_filename?: string;
   memoriu_size_bytes?: number;
   // n8n response fields — parallel to FastAPI circuits_all / heating_circuits

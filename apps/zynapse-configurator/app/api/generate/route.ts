@@ -183,6 +183,43 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           console.error("[/api/generate] increment_projects_used esuat:", e);
         }
+
+        // ── ETAPA 1 Storage (Problema 5): memoriul .docx -> bucket privat, referință în DB. ──
+        // DUPĂ consume/increment (fluxul de credite NEATINS). Upload cu sesiunea userului (RLS
+        // pf_owner_insert: path <uid>/...). Ordinea anti-pierdere: INSERT-ul a salvat DEJA base64;
+        // abia după UPLOAD reușit facem UPDATE cu path în loc de base64. Orice eșec (upload SAU
+        // update) -> base64 rămâne în DB și în răspuns (fallback, proiectul/memoriul nu se pierd).
+        try {
+          const memB64 = typeof data.memoriu_docx_base64 === "string" ? (data.memoriu_docx_base64 as string) : "";
+          if (memB64.length > 100) {
+            const storagePath = `${userId}/${projectId}/memoriu.docx`;
+            const rawB64 = memB64.includes(",") ? memB64.split(",", 2)[1] : memB64;
+            const { error: upErr } = await supa.storage
+              .from("project-files")
+              .upload(storagePath, Buffer.from(rawB64, "base64"), {
+                contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                upsert: true,
+              });
+            if (upErr) {
+              console.error("[/api/generate] upload memoriu in Storage esuat (fallback base64):", upErr.message);
+            } else {
+              const updated: Record<string, unknown> = { ...data, memoriu_docx_path: storagePath };
+              delete updated.memoriu_docx_base64;
+              const { error: updErr } = await supa
+                .from("projects").update({ result_data: updated }).eq("id", projectId);
+              if (updErr) {
+                // DB a rămas cu base64 -> răspunsul trebuie să rămână consistent (tot base64)
+                console.error("[/api/generate] update referinta memoriu esuat (fallback base64):", updErr.message);
+              } else {
+                delete (data as Record<string, unknown>).memoriu_docx_base64;
+                (data as Record<string, unknown>).memoriu_docx_path = storagePath;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[/api/generate] bloc Storage memoriu esuat (fallback base64):", e);
+        }
+
         (data as Record<string, unknown>).saved_project_id = projectId;
       }
       // proiectId null -> NU setăm saved_project_id -> clientul face fallback (insert+consume+increment)

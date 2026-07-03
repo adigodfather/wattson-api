@@ -2288,10 +2288,11 @@ export function ZynapseConfigurator() {
             {/* ── Tab: Memoriu tehnic ── */}
             {activeTab === 'memoriu' && (
               <div>
-                {result!.memoriu_docx_base64 ? (
+                {(result!.memoriu_docx_base64 || result!.memoriu_docx_path) ? (
                   <div className="mb-4">
                     <MemoriuDocxButton
                       base64Docx={result!.memoriu_docx_base64}
+                      storagePath={result!.memoriu_docx_path}
                       fileName={result!.memoriu_filename || `Memoriu_Tehnic_${(result!.project_id || "proiect")}.docx`}
                     />
                   </div>

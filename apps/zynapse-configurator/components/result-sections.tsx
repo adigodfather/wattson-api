@@ -136,23 +136,50 @@ export function MemoriuSection({ text }: { text: string }) {
   );
 }
 
-/* ─── Memoriu tehnic (.docx) download button ─── */
-export function MemoriuDocxButton({ base64Docx, label = "Descarcă Memoriu tehnic (.docx)", fileName = "Memoriu_Tehnic.docx" }: { base64Docx: string; label?: string; fileName?: string }) {
-  const handleDownload = () => {
-    const raw = base64Docx.includes(",") ? base64Docx.split(",")[1] : base64Docx;
-    const byteStr = atob(raw);
-    const ab = new ArrayBuffer(byteStr.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
-    const blob = new Blob([ab], {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+/* ─── Memoriu tehnic (.docx) download button ───
+   CITEȘTE-AMBELE (Problema 5, Etapa 1): base64 ÎNTÂI (proiecte vechi + memoriu proaspăt de la
+   "Finalizează" — mereu versiunea mai nouă), altfel storagePath -> signed URL PROASPĂT la click
+   (bucket privat project-files, RLS owner-only; URL-ul expiră în 60s, nu se stochează). */
+export function MemoriuDocxButton({ base64Docx, storagePath, label = "Descarcă Memoriu tehnic (.docx)", fileName = "Memoriu_Tehnic.docx" }: { base64Docx?: string | null; storagePath?: string | null; label?: string; fileName?: string }) {
+  const handleDownload = async () => {
+    // 1) BASE64 (vechi / finalizat proaspăt) -> decodează direct (comportamentul dintotdeauna)
+    if (base64Docx) {
+      const raw = base64Docx.includes(",") ? base64Docx.split(",")[1] : base64Docx;
+      const byteStr = atob(raw);
+      const ab = new ArrayBuffer(byteStr.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+      const blob = new Blob([ab], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    // 2) REFERINȚĂ Storage (proiect nou) -> signed URL proaspăt, cu download forțat + nume corect
+    if (storagePath) {
+      try {
+        const { createClient } = await import("@/lib/supabase");
+        const { data, error } = await createClient().storage
+          .from("project-files")
+          .createSignedUrl(storagePath, 60, { download: fileName });
+        if (error || !data?.signedUrl) {
+          console.error("[MemoriuDocx] signed URL esuat:", error?.message);
+          alert("Nu s-a putut descărca memoriul. Încearcă din nou.");
+          return;
+        }
+        const a = document.createElement("a");
+        a.href = data.signedUrl;
+        a.click();
+      } catch (e) {
+        console.error("[MemoriuDocx] download din Storage esuat:", e);
+        alert("Nu s-a putut descărca memoriul. Încearcă din nou.");
+      }
+    }
   };
 
   return (
