@@ -9,6 +9,40 @@ const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+type Supa = ReturnType<typeof createServerClient>;
+
+// INSERT proiect SERVER-SIDE (oglinda INSERT-ului client vechi). Rulează CA userul (RLS: own).
+// input_data = body-ul MINUS cartus/page_format (ca payload-ul client), result_data = răspunsul n8n.
+// Întoarce id-ul (uuid) sau null pe eroare (clientul face fallback la INSERT-ul lui).
+async function saveProjectServerSide(
+  supa: Supa, userId: string, parsed: Record<string, unknown>, data: Record<string, unknown>
+): Promise<string | null> {
+  const inputData: Record<string, unknown> = { ...parsed };
+  delete inputData.cartus_firma;
+  delete inputData.cartus_proiect;
+  delete inputData.page_format;
+  const projectNr = String(parsed?.project_id ?? "").trim();
+  const row = {
+    user_id: userId,
+    project_id: projectNr || `AUTO-${Date.now()}`,          // coloana NOT NULL (nr. proiect, text)
+    building_type: (parsed?.building_type as string) ?? null,
+    levels: (parsed?.levels_string as string) ?? null,
+    climate_zone: (data?.climate_zone as string) || "II",
+    insulation_level: (parsed?.insulation_level as string) ?? null,
+    heating_type: (parsed?.heating_type as string) ?? null,
+    status: "completed",
+    input_data: inputData,
+    result_data: data,
+    memoriu_text: (data?.memoriu_tehnic as string) ?? null,
+  };
+  const { data: inserted, error } = await supa.from("projects").insert(row).select("id").single();
+  if (error || !inserted) {
+    console.error("[/api/generate] server INSERT projects esuat:", error?.message);
+    return null;
+  }
+  return (inserted as { id: string }).id;
+}
+
 export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
 
@@ -22,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Body parsat O SINGURĂ DATĂ (poate fi multi-MB cu planuri base64) — refolosit de poarta
-  // DTAC+PT și de sold-check. Non-JSON -> null (n8n validează; nu blocăm din parsing).
+  // DTAC+PT, sold-check și INSERT-ul server-side. Non-JSON -> null (n8n validează).
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = JSON.parse(rawBody);
@@ -32,33 +66,34 @@ export async function POST(req: NextRequest) {
   const cartusProiect = (parsed?.cartus_proiect ?? {}) as Record<string, unknown>;
   const faza = String(cartusProiect?.faza ?? parsed?.faza ?? "");
 
-  // ── POARTĂ DTAC+PT (server-side): non-admin NU poate genera o fază cu 'PT' ──
-  // UI-ul ascunde opțiunea; aici o IMPUNEM (un non-admin ar putea forța faza prin API direct).
-  // ── SOLD-CHECK (server-side): generarea pornește DOAR dacă soldul acoperă costul ──
-  // Verificarea client-side (holdCost din configurator) e informativă și poate fi sărită
-  // apelând ruta direct; aici o IMPUNEM. Debitarea reală rămâne consume_credits (idempotentă,
-  // DUPĂ generare) — aici doar VERIFICĂM, nu debităm.
+  // ── Sesiune user (o singură dată) — refolosită de sold-check, lock, INSERT, consume ──
+  const cookieStore = await cookies();
+  const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
+  let userId: string;
   try {
-    const cookieStore = await cookies();
-    const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
     const { data: { user } } = await supa.auth.getUser();
     if (!user) {
       // middleware-ul redirectează deja ne-autentificații; plasă de siguranță pt. apel API direct
       return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
     }
-    const { data: prof } = await supa
-      .from("profiles").select("is_admin, credits_balance").eq("id", user.id).single();
+    userId = user.id;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "verificare cont eșuată";
+    return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
+  }
 
+  // ── POARTĂ DTAC+PT + SOLD-CHECK (server-side, pe MANUAL) — pornim DOAR dacă e permis + acoperit ──
+  // Verificarea client (holdCost) e informativă și poate fi sărită apelând ruta direct; aici o IMPUNEM.
+  // Debitarea REALĂ (pe desfășurata reală) se face pe SUCCES, mai jos.
+  try {
+    const { data: prof } = await supa
+      .from("profiles").select("is_admin, credits_balance").eq("id", userId).single();
     if (isPhasePT(faza) && prof?.is_admin !== true) {
       return NextResponse.json(
         { error: "DTAC+PT este disponibil momentan doar pentru administratori. Selectează DTAC." },
         { status: 403 }
       );
     }
-
-    // formula IDENTICĂ cu genCostZ (client, CREDIT_PRICING {dtac:1, pt:2} -> 1 Z/mp DTAC, 3 Z/mp PT)
-    // și cu consume_credits (DB: 3 else 1). Suprafața = cea manuală (ca la holdCost);
-    // consume_credits facturează oricum pe max(real, manual) la final.
     const surface = Number(parsed?.surface_mp) || 0;
     const cost = surface > 0 ? Math.ceil(surface * (isPhasePT(faza) ? 3 : 1)) : 0;
     const balance = Number(prof?.credits_balance ?? 0);
@@ -69,19 +104,34 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (err) {
-    // eroare NEAȘTEPTATĂ la verificare (ex. Supabase indisponibil) -> nu pornim generarea
-    // pe orb (ar ocoli și poarta PT și soldul); clientul afișează eroarea și userul reîncearcă.
     const message = err instanceof Error ? err.message : "verificare sold eșuată";
     return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
   }
 
+  // ── LOCK: 1 generare simultană / user (anti-abuz concurență). Acquire atomic + TTL 5 min. ──
+  try {
+    const { data: acquired, error: lockErr } = await supa.rpc("acquire_generation_lock");
+    if (lockErr) {
+      // RPC-ul lock a eșuat -> NU pornim pe orb (am ocoli controlul); userul reîncearcă.
+      return NextResponse.json({ error: `Verificare cont eșuată: ${lockErr.message}` }, { status: 500 });
+    }
+    if (acquired !== true) {
+      return NextResponse.json(
+        { error: "Ai deja o generare în curs. Așteaptă să se termine înainte de a porni alta." },
+        { status: 429 }
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "lock eșuat";
+    return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
+  }
+
+  // De aici înainte, lock-ul E OBȚINUT -> se eliberează în `finally` pe TOATE căile.
   try {
     const upstream = await fetch(N8N_WEBHOOK, {
       method: "POST",
       headers: {
         "Content-Type": contentType || "application/json",
-        // FAZA 3A: secretul webhook-ului (n8n îl ignoră până activăm Header Auth pe nod — FAZA 3B).
-        // Nesetat în env -> nu trimitem nimic (stare identică cu azi).
         ...(process.env.N8N_WEBHOOK_SECRET ? { "x-webhook-secret": process.env.N8N_WEBHOOK_SECRET } : {}),
       },
       body: rawBody,
@@ -89,9 +139,9 @@ export async function POST(req: NextRequest) {
 
     // Citim ca text mai întâi, ca să nu crăpăm pe HTML (ex. pagină 504 de la reverse-proxy n8n)
     const text = await upstream.text();
+    let data: Record<string, unknown>;
     try {
-      const data = JSON.parse(text);
-      return NextResponse.json(data, { status: upstream.status });
+      data = JSON.parse(text);
     } catch {
       console.error("[/api/generate] Backend returned non-JSON:", text.slice(0, 500));
       return NextResponse.json({
@@ -99,10 +149,58 @@ export async function POST(req: NextRequest) {
         details: `HTTP ${upstream.status} — răspuns non-JSON (probabil timeout reverse-proxy n8n)`,
         preview: text.slice(0, 200),
         recommendation: "Încearcă cu mai puține planuri sau contactează administratorul",
-      }, { status: 502 });
+      }, { status: 502 });   // finally eliberează lock-ul
     }
+
+    // n8n eroare HTTP sau {status:"error"} -> propagă; NU salvăm/debităm (finally eliberează lock).
+    if (!upstream.ok) {
+      return NextResponse.json(data, { status: upstream.status });
+    }
+    if (data?.status === "error") {
+      return NextResponse.json(data, { status: 200 });
+    }
+
+    // ── SUCCES: persistă + debitează SERVER-SIDE (nu depinde de client). ──
+    // INSERT proiect -> consume_credits (pe desfășurata REALĂ din răspuns) -> increment.
+    // Semnalul pt. client = `saved_project_id`: prezent -> clientul NU mai inserează (foloseste id-ul asta,
+    // reface DOAR consume idempotent ca plasă de siguranță). Absent (INSERT server eșuat) -> clientul face
+    // calea VECHE completă (insert+consume+increment) -> degradare grațioasă, fără proiect pierdut.
+    try {
+      const projectId = await saveProjectServerSide(supa, userId, parsed || {}, data);
+      if (projectId) {
+        // debitare pe desfășurata reală (consume_credits: idempotent pe project_id + drain-to-zero)
+        try {
+          const surface = Number(parsed?.surface_mp) || 0;
+          const { data: creditsRes } = await supa.rpc("consume_credits", {
+            p_surface_mp: surface, p_phase: faza, p_project_id: projectId,
+          });
+          (data as Record<string, unknown>).credits_result = creditsRes ?? null;
+        } catch (e) {
+          console.error("[/api/generate] consume_credits esuat:", e);
+        }
+        try {
+          await supa.rpc("increment_projects_used");   // NEidempotent -> server o face O SINGURĂ dată
+        } catch (e) {
+          console.error("[/api/generate] increment_projects_used esuat:", e);
+        }
+        (data as Record<string, unknown>).saved_project_id = projectId;
+      }
+      // proiectId null -> NU setăm saved_project_id -> clientul face fallback (insert+consume+increment)
+    } catch (e) {
+      console.error("[/api/generate] bloc salvare server esuat:", e);
+      // fără saved_project_id -> client fallback
+    }
+
+    return NextResponse.json(data, { status: 200 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upstream request failed";
     return NextResponse.json({ error: message }, { status: 502 });
+  } finally {
+    // ELIBERARE LOCK pe TOATE căile (succes, 502, throw). TTL 5 min = plasă dacă ruta moare complet.
+    try {
+      await supa.rpc("release_generation_lock");
+    } catch (e) {
+      console.error("[/api/generate] release_generation_lock esuat (TTL va curăța):", e);
+    }
   }
 }

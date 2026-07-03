@@ -1337,54 +1337,68 @@ export function ZynapseConfigurator() {
       setStepIndex(4);
       if (user) {
         const supabase = createClient();
-        const { data: inserted, error: insertError } = await supabase.from("projects").insert({
-          user_id: user.id,
-          project_id: form.project_id,
-          building_type: form.building_type,
-          levels: levelsString,
-          climate_zone: data.climate_zone || "II",
-          insulation_level: form.insulation_level,
-          heating_type: form.heating_type,
-          status: "completed",
-          input_data: payload,
-          result_data: data,
-          memoriu_text: data.memoriu_tehnic,
-        }).select("id").single();
-        if (insertError) {
+        // SERVER-FIRST: /api/generate persistă + debitează pe succes, server-side (nu depinde de client),
+        // și întoarce `saved_project_id`. PREZENT -> folosim id-ul lui (NU mai inserăm -> fără dublu proiect);
+        // refacem DOAR consume_credits (idempotent pe project_id) ca plasă de siguranță dacă consume-ul
+        // server a eșuat; NU increment (server l-a făcut, e NEidempotent -> dublă-numărare). ABSENT (INSERT
+        // server eșuat) -> calea VECHE completă (insert+consume+increment) -> degradare grațioasă.
+        const serverProjectId = (data as { saved_project_id?: string }).saved_project_id;
+        const consumeFaza = cartusOverride?.faza ?? cartusProiectInput.faza;
+        let projectUuid: string | null = serverProjectId ?? null;
+        let insertError: unknown = null;
+        let msg = "Proiect salvat cu succes";
+
+        if (!projectUuid) {
+          const { data: inserted, error } = await supabase.from("projects").insert({
+            user_id: user.id,
+            project_id: form.project_id,
+            building_type: form.building_type,
+            levels: levelsString,
+            climate_zone: data.climate_zone || "II",
+            insulation_level: form.insulation_level,
+            heating_type: form.heating_type,
+            status: "completed",
+            input_data: payload,
+            result_data: data,
+            memoriu_text: data.memoriu_tehnic,
+          }).select("id").single();
+          insertError = error;
+          projectUuid = inserted?.id ?? null;
+        }
+
+        if (insertError || !projectUuid) {
           console.error("[save project] insert error:", insertError);
           setSaveMessage("Proiectul a fost generat, dar salvarea în istoric a eșuat. Descarcă-l acum din rezultate.");
         } else {
-          setSavedProjectId(inserted?.id ?? null);   // pt. tab-ul Editor (citește plan_elements pe acest uuid)
-          // HARD CONSUME — scade creditele real DOAR la succes, idempotent pe uuid-ul proiectului.
-          // Costul se calculeaza SERVER-SIDE in functie din surface_mp + faza (clientul nu trimite cost).
-          const consumeFaza = cartusOverride?.faza ?? cartusProiectInput.faza;
-          let msg = "Proiect salvat cu succes";
+          setSavedProjectId(projectUuid);   // pt. tab-ul Editor (citește plan_elements pe acest uuid)
+          // CONSUME idempotent pe project_id (id-ul REAL, server sau fallback): no-op dacă serverul a
+          // debitat deja; debitează dacă serverul a eșuat. NICIODATĂ dublă-debitare (același project_id).
           try {
             const { data: consumeRes, error: consumeErr } = await supabase.rpc("consume_credits", {
               p_surface_mp: form.surface_mp,
               p_phase: consumeFaza,
-              p_project_id: inserted?.id ?? null,
+              p_project_id: projectUuid,
             });
             if (consumeErr) {
-              // eroare tehnica (retea) -> proiectul DEJA e salvat; NU blocam afisarea, doar logam
               console.error("[consume_credits] error:", consumeErr);
             } else if (consumeRes && (consumeRes as { success?: boolean }).success === false) {
-              // sold insuficient la finalizare (rar) -> lasam proiectul salvat, avertizam, NU stergem munca
               console.warn("[consume_credits] insuficient la consum:", consumeRes);
               msg = "Proiect generat. Atenție: soldul de Z-Coins nu a putut fi debitat (sold insuficient la finalizare).";
             }
           } catch (e) {
             console.error("[consume_credits] exception:", e);
           }
-          const { error: rpcError } = await supabase.rpc("increment_projects_used");
-          if (rpcError) console.error("[save project] increment error:", rpcError);
+          // INCREMENT doar dacă serverul NU a persistat (NEidempotent -> evită dubla-numărare).
+          if (!serverProjectId) {
+            const { error: rpcError } = await supabase.rpc("increment_projects_used");
+            if (rpcError) console.error("[save project] increment error:", rpcError);
+          }
 
           // ADITIV + NON-BLOCANT: populează plan_elements (becuri) pentru editorul interactiv.
           // RLS permite owner-ului autenticat INSERT (plan_elements_insert_own). ORICE eroare aici
           // NU afectează proiectul/planul (deja salvate + afișate) — doar log. Proiect nou la fiecare
           // generare (uuid nou) -> fără duplicate. Faza DTAC (fără planse_iluminat/centers) -> 0 elemente.
           try {
-            const projectUuid = inserted?.id;
             if (projectUuid) {
               const planElements: Array<Record<string, unknown>> = [];
               for (const [idx, plansa] of (data.planse_iluminat || []).entries()) {
