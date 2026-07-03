@@ -3429,6 +3429,63 @@ def crop_to_building_endpoint(request: CropToBuildingRequest):
 
 
 # -------------------------------------------------
+#  POARTA DE VALIDARE PLAN  —  POST /validate-plan
+# -------------------------------------------------
+
+class ValidatePlanRequest(BaseModel):
+    pdf_base64: str = ""
+
+
+@app.post("/validate-plan")
+def validate_plan_endpoint(request: ValidatePlanRequest):
+    """POARTA de validare DETERMINISTA (fara AI, <1s) — ruleaza INAINTE de Vision/credite.
+    Discriminanti dovediti empiric (schema reala: 0 pereti + 0 etichete arie; planuri reale:
+    sute de pereti + etichete = exact nr. camerelor; raster: 0 text):
+      - raster (words==0)                  -> rejected (blocare HARD in frontend)
+      - 0 etichete arie SI < 20 pereti     -> warning  (override in frontend, faza 1)
+      - altfel                             -> ok
+    Refoloseste geometry._collect (pereti) + draw_elements.AREA_RE (etichete "A: NN.N mp").
+    DEFENSIV: orice eroare INTERNA a portii -> ok cu nota (poarta nu blocheaza useri pe bug-ul ei)."""
+    doc = None
+    try:
+        import fitz   # main.py nu are fitz global (pattern-ul local, ca la /regenerate-plan)
+        raw = request.pdf_base64 or ""
+        if "," in raw:
+            raw = raw.split(",", 1)[1]
+        if not raw:
+            return {"status": "ok", "note": "pdf_base64 lipseste — permis defensiv"}
+        pdf_bytes = base64.b64decode(raw)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        words = page.get_text("words")
+        if len(words) == 0:
+            return {"status": "rejected", "reason": "raster",
+                    "message": "PDF scanat (imagine, fără strat vectorial). Încarcă exportul PDF vectorial din programul CAD."}
+        import geometry
+        try:
+            h_segs, v_segs, _dd = geometry._collect(page)
+        except Exception:
+            h_segs, v_segs = [], []
+        n_walls = len(h_segs) + len(v_segs)
+        text = page.get_text("text") or ""
+        n_area = len(draw_elements.AREA_RE.findall(text))
+        detected = {"walls": n_walls, "area_labels": n_area, "words": len(words)}
+        if n_area == 0 and n_walls < 20:
+            return {"status": "warning", "reason": "not_a_plan", "detected": detected,
+                    "message": "Fișierul nu pare un plan de arhitectură (nicio cameră cu suprafață, aproape niciun perete detectat). Poate fi o schemă sau alt document."}
+        return {"status": "ok", "detected": detected}
+    except Exception as e:
+        logger.error("[validate-plan] eroare interna -> permis defensiv: %r", e)
+        return {"status": "ok", "note": f"validare esuata, permis defensiv: {e}"}
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+
+# -------------------------------------------------
 #  SERVIRE FRONTEND STATIC
 # -------------------------------------------------
 

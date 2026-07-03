@@ -1158,9 +1158,39 @@ export function ZynapseConfigurator() {
       return;
     }
 
-    if (cartusConfirmed) { void runBackend(); return; }
-
+    // ── POARTA DE VALIDARE (determinista, FARA AI) — INAINTE de vision-cartus (primul consum
+    // Anthropic), de lock si de credite. Raster (PDF scanat) = BLOCARE HARD; "nu pare plan de
+    // arhitectura" (0 camere cu arie + <20 pereti) = WARNING cu override (faza 1). Imaginile
+    // (JPG/PNG) NU trec prin poarta (comportament neschimbat). Poarta e DEFENSIVA: orice eroare
+    // a ei (retea/backend) -> permite generarea (nu blocam useri pe bug-urile portii).
     setVisionCartusLoading(true);
+    try {
+      for (const f of files) {
+        if ((f.type || "") !== "application/pdf") continue;
+        const b64 = await fileToBase64(f);
+        const vres = await fetch("/api/validate-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pdf_base64: b64 }),
+        });
+        const v = await vres.json().catch(() => null);
+        if (v?.status === "rejected") {
+          setVisionCartusLoading(false);
+          setError(`„${f.name}": ${v.message || "PDF invalid."}`);
+          setStatus("error");
+          return;                                   // HARD: 0 Anthropic, 0 lock, 0 credite
+        }
+        if (v?.status === "warning") {
+          const go = window.confirm(`„${f.name}": ${v.message}\n\nContinuă oricum?`);
+          if (!go) { setVisionCartusLoading(false); return; }   // userul a anulat: 0 consum
+        }
+      }
+    } catch (e) {
+      console.warn("[validate-plan] poarta a esuat, continuam defensiv:", e);
+    }
+
+    if (cartusConfirmed) { setVisionCartusLoading(false); void runBackend(); return; }
+
     setVisionSurfaces(null);   // reset la fiecare incercare; setat din raspuns daca exista
     try {
       const fd = new FormData();
