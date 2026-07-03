@@ -95,7 +95,12 @@ export async function POST(req: NextRequest) {
   try {
     const resp = await fetch(N8N_FINALIZE, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // FIX (03.07): cheia interna FastAPI prin webhook -> Code nodes din finalize o forwardeaza
+        // la /generate-schema-b64 + /generate-memoriu ($env nu ajunge in task runner-ul n8n).
+        ...(process.env.ZYNAPSE_INTERNAL_KEY ? { "x-zynapse-key": process.env.ZYNAPSE_INTERNAL_KEY } : {}),
+      },
       body: JSON.stringify(webhookBody),
     });
     const text = await resp.text();

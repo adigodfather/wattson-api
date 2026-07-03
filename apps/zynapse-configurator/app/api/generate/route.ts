@@ -133,6 +133,9 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": contentType || "application/json",
         ...(process.env.N8N_WEBHOOK_SECRET ? { "x-webhook-secret": process.env.N8N_WEBHOOK_SECRET } : {}),
+        // FIX plan_elements (03.07): cheia interna FastAPI curge PRIN webhook -> nodurile Code n8n
+        // o citesc din headerele webhook-ului si o trimit la FastAPI ($env nu ajunge in task runner).
+        ...(process.env.ZYNAPSE_INTERNAL_KEY ? { "x-zynapse-key": process.env.ZYNAPSE_INTERNAL_KEY } : {}),
       },
       body: rawBody,
     });
