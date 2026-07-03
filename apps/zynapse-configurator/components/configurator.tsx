@@ -1568,8 +1568,35 @@ export function ZynapseConfigurator() {
         memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
         bom: data.bom ?? result.bom,
       };
-      setResult(updated);
       const supabase = createClient();
+      // ETAPA 1 Storage (fix 03.07): memoriul PROASPAT de la finalize -> Storage pe ACELASI path
+      // (upsert suprascrie versiunea de la generare), base64 STERS din result_data -> volumul nu
+      // se dubleaza (inainte: finalize re-adauga base64 langa path -> result_data nu scadea).
+      // Fallback: orice esec la upload -> base64 ramane (download-ul merge, nimic pierdut).
+      try {
+        const freshB64 = typeof updated.memoriu_docx_base64 === "string" ? updated.memoriu_docx_base64 : "";
+        if (freshB64.length > 100 && user && savedProjectId) {
+          const storagePath = `${user.id}/${savedProjectId}/memoriu.docx`;
+          const raw = freshB64.includes(",") ? freshB64.split(",")[1] : freshB64;
+          const byteStr = atob(raw);
+          const bytes = new Uint8Array(byteStr.length);
+          for (let i = 0; i < byteStr.length; i++) bytes[i] = byteStr.charCodeAt(i);
+          const { error: upErr } = await supabase.storage
+            .from("project-files")
+            .upload(storagePath, new Blob([bytes], {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }), { upsert: true });
+          if (!upErr) {
+            updated.memoriu_docx_path = storagePath;
+            delete updated.memoriu_docx_base64;   // ramane DOAR referinta (citirea cade pe Storage)
+          } else {
+            console.error("[finalize] upload memoriu in Storage esuat (fallback base64):", upErr.message);
+          }
+        }
+      } catch (e) {
+        console.error("[finalize] bloc Storage memoriu esuat (fallback base64):", e);
+      }
+      setResult(updated);
       const { error } = await supabase.from("projects")
         .update({ result_data: updated, finalized: true }).eq("id", savedProjectId);
       if (error) {
