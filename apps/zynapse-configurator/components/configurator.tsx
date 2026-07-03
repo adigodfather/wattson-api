@@ -215,6 +215,57 @@ function genCostZ(surface: number, faza: string): number {
   return Math.ceil(surface * perM2);
 }
 
+/* ─── ETAPA 3 Storage: preview + download schema per tablou (citeste-ambele) ───
+   base64 (proiecte vechi / schema proaspata in memorie) -> direct; pdf_path (proiecte noi)
+   -> signed URL din bucketul privat (iframe: 3600s la randare; download: 60s la click). */
+function SchemaFrame({ base64Pdf, storagePath, title }: { base64Pdf?: string | null; storagePath?: string | null; title: string }) {
+  const [src, setSrc] = useState<string | null>(base64Pdf ? `data:application/pdf;base64,${base64Pdf}` : null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!base64Pdf && storagePath) {
+      (async () => {
+        try {
+          const supabase = createClient();
+          const { data } = await supabase.storage.from("project-files").createSignedUrl(storagePath, 3600);
+          if (!cancelled && data?.signedUrl) setSrc(data.signedUrl);
+        } catch (e) {
+          console.error("[SchemaFrame] signed URL esuat (preview lipseste, download ramane):", e);
+        }
+      })();
+    }
+    return () => { cancelled = true; };
+  }, [base64Pdf, storagePath]);
+  if (!src) return null;
+  return <iframe src={src} className="w-full" style={{ height: 600, border: "none" }} title={title} />;
+}
+
+async function downloadSchemaEl(
+  s: { pdf_base64?: string | null; pdf_path?: string | null },
+  fileName: string,
+  downloadB64: (b64: string, name: string) => void
+) {
+  if (s.pdf_base64) { downloadB64(s.pdf_base64, fileName); return; }
+  if (s.pdf_path) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.storage
+        .from("project-files")
+        .createSignedUrl(s.pdf_path, 60, { download: fileName });
+      if (error || !data?.signedUrl) {
+        console.error("[downloadSchemaEl] signed URL esuat:", error?.message);
+        alert("Nu s-a putut descărca schema. Încearcă din nou.");
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = data.signedUrl;
+      a.click();
+    } catch (e) {
+      console.error("[downloadSchemaEl] download din Storage esuat:", e);
+      alert("Nu s-a putut descărca schema. Încearcă din nou.");
+    }
+  }
+}
+
 /* ─── Faza proiect chips (Epic 3.11) — DTAC+PT temporar DOAR pentru admin ─── */
 function FazaProiectChips({ value, onChange, isAdmin }: { value: string; onChange: (v: string) => void; isAdmin: boolean }) {
   return (
@@ -1651,6 +1702,39 @@ export function ZynapseConfigurator() {
       } catch (e) {
         console.error("[finalize] bloc Storage schema esuat (fallback base64):", e);
       }
+      // ETAPA 3 Storage: schemas[] PROASPETE de la finalize -> Storage pe ACELEASI path-uri per
+      // element (upsert suprascrie versiunile de la generare) + sterge base64 per element.
+      // Bucla clasica; fallback per element (upload esuat -> acel element ramane pe base64).
+      try {
+        const schemasArr = Array.isArray(updated.schemas) ? updated.schemas : [];
+        if (schemasArr.length > 0 && user && savedProjectId) {
+          const newSchemas: NonNullable<ProjectResult["schemas"]> = [];
+          for (let i = 0; i < schemasArr.length; i++) {
+            const el = { ...(schemasArr[i] || {}) } as NonNullable<ProjectResult["schemas"]>[number];
+            const elB64 = typeof el.pdf_base64 === "string" ? el.pdf_base64 : "";
+            if (elB64.length > 100) {
+              const elPath = `${user.id}/${savedProjectId}/schema_tablou_${i}.pdf`;
+              const rawEl = elB64.includes(",") ? elB64.split(",")[1] : elB64;
+              const bStr = atob(rawEl);
+              const bArr = new Uint8Array(bStr.length);
+              for (let k = 0; k < bStr.length; k++) bArr[k] = bStr.charCodeAt(k);
+              const { error: elUpErr } = await supabase.storage
+                .from("project-files")
+                .upload(elPath, new Blob([bArr], { type: "application/pdf" }), { upsert: true });
+              if (!elUpErr) {
+                el.pdf_path = elPath;
+                delete el.pdf_base64;
+              } else {
+                console.error(`[finalize] upload schemas[${i}] esuat (fallback base64):`, elUpErr.message);
+              }
+            }
+            newSchemas.push(el);
+          }
+          updated.schemas = newSchemas;
+        }
+      } catch (e) {
+        console.error("[finalize] bloc Storage schemas[] esuat (fallback base64):", e);
+      }
       setResult(updated);
       const { error } = await supabase.from("projects")
         .update({ result_data: updated, finalized: true }).eq("id", savedProjectId);
@@ -2244,21 +2328,18 @@ export function ZynapseConfigurator() {
                             {s.name}{s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}{s.page_format ? ` (${s.page_format})` : ""}
                           </span>
                           <button
-                            onClick={() => downloadPDF(
-                              s.pdf_base64,
-                              `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`
+                            onClick={() => downloadSchemaEl(
+                              s,
+                              `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`,
+                              downloadPDF
                             )}
                             className="px-3 py-1.5 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer"
                             style={{ background: "rgba(21,128,61,0.12)", border: "1px solid rgba(21,128,61,0.28)", color: "#4ADE80" }}>
                             ⬇ Descarcă PDF
                           </button>
                         </div>
-                        <iframe
-                          src={`data:application/pdf;base64,${s.pdf_base64}`}
-                          className="w-full"
-                          style={{ height: 600, border: "none" }}
-                          title={s.name}
-                        />
+                        {/* citeste-ambele: base64 direct (vechi) sau signed URL din Storage (nou) */}
+                        <SchemaFrame base64Pdf={s.pdf_base64} storagePath={s.pdf_path} title={s.name} />
                       </div>
                     ))}
                   </div>

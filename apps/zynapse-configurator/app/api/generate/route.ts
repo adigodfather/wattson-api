@@ -261,6 +261,49 @@ export async function POST(req: NextRequest) {
           console.error("[/api/generate] bloc Storage schema esuat (fallback base64):", e);
         }
 
+        // ── ETAPA 3 Storage: schemas[] (o schema PER TABLOU) -> bucket, path PER ELEMENT. ──
+        // Bucla CLASICA cu index (nu .entries()/destructurare). Fallback PER ELEMENT: un upload
+        // esuat -> acel element ramane pe base64, restul merg pe Storage. Un singur UPDATE la final;
+        // raspunsul catre client se muta pe noile elemente DOAR dupa UPDATE reusit (consistenta DB).
+        try {
+          const schemasArr = Array.isArray(data.schemas) ? (data.schemas as Record<string, unknown>[]) : [];
+          if (schemasArr.length > 0) {
+            let anyMoved = false;
+            const newSchemas: Record<string, unknown>[] = [];
+            for (let i = 0; i < schemasArr.length; i++) {
+              const el: Record<string, unknown> = { ...(schemasArr[i] || {}) };
+              const elB64 = typeof el.pdf_base64 === "string" ? (el.pdf_base64 as string) : "";
+              if (elB64.length > 100) {
+                const elPath = `${userId}/${projectId}/schema_tablou_${i}.pdf`;
+                const rawEl = elB64.includes(",") ? elB64.split(",", 2)[1] : elB64;
+                const { error: elUpErr } = await supa.storage
+                  .from("project-files")
+                  .upload(elPath, Buffer.from(rawEl, "base64"), { contentType: "application/pdf", upsert: true });
+                if (!elUpErr) {
+                  el.pdf_path = elPath;
+                  delete el.pdf_base64;
+                  anyMoved = true;
+                } else {
+                  console.error(`[/api/generate] upload schemas[${i}] esuat (fallback base64):`, elUpErr.message);
+                }
+              }
+              newSchemas.push(el);
+            }
+            if (anyMoved) {
+              const updated: Record<string, unknown> = { ...data, schemas: newSchemas };
+              const { error: updErr } = await supa
+                .from("projects").update({ result_data: updated }).eq("id", projectId);
+              if (updErr) {
+                console.error("[/api/generate] update schemas[] esuat (fallback base64):", updErr.message);
+              } else {
+                (data as Record<string, unknown>).schemas = newSchemas;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[/api/generate] bloc Storage schemas[] esuat (fallback base64):", e);
+        }
+
         (data as Record<string, unknown>).saved_project_id = projectId;
       }
       // proiectId null -> NU setăm saved_project_id -> clientul face fallback (insert+consume+increment)

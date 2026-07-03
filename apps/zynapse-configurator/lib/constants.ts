@@ -215,7 +215,9 @@ export interface ProjectResult {
   // Etapa 2 Storage: referinta schemei scalar in bucket privat (<uid>/<pid>/schema_monofilara.pdf).
   // Cititorul verifica base64 INTAI, apoi path. Duplicatul schema_monofilara_pdf_base64 e eliminat.
   schema_monofilara_path?: string | null;
-  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64: string; page_format?: string }> | null;
+  // Etapa 3 Storage: pdf_base64 devine optional — proiectele NOI au pdf_path (bucket privat,
+  // <uid>/<pid>/schema_tablou_<i>.pdf); cele vechi raman pe base64. Cititorii verifica base64 INTAI.
+  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64?: string | null; pdf_path?: string | null; page_format?: string }> | null;
   // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
   planuri?: Array<{
     name: string; plansa_nr: string; pdf_base64: string;

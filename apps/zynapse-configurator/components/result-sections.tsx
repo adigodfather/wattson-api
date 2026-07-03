@@ -267,6 +267,7 @@ export function SchemasSection({ schemas }: { schemas: NonNullable<ProjectResult
           <SchemaDownloadButton
             key={i}
             base64Pdf={s.pdf_base64}
+            storagePath={s.pdf_path}
             label={`${s.name}${s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""} PDF`}
             fileName={`schema-${s.name.toLowerCase().replace(/\s+/g, "-")}.pdf`}
           />
