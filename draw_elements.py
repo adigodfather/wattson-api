@@ -207,24 +207,25 @@ _PRIZA_DARK = (0.051, 0.235, 0.478)    # #0d3c7a — contur alimentare directa (
 
 
 def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0.0):
-    """Simbol priza (portat din Konva): semicerc cu partea curba SUS + 2 contacte sub diametru.
-    Geometria NESCHIMBATA; marit 1.6x + UMPLUT: simpla/dubla turcoaz (contur albastru),
-    IP44 caseta turcoaz + semicerc ALB (contur teal), alimentare directa albastru inchis plin.
-    rotation (radiani, sens orar): 0=deschidere SUS, pi=JOS, +pi/2=DREAPTA, -pi/2=STANGA —
-    baza (diametrul) sta pe perete, deschiderea spre interiorul camerei (ca la _draw_switch)."""
-    s = scale * 1.6                     # marire aprobata (~26pt latime priza simpla)
+    """Simbol priza (portat din Konva): semicerc (SPATELE, curba JOS in local) + 2 contacte
+    DEASUPRA diametrului (DESCHIDEREA prizei). Dimensiune = editorul UI (scale*0.96, nu 1.6:
+    PDF era ~png_scale=1.667x mai mare ca UI); IP44 caseta turcoaz + semicerc ALB (contur teal),
+    alimentare directa albastru inchis plin.
+    rotation (radiani, sens orar): 0=contacte/deschidere SUS, pi=JOS, +pi/2=DREAPTA, -pi/2=STANGA —
+    baza (diametrul) sta pe perete, CONTACTELE spre interiorul camerei (ca la _draw_switch)."""
+    s = scale * 0.96                    # dimensiune = editorul UI (era 1.6 -> PDF ~1.667x prea mare)
     C = _PRIZA_COLOR
     cosr, sinr = math.cos(rotation or 0.0), math.sin(rotation or 0.0)
 
     def P(dx, dy):                      # punct local rotit in jurul ancorei (y-down => sens orar)
         return fitz.Point(cx + dx * cosr - dy * sinr, cy + dx * sinr + dy * cosr)
 
-    def disc(dx, r, fill=_PRIZA_TURQ, edge=C):   # semicerc (curba SUS in local): sector rotit
-        page.draw_sector(P(dx, 0), P(dx - r, 0), -180, color=edge, fill=fill, width=1.4, fullSector=True)
+    def disc(dx, r, fill=_PRIZA_TURQ, edge=C):   # semicerc (curba JOS in local = spre perete): sector rotit
+        page.draw_sector(P(dx, 0), P(dx - r, 0), 180, color=edge, fill=fill, width=1.4, fullSector=True)
 
-    def contacts(dx, col=C):            # 2 contacte sub diametru (in local), rotite
+    def contacts(dx, col=C):            # 2 contacte DEASUPRA diametrului (local -y = spre camera dupa rotatie)
         for off in (-3.0 * s, 3.0 * s):
-            page.draw_line(P(dx + off, 2.0 * s), P(dx + off, 6.0 * s), color=col, width=1.1)
+            page.draw_line(P(dx + off, -2.0 * s), P(dx + off, -6.0 * s), color=col, width=1.1)
 
     et = element_type or "priza_simpla"
     if et == "priza_dubla":
@@ -234,7 +235,7 @@ def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0
         page.draw_circle(fitz.Point(cx, cy), 8 * s, color=_PRIZA_DARK, fill=_PRIZA_COLOR, width=1.4)
     elif et == "priza_exterior_ip44":
         # caseta turcoaz cu contur teal (rotita ca polilinie), semicerc ALB cu contur teal
-        corners = [P(-11 * s, -11 * s), P(11 * s, -11 * s), P(11 * s, 10 * s), P(-11 * s, 10 * s)]
+        corners = [P(-11 * s, -10 * s), P(11 * s, -10 * s), P(11 * s, 11 * s), P(-11 * s, 11 * s)]
         page.draw_polyline(corners, color=_PRIZA_TEAL, fill=_PRIZA_TURQ, width=1.0, closePath=True)
         disc(0, 8 * s, fill=(1, 1, 1), edge=_PRIZA_TEAL); contacts(0, col=_PRIZA_TEAL)
         page.insert_text(fitz.Point(cx - 10 * s, cy + 18 * s + 6), "IP44",

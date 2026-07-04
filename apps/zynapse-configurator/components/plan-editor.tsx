@@ -173,21 +173,21 @@ function bulbSelRing(type: string) {
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
-// Simbol PRIZA (Konva): semicerc UMPLUT turcoaz (partea curbă SUS) + 2 contacte sub el; contur ALBASTRU COL_PRIZA.
-// priza_16a = ALIMENTARE DIRECTĂ (cerc PLIN albastru). IP44 = cutie turcoaz + semicerc ALB (contur teal).
-// Dimensiuni ×1.6 vs. v1 — sincron cu _draw_priza din draw_elements.py (PDF).
+// Simbol PRIZA (Konva): semicerc UMPLUT turcoaz (SPATELE, curbă JOS) + 2 contacte DEASUPRA (deschiderea);
+// contur ALBASTRU COL_PRIZA. priza_16a = ALIMENTARE DIRECTĂ (cerc PLIN). IP44 = cutie + semicerc ALB (teal).
+// Orientare: rotația (DB) duce CONTACTELE spre cameră; simbol identic cu _draw_priza (PDF). Dim. editor = referință.
 const PRIZA_TURQ = "#3fd0c9";   // umplutura prizelor interioare
 const PRIZA_TEAL = "#0f766e";   // contur IP44 (teal închis, distinct de interior)
 const PRIZA_DARK = "#0d3c7a";   // contur alimentare directă (albastru închis)
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
   const disc = (cx: number, r = 13, fill: string = PRIZA_TURQ, edge: string = C) => (
-    <Arc x={cx} y={0} innerRadius={0} outerRadius={r} angle={180} rotation={180} fill={fill} stroke={edge} strokeWidth={2} />
+    <Arc x={cx} y={0} innerRadius={0} outerRadius={r} angle={180} rotation={0} fill={fill} stroke={edge} strokeWidth={2} />
   );
   const contacts = (cx: number, col: string = C) => (
     <>
-      <Line points={[cx - 5, 3, cx - 5, 10]} stroke={col} strokeWidth={1.5} listening={false} />
-      <Line points={[cx + 5, 3, cx + 5, 10]} stroke={col} strokeWidth={1.5} listening={false} />
+      <Line points={[cx - 5, -3, cx - 5, -10]} stroke={col} strokeWidth={1.5} listening={false} />
+      <Line points={[cx + 5, -3, cx + 5, -10]} stroke={col} strokeWidth={1.5} listening={false} />
     </>
   );
   switch (type) {
@@ -196,7 +196,7 @@ function prizaSymbol(type: string) {
     case "priza_16a":   // ALIMENTARE DIRECTĂ = cerc PLIN albastru (consumatori conectați direct, fără priză)
       return <Circle x={0} y={0} radius={13} fill={C} stroke={PRIZA_DARK} strokeWidth={2} />;
     case "priza_exterior_ip44":
-      return <><Rect x={-18} y={-18} width={36} height={34} cornerRadius={4} fill={PRIZA_TURQ} stroke={PRIZA_TEAL} strokeWidth={1.5} listening={false} />{disc(0, 13, "#ffffff", PRIZA_TEAL)}{contacts(0, PRIZA_TEAL)}<Text x={-16} y={19} text="IP44" fontSize={9} fontStyle="bold" fill={PRIZA_TEAL} listening={false} /></>;
+      return <><Rect x={-18} y={-16} width={36} height={34} cornerRadius={4} fill={PRIZA_TURQ} stroke={PRIZA_TEAL} strokeWidth={1.5} listening={false} />{disc(0, 13, "#ffffff", PRIZA_TEAL)}{contacts(0, PRIZA_TEAL)}<Text x={-16} y={21} text="IP44" fontSize={9} fontStyle="bold" fill={PRIZA_TEAL} listening={false} /></>;
     default: // priza_simpla
       return <>{disc(0)}{contacts(0)}</>;
   }
