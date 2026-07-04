@@ -1059,6 +1059,45 @@ def _extract_stripe(elements):
     return None
 
 
+def _extract_stripes(elements):
+    """FAZA B — TOATE dungile 'traseu' (cable_path) din elements, ca lista de polilinii
+    [(x,y),...] (fiecare >=2 puncte). Sare peste cele malformate. Lista goala -> consumatorul
+    cade pe L direct (exact ca fara dunga in faza A). elements sunt deja filtrate pe
+    plansa/floor/plan_type in amonte -> corect din start."""
+    out = []
+    for el in (elements or []):
+        if (el.get("element_type") or "") != "traseu":
+            continue
+        cp = el.get("cable_path")
+        if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+            continue
+        pts, ok = [], True
+        for p in cp:
+            try:
+                pts.append((float(p[0]), float(p[1])))
+            except (TypeError, ValueError, IndexError):
+                ok = False
+                break
+        if ok and len(pts) >= 2:
+            out.append(pts)
+    return out
+
+
+def _nearest_stripe_idx(a, stripes):
+    """Indexul dungii CELEI MAI APROPIATE de punctul a (proiectie punct-pe-polilinie, distanta
+    minima). Reutilizeaza _project_point_on_polyline (fara algoritm nou). stripes gol -> None.
+    Determinist la egalitate: indexul mai mic castiga (cablu ~egal intre 2 trasee -> cosmetic)."""
+    if not stripes:
+        return None
+    best_i, best_d = 0, None
+    for i, s in enumerate(stripes):
+        proj, _, _ = _project_point_on_polyline(a, s)
+        d = math.hypot(a[0] - proj[0], a[1] - proj[1])
+        if best_d is None or d < best_d:
+            best_d, best_i = d, i
+    return best_i
+
+
 def _project_point_on_polyline(p, pts):
     """Proiectia lui p=(x,y) pe polilinia pts=[(x,y),...]: pe fiecare segment, proiectie
     punct-pe-segment cu t clampat in [0,1]; pastreaza cea mai apropiata. Returneaza
@@ -1300,16 +1339,18 @@ def compute_cables(elements):
                                       if (el.get("element_type") in _SWITCH_TYPES) and not el.get("room")),
              "skip_bec_fara_sw": 0, "skip_tablou_lipsa": 0}
 
-    stripe = _extract_stripe(elements)   # dunga 'traseu' (SOL B) sau None -> fallback L direct
+    stripes = _extract_stripes(elements)   # FAZA B: TOATE dungile 'traseu'; [] -> fallback L direct
 
     def add(ft, a, tt, b, kind, room, via_stripe=False):
-        # traseele ...->tablou trec prin dunga daca exista (SOL B); bec->switch local = L direct.
-        path = _stripe_path(a, b, stripe) if (via_stripe and stripe) else _cable_l_path(a, b)
+        # traseele ...->tablou trec prin dunga CEA MAI APROPIATA de origine (SOL B, faza B); bec->switch local = L direct.
+        si = _nearest_stripe_idx(a, stripes) if via_stripe else None
+        use = via_stripe and si is not None
+        path = _stripe_path(a, b, stripes[si]) if use else _cable_l_path(a, b)
         length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
                      for i in range(len(path) - 1))
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
                        "path": path, "kind": kind, "length": round(length, 1), "room": room,
-                       "via_stripe": bool(via_stripe and stripe)})
+                       "via_stripe": use, "stripe_idx": (si if use else None)})
 
     def nearest(p, items):
         return min(items, key=lambda q: math.hypot(q["x"] - p[0], q["y"] - p[1]))
@@ -1411,18 +1452,27 @@ def compute_cables(elements):
             add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", start.get("room"), via_stripe=True)
             stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
-    # MANUNCHI: cablurile care converg pe ACEEASI dunga (via_stripe) -> offset lateral SIMETRIC
-    # (paralele, nu suprapuse). Re-ruteaza fiecare pe o copie deplasata a dungii; recalculeaza lungimea.
-    bundle = [c for c in cables if c.get("via_stripe")]
-    if stripe and len(bundle) > 1:
-        n = len(bundle)
-        for k, c in enumerate(bundle):
-            off = (k - (n - 1) / 2.0) * _BUNDLE_GAP
-            c["path"] = _stripe_path(c["from_xy"], c["to_xy"], stripe, offset=off)
-            c["length"] = round(sum(math.hypot(c["path"][i + 1][0] - c["path"][i][0],
-                                               c["path"][i + 1][1] - c["path"][i][1])
-                                    for i in range(len(c["path"]) - 1)), 1)
-        stats["bundle"] = n
+    # MANUNCHI PER DUNGA (faza B): cablurile care converg pe ACEEASI dunga -> offset lateral SIMETRIC
+    # (paralele, nu suprapuse). GRUPATE pe stripe_idx -> cablurile de pe trasee DIFERITE nu se amesteca;
+    # fiecare dunga are manunchiul ei paralel. Re-ruteaza pe copia deplasata a dungii grupului.
+    if stripes:
+        groups = {}
+        for c in cables:
+            if c.get("via_stripe") and c.get("stripe_idx") is not None:
+                groups.setdefault(c["stripe_idx"], []).append(c)
+        total = 0
+        for si, grp in groups.items():
+            if len(grp) <= 1:
+                continue
+            n = len(grp)
+            for k, c in enumerate(grp):
+                off = (k - (n - 1) / 2.0) * _BUNDLE_GAP
+                c["path"] = _stripe_path(c["from_xy"], c["to_xy"], stripes[si], offset=off)
+                c["length"] = round(sum(math.hypot(c["path"][i + 1][0] - c["path"][i][0],
+                                                   c["path"][i + 1][1] - c["path"][i][1])
+                                        for i in range(len(c["path"]) - 1)), 1)
+            total += n
+        stats["bundle"] = total
 
     return cables, stats
 
