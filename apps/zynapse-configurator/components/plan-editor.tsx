@@ -183,6 +183,9 @@ const PRIZA_TEAL = "#0f766e";   // contur IP44 (teal închis, distinct de interi
 const PRIZA_DARK = "#0d3c7a";   // contur alimentare directă (albastru închis)
 const NET_FILL = "#1ab3ab";     // retea internet: dreptunghi turcoaz plin
 const NET_EDGE = "#0d7a75";     // retea internet: contur caseta
+const TRASEU_PRINCIPAL = "#1565C0";   // traseu principal: albastru inchis (= culoarea existenta -> zero regresie)
+const TRASEU_SECUNDAR = "#1ab3ab";    // traseu secundar: turcoaz (distinct de principal)
+const traseuCol = (label?: string | null) => (label === "secundar" ? TRASEU_SECUNDAR : TRASEU_PRINCIPAL);   // fara label -> principal
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
   const disc = (cx: number, r = 13, fill: string = PRIZA_TURQ, edge: string = C) => (
@@ -260,6 +263,16 @@ function snapToWall(px: number, py: number, walls: WallSeg[], threshold = 40) {
   }
   if (best && best.dist < threshold) return { x: best.x, y: best.y, snapped: true, wall: best.wall };
   return { x: px, y: py, snapped: false, wall: null as "h" | "v" | null };
+}
+// Snap la o POLILINIE (ex. traseul PRINCIPAL): cea mai apropiata proiectie pe segmentele ei; sub prag
+// -> punctul lipit, altfel null. Reutilizeaza projectOnSegment (ca snapToWall) — secundar pornit din principal.
+function snapToPolyline(px: number, py: number, pts: number[][], threshold = 30): [number, number] | null {
+  let best: { x: number; y: number; dist: number } | null = null;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = projectOnSegment(px, py, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+    if (!best || p.dist < best.dist) best = p;
+  }
+  return best && best.dist < threshold ? [best.x, best.y] : null;
 }
 
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
@@ -662,10 +675,9 @@ export default function PlanEditor({
     setSelectedId((data as PlanElement).id);
   }
 
-  // ADD TRASEU (dunga hol): linie dreapta cu 2 capete, punctele in cable_path (puncte PDF). Max 1/plansa.
-  // B1: doar dunga vizibila/mutabila in editor; routing-ul (switch->dunga->tablou) vine la B2. ancora x,y = points[0].
-  async function addTraseu() {
-    if (elements.some(e => e.element_type === "traseu")) return;   // max 1 traseu / plansa
+  // ADD TRASEU (dunga hol): linie dreapta cu 2 capete, punctele in cable_path (puncte PDF). NELIMITAT/plansa.
+  // Faza A: trasee multiple (principal + secundare); label distinge tipul + culoarea in editor. Routing = faza B.
+  async function addTraseu(label: string) {
     const floor = floorCanonic(elements[0]?.floor);
     const pdfW = pngW > 0 ? pngW / scale : 400;
     const pdfH = pngH > 0 ? pngH / scale : 400;
@@ -676,7 +688,7 @@ export default function PlanEditor({
       floor,
       element_type: "traseu",
       plan_type: mode,                // dunga apartine modului curent (iluminat sau forta)
-      label: null as string | null,
+      label,                          // "principal" | "secundar" -> culoare in editor (+ faza B routing)
       room: null as string | null,
       x: x0,
       y: y0,                              // ancora = capatul 0 (sincron cu NOT NULL x,y)
@@ -693,8 +705,18 @@ export default function PlanEditor({
 
   // Drag pe un CAPAT al dungii: updateaza cable_path[i] (+ x,y daca i=0 = ancora) si persista.
   function handleTraseuVertexDragEnd(el: PlanElement, i: number, e: KonvaEventObject<DragEvent>) {
-    const xPdf = e.target.x() / scale;
-    const yPdf = e.target.y() / scale;
+    let xPdf = e.target.x() / scale;
+    let yPdf = e.target.y() / scale;
+    // SNAP faza A: un varf de traseu SECUNDAR se lipeste de traseul PRINCIPAL (secundar pornit din
+    // principal — vizual, fara legatura in date). Sub prag -> punctul de pe principal.
+    if (el.label === "secundar") {
+      const principal = elements.find(t => t.element_type === "traseu" && t.label !== "secundar");
+      const pp = principal?.cable_path;
+      if (pp && pp.length >= 2) {
+        const s = snapToPolyline(xPdf, yPdf, pp, 30);
+        if (s) { xPdf = s[0]; yPdf = s[1]; e.target.position({ x: xPdf * scale, y: yPdf * scale }); }
+      }
+    }
     const base = (el.cable_path && el.cable_path.length >= 2)
       ? el.cable_path.map(p => [p[0], p[1]])
       : [[el.x, el.y], [el.x + 120, el.y]];
@@ -1244,20 +1266,29 @@ export default function PlanEditor({
   // secțiunea Traseu cabluri (hol): o dungă (linie 2 capete) draggable pe care, la B2, vor merge cablurile.
   // B1: doar dunga vizibilă/mutabilă; fără routing încă.
   const renderTraseuSection = () => {
-    const existing = elements.find(e => e.element_type === "traseu") || null;
+    const traseuri = elements.filter(e => e.element_type === "traseu");
+    const hasPrincipal = traseuri.some(t => t.label !== "secundar");   // fara label = principal
     return (
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Traseu cabluri (hol)
+          Trasee cabluri (hol)
         </div>
-        {existing ? (
-          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
-            Dungă adăugată — trage vârfurile; click pe linie = adaugă vârf, dublu-click pe vârf = șterge.
-            <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
-          </div>
-        ) : (
-          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={addTraseu}>+ Adaugă traseu</button>
+        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+          <button type="button" className="zy-add-btn" onClick={() => addTraseu("principal")} disabled={hasPrincipal}>+ Traseu principal</button>
+          <button type="button" className="zy-add-btn" onClick={() => addTraseu("secundar")}>+ Traseu secundar</button>
+        </div>
+        {traseuri.length > 0 && (
+          <div style={{ marginTop: 8, paddingLeft: 2 }}>
+            {traseuri.map((t) => (
+              <div key={t.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: traseuCol(t.label), flexShrink: 0 }} />
+                {t.label === "secundar" ? "Secundar" : "Principal"}
+                <button type="button" className="zy-add-btn" onClick={() => removeElement(t.id)}>Șterge</button>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: "#545870", marginTop: 2, lineHeight: 1.5 }}>
+              Trage vârfurile · click pe linie = adaugă vârf · dublu-click pe vârf = șterge{hasPrincipal ? " · secundarul se lipește de principal" : ""}
+            </div>
           </div>
         )}
       </div>
@@ -1529,17 +1560,18 @@ export default function PlanEditor({
                 {elements.filter(e => isTraseuType(e.element_type)).map((el) => {
                   const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y], [el.x + 120, el.y]];
                   const isSel = selectedId === el.id;
+                  const tcol = traseuCol(el.label);   // principal albastru inchis / secundar turcoaz (fara label -> principal)
                   const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
                   return (
                     <Group key={el.id}>
-                      <Line points={flat} stroke="#1565C0" strokeWidth={isSel ? 3.5 : 2.5} dash={[9, 5]}
+                      <Line points={flat} stroke={tcol} strokeWidth={isSel ? 3.5 : 2.5} dash={[9, 5]}
                             lineCap="round" lineJoin="round" hitStrokeWidth={14}
                             onClick={(e) => { if (selectedId === el.id) addTraseuVertex(el, e); else selectElement(el.id); }}
                             onTap={(e) => { if (selectedId === el.id) addTraseuVertex(el, e); else selectElement(el.id); }}
                             onMouseEnter={(e) => setCursor(e, isSel ? "copy" : "pointer")} onMouseLeave={(e) => setCursor(e, "default")} />
                       {pts.map((p, i) => (
                         <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={isSel ? 7 : 5}
-                                fill="#fff" stroke="#1565C0" strokeWidth={2} draggable
+                                fill="#fff" stroke={tcol} strokeWidth={2} draggable
                                 onClick={() => selectElement(el.id)}
                                 onDblClick={() => removeTraseuVertex(el, i)}
                                 onDblTap={() => removeTraseuVertex(el, i)}
