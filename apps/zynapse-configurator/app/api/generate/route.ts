@@ -7,7 +7,10 @@ const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 
 // Faza B.1: payload multi-etaj (până la 3 planuri base64) + N PDF-uri în răspuns.
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// P+M complet (2 planuri, desen becuri pe Render free) raspunde la ~118s -> pe muchia lui 120
+// => Vercel taia functia dupa INSERT dar inainte de consume_credits + plan_elements (proiect orfan).
+// 300 acopera P+M cu marja (planul permite: finalize/route.ts foloseste deja 300 in productie).
+export const maxDuration = 300;
 
 type Supa = ReturnType<typeof createServerClient>;
 
