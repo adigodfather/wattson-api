@@ -205,6 +205,11 @@ _PRIZA_TURQ = (0.247, 0.816, 0.788)    # #3fd0c9 — umplutura prizelor interioa
 _PRIZA_TEAL = (0.059, 0.463, 0.431)    # #0f766e — contur IP44 (teal inchis, distinct de interior)
 _PRIZA_DARK = (0.051, 0.235, 0.478)    # #0d3c7a — contur alimentare directa (albastru inchis)
 
+# ── Receptor RETEA INTERNET (RJ45): simbol propriu (turcoaz + router alb + 3 unde WiFi). ──
+_NET_FILL  = (0.102, 0.702, 0.671)     # #1ab3ab — dreptunghi turcoaz plin
+_NET_EDGE  = (0.051, 0.478, 0.459)     # #0d7a75 — contur caseta
+_NET_WHITE = (1.0, 1.0, 1.0)           # router + unde WiFi (alb)
+
 
 def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0.0):
     """Simbol priza (portat din Konva): semicerc (SPATELE, curba JOS in local) + 2 contacte
@@ -242,6 +247,29 @@ def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0
                          fontsize=6.0 * s, fontname="hebo", color=_PRIZA_TEAL)
     else:  # priza_simpla
         disc(0, 8 * s); contacts(0)
+
+
+def _draw_internet(page, cx, cy):
+    """Simbol RETEA INTERNET (RJ45): dreptunghi turcoaz plin + router alb (contur + 2 LED-uri albe
+    + o liniuta alba) in jumatatea de jos + 3 unde WiFi albe arcuite deasupra (tot mai late in sus).
+    Geometrie IDENTICA cu internetSymbol din plan-editor.tsx (UI=PDF). Dimensiune = editorul UI * u
+    (px-PNG -> pt-PDF, ~1/png_scale 1.667), ca la prize -> nu prea mare pe plan."""
+    u = 0.6
+    def P(dx, dy):
+        return fitz.Point(cx + dx * u, cy + dy * u)
+    def wifi(r):                                     # unda WiFi = arc alb centrat la (0,5), deschis in SUS
+        pts = [fitz.Point(cx + (r * u) * math.cos(math.radians(210 + 12 * i)),
+                          cy + 5 * u + (r * u) * math.sin(math.radians(210 + 12 * i))) for i in range(11)]
+        page.draw_polyline(pts, color=_NET_WHITE, width=1.0)
+    # caseta turcoaz plina (contur teal)
+    page.draw_rect(fitz.Rect(P(-15, -15), P(15, 15)), color=_NET_EDGE, fill=_NET_FILL, width=1.2, radius=0.16)
+    # router: contur alb (fara fill) + 2 LED-uri (stanga) + liniuta (dreapta)
+    page.draw_rect(fitz.Rect(P(-9, 4), P(9, 12)), color=_NET_WHITE, width=1.1)
+    page.draw_circle(P(-5.5, 8), 1.3 * u, color=_NET_WHITE, fill=_NET_WHITE)
+    page.draw_circle(P(-2.5, 8), 1.3 * u, color=_NET_WHITE, fill=_NET_WHITE)
+    page.draw_line(P(2, 8), P(7, 8), color=_NET_WHITE, width=1.1)
+    # 3 unde WiFi deasupra routerului (tot mai late)
+    wifi(4.0); wifi(7.5); wifi(11.0)
 
 
 def _fmt_height(h):
@@ -1747,6 +1775,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     _rw = len(_rt) * _rfs * 0.46
                     _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 20.0, "w": _rw,
                                     "fs": _rfs, "font": "helv", "color": _PRIZA_COLOR})
+                n_receptor += 1
+            elif et == "receptor_internet":
+                _draw_internet(page, x, y)                                            # simbol RETEA (turcoaz + router + WiFi)
                 n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP

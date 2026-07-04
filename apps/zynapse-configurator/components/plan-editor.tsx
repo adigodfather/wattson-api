@@ -89,6 +89,7 @@ const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
 const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
 const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoare bucata A: 1 tip + `label` (boiler/cuptor/...)
+const isInternetType = (t: string) => t === "receptor_internet";     // Retea internet (RJ45): simbol propriu (turcoaz + router + WiFi)
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
@@ -180,6 +181,8 @@ function bulbSelRing(type: string) {
 const PRIZA_TURQ = "#3fd0c9";   // umplutura prizelor interioare
 const PRIZA_TEAL = "#0f766e";   // contur IP44 (teal închis, distinct de interior)
 const PRIZA_DARK = "#0d3c7a";   // contur alimentare directă (albastru închis)
+const NET_FILL = "#1ab3ab";     // retea internet: dreptunghi turcoaz plin
+const NET_EDGE = "#0d7a75";     // retea internet: contur caseta
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
   const disc = (cx: number, r = 13, fill: string = PRIZA_TURQ, edge: string = C) => (
@@ -208,6 +211,32 @@ function prizaHit() {   // zonă de hit invizibilă (acoperă simbolul mărit ×
 function prizaSelRing(type: string) {
   const w = type === "priza_dubla" ? 60 : 44;
   return <Rect x={-w / 2} y={-23} width={w} height={46} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />;
+}
+
+// Simbol RETEA INTERNET (RJ45): dreptunghi turcoaz plin + router alb (contur + 2 LED-uri + liniuta)
+// in jos + 3 unde WiFi albe deasupra. IDENTIC cu _draw_internet (PDF): backend = aceleasi numere * 0.6.
+function netArc(r: number): number[] {   // unda WiFi = arc alb centrat la (0,5), deschis in SUS (210°..330°)
+  const out: number[] = [];
+  for (let i = 0; i <= 10; i++) {
+    const a = ((210 + 12 * i) * Math.PI) / 180;
+    out.push(r * Math.cos(a), 5 + r * Math.sin(a));
+  }
+  return out;
+}
+function internetSymbol() {
+  const W = "#ffffff";
+  return (
+    <>
+      <Rect x={-15} y={-15} width={30} height={30} cornerRadius={5} fill={NET_FILL} stroke={NET_EDGE} strokeWidth={1.6} />
+      <Rect x={-9} y={4} width={18} height={8} cornerRadius={1} stroke={W} strokeWidth={1.6} listening={false} />
+      <Circle x={-5.5} y={8} radius={1.3} fill={W} listening={false} />
+      <Circle x={-2.5} y={8} radius={1.3} fill={W} listening={false} />
+      <Line points={[2, 8, 7, 8]} stroke={W} strokeWidth={1.6} listening={false} lineCap="round" />
+      <Line points={netArc(4)} stroke={W} strokeWidth={1.5} listening={false} lineCap="round" lineJoin="round" />
+      <Line points={netArc(7.5)} stroke={W} strokeWidth={1.5} listening={false} lineCap="round" lineJoin="round" />
+      <Line points={netArc(11)} stroke={W} strokeWidth={1.5} listening={false} lineCap="round" lineJoin="round" />
+    </>
+  );
 }
 
 // ── SNAP PRIZA PE PERETE (P3): proiectie punct-pe-segment CLAMPAT (t in [0,1]) — aceeasi matematica ca B2. ──
@@ -313,9 +342,10 @@ export default function PlanEditor({
   // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
   // fara re-render intre ele, deci finishDrawGround trebuie sa vada colturile adaugate in acelasi gest.
   const groundPtsRef = useRef<number[][]>([]);
-  // Receptoare (bucata A): mod de plasare "1 click" — label-ul receptorului activ (ex. "boiler") sau null.
+  // Receptoare (bucata A): mod de plasare "1 click" — { et: element_type, label } activ sau null.
   // Primul click pe plan plaseaza si iese din mod (analog drawingGround, dar 1 punct, nu poligon).
-  const [placingReceptor, setPlacingReceptor] = useState<string | null>(null);
+  // et generalizat: alimentari = "alimentare_receptor", retea = "receptor_internet" (doar tip+simbol difera).
+  const [placingReceptor, setPlacingReceptor] = useState<{ et: string; label: string } | null>(null);
   // Escape anuleaza / Enter finalizeaza cat timp desenam (finishDrawGround citeste ref-ul -> puncte curente).
   useEffect(() => {
     if (!drawingGround) return;
@@ -777,21 +807,21 @@ export default function PlanEditor({
   // ── Receptoare (bucata A): plasare "1 click" a unei alimentari (boiler/cuptor/...). ──
   // Buton -> intra in mod (label = tipul); primul click pe plan -> INSERT alimentare_receptor
   // la punctul respectiv (puncte PDF = pos/scale) + iese din mod. Simbol = "alimentare directa" (PDF).
-  function startPlaceReceptor(label: string) {
+  function startPlaceReceptor(et: string, label: string) {
     setSelectedId(null);
-    setPlacingReceptor(label);
+    setPlacingReceptor({ et, label });
   }
   async function placeReceptorAt(e: KonvaEventObject<MouseEvent | TouchEvent>) {
-    const lbl = placingReceptor;
-    if (!lbl) return;
+    const p = placingReceptor;
+    if (!p) return;
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
-      element_type: "alimentare_receptor",
+      element_type: p.et,                // "alimentare_receptor" | "receptor_internet"
       plan_type: "forta",
-      label: lbl,                        // distinge boiler/cuptor/... (butonul apasat)
+      label: p.label,                    // alimentari: boiler/cuptor/...; retea: "internet"
       room: null as string | null,
       x: pos.x / scale,
       y: pos.y / scale,
@@ -1279,24 +1309,26 @@ export default function PlanEditor({
         {placingReceptor ? (
           <div style={{ paddingLeft: 2 }}>
             <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
-              Click pe plan unde vrei alimentarea <b>{placingReceptor}</b> · Esc anulează
+              Click pe plan unde plasezi <b>{placingReceptor.label}</b> · Esc anulează
             </div>
             <button type="button" className="zy-add-btn" onClick={() => setPlacingReceptor(null)}>Anulează</button>
           </div>
         ) : (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            {/* Toate = ACEEASI mecanica (startPlaceReceptor cu label diferit) + ACELASI simbol de alimentare.
-                Label-urile noi = citibile ASCII (PDF-ul capitalizeaza prima litera; Helvetica n-are diacritice).
-                Internet(RJ45) + fotovoltaice EXCLUSE (Dan le face separat). Gating pe bifate = bucata C. */}
-            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("boiler")}>+ Alimentare boiler</button>
+            {/* ALIMENTARI = ACEEASI mecanica (startPlaceReceptor("alimentare_receptor", label)) + ACELASI simbol.
+                Label-urile = citibile ASCII (PDF-ul capitalizeaza prima litera; Helvetica n-are diacritice).
+                Fotovoltaice EXCLUSE (Dan le face separat). Gating pe bifate = bucata C. */}
+            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", "boiler")}>+ Alimentare boiler</button>
             {[
               { btn: "cuptor electric", label: "Cuptor electric" },
               { btn: "aer condiționat", label: "Aer conditionat" },
               { btn: "HRV",             label: "HRV" },
               { btn: "stație încărcare", label: "Statie incarcare" },
             ].map(r => (
-              <button key={r.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(r.label)}>+ Alimentare {r.btn}</button>
+              <button key={r.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", r.label)}>+ Alimentare {r.btn}</button>
             ))}
+            {/* RETEA INTERNET = element_type propriu + SIMBOL propriu (turcoaz + router + WiFi), acelasi mod 1-click. */}
+            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("receptor_internet", "internet")}>+ Rețea internet</button>
           </div>
         )}
       </div>
@@ -1411,7 +1443,8 @@ export default function PlanEditor({
                   const isSel = selectedId === el.id;
                   const isPriza = isPrizaType(el.element_type);
                   const isReceptor = isReceptorType(el.element_type);   // alimentare receptor (bucata A)
-                  const col = isBulb ? COL_BULB : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
+                  const isInternet = isInternetType(el.element_type);   // retea internet (simbol propriu)
+                  const col = isBulb ? COL_BULB : isInternet ? NET_EDGE : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   const isLegend = isLegendType(el.element_type);
                   const legW = LEG_W * scale, legH = LEG_H * scale;   // caseta legenda (puncte PDF x scale)
@@ -1438,7 +1471,9 @@ export default function PlanEditor({
                             ? <Rect x={-3} y={-3} width={legW + 6} height={legH + 6} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />
                             : isPriza
                               ? prizaSelRing(el.element_type)
-                              : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
+                              : isInternet
+                                ? <Rect x={-17} y={-17} width={34} height={34} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                                : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
                           {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
@@ -1478,6 +1513,9 @@ export default function PlanEditor({
                           {/* receptor = simbolul "alimentare directa" existent (cerc plin), refolosit din prizaSymbol */}
                           {prizaSymbol("priza_16a")}
                         </>
+                      ) : isInternet ? (
+                        /* retea internet = simbol propriu (caseta turcoaz plina = zona de hit a Group-ului) */
+                        internetSymbol()
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
