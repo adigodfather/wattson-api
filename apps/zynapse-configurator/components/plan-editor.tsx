@@ -362,6 +362,8 @@ export default function PlanEditor({
       .select(SELECT_COLS)
       .eq("project_id", projectId)
       .in("plan_type", [mode, "ambele"])   // iluminat: iluminat+ambele(tablouri); forta: forta+ambele
+      .eq("floor", floorCanonic(floor))    // FIX multi-etaj (afisare): DOAR etajul plansei curente —
+                                           // altfel becurile parterului apareau peste planul etajului
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) { setErr(error.message); setElements([]); }
@@ -369,7 +371,7 @@ export default function PlanEditor({
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [projectId, supabase, mode]);
+  }, [projectId, supabase, mode, floor]);   // floor in deps: schimbarea plansei reincarca etajul corect
 
   // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
   // V4: trimite si camerele -> primeste room_geoms (geom_bbox per camera, wall/label_anchor).
