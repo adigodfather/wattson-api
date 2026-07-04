@@ -1285,7 +1285,18 @@ export default function PlanEditor({
           </div>
         ) : (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            {/* Toate = ACEEASI mecanica (startPlaceReceptor cu label diferit) + ACELASI simbol de alimentare.
+                Label-urile noi = citibile ASCII (PDF-ul capitalizeaza prima litera; Helvetica n-are diacritice).
+                Internet(RJ45) + fotovoltaice EXCLUSE (Dan le face separat). Gating pe bifate = bucata C. */}
             <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("boiler")}>+ Alimentare boiler</button>
+            {[
+              { btn: "cuptor electric", label: "Cuptor electric" },
+              { btn: "aer condiționat", label: "Aer conditionat" },
+              { btn: "HRV",             label: "HRV" },
+              { btn: "stație încărcare", label: "Statie incarcare" },
+            ].map(r => (
+              <button key={r.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(r.label)}>+ Alimentare {r.btn}</button>
+            ))}
           </div>
         )}
       </div>
