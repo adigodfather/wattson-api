@@ -1679,7 +1679,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
         elements = [el for el in (elements or [])
                     if ((el or {}).get("plan_type") or "iluminat") in (draw_plan_type, "ambele")]
-        n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = 0
+        n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
@@ -1736,6 +1736,18 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
+            elif et == "alimentare_receptor":
+                # Receptor (bucata A): simbolul de ALIMENTARE existent (priza_16a = cerc plin), refolosit.
+                # `label` (boiler/cuptor/...) desenat ca eticheta sub simbol -> inginerul stie care-i care.
+                _draw_priza(page, x, y, "priza_16a")
+                _rl = (el.get("label") or "").strip()
+                if _rl:
+                    _rt = _rl[:1].upper() + _rl[1:]
+                    _rfs = 7.5
+                    _rw = len(_rt) * _rfs * 0.46
+                    _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 20.0, "w": _rw,
+                                    "fs": _rfs, "font": "helv", "color": _PRIZA_COLOR})
+                n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
         # ETICHETELE deasupra tuturor simbolurilor, cu anti-coliziune. Defensiv: orice eroare la
@@ -1764,7 +1776,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             "size_bytes": len(out),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
                          "prizas_drawn": n_priza, "cables_drawn": n_cable, "skipped": n_skip,
-                         "legend_drawn": n_legend, "ground_drawn": n_ground},
+                         "legend_drawn": n_legend, "ground_drawn": n_ground, "receptor_drawn": n_receptor},
             # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
             # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
             "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],

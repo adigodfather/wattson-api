@@ -88,6 +88,7 @@ const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
 const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
+const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoare bucata A: 1 tip + `label` (boiler/cuptor/...)
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
@@ -312,6 +313,9 @@ export default function PlanEditor({
   // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
   // fara re-render intre ele, deci finishDrawGround trebuie sa vada colturile adaugate in acelasi gest.
   const groundPtsRef = useRef<number[][]>([]);
+  // Receptoare (bucata A): mod de plasare "1 click" — label-ul receptorului activ (ex. "boiler") sau null.
+  // Primul click pe plan plaseaza si iese din mod (analog drawingGround, dar 1 punct, nu poligon).
+  const [placingReceptor, setPlacingReceptor] = useState<string | null>(null);
   // Escape anuleaza / Enter finalizeaza cat timp desenam (finishDrawGround citeste ref-ul -> puncte curente).
   useEffect(() => {
     if (!drawingGround) return;
@@ -324,6 +328,17 @@ export default function PlanEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawingGround]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Escape anuleaza plasarea receptorului.
+  useEffect(() => {
+    if (!placingReceptor) return;
+    const onKey = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (ev.key === "Escape") { ev.preventDefault(); setPlacingReceptor(null); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [placingReceptor]);
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
@@ -757,6 +772,38 @@ export default function PlanEditor({
     groundPtsRef.current = [];
     setGroundPts([]);
     setGroundHover(null);
+  }
+
+  // ── Receptoare (bucata A): plasare "1 click" a unei alimentari (boiler/cuptor/...). ──
+  // Buton -> intra in mod (label = tipul); primul click pe plan -> INSERT alimentare_receptor
+  // la punctul respectiv (puncte PDF = pos/scale) + iese din mod. Simbol = "alimentare directa" (PDF).
+  function startPlaceReceptor(label: string) {
+    setSelectedId(null);
+    setPlacingReceptor(label);
+  }
+  async function placeReceptorAt(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const lbl = placingReceptor;
+    if (!lbl) return;
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
+      element_type: "alimentare_receptor",
+      plan_type: "forta",
+      label: lbl,                        // distinge boiler/cuptor/... (butonul apasat)
+      room: null as string | null,
+      x: pos.x / scale,
+      y: pos.y / scale,
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT alimentare receptor esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+    setPlacingReceptor(null);            // 1 click = 1 plasare -> iese din mod
   }
 
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
@@ -1220,6 +1267,31 @@ export default function PlanEditor({
     );
   };
 
+  // Receptoare (bucata A, PILOT): butoane de "alimentare" — 1 click pe plan plaseaza simbolul de
+  // alimentare. Pilot = doar boilerul; restul receptoarelor se adauga identic (bucata C = gating pe bifate).
+  const renderReceptorSection = () => {
+    if (mode !== "forta") return null;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Alimentări receptoare
+        </div>
+        {placingReceptor ? (
+          <div style={{ paddingLeft: 2 }}>
+            <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+              Click pe plan unde vrei alimentarea <b>{placingReceptor}</b> · Esc anulează
+            </div>
+            <button type="button" className="zy-add-btn" onClick={() => setPlacingReceptor(null)}>Anulează</button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("boiler")}>+ Alimentare boiler</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -1256,6 +1328,7 @@ export default function PlanEditor({
           {renderLegendSection()}
           {renderTraseuSection()}
           {renderGroundingSection()}
+          {renderReceptorSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
@@ -1326,7 +1399,8 @@ export default function PlanEditor({
                   const isPanel = isPanelType(el.element_type);
                   const isSel = selectedId === el.id;
                   const isPriza = isPrizaType(el.element_type);
-                  const col = isBulb ? COL_BULB : isPriza ? COL_PRIZA : COL_SWITCH;
+                  const isReceptor = isReceptorType(el.element_type);   // alimentare receptor (bucata A)
+                  const col = isBulb ? COL_BULB : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   const isLegend = isLegendType(el.element_type);
                   const legW = LEG_W * scale, legH = LEG_H * scale;   // caseta legenda (puncte PDF x scale)
@@ -1387,10 +1461,17 @@ export default function PlanEditor({
                             {prizaSymbol(el.element_type)}
                           </Group>
                         </>
+                      ) : isReceptor ? (
+                        <>
+                          {prizaHit()}
+                          {/* receptor = simbolul "alimentare directa" existent (cerc plin), refolosit din prizaSymbol */}
+                          {prizaSymbol("priza_16a")}
+                        </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
                       {el.room && !isPanel && <Text x={12} y={-7} text={el.room} fontSize={13} fill={col} listening={false} />}
+                      {isReceptor && el.label && <Text x={16} y={-7} text={el.label} fontSize={13} fill={col} listening={false} />}
                     </Group>
                   );
                 })}
@@ -1456,6 +1537,12 @@ export default function PlanEditor({
                     </>
                   );
                 })()}
+                {/* Receptoare (bucata A): overlay transparent care prinde 1 click -> plaseaza alimentarea. */}
+                {placingReceptor && (
+                  <Rect x={0} y={0} width={pngW} height={pngH} fill="transparent" listening
+                        onClick={placeReceptorAt} onTap={placeReceptorAt}
+                        onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
+                )}
               </Layer>
             </Stage>
           )}
