@@ -3381,6 +3381,7 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
             return {"success": False, "error": "citire plan_elements esuata: {}".format(e)}
         # C3c: asociaza prize->camera (din result_data.rooms) + numeroteaza circuite -> scrie circuit_id
         # pe prize (in-memory pt. C4 + persista in DB). Defensiv: ORICE eroare NU strica regenerarea.
+        _rooms = []   # FAZA 2a: bbox camere (pt. rutarea prizelor pe perimetru la redraw); [] daca citirea pica
         try:
             import fitz
             from supabase_client import supabase as _supa
@@ -3412,7 +3413,7 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
         except Exception as _e2:
             print("[regenerate-plan] feeds skip:", _e2)
         return draw_elements.redraw_from_plan_elements(
-            request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds)
+            request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

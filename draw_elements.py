@@ -1481,9 +1481,68 @@ def _draw_legend(page, x, y, rows):
                          fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
 
 
-def compute_cables(elements):
+# ── FAZA 2a: rutare prize pe PERIMETRUL bbox (nu L direct prin interior). ──
+def _rect_perim(R):
+    x0, y0, x1, y1 = R
+    return (x1 - x0), (y1 - y0), 2 * ((x1 - x0) + (y1 - y0))
+
+def _point_at_t(t, R):
+    """Punctul de pe conturul dreptunghiului R la pozitia t (perimetru, sens orar de la coltul stanga-sus)."""
+    x0, y0, x1, y1 = R
+    w, h, P = _rect_perim(R)
+    if P <= 0:
+        return (x0, y0)
+    t %= P
+    if t <= w: return (x0 + t, y0)
+    t -= w
+    if t <= h: return (x1, y0 + t)
+    t -= h
+    if t <= w: return (x1 - t, y1)
+    t -= w
+    return (x0, y1 - t)
+
+def _project_to_rect(px, py, R):
+    """Proiectia (px,py) pe latura CEA MAI APROPIATA a lui R -> (punct_contur, t_perimetru)."""
+    x0, y0, x1, y1 = R
+    w, h, P = _rect_perim(R)
+    cx = min(max(px, x0), x1); cy = min(max(py, y0), y1)
+    cands = [
+        (abs(py - y0), (cx, y0), cx - x0),                  # sus
+        (abs(px - x1), (x1, cy), w + (cy - y0)),            # dreapta
+        (abs(py - y1), (cx, y1), w + h + (x1 - cx)),        # jos
+        (abs(px - x0), (x0, cy), 2 * w + h + (y1 - cy)),    # stanga
+    ]
+    _, bp, t = min(cands, key=lambda c: c[0])
+    return bp, t
+
+def _perimeter_path(t1, t2, R):
+    """Puncte pe LATURILE lui R intre t1 si t2, pe directia MAI SCURTA (prin colturile intermediare)."""
+    w, h, P = _rect_perim(R)
+    out = [_point_at_t(t1, R)]
+    if P > 0:
+        corners = [0.0, w, w + h, 2 * w + h]
+        fwd = (t2 - t1) % P
+        if fwd <= P - fwd:                                  # inainte (t creste)
+            seq = sorted((c for c in corners if 1e-6 < (c - t1) % P < fwd - 1e-6), key=lambda c: (c - t1) % P)
+        else:                                               # inapoi (t scade)
+            back = (t1 - t2) % P
+            seq = sorted((c for c in corners if 1e-6 < (t1 - c) % P < back - 1e-6), key=lambda c: (t1 - c) % P)
+        out.extend(_point_at_t(c, R) for c in seq)
+    out.append(_point_at_t(t2, R))
+    return out
+
+def _perim_dist(t1, t2, P):
+    if P <= 0:
+        return 0.0
+    d = (t2 - t1) % P
+    return min(d, P - d)
+
+
+def compute_cables(elements, rooms=None, W=None, H=None):
     """PAS 3 (LOGICA pura, FARA desen): asociaza becuri->intrerupatoare (pe room + tip) si
-    intrerupatoare->tablou, cu trasee L. Reguli:
+    intrerupatoare->tablou, cu trasee L. FAZA 2a: daca rooms(bbox)+W,H sunt date, prizele unui
+    circuit se inlantuie pe PERIMETRUL bbox (nu L direct prin interior) + O SINGURA linie (mananchi
+    count=N) iese spre tablou. Fara rooms -> L direct (backward-compatible, ex. bom.py). Reguli:
       - intrerupator_simplu + N becuri -> LANT in serie (switch -> bec nearest -> next nearest ...);
       - dublu/triplu/cap_scara -> fiecare bec -> switch (PARALEL);
       - aplica_senzor -> direct TEG (NU la intrerupator);
@@ -1510,6 +1569,20 @@ def compute_cables(elements):
     teg = panels.get("tablou_teg")
     tect = panels.get("tablou_te_ct")
 
+    # FAZA 2a: bbox px per camera (nume -> (x0,y0,x1,y1)) pt. rutarea prizelor pe perimetru.
+    # Fara rooms/W/H -> gol -> fallback L direct (backward-compatible cu apelantii care nu paseaza rooms).
+    room_px = {}
+    if rooms and W and H:
+        for r in rooms:
+            bb = (r or {}).get("bbox") or {}
+            nm = str((r or {}).get("name") or "").strip()
+            try:
+                x, y, w, h = float(bb["x"]), float(bb["y"]), float(bb["w"]), float(bb["h"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if nm and w > 0 and h > 0:
+                room_px[nm] = (x * W, y * H, (x + w) * W, (y + h) * H)
+
     cables = []
     stats = {"bec_sw": 0, "senzor_teg": 0, "sw_tablou": 0, "cap_scara": 0,
              "skip_sw_room_null": sum(1 for el in (elements or [])
@@ -1518,12 +1591,14 @@ def compute_cables(elements):
 
     stripes = _extract_stripes(elements)   # FAZA B: TOATE dungile 'traseu'; [] -> fallback L direct
 
-    def add(ft, a, tt, b, kind, room, via_stripe=False, count=1):
+    def add(ft, a, tt, b, kind, room, via_stripe=False, count=1, path=None):
         # traseele ...->tablou trec prin dunga CEA MAI APROPIATA de origine (SOL B, faza B); bec->switch local = L direct.
         # count = cate cabluri sunt in manunchiul segmentului (GROSIME pe trepte): prize -> nr. prize/circuit; iluminat -> 1.
-        si = _nearest_stripe_idx(a, stripes) if via_stripe else None
-        use = via_stripe and si is not None
-        path = _stripe_path(a, b, stripes[si]) if use else _cable_l_path(a, b)
+        # path dat explicit (FAZA 2a: lant pe perimetru) -> se foloseste ca atare (via_stripe ignorat).
+        si = _nearest_stripe_idx(a, stripes) if (via_stripe and path is None) else None
+        use = via_stripe and si is not None and path is None
+        if path is None:
+            path = _stripe_path(a, b, stripes[si]) if use else _cable_l_path(a, b)
         length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
                      for i in range(len(path) - 1))
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
@@ -1610,26 +1685,63 @@ def compute_cables(elements):
     # un circuit = o singura plecare din tablou (capul lantului, priza cea mai apropiata de tablou).
     gen_type = "tablou_teg" if panels.get("tablou_teg") else ("tablou_tes" if panels.get("tablou_tes") else None)
     general_xy = panels.get(gen_type) if gen_type else None
+    def _route_l_direct(prz, room, n):                     # FALLBACK (fara bbox): lant nearest-neighbor L direct
+        rem = list(prz)
+        start = nearest(general_xy, rem)                   # capul lantului = priza cea mai apropiata de tablou
+        chain = [start]; rem.remove(start)
+        cur = (start["x"], start["y"])
+        while rem:
+            nb = nearest(cur, rem); rem.remove(nb)
+            chain.append(nb); cur = (nb["x"], nb["y"])
+        for i in range(len(chain) - 1):
+            a = (chain[i]["x"], chain[i]["y"]); b = (chain[i + 1]["x"], chain[i + 1]["y"])
+            add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", room, count=n)
+            stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+        add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)
+        stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
+
+    def _route_perimeter(prz, R, room, n):                 # FAZA 2a: lant pe PERIMETRU + O iesire (mananchi count=N)
+        items = []
+        for pz in prz:
+            bp, t = _project_to_rect(pz["x"], pz["y"], R)
+            items.append({"pz": pz, "bp": bp, "t": t})
+        items.sort(key=lambda it: it["t"])                 # ordine pe perimetru
+        _, _, P = _rect_perim(R)
+        cen = (sum(it["bp"][0] for it in items) / len(items), sum(it["bp"][1] for it in items) / len(items))
+        if stripes:                                        # IESIRE = pe contur, cel mai aproape de dunga
+            si = _nearest_stripe_idx(cen, stripes)
+            target = _project_point_on_polyline(cen, stripes[si])[0] if si is not None else general_xy
+        else:
+            target = general_xy
+        exit_bp, t_exit = _project_to_rect(target[0], target[1], R)
+        for i in range(len(items) - 1):                    # lant priza->priza PE LATURI (nu prin interior)
+            ai, bi = items[i], items[i + 1]
+            path = ([(ai["pz"]["x"], ai["pz"]["y"])] + _perimeter_path(ai["t"], bi["t"], R)
+                    + [(bi["pz"]["x"], bi["pz"]["y"])])
+            add(ai["pz"]["et"], path[0], bi["pz"]["et"], path[-1], "priza_lant", room, count=n, path=path)
+            stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+        head = min(items, key=lambda it: _perim_dist(it["t"], t_exit, P))   # priza cea mai aproape de iesire
+        h2e = [(head["pz"]["x"], head["pz"]["y"])] + _perimeter_path(head["t"], t_exit, R)
+        add(head["pz"]["et"], h2e[0], "iesire", exit_bp, "priza_lant", room, count=n, path=h2e)
+        stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+        add("iesire", exit_bp, gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)   # O linie -> dunga -> tablou
+        stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
+
     if general_xy and prizes:
         by_circuit = {}
         for pz in prizes:
             by_circuit.setdefault(pz.get("cid") or "", []).append(pz)
         for _cid, group in by_circuit.items():
-            rem = list(group)
-            start = nearest(general_xy, rem)               # capul lantului = priza cea mai apropiata de tablou
-            chain = [start]; rem.remove(start)
-            cur = (start["x"], start["y"])
-            while rem:                                     # lant nearest-neighbor (ca bec_lant)
-                nb = nearest(cur, rem); rem.remove(nb)
-                chain.append(nb); cur = (nb["x"], nb["y"])
-            _ncirc = len(group)                            # GROSIME: circuit de N prize -> manunchi N cabluri
-            for i in range(len(chain) - 1):                # priza -> priza (lant pe circuit)
-                a = (chain[i]["x"], chain[i]["y"]); b = (chain[i + 1]["x"], chain[i + 1]["y"])
-                add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", chain[i].get("room"), count=_ncirc)
-                stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-            # O coborare: capul lantului -> tablou, via dunga hol (ca sw_tablou). count = N -> pe dunga se CUMULEAZA.
-            add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", start.get("room"), via_stripe=True, count=_ncirc)
-            stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
+            by_room = {}                                   # rutare PER (circuit, camera): fiecare camera are conturul ei
+            for pz in group:
+                by_room.setdefault(pz.get("room") or "", []).append(pz)
+            for _room, prz in by_room.items():
+                _n = len(prz)                              # GROSIME: mananchi de N prize -> count=N
+                R = room_px.get((_room or "").strip())
+                if R and _n >= 1:
+                    _route_perimeter(prz, R, _room, _n)    # camera cu bbox -> pe perimetru + iesire unica
+                else:
+                    _route_l_direct(prz, _room, _n)        # fara bbox (open-plan) -> L direct (ca acum)
 
     # MANUNCHI PER DUNGA (GROSIME pe trepte): cablurile care converg pe ACEEASI dunga se ADUNA ->
     # o SINGURA linie cu grosime CUMULATIVA (mai groasa spre tablou), nu linii paralele. Non-stripe
@@ -1916,7 +2028,7 @@ def _apply_cartus_suffix(doc, page, suffix):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None) -> dict:
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -1940,7 +2052,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         n_cable = 0
         _cables = []   # traseele cablurilor (path = puncte PDF) -> expuse in raspuns pt. overlay-ul editorului
         try:
-            _cables, _cstats = compute_cables(elements)
+            # FAZA 2a: rooms(bbox) + W,H din pagina -> prizele se ruteaza pe PERIMETRU (nu prin interior).
+            _cables, _cstats = compute_cables(elements, rooms=rooms, W=page.rect.width, H=page.rect.height)
             for _c in _cables:
                 # C2: forța (prize->tablou) = ALBASTRU (_PRIZA_COLOR); iluminat (bec/întrer./senzor) = roșu (default).
                 _kind = _c.get("kind") or ""
