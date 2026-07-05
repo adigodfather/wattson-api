@@ -170,6 +170,27 @@ export async function POST(req: NextRequest) {
       parsed.circuits_teg = circuitsTeg;
       parsed.circuits_all = uiCircuits;
       parsed.circuits_source = circuitsSource;
+      // BOM UNIFICAT: /bom (din enrich + plan_elements, CONSISTENT cu schema/memoriu/tabel). Mapat la
+      // formatul citit de UI {category,item,quantity,unit,notes}. Fallback: pastreaza BOM-ul n8n (parsed.bom).
+      try {
+        const key = process.env.ZYNAPSE_INTERNAL_KEY;
+        const ps2 = (rd.power_summary as { connection?: string }) || {};
+        const pp2 = /trif|400/.test(String(ps2.connection || "").toLowerCase()) ? "tri" : "mono";
+        const br = await fetch(`${FASTAPI}/bom`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
+          body: JSON.stringify({ project_id: projectId, form: { power_phase: pp2, extra_equipment: [] } }),
+        });
+        const bj = await br.json();
+        if (bj?.success && Array.isArray(bj.rows) && bj.rows.length > 0) {
+          parsed.bom = (bj.rows as Array<Record<string, unknown>>).map((r) => ({
+            category: r.categorie, item: r.denumire, quantity: r.cantitate, unit: r.um, notes: r.specificatie,
+          }));
+          parsed.bom_source = "plan (unified)";
+        } else {
+          parsed.bom_source = "n8n (fallback)";   // parsed.bom ramane cel de la n8n
+        }
+      } catch { parsed.bom_source = "n8n (fallback)"; }
     }
     return NextResponse.json(parsed, { status: resp.status });
   } catch (err) {

@@ -296,6 +296,7 @@ export interface ProjectResult {
     unit: string;
     notes?: string;
   }> | null;
+  bom_source?: string;   // "plan (unified)" | "n8n (fallback)" — traceabilitate BOM unificat
 }
 
 // Planșa de iluminat REGENERATĂ (după "Obține plan": cabluri + editări) ÎNLOCUIEȘTE tot ce se afișează;

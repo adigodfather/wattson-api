@@ -1648,6 +1648,7 @@ export function ZynapseConfigurator() {
         schema_monofilara_pdf: data.schema_monofilara_pdf ?? result.schema_monofilara_pdf,
         memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
         bom: data.bom ?? result.bom,
+        bom_source: data.bom_source ?? result.bom_source,   // "plan (unified)" | "n8n (fallback)"
         // UNIFICARE: circuitele enrich (plan) -> tabelul UI (circuits_te_ct/teg) = documentele.
         circuits: data.circuits ?? result.circuits,
         circuits_te_ct: data.circuits_te_ct ?? result.circuits_te_ct,
