@@ -1311,6 +1311,91 @@ def _draw_cable(page, path, color=None, width=0.8):
                        color=col, width=width, dashes="[3 2] 0")
 
 
+# ── GROSIME cabluri pe TREPTE (manunchi): 1 -> subtire, 2-3 -> mediu, 4+ -> gros. Valori AJUSTABILE. ──
+_CABLE_W_THIN, _CABLE_W_MED, _CABLE_W_THICK = 0.8, 1.8, 2.8
+
+def _cable_width_for(count):
+    """Grosimea liniei pe TREPTE dupa cate cabluri sunt in manunchi (count)."""
+    try:
+        n = int(count or 1)
+    except (TypeError, ValueError):
+        n = 1
+    if n >= 4: return _CABLE_W_THICK
+    if n >= 2: return _CABLE_W_MED
+    return _CABLE_W_THIN
+
+
+# ── CUMSUM pe dunga: cablurile de la camere se ADUNA -> grosimea creste spre tablou. ──
+def _arc_lengths(pts):
+    arcs = [0.0]
+    for i in range(1, len(pts)):
+        arcs.append(arcs[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]))
+    return arcs
+
+def _arc_of_proj(xy, pts, arcs):
+    """(arc_pozitie, punct_proiectat) al proiectiei lui xy pe polilinia pts."""
+    proj, seg_i, t = _project_point_on_polyline(xy, pts)
+    seg_len = (arcs[seg_i + 1] - arcs[seg_i]) if seg_i + 1 < len(arcs) else 0.0
+    return arcs[seg_i] + t * seg_len, proj
+
+def _point_at_arc(pts, arcs, target):
+    if target <= 0: return pts[0]
+    if target >= arcs[-1]: return pts[-1]
+    for i in range(1, len(arcs)):
+        if arcs[i] >= target:
+            seg = arcs[i] - arcs[i - 1]
+            t = (target - arcs[i - 1]) / seg if seg > 1e-9 else 0.0
+            return (pts[i - 1][0] + t * (pts[i][0] - pts[i - 1][0]),
+                    pts[i - 1][1] + t * (pts[i][1] - pts[i - 1][1]))
+    return pts[-1]
+
+def _subpath_between(pts, arcs, a0, a1):
+    lo, hi = (a0, a1) if a0 <= a1 else (a1, a0)
+    out = [_point_at_arc(pts, arcs, lo)]
+    for i in range(len(pts)):
+        if lo < arcs[i] < hi:
+            out.append(pts[i])
+    out.append(_point_at_arc(pts, arcs, hi))
+    return out
+
+def _mk_cable(path, kind, room, count):
+    length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
+                 for i in range(len(path) - 1)) if path and len(path) >= 2 else 0.0
+    return {"from_type": None, "from_xy": path[0] if path else None, "to_type": None,
+            "to_xy": path[-1] if path else None, "path": path, "kind": kind,
+            "length": round(length, 1), "room": room, "via_stripe": True, "stripe_idx": None,
+            "count": count}
+
+def _stripe_thickness(grp, spts):
+    """Inlocuieste manunchiul de pe o dunga cu: (1) cozile priza->punct de intrare pe dunga (grosime =
+    count-ul circuitului) + (2) coloana comuna de pe dunga, SPARTA pe segmente cu count CUMULAT (toate
+    ies la tablou -> segmentul de langa tablou = suma tuturor -> cel mai gros). spts <2 -> grup neschimbat."""
+    if not spts or len(spts) < 2 or not grp:
+        return grp
+    arcs = _arc_lengths(spts)
+    drain_xy = grp[0].get("to_xy")                        # tabloul (comun pe dunga)
+    drain_arc, drain_proj = _arc_of_proj(drain_xy, spts, arcs)
+    kind0, room0 = grp[0].get("kind"), grp[0].get("room")
+    entries = []                                          # (entry_arc, weight, from_xy, entry_pt)
+    for c in grp:
+        ea, ep = _arc_of_proj(c.get("from_xy"), spts, arcs)
+        entries.append((ea, int(c.get("count") or 1), c.get("from_xy"), ep))
+    out = []
+    for ea, w, fxy, ep in entries:                        # coada: priza(cap lant) -> intrare pe dunga
+        out.append(_mk_cable(_cable_l_path(fxy, ep), kind0, room0, w))
+    bps = sorted(set([e[0] for e in entries] + [drain_arc]))
+    for i in range(len(bps) - 1):                         # coloana comuna, cumsum pe segmente
+        lo, hi = bps[i], bps[i + 1]
+        mid = (lo + hi) / 2.0
+        cum = sum(w for ea, w, _, _ in entries if min(ea, drain_arc) <= mid <= max(ea, drain_arc))
+        if cum <= 0:
+            continue
+        out.append(_mk_cable(_subpath_between(spts, arcs, lo, hi), kind0, room0, cum))
+    total = sum(w for _, w, _, _ in entries)
+    out.append(_mk_cable(_cable_l_path(drain_proj, drain_xy), kind0, room0, total))   # dunga -> tablou
+    return out
+
+
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
 
@@ -1433,8 +1518,9 @@ def compute_cables(elements):
 
     stripes = _extract_stripes(elements)   # FAZA B: TOATE dungile 'traseu'; [] -> fallback L direct
 
-    def add(ft, a, tt, b, kind, room, via_stripe=False):
+    def add(ft, a, tt, b, kind, room, via_stripe=False, count=1):
         # traseele ...->tablou trec prin dunga CEA MAI APROPIATA de origine (SOL B, faza B); bec->switch local = L direct.
+        # count = cate cabluri sunt in manunchiul segmentului (GROSIME pe trepte): prize -> nr. prize/circuit; iluminat -> 1.
         si = _nearest_stripe_idx(a, stripes) if via_stripe else None
         use = via_stripe and si is not None
         path = _stripe_path(a, b, stripes[si]) if use else _cable_l_path(a, b)
@@ -1442,7 +1528,7 @@ def compute_cables(elements):
                      for i in range(len(path) - 1))
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
                        "path": path, "kind": kind, "length": round(length, 1), "room": room,
-                       "via_stripe": use, "stripe_idx": (si if use else None)})
+                       "via_stripe": use, "stripe_idx": (si if use else None), "count": count})
 
     def nearest(p, items):
         return min(items, key=lambda q: math.hypot(q["x"] - p[0], q["y"] - p[1]))
@@ -1536,35 +1622,31 @@ def compute_cables(elements):
             while rem:                                     # lant nearest-neighbor (ca bec_lant)
                 nb = nearest(cur, rem); rem.remove(nb)
                 chain.append(nb); cur = (nb["x"], nb["y"])
+            _ncirc = len(group)                            # GROSIME: circuit de N prize -> manunchi N cabluri
             for i in range(len(chain) - 1):                # priza -> priza (lant pe circuit)
                 a = (chain[i]["x"], chain[i]["y"]); b = (chain[i + 1]["x"], chain[i + 1]["y"])
-                add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", chain[i].get("room"))
+                add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", chain[i].get("room"), count=_ncirc)
                 stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-            # O coborare: capul lantului -> tablou, via dunga hol (ca sw_tablou)
-            add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", start.get("room"), via_stripe=True)
+            # O coborare: capul lantului -> tablou, via dunga hol (ca sw_tablou). count = N -> pe dunga se CUMULEAZA.
+            add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", start.get("room"), via_stripe=True, count=_ncirc)
             stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
-    # MANUNCHI PER DUNGA (faza B): cablurile care converg pe ACEEASI dunga -> offset lateral SIMETRIC
-    # (paralele, nu suprapuse). GRUPATE pe stripe_idx -> cablurile de pe trasee DIFERITE nu se amesteca;
-    # fiecare dunga are manunchiul ei paralel. Re-ruteaza pe copia deplasata a dungii grupului.
+    # MANUNCHI PER DUNGA (GROSIME pe trepte): cablurile care converg pe ACEEASI dunga se ADUNA ->
+    # o SINGURA linie cu grosime CUMULATIVA (mai groasa spre tablou), nu linii paralele. Non-stripe
+    # (lant intra-camera, iluminat) raman cu grosimea lor pe count. _stripe_thickness sparge dunga
+    # pe segmente cu count cumulat + adauga cozile priza->dunga.
     if stripes:
-        groups = {}
+        by_stripe, rest = {}, []
         for c in cables:
             if c.get("via_stripe") and c.get("stripe_idx") is not None:
-                groups.setdefault(c["stripe_idx"], []).append(c)
-        total = 0
-        for si, grp in groups.items():
-            if len(grp) <= 1:
-                continue
-            n = len(grp)
-            for k, c in enumerate(grp):
-                off = (k - (n - 1) / 2.0) * _BUNDLE_GAP
-                c["path"] = _stripe_path(c["from_xy"], c["to_xy"], stripes[si], offset=off)
-                c["length"] = round(sum(math.hypot(c["path"][i + 1][0] - c["path"][i][0],
-                                                   c["path"][i + 1][1] - c["path"][i][1])
-                                        for i in range(len(c["path"]) - 1)), 1)
-            total += n
-        stats["bundle"] = total
+                by_stripe.setdefault(c["stripe_idx"], []).append(c)
+            else:
+                rest.append(c)
+        new_stripe = []
+        for si, grp in by_stripe.items():
+            new_stripe.extend(_stripe_thickness(grp, stripes[si]))
+        cables = rest + new_stripe
+        stats["bundle"] = sum(len(g) for g in by_stripe.values())
 
     return cables, stats
 
@@ -1862,7 +1944,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             for _c in _cables:
                 # C2: forța (prize->tablou) = ALBASTRU (_PRIZA_COLOR); iluminat (bec/întrer./senzor) = roșu (default).
                 _kind = _c.get("kind") or ""
-                _draw_cable(page, _c.get("path"), color=_PRIZA_COLOR if _kind.startswith("priza") else None)
+                # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
+                _draw_cable(page, _c.get("path"), color=_PRIZA_COLOR if _kind.startswith("priza") else None,
+                            width=_cable_width_for(_c.get("count", 1)))
                 n_cable += 1
         except Exception:
             n_cable = 0
