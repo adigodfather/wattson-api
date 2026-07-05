@@ -3296,6 +3296,59 @@ def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
 
 
 # -------------------------------------------------
+#  BOM / LISTA DE CANTITATI (antemasuratori)  —  POST /bom
+#  7 categorii (sigurante/cabluri/prize/becuri/tablouri/receptoare/tuburi) din SURSA UNIFICATA
+#  (enrich_circuits + plan_elements) -> CONSISTENT cu schema/memoriu (aceleasi numere). Metri:
+#  scala per-proiect din area_m2 (fallback fix ~1:71). Self-contained: citeste DB pe project_id.
+# -------------------------------------------------
+
+class BomRequest(BaseModel):
+    project_id: str = ""
+    base_pdf_base64: str = ""   # pt. W/H (scala per-proiect); OPTIONAL -> fallback scala fixa
+    form: dict = {}             # extra_equipment (puteri receptoare), ca la enrich
+    waste: float = 1.0          # adaos la capete (1.0 = fara; 1.10 = +10%)
+
+
+@app.post("/bom")
+def bom_endpoint(request: BomRequest):
+    """Lista de cantitati din circuitele UNIFICATE (enrich) + plan_elements. Fail-safe: eroare ->
+    success:False. Citeste plan_elements + result_data (rooms/area_m2 + circuits) din DB (service-role)."""
+    try:
+        import bom as _bom
+        import enrich_circuits as _ec
+        if not request.project_id:
+            return {"success": False, "error": "project_id lipseste", "rows": []}
+        from supabase_client import supabase as _supa
+        rows = (_supa.table("plan_elements").select("*")
+                .eq("project_id", request.project_id).execute().data) or []
+        proj = (_supa.table("projects").select("result_data")
+                .eq("id", request.project_id).single().execute().data) or {}
+        rd = (proj.get("result_data") or {})
+        _rooms = rd.get("rooms") or []
+        base_circuits = rd.get("circuits") or []
+        # W/H din base_pdf (scala per-proiect exacta); lipsa -> derive_scale cade pe scala fixa.
+        _W = _H = 0.0
+        if request.base_pdf_base64:
+            try:
+                import fitz
+                _raw = request.base_pdf_base64.split(",", 1)[1] if "," in request.base_pdf_base64 else request.base_pdf_base64
+                _doc = fitz.open(stream=base64.b64decode(_raw), filetype="pdf")
+                _W, _H = _doc[0].rect.width, _doc[0].rect.height
+                _doc.close()
+            except Exception:
+                _W = _H = 0.0
+        # ACELEASI circuite ca schema/memoriu (enrich) + cablurile desenate (compute_cables).
+        circuits = _ec.enrich_circuits(rows, request.form or {}, base_circuits=base_circuits)
+        cables, _cstats = draw_elements.compute_cables(rows)
+        scale, ssrc = _bom.derive_scale(_rooms, _W, _H)
+        out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.0))
+        return {"success": True, "scale_m_per_px": round(scale, 6), "scale_source": ssrc,
+                "rows": out["rows"], "summary": out["summary"]}
+    except Exception as e:
+        return {"success": False, "error": str(e), "rows": []}
+
+
+# -------------------------------------------------
 #  REGENERATE PLAN (Obtine plan, sub-pas 1a)  —  POST /regenerate-plan
 # -------------------------------------------------
 
