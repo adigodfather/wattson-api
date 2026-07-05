@@ -186,6 +186,29 @@ def assign_phases(circuits):
         c["fasa"] = seq[k % 3]
         counters[panel] = k + 1
 
+_KS_TECT = 0.8   # simultaneitate coloana TE-CT (ca n8n) — cand resumam din circuitele TE-CT
+
+def _resize_column_feed(feed, tect_circuits):
+    """FIX coloana: n8n lasa breaker=16 PLACEHOLDER (nu se re-deriva din putere) -> recalculam
+    breaker+cablu din puterea ABSORBITA. Pi_total = feed.power_w (deja = suma × ks); fallback:
+    resumam din TE-CT × ks. Coloana trifazata (5x). Suprascrie DOAR feed-ul (nu circuitele TE-CT)."""
+    try:
+        pw = int(feed.get("power_w"))
+    except (TypeError, ValueError):
+        pw = 0
+    if not pw:                                          # fallback: resumam din circuitele TE-CT × ks
+        pw = int(round(sum((c.get("power_w") or 0) for c in (tect_circuits or [])) * _KS_TECT))
+        feed["power_w"] = pw
+    tri = str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")
+    breaker, ia = breaker_and_ia(pw, tri=tri, minimum=16)   # min 16A (coloana principala)
+    sec = _dedicate_section(breaker)                        # scara: 16->2.5, 20->4, 25/32->6, 40->10...
+    n = "5x" if tri else "3x"
+    feed["breaker_a"] = breaker
+    feed["cable_type"] = "CYY-F %s%smmp" % (n, ("%.1f" % sec).rstrip("0").rstrip("."))
+    feed["ia_calculated_a"] = ia
+    feed["pozare"] = pozare_for(sec)
+
+
 def enrich_circuits(plan_elements, form=None, base_circuits=None):
     """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
     base_circuits (heating-driven, ORTOGONAL de plan; dimensionarea normativa din norme_alimentari
@@ -223,6 +246,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             tect_circuits.append(dict(c))
         elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
             feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+
+    # FIX coloana: recalculeaza breaker+cablu din puterea absorbita (n8n lasa 16A placeholder)
+    for f in feed_circuits:
+        _resize_column_feed(f, tect_circuits)
 
     # ordine finala: TEG(plan) + feed(TEG->TE-CT) + TES(plan) + TE-CT(preservat)
     teg = [c for c in plan_out if c.get("panel") == "TEG"]
