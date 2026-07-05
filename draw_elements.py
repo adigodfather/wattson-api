@@ -1063,6 +1063,7 @@ _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator"}
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
+_RECEPTOR_TYPES = {"alimentare_receptor", "receptor_internet"}   # NIVEL 2: receptoare -> room geometric (pt. detectie tech in enrich)
 
 # Culori tablou (RGB 0-1) + eticheta scurta — portate din Konva (PANEL_INFO).
 # (colA = triunghi sus-dreapta, colB = triunghi jos-stanga).
@@ -1596,12 +1597,15 @@ def _room_of_point(px, py, rooms, W, H):
 
 
 def assign_rooms_to_prizas(elements, rooms, W, H):
-    """Pentru fiecare PRIZA cu room null/gol -> seteaza el['room'] = camera ei (in-memory, pt. C3b).
-    Prizele care au deja room raman neatinse. PUR pt. restul elementelor. C3a: NU scrie circuit_id,
+    """Pentru fiecare PRIZA/RECEPTOR cu room null/gol -> seteaza el['room'] = camera ei (in-memory, pt. C3b).
+    NIVEL 2: include si receptoarele (alimentare_receptor + receptor_internet) -> primesc room geometric
+    (point-in-bbox, ca prizele) => enrich poate detecta receptoarele din camera tehnica -> TE-CT.
+    Cele care au deja room raman neatinse. PUR pt. restul elementelor. C3a: NU scrie circuit_id,
     NU persista, NU deseneaza. Intoarce lista [(x, y, room)] pt. logare/test."""
     out = []
     for el in (elements or []):
-        if ((el or {}).get("element_type") or "") not in _PRIZA_TYPES:
+        _et = (el or {}).get("element_type") or ""
+        if _et not in _PRIZA_TYPES and _et not in _RECEPTOR_TYPES:
             continue
         try:
             px = float(el["x"]); py = float(el["y"])
@@ -1776,7 +1780,7 @@ def assign_circuits(elements, rooms, W, H):
     old = {}
     for el in elements:
         et = (el or {}).get("element_type") or ""
-        if (et in _PRIZA_TYPES or et in _BULB_TYPES) and el.get("id"):
+        if (et in _PRIZA_TYPES or et in _BULB_TYPES or et in _RECEPTOR_TYPES) and el.get("id"):
             old[el["id"]] = (el.get("room"), el.get("circuit_id"))
 
     assign_rooms_to_prizas(elements, rooms, W, H)          # seteaza el['room'] pe prize (point-in-bbox)
@@ -1788,10 +1792,10 @@ def assign_circuits(elements, rooms, W, H):
     updates = []
     for idx, el in enumerate(elements):
         et = (el or {}).get("element_type") or ""
-        if et not in _PRIZA_TYPES and et not in _BULB_TYPES:
+        if et not in _PRIZA_TYPES and et not in _BULB_TYPES and et not in _RECEPTOR_TYPES:
             continue
-        cid = ec.get(idx)                                  # None pt. becuri non-tech (neetichetate)
-        el["circuit_id"] = cid                             # IN-MEMORY (pt. C4)
+        cid = ec.get(idx)                                  # None pt. becuri non-tech + receptoare (neetichetate de compute_circuits)
+        el["circuit_id"] = cid                             # IN-MEMORY (pt. C4). Receptoarele: cid=None (NIVEL 2 persista DOAR room)
         pid = el.get("id")
         if pid:
             new = (el.get("room"), cid)

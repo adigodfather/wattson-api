@@ -155,18 +155,22 @@ def _enrich_group(c, els, panel, floor_idx):
     }
 
 def _enrich_receptor(el, cid, panel, floor_idx, form):
-    """alimentare_receptor -> circuit DEDICAT (compute_circuits nu-l grupeaza). Putere din formular."""
+    """alimentare_receptor / receptor_internet -> circuit DEDICAT (compute_circuits nu-l grupeaza).
+    Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
+    -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea."""
+    is_net = (el.get("element_type") or "") == "receptor_internet"
     power_w, tip, ph, src = receptor_power(el.get("label"), form)
     tri = str(ph).lower() in ("tri", "trifazat", "3")
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     room = el.get("room")
     bt = ("MCB-3P-C" if tri else "MCB-1P-C")
+    desc = "Alimentare retea/date" if is_net else ("Alimentare " + (el.get("label") or tip or "receptor"))
     return {
         "id": cid, "fasa": None, "room": room, "type": "dedicat", "floor": floor_idx,
         "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
         "breaker_a": breaker_a, "room_type": None, "cable_type": cbl,
-        "description": "Alimentare " + (el.get("label") or tip or "receptor"),
+        "description": desc,
         "is_bathroom": False, "is_exterior": False, "breaker_type": bt,
         "pi_normalized": False, "ia_calculated_a": ia,
         "normalize_reason": ("Putere din formular" if src == "formular" else
@@ -271,12 +275,20 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             plan_out.append(_enrich_group(c, els, panel, fidx))
         nextn = cc["n_circuits"] + 1
         gsuf = "" if general == "TEG" else "-%s" % general
+        tech_l = (tech_room or "").strip().lower()     # NIVEL 2: receptor cu room==camera tehnica -> TE-CT
         for el in els:
-            if (el.get("element_type") or "") in _RECEPTOR_TYPES:
-                if receptor_type_of(el.get("label")) == "ev_charger":
-                    continue                           # EV = separat (ca fotovoltaicele)
-                plan_out.append(_enrich_receptor(el, "C%d%s" % (nextn, gsuf), panel, fidx, form))
-                nextn += 1
+            et = (el.get("element_type") or "")
+            if et not in ("alimentare_receptor", "receptor_internet"):
+                continue
+            is_tech = bool(tech_l) and (el.get("room") or "").strip().lower() == tech_l
+            if et == "receptor_internet" and not is_tech:
+                continue                               # net in afara camerei tehnice = date low-voltage, NU circuit de putere (ca inainte)
+            if et == "alimentare_receptor" and receptor_type_of(el.get("label")) == "ev_charger":
+                continue                               # EV = separat (ca fotovoltaicele)
+            rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
+            rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
+            plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form))
+            nextn += 1
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
     plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]
