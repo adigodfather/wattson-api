@@ -90,6 +90,16 @@ const isTraseuType = (t: string) => t === "traseu";
 const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
 const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoare bucata A: 1 tip + `label` (boiler/cuptor/...)
 const isInternetType = (t: string) => t === "receptor_internet";     // Retea internet (RJ45): simbol propriu (turcoaz + router + WiFi)
+// Inaltime de montaj DEFAULT pe tip la receptoare (metri), ca la prize; modificabila in editor.
+// boiler/AC/HRV/net = 2.0 ; cuptor = 0.5 ; EV/statie = 1.2 ; necunoscut = 0.6 (default coloana).
+function receptorDefaultHeight(et: string, label: string): number {
+  if (et === "receptor_internet") return 2.0;
+  const l = (label || "").toLowerCase();
+  if (l.includes("cuptor")) return 0.5;
+  if (l.includes("statie") || l.includes("incarcare") || l.includes("ev")) return 1.2;
+  if (l.includes("boiler") || l.includes("aer") || l.includes("condi") || l === "ac" || l.includes("hrv") || l.includes("recuper")) return 2.0;
+  return 0.6;
+}
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
@@ -849,6 +859,7 @@ export default function PlanEditor({
       y: pos.y / scale,
       wall_mounted: false,
       rotation: 0,
+      mount_height_m: receptorDefaultHeight(p.et, p.label),   // inaltime DEFAULT pe tip (editabila)
       status: null as string | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
@@ -1019,8 +1030,9 @@ export default function PlanEditor({
           </>
         )}
 
-        {/* Înălțime (mount_height_m) — DOAR la prize; precompletat 0.6, editabil (metri). Becurile NU au (pe tavan). */}
-        {isPrizaType(selected.element_type) && (
+        {/* Înălțime (mount_height_m) — prize + receptoare (alimentări/rețea); default pe tip, editabil (metri).
+            Becurile NU au (pe tavan). */}
+        {(isPrizaType(selected.element_type) || isReceptorType(selected.element_type) || isInternetType(selected.element_type)) && (
           <>
             <label style={fieldLabel}>Înălțime (m)</label>
             <input

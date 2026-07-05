@@ -2108,11 +2108,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     n_ground += 1
             elif et == "alimentare_receptor":
                 # Receptor (bucata A): simbolul de ALIMENTARE existent (priza_16a = cerc plin), refolosit.
-                # `label` (boiler/cuptor/...) desenat ca eticheta sub simbol -> inginerul stie care-i care.
+                # `label` (boiler/cuptor/...) + inaltimea de montaj (h=..m, ca la prize) sub simbol.
                 _draw_priza(page, x, y, "priza_16a")
                 _rl = (el.get("label") or "").strip()
-                if _rl:
-                    _rt = _rl[:1].upper() + _rl[1:]
+                _rh = _fmt_height(el.get("mount_height_m"))
+                _rt = (_rl[:1].upper() + _rl[1:]) if _rl else ""
+                if _rh:
+                    _rt = ("%s  h=%sm" % (_rt, _rh)).strip()
+                if _rt:
                     _rfs = 7.5
                     _rw = len(_rt) * _rfs * 0.46
                     _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 20.0, "w": _rw,
@@ -2120,6 +2123,13 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_receptor += 1
             elif et == "receptor_internet":
                 _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
+                _nh = _fmt_height(el.get("mount_height_m"))                           # inaltime de montaj (ca la prize)
+                if _nh:
+                    _nt = "Retea  h=%sm" % _nh
+                    _nfs = 7.5
+                    _nw = len(_nt) * _nfs * 0.46
+                    _labels.append({"text": _nt, "x0": x - _nw / 2.0, "y": y + 22.0, "w": _nw,
+                                    "fs": _nfs, "font": "helv", "color": _NET_EDGE})
                 n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
