@@ -181,8 +181,8 @@ function bulbSelRing(type: string) {
 const PRIZA_TURQ = "#3fd0c9";   // umplutura prizelor interioare
 const PRIZA_TEAL = "#0f766e";   // contur IP44 (teal închis, distinct de interior)
 const PRIZA_DARK = "#0d3c7a";   // contur alimentare directă (albastru închis)
-const NET_FILL = "#1ab3ab";     // retea internet: dreptunghi turcoaz plin
-const NET_EDGE = "#0d7a75";     // retea internet: contur caseta
+const NET_FILL = "#BA68C8";     // retea internet: dreptunghi VIOLET plin (distinct de albastrul prizei)
+const NET_EDGE = "#8E24AA";     // retea internet: contur violet inchis
 const TRASEU_PRINCIPAL = "#1565C0";   // traseu principal: albastru inchis (= culoarea existenta -> zero regresie)
 const TRASEU_SECUNDAR = "#1ab3ab";    // traseu secundar: turcoaz (distinct de principal)
 const traseuCol = (label?: string | null) => (label === "secundar" ? TRASEU_SECUNDAR : TRASEU_PRINCIPAL);   // fara label -> principal

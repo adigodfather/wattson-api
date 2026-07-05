@@ -205,9 +205,9 @@ _PRIZA_TURQ = (0.247, 0.816, 0.788)    # #3fd0c9 — umplutura prizelor interioa
 _PRIZA_TEAL = (0.059, 0.463, 0.431)    # #0f766e — contur IP44 (teal inchis, distinct de interior)
 _PRIZA_DARK = (0.051, 0.235, 0.478)    # #0d3c7a — contur alimentare directa (albastru inchis)
 
-# ── Receptor RETEA INTERNET (RJ45): simbol propriu (turcoaz + router alb + 3 unde WiFi). ──
-_NET_FILL  = (0.102, 0.702, 0.671)     # #1ab3ab — dreptunghi turcoaz plin
-_NET_EDGE  = (0.051, 0.478, 0.459)     # #0d7a75 — contur caseta
+# ── Receptor RETEA INTERNET (RJ45): simbol propriu (VIOLET + router alb + 3 unde WiFi). ──
+_NET_FILL  = (0.729, 0.408, 0.784)     # #BA68C8 — dreptunghi VIOLET plin (distinct de albastrul prizei)
+_NET_EDGE  = (0.557, 0.141, 0.667)     # #8E24AA — contur violet inchis
 _NET_WHITE = (1.0, 1.0, 1.0)           # router + unde WiFi (alb)
 
 
@@ -249,12 +249,12 @@ def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0
         disc(0, 8 * s); contacts(0)
 
 
-def _draw_internet(page, cx, cy):
-    """Simbol RETEA INTERNET (RJ45): dreptunghi turcoaz plin + router alb (contur + 2 LED-uri albe
+def _draw_internet(page, cx, cy, scale=1.0):
+    """Simbol RETEA INTERNET (RJ45): dreptunghi VIOLET plin + router alb (contur + 2 LED-uri albe
     + o liniuta alba) in jumatatea de jos + 3 unde WiFi albe arcuite deasupra (tot mai late in sus).
     Geometrie IDENTICA cu internetSymbol din plan-editor.tsx (UI=PDF). Dimensiune = editorul UI * u
-    (px-PNG -> pt-PDF, ~1/png_scale 1.667), ca la prize -> nu prea mare pe plan."""
-    u = 0.6
+    (px-PNG -> pt-PDF, ~1/png_scale 1.667), ca la prize. scale<1 -> mai mic (pt. celula legendei)."""
+    u = 0.6 * scale
     def P(dx, dy):
         return fitz.Point(cx + dx * u, cy + dy * u)
     def wifi(r):                                     # unda WiFi = arc alb centrat la (0,5), deschis in SUS
@@ -331,11 +331,20 @@ _SWITCH_LEGEND_TEXT = {
     "intrerupator_triplu":    "Intrerupator triplu montat la h=1.10 m",
     "intrerupator_cap_scara": "Intrerupator cap-scara montat la h=1.10 m",
 }
-# Ordini deterministice in legenda (seturile _PANEL_TYPES/_SWITCH_TYPES sunt neordonate).
+# Nume prize in legenda forta (citibile). Alimentari (receptor) = "Alimentare {label}"; internet = text fix.
+_LEGEND_PRIZA_NAME = {
+    "priza_simpla":        "Priza simpla",
+    "priza_dubla":         "Priza dubla",
+    "priza_16a":           "Alimentare directa (consumator)",
+    "priza_exterior_ip44": "Priza exterior IP44",
+}
+# Ordini deterministice in legenda (seturile _PANEL_TYPES/_SWITCH_TYPES/_PRIZA_TYPES sunt neordonate).
 _PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator")
 _SWITCH_ORDER = ("intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara")
-# Cablul de iluminat e MEREU acelasi (decizia Dan).
-_LEGEND_CABLE_TEXT = "Cablu / Manunchi cablu CYY-F 3x1.5 mmp"
+_PRIZA_ORDER = ("priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44")
+# Cablu pe plan_type: iluminat 1.5, forta (prize) 2.5. Dedicatele (forta) adauga sectiunile lor.
+_LEGEND_CABLE_ILUMINAT = "Cablu / Manunchi cablu CYY-F 3x1.5 mmp"
+_LEGEND_CABLE_FORTA    = "Cablu / Manunchi cablu CYY-F 3x2.5 mmp"
 
 
 def _legend_pw(pw):
@@ -348,20 +357,20 @@ def _legend_pw(pw):
         return None
 
 
-def _legend_label(kind, element_type, power_w=None):
+def _legend_label(kind, element_type, power_w=None, label=None):
     """Text DESCRIPTIV pt. LEGENDA (separat de _bulb_label, care ramane SCURT pt. etichetele de pe plan):
-      - bulb non-senzor: "{Nume} LED[ cu puterea de {W}W]" (Nume: Aplica/Lustra/Banda);
-      - bulb senzor:     "Aplica LED cu senzor de prezenta[ cu puterea de {W}W]";
-      - switch:          "Intrerupator {tip} montat la h=1.10 m";
-      - panel:           text descriptiv pe tip ("TEG: Tablou electric general" ...);
-      - cable:           "CYYF 3x1.5 mmp".
-    Putere goala/None -> fara segmentul " cu puterea de {W}W"."""
+      - bulb / switch / panel (iluminat); prize / receptor(alimentare) / internet (forta).
+      - cablul e construit direct in build_legend_rows (plan_type-aware). Putere None -> fara segment W."""
     if kind == "switch":
         return _SWITCH_LEGEND_TEXT.get(element_type, element_type)
     if kind == "panel":
         return _PANEL_LEGEND_NAME.get(element_type, element_type)
-    if kind == "cable":
-        return _LEGEND_CABLE_TEXT
+    if kind == "prize":
+        return _LEGEND_PRIZA_NAME.get(element_type, "Priza")
+    if kind == "receptor":
+        return "Alimentare " + (str(label).strip() if label else "receptor")
+    if kind == "internet":
+        return "Priza date / internet (RJ45)"
     # bulb (default)
     name = _LEGEND_BULB_NAME.get(element_type, "Corp")
     base = "{} LED cu senzor de prezenta".format(name) if element_type == "aplica_senzor" else "{} LED".format(name)
@@ -371,19 +380,49 @@ def _legend_label(kind, element_type, power_w=None):
     return base
 
 
-def build_legend_rows(elements):
-    """LOGICA PURA (fara desen): construieste randurile legendei din plan_elements.
-    Returneaza lista de dict-uri {kind, element_type?, power_w?, text} cu text DESCRIPTIV (_legend_label):
-      - BECURI grupate pe (element_type, power_w) UNIC -> 1 rand/combinatie;
-      - INTRERUPATOARE grupate pe element_type PREZENT -> 1 rand/tip;
-      - TABLOURI doar tipurile PREZENTE -> 1 rand/tip;
-      - CABLU fix -> 1 rand.
-    Ordine: becuri (pe tip, apoi putere crescator; None la sfarsit) -> intrerupatoare -> tablouri -> cablu.
-    Pura: zero efecte secundare, nu deseneaza, nu modifica `elements`."""
+def _legend_cable_rows(elements, plan_type, present):
+    """Randuri de cablu pt. legenda, pe plan_type: iluminat -> 3x1.5; forta -> 3x2.5 (prize) +
+    sectiunile DEDICATELOR daca difera de 2.5 (boiler/cuptor... scalate cu breaker). Doar prezente."""
+    if plan_type != "forta":
+        return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
+    texts = []
+    if present & _PRIZA_TYPES:
+        texts.append(_LEGEND_CABLE_FORTA)                           # 2.5 prize
+    recs = [el for el in (elements or []) if ((el or {}).get("element_type") or "") == "alimentare_receptor"]
+    if recs:
+        try:                                                        # lazy (evita import circular)
+            import enrich_circuits as _ec
+            for el in recs:
+                pw, _tip, ph, _src = _ec.receptor_power(el.get("label"), {})
+                if not pw:
+                    continue
+                tri = str(ph).lower() in ("tri", "trifazat", "3")
+                brk, _ia = _ec.breaker_and_ia(pw, tri=tri, minimum=16)
+                cbl, sec = _ec.cable_type("dedicat", brk, False, tri=tri)
+                if sec and sec != 2.5:                              # sectiuni DIFERITE de prize -> nu dublam
+                    texts.append("Cablu alimentare dedicata " + cbl + " mmp")
+        except Exception:
+            pass
+    if not texts:
+        texts = [_LEGEND_CABLE_FORTA]
+    out, seen = [], set()
+    for t in texts:
+        if t not in seen:
+            seen.add(t)
+            out.append({"kind": "cable", "text": t})
+    return out
+
+
+def build_legend_rows(elements, plan_type="iluminat"):
+    """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
+    Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
+      ILUMINAT: becuri (pe tip+putere) + intrerupatoare (prezente) + tablouri + cablu 3x1.5.
+      FORTA:    prize (prezente) + alimentari (receptor, pe label) + internet + tablouri + cablu 3x2.5(+dedicate).
+    Ordine determinista. Doar tipurile PREZENTE pe plan. Pura: nu deseneaza, nu modifica `elements`."""
     elements = elements or []
     present = {((el or {}).get("element_type") or "") for el in elements}
 
-    # a) BECURI: combinatii unice (element_type, power_w normalizat)
+    # a) BECURI (iluminat): combinatii unice (element_type, power_w normalizat)
     seen = set()
     bulbs = []
     for el in elements:
@@ -399,18 +438,37 @@ def build_legend_rows(elements):
                       "text": _legend_label("bulb", et, pw)})
     bulbs.sort(key=lambda r: (r["element_type"], r["power_w"] is None, r["power_w"] or 0))
 
-    # b) INTRERUPATOARE (NOU): doar tipurile prezente, 1 rand/tip, in ordine deterministica
+    # b) INTRERUPATOARE (iluminat): doar tipurile prezente, ordine determinista
     switches = [{"kind": "switch", "element_type": et, "text": _legend_label("switch", et)}
                 for et in _SWITCH_ORDER if et in present and et in _SWITCH_TYPES]
 
-    # c) TABLOURI: doar tipurile prezente
+    # c) PRIZE (forta): doar tipurile prezente
+    prizes_rows = [{"kind": "prize", "element_type": et, "text": _legend_label("prize", et)}
+                   for et in _PRIZA_ORDER if et in present and et in _PRIZA_TYPES]
+
+    # d) ALIMENTARI (forta): alimentare_receptor grupat pe label (distinct, in ordinea aparitiei)
+    rec_labels, seen_lbl = [], set()
+    for el in elements:
+        if ((el or {}).get("element_type") or "") == "alimentare_receptor":
+            lbl = ((el.get("label") or "").strip() or "receptor")
+            if lbl not in seen_lbl:
+                seen_lbl.add(lbl)
+                rec_labels.append(lbl)
+    receptor_rows = [{"kind": "receptor", "label": lbl, "text": _legend_label("receptor", None, label=lbl)}
+                     for lbl in rec_labels]
+
+    # e) RETEA INTERNET (forta): daca prezenta
+    internet_rows = ([{"kind": "internet", "text": _legend_label("internet", None)}]
+                     if "receptor_internet" in present else [])
+
+    # f) TABLOURI (ambele): doar tipurile prezente
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
-    # d) CABLU fix (iluminatul foloseste mereu acest cablu)
-    cable = [{"kind": "cable", "text": _legend_label("cable", None)}]
+    # g) CABLU pe plan_type (+ dedicate la forta)
+    cable_rows = _legend_cable_rows(elements, plan_type, present)
 
-    return bulbs + switches + panels + cable
+    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + cable_rows
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -1295,6 +1353,12 @@ def _draw_legend(page, x, y, rows):
             _sw_s = 0.5
             _draw_switch(page, cx - 12.75 * _sw_s, cy, 0.0,
                          r.get("element_type") or "intrerupator_simplu", scale=_sw_s)
+        elif kind == "prize":
+            _draw_priza(page, cx, cy, r.get("element_type") or "priza_simpla", scale=0.5)
+        elif kind == "receptor":
+            _draw_priza(page, cx, cy, "priza_16a", scale=0.5)          # simbolul de alimentare
+        elif kind == "internet":
+            _draw_internet(page, cx, cy, scale=0.5)                     # caseta violet mica
         elif kind == "cable":
             # MANUNCHI: 3 linii paralele scurte (ilustreaza manunchiul de cabluri)
             for _dy in (-2.3, 0.0, 2.3):
@@ -1827,7 +1891,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                                     "fs": _rfs, "font": "helv", "color": _PRIZA_COLOR})
                 n_receptor += 1
             elif et == "receptor_internet":
-                _draw_internet(page, x, y)                                            # simbol RETEA (turcoaz + router + WiFi)
+                _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
                 n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
@@ -1845,7 +1909,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             _leg = next((e for e in (elements or [])
                          if ((e or {}).get("element_type") or "") == "legenda"), None)
             if _leg is not None:
-                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements))
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type))
                 n_legend = 1
         except Exception:
             n_legend = 0
