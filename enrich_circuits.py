@@ -117,9 +117,12 @@ def _bulb_w(el):
 _ROOM_TYPE = None  # room_type pe plan = neutru (Vision-only); pastram nume brut
 
 def _enrich_group(c, els, panel, floor_idx):
-    """Circuit iluminat/priza din compute_circuits -> ~15 campuri (fara fasa, atribuita ulterior)."""
+    """Circuit iluminat/priza din compute_circuits -> ~15 campuri (fara fasa, atribuita ulterior).
+    NIVEL 1: circuitele cu id '-TECT' (becuri/prize din camera tehnica) -> panel='TE-CT' (nu TEG)."""
     kind = c["kind"]                                   # iluminat | priza
     idxs = c.get("indices") or []
+    is_tect = "-TECT" in str(c.get("id") or "")        # NIVEL 1: grup din camera tehnica -> TE-CT
+    panel_out = "TE-CT" if is_tect else panel
     if kind == "iluminat":
         power_w = sum(_bulb_w(els[i]) for i in idxs) or _BULB_DEFAULT_W
         ctype, minimum, pi_norm, reason = "iluminat", 10, False, None
@@ -131,10 +134,10 @@ def _enrich_group(c, els, panel, floor_idx):
     cbl, sec = cable_type(kind, breaker_a, is_ext, tri=False)
     _FLOOR_NAME = {0: "parter", 1: "etaj", 2: "mansarda"}
     if kind == "iluminat":
-        room = None                                    # iluminatul e pe etaj, nu pe o camera anume
+        room = c.get("room") if is_tect else None      # TECT: iluminatul e pe camera tehnica (nume)
         zone = None
         outlets = 0
-        desc = "Iluminat " + _FLOOR_NAME.get(floor_idx, panel)
+        desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _FLOOR_NAME.get(floor_idx, panel))
     else:
         room = c.get("room") or (els[idxs[0]].get("room") if idxs else None)   # VERBATIM (nume plan neschimbat)
         zone = rccb_zone(room)                         # "baie"/"terasa"/None -> RCCB 10mA la ambele
@@ -144,7 +147,7 @@ def _enrich_group(c, els, panel, floor_idx):
     bt = "MCB-1P-C" + (" + RCCB 10mA" if rccb else "")
     return {
         "id": c["id"], "fasa": None, "room": room, "type": ctype, "floor": floor_idx,
-        "panel": panel, "pozare": pozare_for(sec), "outlets": outlets, "power_w": power_w,
+        "panel": panel_out, "pozare": pozare_for(sec), "outlets": outlets, "power_w": power_w,
         "breaker_a": breaker_a, "room_type": zone, "cable_type": cbl, "description": desc,
         "is_bathroom": bool(rccb), "is_exterior": bool(is_ext), "breaker_type": bt,
         "pi_normalized": pi_norm, "ia_calculated_a": ia, "normalize_reason": reason,
@@ -186,17 +189,40 @@ def assign_phases(circuits):
         c["fasa"] = seq[k % 3]
         counters[panel] = k + 1
 
+# ── NIVEL 1: detectie camera tehnica in enrich (fara geometrie) ──────────────
+# enrich NU are rooms bbox + W/H -> nu poate reface point-in-bbox (ca _detect_tech_room la desen).
+# Dar becurile/prizele din camera tehnica AU deja room setat la desen (assign_circuits) = numele
+# camerei tehnice. Detectam pe NUME ('tehnic'), GATED de prezenta unui tablou_te_ct pe plan (ca
+# _detect_tech_room care porneste de la tablou_te_ct) -> fara TE-CT panel plasat => NU rutam pe TE-CT
+# (protejeaza cazul 'existing' fara incalzire).
+_TECH_ROOM_KW = ("tehnic",)   # "spatiu tehnic" / "camera tehnica" / "tehnică" (substring lowercase)
+
+def _detect_tech_room_name(elements):
+    """Numele camerei tehnice (sau None). Doar daca planul contine un tablou_te_ct (panou TE-CT
+    plasat) SI exista o camera (din room-urile elementelor) al carei nume contine 'tehnic'.
+    None -> compute_circuits(tech_room=None) = comportament vechi (tech pe TEG)."""
+    els = elements or []
+    if not any(((el or {}).get("element_type") or "") == "tablou_te_ct" for el in els):
+        return None                                     # fara panou TE-CT pe plan -> fara rutare tech
+    for el in els:
+        r = ((el or {}).get("room") or "").strip()
+        if r and any(k in r.lower() for k in _TECH_ROOM_KW):
+            return r
+    return None
+
+
 _KS_TECT = 0.8   # simultaneitate coloana TE-CT (ca n8n) — cand resumam din circuitele TE-CT
 
-def _resize_column_feed(feed, tect_circuits):
+def _resize_column_feed(feed, tect_circuits, force_resum=False):
     """FIX coloana: n8n lasa breaker=16 PLACEHOLDER (nu se re-deriva din putere) -> recalculam
-    breaker+cablu din puterea ABSORBITA. Pi_total = feed.power_w (deja = suma × ks); fallback:
-    resumam din TE-CT × ks. Coloana trifazata (5x). Suprascrie DOAR feed-ul (nu circuitele TE-CT)."""
+    breaker+cablu din puterea ABSORBITA. Pi_total = feed.power_w (deja = suma × ks); fallback (sau
+    force_resum cand planul a MODIFICAT TE-CT): resumam din TE-CT MERGED × ks -> coloana reflecta
+    adaugarile din plan. Coloana trifazata (5x). Suprascrie DOAR feed-ul (nu circuitele TE-CT)."""
     try:
         pw = int(feed.get("power_w"))
     except (TypeError, ValueError):
         pw = 0
-    if not pw:                                          # fallback: resumam din circuitele TE-CT × ks
+    if force_resum or not pw:                           # re-suma din TE-CT MERGED × ks (plan a atins TE-CT)
         pw = int(round(sum((c.get("power_w") or 0) for c in (tect_circuits or [])) * _KS_TECT))
         feed["power_w"] = pw
     tri = str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")
@@ -216,6 +242,21 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     (ordine TEG -> TES -> TE-CT). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
     form = form or {}
     plan_elements = plan_elements or []
+
+    # PRESERVARE din base_circuits (parsat INTAI): circuitele TE-CT (heating) + feed-ul coloanei.
+    # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
+    tect_circuits, feed_circuits = [], []
+    for c in (base_circuits or []):
+        if not isinstance(c, dict):
+            continue
+        if c.get("panel") == "TE-CT":
+            tect_circuits.append(dict(c))
+        elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
+            feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+    # TE-CT e HEATING-DRIVEN: rutam tech-ul planului pe TE-CT DOAR daca baza are deja un context
+    # TE-CT (circuite TE-CT sau feed coloana). 'existing' (fara incalzire) -> tech ramane pe TEG (ca inainte).
+    has_base_tect = bool(tect_circuits) or bool(feed_circuits)
+
     by_panel = {}                                      # panel -> (elements, floor_idx)
     for el in plan_elements:
         panel, fidx = _floor_panel(el.get("floor"))
@@ -224,7 +265,8 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     for panel in sorted(by_panel.keys()):
         els, fidx = by_panel[panel]
         general = panel                                # gsuf -> id-uri C1 / C1-TES1 / C1-TES2
-        cc = compute_circuits(els, tech_room=None, general=general)   # tech_room=None -> TE-CT nu din plan
+        tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
+        cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
             plan_out.append(_enrich_group(c, els, panel, fidx))
         nextn = cc["n_circuits"] + 1
@@ -236,25 +278,36 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
                 plan_out.append(_enrich_receptor(el, "C%d%s" % (nextn, gsuf), panel, fidx, form))
                 nextn += 1
 
-    # PRESERVARE din base_circuits: circuitele TE-CT (heating) + feed-ul coloanei TEG->TE-CT.
-    # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
-    tect_circuits, feed_circuits = [], []
-    for c in (base_circuits or []):
-        if not isinstance(c, dict):
-            continue
-        if c.get("panel") == "TE-CT":
-            tect_circuits.append(dict(c))
-        elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
-            feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+    # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
+    plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]
+    plan_has_ilum  = any(c.get("type") == "iluminat" for c in plan_tect)
+    plan_has_priza = any(c.get("type") in ("prize", "priza") for c in plan_tect)
 
-    # FIX coloana: recalculeaza breaker+cablu din puterea absorbita (n8n lasa 16A placeholder)
+    # REGULA DE INLOCUIRE (evita DUBLAREA): din baza TE-CT preservata PASTRAM echipamentele de
+    # incalzire (type='dedicat': PDC/pompa/boiler/automatizare/distribuitor) SI generice NEACOPERITE
+    # de plan; INLOCUIM genericele (type iluminat/prize = "Iluminat/Priza rezerva camera tehnica")
+    # DOAR daca planul a produs iluminat/prize tech REALE (altfel le pastram = non-regresie 'ca inainte').
+    kept_base_tect = []
+    for c in tect_circuits:
+        t = c.get("type")
+        if t == "iluminat" and plan_has_ilum:
+            continue                                   # inlocuit de becurile REALE din plan
+        if t in ("prize", "priza") and plan_has_priza:
+            continue                                   # inlocuit de prizele REALE din plan
+        kept_base_tect.append(c)                       # echipamente incalzire (dedicat) + generice fara inlocuitor
+    merged_tect = kept_base_tect + plan_tect           # incalzire(baza) + becuri/prize REALE(plan)
+
+    # FIX coloana: recalculeaza breaker+cablu din puterea absorbita (n8n lasa 16A placeholder).
+    # force_resum cand planul a atins TE-CT -> power_w = suma MERGED × ks (coloana creste corect,
+    # fara dubla-numarare: genericele inlocuite NU mai sunt in merged_tect).
+    plan_touched_tect = bool(plan_tect)
     for f in feed_circuits:
-        _resize_column_feed(f, tect_circuits)
+        _resize_column_feed(f, merged_tect, force_resum=plan_touched_tect)
 
-    # ordine finala: TEG(plan) + feed(TEG->TE-CT) + TES(plan) + TE-CT(preservat)
+    # ordine finala: TEG(plan, EXCL. tech) + feed(TEG->TE-CT) + TES(plan) + TE-CT(incalzire + tech plan)
     teg = [c for c in plan_out if c.get("panel") == "TEG"]
     tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
-    out = teg + feed_circuits + tes + tect_circuits
+    out = teg + feed_circuits + tes + merged_tect
 
     # renumerotare flat C1..CN (id+name); panel/feeds_panel/dimensionarea raman
     for i, c in enumerate(out):
