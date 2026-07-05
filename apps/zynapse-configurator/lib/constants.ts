@@ -265,6 +265,7 @@ export interface ProjectResult {
   memoriu_size_bytes?: number;
   // n8n response fields — parallel to FastAPI circuits_all / heating_circuits
   circuits?: Circuit[];
+  circuits_source?: string;   // "plan (enrich)" | "vision (fallback)" — traceabilitate unificare (Faza 2)
   power_summary?: {
     installed_kw?: number;
     absorbed_kw?: number;

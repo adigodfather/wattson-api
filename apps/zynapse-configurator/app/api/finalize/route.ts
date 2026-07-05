@@ -127,6 +127,19 @@ export async function POST(req: NextRequest) {
     circuits_source: circuitsSource,   // "plan (enrich)" | "vision (fallback)" — traceabilitate Faza 2
   };
 
+  // ── Circuitele UNIFICATE (enrich) pt. PERSISTARE in result_data -> tabelul UI = documentele.
+  // Tabelul UI (CircuitTable) citeste `usage` + `cable`; enrich produce `description` + `cable_type`
+  // -> adaugam alias-urile (fallback la campurile Vision daca lipsesc, ptr. fallback-ul Vision).
+  // Split pe panel: TE-CT vs restul (TEG/TES/feed) — ca cele 2 tabele din UI. Raw `circuits`
+  // (description/cable_type) merge NEATINS la n8n; uiCircuits = DOAR pt. raspuns/persistare.
+  const uiCircuits = (circuits as Record<string, unknown>[]).map((c): Record<string, unknown> => ({
+    ...c,
+    usage: (c.usage ?? c.description ?? "") as string,
+    cable: (c.cable ?? c.cable_type ?? "") as string,
+  }));
+  const circuitsTeCt = uiCircuits.filter((c) => c.panel === "TE-CT");
+  const circuitsTeg = uiCircuits.filter((c) => c.panel !== "TE-CT");
+
   // ── Forward la webhook-ul n8n de finalizare ──
   try {
     const resp = await fetch(N8N_FINALIZE, {
@@ -140,14 +153,25 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(webhookBody),
     });
     const text = await resp.text();
+    let parsed: Record<string, unknown>;
     try {
-      return NextResponse.json(JSON.parse(text), { status: resp.status });
+      parsed = JSON.parse(text) as Record<string, unknown>;
     } catch {
       return NextResponse.json(
         { error: "n8n a returnat non-JSON (posibil timeout)", preview: text.slice(0, 200) },
         { status: 502 }
       );
     }
+    // Augmentam raspunsul cu circuitele UNIFICATE (enrich) -> frontend-ul le persista in result_data
+    // (circuits + circuits_te_ct/teg/all + source) => tabelul UI reflecta PLANUL, nu Vision. DOAR pe succes.
+    if (resp.ok && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      parsed.circuits = uiCircuits;
+      parsed.circuits_te_ct = circuitsTeCt;
+      parsed.circuits_teg = circuitsTeg;
+      parsed.circuits_all = uiCircuits;
+      parsed.circuits_source = circuitsSource;
+    }
+    return NextResponse.json(parsed, { status: resp.status });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upstream request failed";
     return NextResponse.json({ error: message }, { status: 502 });

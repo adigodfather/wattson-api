@@ -1648,6 +1648,12 @@ export function ZynapseConfigurator() {
         schema_monofilara_pdf: data.schema_monofilara_pdf ?? result.schema_monofilara_pdf,
         memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
         bom: data.bom ?? result.bom,
+        // UNIFICARE: circuitele enrich (plan) -> tabelul UI (circuits_te_ct/teg) = documentele.
+        circuits: data.circuits ?? result.circuits,
+        circuits_te_ct: data.circuits_te_ct ?? result.circuits_te_ct,
+        circuits_teg: data.circuits_teg ?? result.circuits_teg,
+        circuits_all: data.circuits_all ?? result.circuits_all,
+        circuits_source: data.circuits_source ?? result.circuits_source,
       };
       const supabase = createClient();
       // ETAPA 1 Storage (fix 03.07): memoriul PROASPAT de la finalize -> Storage pe ACELASI path
