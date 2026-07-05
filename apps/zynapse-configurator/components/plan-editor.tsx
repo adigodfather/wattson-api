@@ -1362,6 +1362,24 @@ export default function PlanEditor({
             <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("receptor_internet", "internet")}>+ Rețea internet</button>
           </div>
         )}
+        {/* LISTA receptoarelor plasate + Sterge (pattern renderTraseuSection). `elements` e deja
+            filtrat pe floor (l.423) -> filtram doar pe tip. removeElement = DB delete + state + deselect;
+            circuitul dispare automat la regenerate/finalizare (enrich e stateless). */}
+        {(() => {
+          const recs = elements.filter(e => e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet");
+          if (recs.length === 0) return null;
+          return (
+            <div style={{ marginTop: 8, paddingLeft: 2 }}>
+              {recs.map((r) => (
+                <div key={r.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 2, background: r.element_type === "receptor_internet" ? NET_EDGE : COL_PRIZA, flexShrink: 0 }} />
+                  {r.element_type === "receptor_internet" ? "Rețea internet" : ("Alimentare " + (r.label || "receptor"))}
+                  <button type="button" className="zy-add-btn" onClick={() => removeElement(r.id)}>Șterge</button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     );
   };
