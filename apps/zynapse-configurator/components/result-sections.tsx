@@ -92,6 +92,49 @@ export function CircuitTable({ circuits, title }: { circuits: Circuit[]; title: 
   );
 }
 
+/* ─── BOM / Materiale (lista de cantitati) — oglinda tabelului din configurator, FARA "Tablouri"
+   (tablourile apar separat, cu circuitele lor). Citire EN {category,item,quantity,unit,notes} +
+   fallback RO {articol,cant,um,obs}. ─── */
+export function BomTable({ bom }: { bom?: ProjectResult["bom"] }) {
+  const rows = (bom || []).filter((b) => {
+    const r = b as Record<string, unknown>;
+    const cat = String(r.category ?? r.categorie ?? "").toLowerCase();
+    return !cat.startsWith("tablou");   // exclude "Tablouri"(EN)/"Tablou"(RO) — apar separat cu continut
+  });
+  if (!rows.length) return null;
+  return (
+    <ResultSection title="Materiale de comandat" count={rows.length}>
+      <div className="overflow-x-auto -mx-1 mt-3">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {["Categorie", "Articol", "Cant.", "UM", "Observații"].map((h) => (
+                <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold tracking-widest uppercase"
+                  style={{ color: "#545870", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((b, i) => {
+              const r = b as Record<string, unknown>;
+              const qty = r.quantity ?? r.cant;
+              return (
+                <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.category ?? r.categorie ?? "")}</td>
+                  <td className="px-3 py-2.5 text-sm" style={{ color: "#C8CAD6" }}>{String(r.item ?? r.articol ?? "")}</td>
+                  <td className="px-3 py-2.5 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{qty == null ? "" : String(qty)}</td>
+                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.unit ?? r.um ?? "")}</td>
+                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.notes ?? r.obs ?? "")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </ResultSection>
+  );
+}
+
 /* ─── Rooms list ─── */
 export function RoomsList({ rooms }: { rooms: RoomResult[] }) {
   if (!rooms?.length) return null;
@@ -437,6 +480,9 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
           <SchemaDownloadButton base64Pdf={result.schema_monofilara_pdf} storagePath={result.schema_monofilara_path} />
         </div>
       ) : null}
+      {/* ── LISTĂ DE CANTITĂȚI: materiale (BOM, fără Tablouri) SUS + tablourile cu circuitele lor JOS ── */}
+      <h3 className="text-sm font-bold tracking-tight mt-6 mb-3" style={{ color: "#E2E4E9" }}>Listă de cantități</h3>
+      <BomTable bom={result.bom} />
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
       <RoomsList rooms={result.rooms} />
