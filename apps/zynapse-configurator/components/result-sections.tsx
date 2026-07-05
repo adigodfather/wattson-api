@@ -461,6 +461,17 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
       <CircuitTable circuits={result.circuits_te_ct} title="TE-CT — Cameră tehnică" />
       <CircuitTable circuits={result.circuits_teg} title="TEG — Tablou general" />
       <RoomsList rooms={result.rooms} />
+      {/* Descărcare Memoriu tehnic (.docx) din Storage — oglindă a SchemaDownloadButton. Memoriul e
+          .docx (memoriu_docx_path în bucket project-files); pe pagina proiectului lipsea butonul. */}
+      {(result.memoriu_docx_base64 || result.memoriu_docx_path) && (
+        <div className="mb-3">
+          <MemoriuDocxButton
+            base64Docx={result.memoriu_docx_base64}
+            storagePath={result.memoriu_docx_path}
+            fileName={result.memoriu_filename || `Memoriu_Tehnic_${result.project_id || "proiect"}.docx`}
+          />
+        </div>
+      )}
       <MemoriuSection text={result.memoriu_tehnic} />
     </div>
   );
