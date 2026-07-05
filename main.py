@@ -3272,6 +3272,28 @@ def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
 
 
 # -------------------------------------------------
+#  ENRICH CIRCUITS (Faza 2)  —  POST /enrich-circuits
+#  Circuite IMBOGATITE din PLAN (plan_elements) -> format result_data.circuits, ca schema+memoriu
+#  (Finalize) sa fie consistente cu PLANUL, nu cu Vision. Fail-safe: eroare -> success:False +
+#  circuits:[] (caller-ul /api/finalize cade pe circuitele vechi Vision -> nu blocheaza finalizarea).
+# -------------------------------------------------
+
+class EnrichCircuitsRequest(BaseModel):
+    plan_elements: list = []
+    form: dict = {}
+
+
+@app.post("/enrich-circuits")
+def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
+    try:
+        import enrich_circuits as _ec
+        circuits = _ec.enrich_circuits(request.plan_elements or [], request.form or {})
+        return {"success": True, "circuits": circuits, "count": len(circuits)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "circuits": []}
+
+
+# -------------------------------------------------
 #  REGENERATE PLAN (Obtine plan, sub-pas 1a)  —  POST /regenerate-plan
 # -------------------------------------------------
 

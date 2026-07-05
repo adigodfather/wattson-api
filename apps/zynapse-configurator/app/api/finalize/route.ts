@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;   // memoriu + scheme pot dura (FastAPI pe Render free)
 
 const N8N_FINALIZE = "https://www.ai-nord-vest.com/webhook/zynapse-finalize";
+const FASTAPI = "https://wattson-api.onrender.com";   // Faza 2: enrich_circuits (circuite din PLAN)
 
 interface CartusFirma {
   firma_nume: string | null; firma_cui: string | null; firma_reg_com: string | null;
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
   let faza: string | null;
   let phase: string | null;
   let firma: CartusFirma;
+  let planElements: unknown[] = [];   // Faza 2: planul EDITAT -> circuitele schemei/memoriului
   try {
     const cookieStore = await cookies();
     const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
@@ -59,14 +61,44 @@ export async function POST(req: NextRequest) {
       .eq("id", user.id)
       .single();
     firma = (prof as CartusFirma) || ({} as CartusFirma);
+
+    // Faza 2: planul EDITAT (plan_elements) -> sursa circuitelor pt. schema+memoriu (RLS: doar owner).
+    const { data: peData } = await supa
+      .from("plan_elements")
+      .select("element_type, power_w, room, floor, label, x, y")
+      .eq("project_id", projectId);
+    planElements = Array.isArray(peData) ? peData : [];
   } catch {
     return NextResponse.json({ error: "Verificare/citire esuata" }, { status: 500 });
   }
 
-  const circuits = Array.isArray(rd.circuits) ? (rd.circuits as unknown[]) : [];
+  // ── FAZA 2: circuitele schemei+memoriului vin din PLAN (enrich_circuits/FastAPI), ca sa fie
+  // CONSISTENTE cu planul editat (nu din Vision inghetat). FALLBACK la result_data.circuits (Vision)
+  // daca enrich esueaza / plan gol -> NU blocam finalizarea. ──
+  const visionCircuits = Array.isArray(rd.circuits) ? (rd.circuits as unknown[]) : [];
+  let circuits: unknown[] = visionCircuits;
+  let circuitsSource = "vision (fallback)";
+  if (planElements.length > 0) {
+    try {
+      const ps = (rd.power_summary as { connection?: string }) || {};
+      const conn = String(ps.connection || "").toLowerCase();
+      const power_phase = (conn.includes("trif") || conn.includes("400")) ? "tri" : "mono";
+      const key = process.env.ZYNAPSE_INTERNAL_KEY;
+      const er = await fetch(`${FASTAPI}/enrich-circuits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
+        body: JSON.stringify({ plan_elements: planElements, form: { power_phase, extra_equipment: [] } }),
+      });
+      const ej = await er.json();
+      if (ej?.success && Array.isArray(ej.circuits) && ej.circuits.length > 0) {
+        circuits = ej.circuits as unknown[];
+        circuitsSource = "plan (enrich)";
+      }
+    } catch { /* enrich indisponibil -> ramane fallback Vision */ }
+  }
   if (circuits.length === 0) {
     return NextResponse.json(
-      { error: "Proiectul nu are circuite calculate (result_data.circuits gol) — nu poate fi finalizat." },
+      { error: "Proiectul nu are circuite (nici din plan, nici Vision) — nu poate fi finalizat." },
       { status: 400 }
     );
   }
@@ -74,8 +106,9 @@ export async function POST(req: NextRequest) {
   // Trimitem DOAR ce consuma nodurile-doc (circuits/power_summary/panels/rooms/project_info + cartus),
   // NU blob-urile mari (planse/planuri/scheme base64 ~4MB din result_data). annotated_plan_base64 e
   // folosit de memoriu doar ca sa listeze titlurile planselor -> trimitem un placeholder scurt truthy.
-  const hasTect = rd.has_tect === true
-    || circuits.some((c) => (c as { panel?: string })?.panel === "TE-CT");
+  // has_tect din circuitele EFECTIV trimise (nu din rd.has_tect Vision): plan-circuite n-au TE-CT
+  // (ramane goala in Faza 2) -> hasTect=false -> Finalize nu genereaza schema TE-CT goala/sparta.
+  const hasTect = circuits.some((c) => (c as { panel?: string })?.panel === "TE-CT");
   const webhookBody = {
     project_id: projectId,
     circuits,
@@ -89,6 +122,7 @@ export async function POST(req: NextRequest) {
     faza,
     phase,
     cartus_firma: firma,
+    circuits_source: circuitsSource,   // "plan (enrich)" | "vision (fallback)" — traceabilitate Faza 2
   };
 
   // ── Forward la webhook-ul n8n de finalizare ──
