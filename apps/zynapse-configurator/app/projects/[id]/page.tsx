@@ -51,15 +51,6 @@ export default function ProjectDetailPage() {
       });
   }, [user, id]);
 
-  const downloadMemoriu = () => {
-    if (!project?.memoriu_text) return;
-    const blob = new Blob([project.memoriu_text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `${project.project_id || "memoriu"}_tehnic.txt`; a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div style={{ minHeight: "100vh", background: "#0A0B0E" }}>
 
@@ -105,13 +96,6 @@ export default function ProjectDetailPage() {
                 </p>
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={downloadMemoriu} disabled={!project.memoriu_text}
-                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors"
-                  style={{ background: "rgba(55,138,221,0.1)", border: "1px solid rgba(55,138,221,0.25)", color: "#5BB8F5" }}
-                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.18)")}
-                  onMouseOut={(e) => (e.currentTarget.style.background = "rgba(55,138,221,0.1)")}>
-                  Descarcă memoriu
-                </button>
                 <Link href="/projects"
                   className="px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors"
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8", textDecoration: "none" }}

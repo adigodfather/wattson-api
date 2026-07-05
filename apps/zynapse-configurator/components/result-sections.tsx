@@ -399,44 +399,23 @@ export function ProjectInfoCard({ info }: { info: NonNullable<ProjectResult["pro
 
 /* ─── Full result panel (reused on /projects/[id]) ─── */
 export function ProjectResultPanel({ result, projectName }: { result: ProjectResult; projectName?: string }) {
-  const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `${result.project_id || projectName || "proiect"}.json`; a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div>
-      <div className="flex justify-between items-center mb-5">
-        <div>
-          <h2 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>
-            {result.project_name || result.project_id || projectName}
-          </h2>
-          <p className="text-[12px] mt-0.5 m-0" style={{ color: "#545870" }}>
-            Zona climatică {result.climate_zone}
-          </p>
-        </div>
-        <button onClick={exportJSON}
-          className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
-          onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-          onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
-          Export JSON
-        </button>
+      <div className="mb-5">
+        <h2 className="text-lg font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>
+          {result.project_name || result.project_id || projectName}
+        </h2>
+        <p className="text-[12px] mt-0.5 m-0" style={{ color: "#545870" }}>
+          Zona climatică {result.climate_zone}
+        </p>
       </div>
 
-      <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
-        {result.heating_circuits?.pdc && (
-          <>
-            <MetricCard value={`${result.heating_circuits.pdc.power_kw_thermal} kW`} label="Putere termică PDC" color="#EF9F27" />
-            <MetricCard value={`${result.heating_circuits.pdc.breaker_a}A`} label="Protecție PDC" color="#5BB8F5" />
-          </>
-        )}
-        <MetricCard value={result.circuits_all?.length || 0} label="Circuite totale" color="#3ECFA0" />
-        <MetricCard value={result.rooms?.length || 0} label="Camere" color="#ED93B1" />
-      </div>
+      {result.heating_circuits?.pdc && (
+        <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
+          <MetricCard value={`${result.heating_circuits.pdc.power_kw_thermal} kW`} label="Putere termică PDC" color="#EF9F27" />
+          <MetricCard value={`${result.heating_circuits.pdc.breaker_a}A`} label="Protecție PDC" color="#5BB8F5" />
+        </div>
+      )}
 
       {result.project_info && <ProjectInfoCard info={result.project_info} />}
 
