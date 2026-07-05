@@ -380,9 +380,9 @@ def _legend_label(kind, element_type, power_w=None, label=None):
     return base
 
 
-def _legend_cable_rows(elements, plan_type, present):
+def _legend_cable_rows(elements, plan_type, present, feeds=None):
     """Randuri de cablu pt. legenda, pe plan_type: iluminat -> 3x1.5; forta -> 3x2.5 (prize) +
-    sectiunile DEDICATELOR daca difera de 2.5 (boiler/cuptor... scalate cu breaker). Doar prezente."""
+    sectiunile DEDICATELOR daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal)."""
     if plan_type != "forta":
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
     texts = []
@@ -410,10 +410,20 @@ def _legend_cable_rows(elements, plan_type, present):
         if t not in seen:
             seen.add(t)
             out.append({"kind": "cable", "text": t})
+    # COLOANE (feed sub_tablou TEG->TE-CT/TES): un rand TEAL per feed, cu sectiunea din schema
+    for f in (feeds or []):
+        if not isinstance(f, dict) or f.get("type") != "sub_tablou":
+            continue
+        tgt = f.get("feeds_panel") or "sub-tablou"
+        cbl = (f.get("cable_type") or "").strip()
+        txt = ("Coloana alimentare %s %s" % (tgt, cbl)).strip()
+        if txt not in seen:
+            seen.add(txt)
+            out.append({"kind": "column", "text": txt})
     return out
 
 
-def build_legend_rows(elements, plan_type="iluminat"):
+def build_legend_rows(elements, plan_type="iluminat", feeds=None):
     """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
     Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
       ILUMINAT: becuri (pe tip+putere) + intrerupatoare (prezente) + tablouri + cablu 3x1.5.
@@ -465,8 +475,8 @@ def build_legend_rows(elements, plan_type="iluminat"):
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
-    # g) CABLU pe plan_type (+ dedicate la forta)
-    cable_rows = _legend_cable_rows(elements, plan_type, present)
+    # g) CABLU pe plan_type (+ dedicate la forta + COLOANE feed sub_tablou)
+    cable_rows = _legend_cable_rows(elements, plan_type, present, feeds)
 
     return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + cable_rows
 
@@ -1300,6 +1310,19 @@ def _draw_cable(page, path, color=None, width=0.8):
                        color=col, width=width, dashes="[3 2] 0")
 
 
+# ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
+_COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
+
+def _draw_column(page, a, b, width=2.6):
+    """Coloana de legatura = linie SOLIDA groasa TEAL, ORTOGONALA (L) de la a=(x,y) la b=(x,y).
+    Ex. TE-CT -> TEG (ambele parter). a/b lipsa -> skip."""
+    if not a or not b:
+        return
+    mid = (b[0], a[1]) if abs(b[0] - a[0]) >= abs(b[1] - a[1]) else (a[0], b[1])
+    for p, q in ((a, mid), (mid, b)):
+        page.draw_line(fitz.Point(p[0], p[1]), fitz.Point(q[0], q[1]), color=_COLUMN_COLOR, width=width)
+
+
 # ── LEGENDA (L3): deseneaza caseta legendei pe PDF (chenar + titlu + randuri simbol+text). ──
 # Ancora (x,y) = COLT STANGA-SUS (consistent cu caseta Konva din editor). Fundal ALB OPAC (acopera
 # planul dedesubt). Simbolurile se redeseneaza MIC prin `scale` (o singura sursa de forme — regula Dan).
@@ -1363,6 +1386,10 @@ def _draw_legend(page, x, y, rows):
             # MANUNCHI: 3 linii paralele scurte (ilustreaza manunchiul de cabluri)
             for _dy in (-2.3, 0.0, 2.3):
                 _draw_cable(page, [(x + PAD + 3.0, cy + _dy), (x + PAD + SYM_W - 3.0, cy + _dy)], width=0.7)
+        elif kind == "column":
+            # COLOANA: o linie SOLIDA groasa TEAL (feed TEG->TE-CT/TES)
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_COLUMN_COLOR, width=2.2)
         # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
         page.insert_text(fitz.Point(text_x, cy + ROW_FS * 0.35), r.get("text") or "",
                          fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
@@ -1803,7 +1830,7 @@ def _apply_cartus_suffix(doc, page, suffix):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat") -> dict:
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -1903,13 +1930,33 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             pass
         for _sp in _labels:
             _draw_label_spec(page, _sp)
+        # COLOANE de legatura (FORTA): feed TE-CT -> TEG (ambele parter) = linie TEAL solida.
+        # Sectiunea vine din feed (result_data.circuits sub_tablou). Doar TE-CT->TEG acum
+        # (TES->TEG cross-plansa = follow-up). Defensiv: orice eroare -> skip, nu strica planul.
+        try:
+            if draw_plan_type == "forta" and feeds:
+                _pan_xy = {}
+                for e in (elements or []):
+                    et = (e or {}).get("element_type") or ""
+                    if et in _PANEL_TYPES:
+                        try:
+                            _pan_xy[et] = (float(e["x"]), float(e["y"]))
+                        except (TypeError, ValueError, KeyError):
+                            pass
+                _teg = _pan_xy.get("tablou_teg")
+                for f in (feeds or []):
+                    if (isinstance(f, dict) and f.get("type") == "sub_tablou"
+                            and f.get("feeds_panel") == "TE-CT" and _teg and _pan_xy.get("tablou_te_ct")):
+                        _draw_column(page, _pan_xy["tablou_te_ct"], _teg)
+        except Exception:
+            pass
         # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
         n_legend = 0
         try:
             _leg = next((e for e in (elements or [])
                          if ((e or {}).get("element_type") or "") == "legenda"), None)
             if _leg is not None:
-                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type))
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds))
                 n_legend = 1
         except Exception:
             n_legend = 0

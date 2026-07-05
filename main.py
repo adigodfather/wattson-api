@@ -3281,13 +3281,15 @@ def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
 class EnrichCircuitsRequest(BaseModel):
     plan_elements: list = []
     form: dict = {}
+    base_circuits: list = []   # result_data.circuits — TE-CT + feed coloana se PRESERVA de aici
 
 
 @app.post("/enrich-circuits")
 def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
     try:
         import enrich_circuits as _ec
-        circuits = _ec.enrich_circuits(request.plan_elements or [], request.form or {})
+        circuits = _ec.enrich_circuits(request.plan_elements or [], request.form or {},
+                                       base_circuits=request.base_circuits or [])
         return {"success": True, "circuits": circuits, "count": len(circuits)}
     except Exception as e:
         return {"success": False, "error": str(e), "circuits": []}
@@ -3345,8 +3347,19 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         {"circuit_id": _u["circuit_id"], "room": _u["room"]}).eq("id", _u["id"]).execute()
         except Exception as _e:
             print("[regenerate-plan] assign_circuits skip:", _e)   # defensiv: regenerarea continua
+        # COLOANE: feed-urile sub_tablou (TEG->TE-CT/TES) din result_data.circuits -> desenate teal +
+        # in legenda. Sectiunea = cable_type-ul feed-ului (normativ, din schema initiala). Defensiv.
+        _feeds = []
+        try:
+            from supabase_client import supabase as _supa2
+            _pr = (_supa2.table("projects").select("result_data")
+                   .eq("id", request.project_id).single().execute().data) or {}
+            _circs = ((_pr.get("result_data") or {}).get("circuits")) or []
+            _feeds = [c for c in _circs if isinstance(c, dict) and c.get("type") == "sub_tablou"]
+        except Exception as _e2:
+            print("[regenerate-plan] feeds skip:", _e2)
         return draw_elements.redraw_from_plan_elements(
-            request.base_pdf_base64, rows, draw_plan_type=request.plan_type)
+            request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

@@ -87,7 +87,9 @@ export async function POST(req: NextRequest) {
       const er = await fetch(`${FASTAPI}/enrich-circuits`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-        body: JSON.stringify({ plan_elements: planElements, form: { power_phase, extra_equipment: [] } }),
+        // base_circuits = circuitele vechi (Vision) -> enrich PRESERVA din ele TE-CT + feed-ul coloanei
+        // (heating-driven, ortogonal de plan); TEG/TES vin din plan.
+        body: JSON.stringify({ plan_elements: planElements, form: { power_phase, extra_equipment: [] }, base_circuits: visionCircuits }),
       });
       const ej = await er.json();
       if (ej?.success && Array.isArray(ej.circuits) && ej.circuits.length > 0) {

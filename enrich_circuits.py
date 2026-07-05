@@ -176,6 +176,8 @@ def assign_phases(circuits):
     seq = ["R", "S", "T"]
     counters = {}
     for c in circuits:
+        if c.get("fasa"):                             # PRESERVAT (TE-CT/feed) -> pastreaza faza normativa
+            continue
         panel = c.get("panel")
         if str(c.get("cable_type") or "").find("5x") >= 0 or str(c.get("breaker_type") or "").find("3P") >= 0:
             c["fasa"] = "RST"                          # trifazat -> nu consuma pas
@@ -184,30 +186,54 @@ def assign_phases(circuits):
         c["fasa"] = seq[k % 3]
         counters[panel] = k + 1
 
-def enrich_circuits(plan_elements, form=None):
-    """PLAN -> lista de circuite in formatul result_data.circuits (~15 campuri). IZOLAT (faza 1).
-    Regula 6: TE-CT ramane GOALA (tech_room=None -> nimic in -TECT). Numerotare per tablou."""
+def enrich_circuits(plan_elements, form=None, base_circuits=None):
+    """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
+    base_circuits (heating-driven, ORTOGONAL de plan; dimensionarea normativa din norme_alimentari
+    ramane INTACTA) + feed-ul coloanei (sub_tablou feeds_panel='TE-CT'). Renumerotare flat C1..CN
+    (ordine TEG -> TES -> TE-CT). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
     form = form or {}
     plan_elements = plan_elements or []
     by_panel = {}                                      # panel -> (elements, floor_idx)
     for el in plan_elements:
         panel, fidx = _floor_panel(el.get("floor"))
         by_panel.setdefault(panel, ([], fidx))[0].append(el)
-    out = []
+    plan_out = []
     for panel in sorted(by_panel.keys()):
         els, fidx = by_panel[panel]
         general = panel                                # gsuf -> id-uri C1 / C1-TES1 / C1-TES2
-        cc = compute_circuits(els, tech_room=None, general=general)   # TE-CT gol: tech_room=None
+        cc = compute_circuits(els, tech_room=None, general=general)   # tech_room=None -> TE-CT nu din plan
         for c in cc["circuits"]:
-            out.append(_enrich_group(c, els, panel, fidx))
-        # receptoare -> circuite dedicate, numerotare continua dupa cc
+            plan_out.append(_enrich_group(c, els, panel, fidx))
         nextn = cc["n_circuits"] + 1
         gsuf = "" if general == "TEG" else "-%s" % general
         for el in els:
             if (el.get("element_type") or "") in _RECEPTOR_TYPES:
                 if receptor_type_of(el.get("label")) == "ev_charger":
-                    continue                           # EV = separat (Dan il face dupa, ca fotovoltaicele)
-                out.append(_enrich_receptor(el, "C%d%s" % (nextn, gsuf), panel, fidx, form))
+                    continue                           # EV = separat (ca fotovoltaicele)
+                plan_out.append(_enrich_receptor(el, "C%d%s" % (nextn, gsuf), panel, fidx, form))
                 nextn += 1
-    assign_phases(out)
+
+    # PRESERVARE din base_circuits: circuitele TE-CT (heating) + feed-ul coloanei TEG->TE-CT.
+    # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
+    tect_circuits, feed_circuits = [], []
+    for c in (base_circuits or []):
+        if not isinstance(c, dict):
+            continue
+        if c.get("panel") == "TE-CT":
+            tect_circuits.append(dict(c))
+        elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
+            feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+
+    # ordine finala: TEG(plan) + feed(TEG->TE-CT) + TES(plan) + TE-CT(preservat)
+    teg = [c for c in plan_out if c.get("panel") == "TEG"]
+    tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
+    out = teg + feed_circuits + tes + tect_circuits
+
+    # renumerotare flat C1..CN (id+name); panel/feeds_panel/dimensionarea raman
+    for i, c in enumerate(out):
+        cid = "C%d" % (i + 1)
+        c["id"] = cid
+        c["name"] = cid
+
+    assign_phases(out)                                 # doar circuitele PLANULUI (TE-CT/feed pastreaza faza)
     return out
