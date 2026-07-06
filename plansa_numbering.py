@@ -97,3 +97,33 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None):
             "nume": plansa_nume(tip, nivel),
         })
     return out
+
+
+# floor INTREG din circuite (0=parter, 1=etaj, 2=mansarda — conventia lib/floors.ts / planLabel)
+# -> nume nivel. Semnal FIABIL: nivel/level sunt NULL in DB, plan_elements.floor e "parter" peste tot;
+# floor intreg e singura sursa corecta (verificat pe 715 circuite: 330 floor=0, 79 floor=1).
+_FLOOR_INT_LABEL = {1: "etaj", 2: "mansarda"}
+
+
+def _floor_to_label(f):
+    return _FLOOR_INT_LABEL.get(f, "nivel {}".format(f))
+
+
+def derive_extra_floors(circuits):
+    """Deduce nivelurile PESTE parter din campul INTREG `floor` al circuitelor (0=parter, 1=etaj,
+    2=mansarda). Distinct floor>0, sortat crescator -> nume nivel.
+
+    NU keyword-matching (nesigur: floor e INTREG, "etaj" in "1" = False -> rata etajul; nivel/level-s
+    NULL in DB). Circuit fara floor numeric valid -> ignorat (nu presupune parter gresit). Toate lipsa
+    -> [] (doar parter). Sursa PRIMARA ramane explicit din n8n (Faza 2B); asta e derivarea CORECTA pt.
+    fallback (borderoul memoriului / apeluri directe / teste)."""
+    floors = set()
+    for c in (circuits or []):
+        f = (c or {}).get("floor")
+        try:
+            fi = int(f)                       # accepta int, "1", 1.0; respinge None / "etaj"
+        except (TypeError, ValueError):
+            continue                          # floor lipsa/nenumeric -> ignora circuitul (NU = parter)
+        if fi > 0:
+            floors.add(fi)
+    return [_floor_to_label(f) for f in sorted(floors)]

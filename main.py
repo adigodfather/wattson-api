@@ -3366,6 +3366,54 @@ def bom_endpoint(request: BomRequest):
 
 
 # -------------------------------------------------
+#  NUMEROTARE PLANSE (IE.1..IE.N)  —  POST /plansa-numbering
+#  SINGURA sursa de adevar pt. numerotarea secventiala (fara goluri, ordinea fixa) din ce EXISTA.
+#  Wrapper subtire peste plansa_numbering.compute_plansa_numbering (pura, testata izolat). n8n (Faza 2B)
+#  o cheama, apoi restampeaza fiecare PDF cu /restamp-plansa. Sub x-zynapse-key (middleware global).
+# -------------------------------------------------
+
+class PlansaNumberingRequest(BaseModel):
+    extra_floors: List[str] = []   # niveluri peste parter, in ordine (ex. ["etaj"] / ["etaj","mansarda"])
+    has_tect: bool = False         # exista tablou centrala termica -> schema TE-CT (ultima)
+    has_tes: Optional[bool] = None # override; implicit = exista cel putin un nivel peste parter
+
+
+@app.post("/plansa-numbering")
+def plansa_numbering_endpoint(request: PlansaNumberingRequest):
+    """Lista ORDONATA a planselor EXISTENTE, IE.1..IE.N fara goluri. Erori status 200 (n8n)."""
+    try:
+        from plansa_numbering import compute_plansa_numbering
+        planse = compute_plansa_numbering(request.extra_floors or [], bool(request.has_tect), request.has_tes)
+        return {"success": True, "planse": planse, "count": len(planse)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "planse": []}
+
+
+# -------------------------------------------------
+#  RESTAMP PLANSA (nr + titlu final pe cartus)  —  POST /restamp-plansa
+#  Re-stampeaza numarul FINAL (IE.N) + numele pe cartusul unui PDF gata (cartus_swap.restamp_plansa,
+#  reutilizeaza metadata zy_cartus_plansa/zy_cartus_title). Asa numarul TIPARIT = numarul din documente.
+# -------------------------------------------------
+
+class RestampPlansaRequest(BaseModel):
+    pdf_base64: str = ""
+    plansa_nr: str = ""            # IE.N final (din /plansa-numbering)
+    plansa_titlu: str = ""         # numele complet al plansei (din /plansa-numbering)
+
+
+@app.post("/restamp-plansa")
+def restamp_plansa_endpoint(request: RestampPlansaRequest):
+    """Re-stampeaza nr + titlu pe cartus. PDF fara metadata -> no-op defensiv. Erori status 200 (n8n)."""
+    try:
+        from cartus_swap import restamp_plansa
+        if not request.pdf_base64:
+            return {"success": False, "error": "pdf_base64 lipseste"}
+        return restamp_plansa(request.pdf_base64, request.plansa_nr, request.plansa_titlu or None)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# -------------------------------------------------
 #  REGENERATE PLAN (Obtine plan, sub-pas 1a)  —  POST /regenerate-plan
 # -------------------------------------------------
 

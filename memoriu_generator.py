@@ -335,10 +335,12 @@ def _page_borderou(doc, planse, is_pt=False):
     _blank(doc, 1)
     _set_run_font(doc.add_paragraph().add_run("PIESE DESENATE:"),
                   size=11, bold=True)
-    # PT -> lista standard IE.1..IE.8; DTAC -> planșele din date (NESCHIMBAT).
-    piese_desenate = _PIESE_DESENATE_PT if is_pt else [
-        (pl.get("nr", ""), pl.get("titlu", "")) for pl in (planse or [])
-    ]
+    # Lista REALĂ de planșe primită (nr + titlu): planuri per nivel + scheme monofilare care EXISTĂ,
+    # numerotate IE.1..IE.N secvențial (calculate în build_memoriu_docx via plansa_numbering).
+    # FALLBACK: dacă PT și lista lipsește -> vechea listă standard IE.1..IE.8 (backward-compat).
+    piese_desenate = [(pl.get("nr", ""), pl.get("titlu", "")) for pl in (planse or [])]
+    if is_pt and not piese_desenate:
+        piese_desenate = _PIESE_DESENATE_PT
     for nr, titlu in piese_desenate:
         p = doc.add_paragraph()
         _set_run_font(p.add_run("{}  ".format(nr)), size=11, bold=True)
@@ -845,6 +847,26 @@ def build_memoriu_docx(data: dict) -> bytes:
     circuits = data.get("circuits") or []          # M5-A: circuite (type/power_w) -> brevier
     power_summary = data.get("power_summary") or {} # M5-A: current_a (Ic TEG), main_breaker_a
     is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
+
+    # PT: lista REALĂ de planșe (planuri per nivel + scheme monofilare care EXISTĂ), numerotată
+    # IE.1..IE.N secvențial FĂRĂ goluri (plansa_numbering) — înlocuiește vechea listă hardcodată
+    # IE.1..IE.8. DOAR secțiunea de planșe se schimbă; restul memoriului = NEATINS. extra_floors/
+    # has_tect: explicit din payload (n8n Faza 2B), altfel derivat din circuite (fallback). Orice
+    # eroare -> păstrează `planse` primit / lista standard (backward-compat).
+    if is_pt:
+        try:
+            from plansa_numbering import compute_plansa_numbering, derive_extra_floors
+            _has_tect = data.get("has_tect")
+            if _has_tect is None:
+                _has_tect = any((c or {}).get("panel") == "TE-CT" for c in circuits)
+            _extra = data.get("extra_floors")
+            if _extra is None:
+                _extra = derive_extra_floors(circuits)
+            _real = compute_plansa_numbering(_extra, bool(_has_tect))
+            if _real:
+                planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in _real]
+        except Exception:
+            pass
 
     doc = _setup_document()
     _page_coperta(doc, cp, cf)
