@@ -1124,6 +1124,7 @@ export function ZynapseConfigurator() {
     form.building_type &&
     form.insulation_level &&
     form.heating_type &&
+    Number(form.surface_mp) > 0 &&   // FIX billing (P0-1): suprafata OBLIGATORIE (serverul respinge surface<=0)
     files.length > 0
   );
   // Epic 3.11: butonul Generează e activ când formularul de bază e complet (fără cartuș —

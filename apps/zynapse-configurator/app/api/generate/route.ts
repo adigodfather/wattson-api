@@ -98,9 +98,19 @@ export async function POST(req: NextRequest) {
       );
     }
     const surface = Number(parsed?.surface_mp) || 0;
-    const cost = surface > 0 ? Math.ceil(surface * (isPhasePT(faza) ? 3 : 1)) : 0;
+    // FIX billing (P0-1): suprafata declarata TREBUIE sa fie > 0. Fara ea, cost=0 -> poarta trecea
+    // SI consume_credits(p_surface_mp<=0) intorcea EARLY "Suprafata invalida" cu 0 debit / fara tranzactie
+    // -> generare GRATUITA repetabila. Respinge AICI, INAINTE de lock + forward la n8n (nu se consuma
+    // Anthropic Vision degeaba). Debitul real ramane pe greatest(desfasurata Vision, manual) in consume_credits.
+    if (!(surface > 0)) {
+      return NextResponse.json(
+        { error: "Suprafață invalidă: introdu suprafața construită (mp) înainte de generare." },
+        { status: 400 }
+      );
+    }
+    const cost = Math.ceil(surface * (isPhasePT(faza) ? 3 : 1));
     const balance = Number(prof?.credits_balance ?? 0);
-    if (cost > 0 && balance < cost) {
+    if (balance < cost) {
       return NextResponse.json(
         { error: `Sold insuficient: ai nevoie de ${cost} Z-Coins, ai ${balance}. Cumpără credite din pagina principală (Acasă).` },
         { status: 402 }
