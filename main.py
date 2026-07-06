@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal
 import math
 import os
+import hmac
 import base64
 import io
 import time as _time
@@ -142,22 +143,38 @@ app.add_middleware(
 )
 
 
-# ── AUTENTIFICARE INTERNA (x-zynapse-key) — ACTIVARE CONDITIONATA ──
-# Env ZYNAPSE_INTERNAL_KEY NESETAT -> middleware NO-OP (comportament identic cu inainte;
-# deploy fara risc). SETAT -> toate endpoint-urile cer header-ul x-zynapse-key cu valoarea
-# exacta (403 altfel), cu exceptia GET / si /health (monitorizare Render) si a preflight-urilor
-# OPTIONS (le raspunde CORSMiddleware). Apelantii legitimi trimit deja cheia: rutele Vercel
-# (extract-geometry, regenerate-plan, vision-rooms) + nodurile n8n (credential/env).
-# Rollback: stergi env-ul de pe Render -> redevine no-op.
+# ── AUTENTIFICARE INTERNA (x-zynapse-key) — FAIL-CLOSED IN PRODUCTIE (P1-1) ──
+# VECHI (fail-open): cheie NESETATA -> middleware NO-OP -> TOT API-ul public. Anti-pattern:
+# securitatea depindea de PREZENTA env-ului (rollback / mediu Preview fara cheie -> API public).
+# NOU (fail-closed): in PRODUCTIE (Render seteaza automat env RENDER; sau fortezi ZYNAPSE_REQUIRE_KEY=1)
+# cheia e OBLIGATORIE -> lipsa ei da 503 la tot, NU acces liber. Local (fara RENDER) ramane no-op
+# pentru dezvoltare/teste. Exceptii: GET / si /health (monitorizare Render) + preflight OPTIONS (CORS).
+# Apelantii legitimi (rute Vercel extract-geometry/regenerate-plan/crop + noduri n8n) trimit mereu cheia.
+# Compara constant-time (hmac.compare_digest) anti-timing, in loc de !=.
+# NOTA: daca ZYNAPSE_INTERNAL_KEY E setat (starea de azi), fix-ul e no-op pt. traficul curent.
+# DEPLOY: confirma ZYNAPSE_INTERNAL_KEY setat pe Render INAINTE de push (altfel 503 la tot).
+# Rollback: seteaza ZYNAPSE_REQUIRE_KEY=0 nu ajuta (RENDER ramane) -> pune cheia, ori sterge gate-ul.
 _PUBLIC_PATHS = {"/", "/health"}
+_REQUIRE_KEY = bool((os.environ.get("RENDER") or "").strip()) or \
+    (os.environ.get("ZYNAPSE_REQUIRE_KEY") or "").strip() == "1"
 
 
 @app.middleware("http")
 async def _require_zynapse_key(request, call_next):
+    if request.method == "OPTIONS" or request.url.path in _PUBLIC_PATHS:
+        return await call_next(request)
     expected = (os.environ.get("ZYNAPSE_INTERNAL_KEY") or "").strip()
-    if expected and request.method != "OPTIONS" and request.url.path not in _PUBLIC_PATHS:
-        if (request.headers.get("x-zynapse-key") or "").strip() != expected:
-            return JSONResponse({"error": "Unauthorized"}, status_code=403)
+    if not expected:
+        # FAIL-CLOSED: fara cheie configurata in productie NU servim (altfel API public).
+        if _REQUIRE_KEY:
+            return JSONResponse(
+                {"error": "Server misconfigured: ZYNAPSE_INTERNAL_KEY not set"},
+                status_code=503,
+            )
+        return await call_next(request)  # dev local (fara RENDER): no-op
+    provided = (request.headers.get("x-zynapse-key") or "").strip()
+    if not hmac.compare_digest(provided, expected):
+        return JSONResponse({"error": "Unauthorized"}, status_code=403)
     return await call_next(request)
 
 

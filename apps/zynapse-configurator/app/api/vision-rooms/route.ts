@@ -1,4 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
+
+// Comparație constant-time pe secretul header (anti-timing). Buffer-e de lungimi diferite → false
+// (timingSafeEqual ar arunca). Lungimea se scurge — acceptabil pentru un secret de header.
+function timingSafeEq(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 // Faza B.2 — Vision multi-call paralel (proxy server-side).
 // Deține cheia Anthropic ca env var (ANTHROPIC_API_KEY) — NU în n8n, NU în client.
@@ -245,14 +255,21 @@ async function analyzePlan(
 
 export async function POST(request: NextRequest) {
   // Protecție server-to-server: ruta e exclusă din middleware-ul de auth (n8n n-are cookie),
-  // așa că o protejăm cu un secret header. Se aplică DOAR dacă ZYNAPSE_INTERNAL_KEY e setat
-  // (altfel ar bloca testarea înainte de configurare). Setează cheia în Vercel + n8n.
-  const internalKey = process.env.ZYNAPSE_INTERNAL_KEY;
-  if (internalKey) {
-    const provided = request.headers.get("x-zynapse-key");
-    if (provided !== internalKey) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  // deci o protejăm cu secret header x-zynapse-key. FAIL-CLOSED (P0-3): fără ZYNAPSE_INTERNAL_KEY
+  // setat pe server, ruta ar fi un PROXY PUBLIC spre ANTHROPIC_API_KEY (repo public → URL știut →
+  // oricine ar rula Claude Opus Vision în paralel pe cheltuiala noastră = DoS financiar). Deci:
+  // cheie lipsă → 503, NU acces liber. Apelantul legitim (n8n „Vision Rooms Multi") trimite mereu
+  // cheia → flux neschimbat. Notă: dacă cheia E setată (starea de azi), acest fix e no-op pt. traficul curent.
+  const internalKey = (process.env.ZYNAPSE_INTERNAL_KEY || "").trim();
+  if (!internalKey) {
+    return NextResponse.json(
+      { error: "Server misconfigured: ZYNAPSE_INTERNAL_KEY not set" },
+      { status: 503 }
+    );
+  }
+  const provided = (request.headers.get("x-zynapse-key") || "").trim();
+  if (!timingSafeEq(provided, internalKey)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
