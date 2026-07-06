@@ -308,7 +308,10 @@ def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
         _ctext(page, xb, x1, ry(k) + rh * 0.80, label, lab)
         _ctext(page, xb, x1, ry(k) + rh * 1.78, value, val, bold=True)
 
-    return title_rect, title_base
+    # casuta "Plansa nr." (prima din MIJLOC, k=0: label sus + valoare bold jos) -> coord pt.
+    # restamp_plansa (renumerotare finala IE.N secventiala, o singura sursa de adevar).
+    plansa_box = (xa, ry(0), xb, ry(2))
+    return title_rect, title_base, plansa_box
 
 
 def _mask_margins(page, rooms, pad_left=0.03, pad_top=0.03, pad_bottom=0.03, pad_right=0.02,
@@ -444,17 +447,22 @@ def swap_cartus_plan(data: dict) -> dict:
     margins_bbox = _mask_margins(page, data.get("rooms"))
 
     # 6. Cartus nou (acelasi bbox, scara detectata)
-    title_rect, title_base = _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
+    title_rect, title_base, plansa_box = _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
 
-    # 6b. Celula titlului -> metadata PDF: planasele derivate (iluminat/forta) rescriu DOAR titlul
-    # cu sufixul per tip ("... DE ILUMINAT" / "... DE FORTA") in draw_elements, FARA modificari n8n.
+    # 6b. Coord celule -> metadata PDF pt. re-stampare ulterioara FARA re-desen complet:
+    #   - zy_cartus_title : celula titlului (draw_elements rescrie sufixul "... DE ILUMINAT/FORTA")
+    #   - zy_cartus_plansa: casuta "Plansa nr." (restamp_plansa scrie numarul FINAL IE.N — numerotare
+    #     secventiala calculata in plansa_numbering.compute_plansa_numbering, o SINGURA sursa de adevar).
+    # zy_cartus_plansa e PREFIX -> regex-ul zy_cartus_title din _apply_cartus_suffix ramane neschimbat.
     try:
         doc.set_metadata({**(doc.metadata or {}),
-                          "keywords": "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
-                                      % (title_rect[0], title_rect[1], title_rect[2],
-                                         title_rect[3], title_base)})
+                          "keywords": "zy_cartus_plansa=%.1f,%.1f,%.1f,%.1f|"
+                                      "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
+                                      % (plansa_box[0], plansa_box[1], plansa_box[2], plansa_box[3],
+                                         title_rect[0], title_rect[1], title_rect[2], title_rect[3],
+                                         title_base)})
     except Exception:
-        pass  # metadata e optionala — fara ea titlul ramane cel generic
+        pass  # metadata e optionala — fara ea titlul/numarul raman cele generice
 
     out = doc.tobytes(deflate=True)
     doc.close()
@@ -478,3 +486,79 @@ def swap_cartus_plan(data: dict) -> dict:
             "margins_masked": margins_bbox,   # [X0,Y0,X1,Y1] pct PDF (None daca fara rooms)
         },
     }
+
+
+def restamp_plansa(pdf, plansa_nr, plansa_titlu=None):
+    """Re-stampeaza casuta "Plansa nr." (= plansa_nr) si, optional, titlul (= plansa_titlu) pe un PDF
+    care are DEJA cartus Zynapse. Coord din metadata scrisa la swap: zy_cartus_plansa (casuta numar) +
+    zy_cartus_title (celula titlu). AUTORITATEA numerotarii finale IE.N: n8n calculeaza secventa cu
+    plansa_numbering.compute_plansa_numbering si cheama asta la final pe fiecare PDF -> numarul TIPARIT
+    pe cartus = numarul din documente (o SINGURA sursa de adevar; gata cu "IE.X" / cartus != JSON).
+
+    Acelasi tipar ca draw_elements._apply_cartus_suffix: albeste interiorul celulei si redeseneaza.
+    PDF fara metadata (vechi / cartus nedetectat) -> no-op pe celula lipsa (stamped_*=False). Defensiv.
+
+    pdf: base64 (cu/fara prefix "data:...") SAU bytes. plansa_titlu: numele complet (poate lipsi -> doar nr).
+    Return: {success, pdf_base64, size_bytes, stamped_nr, stamped_titlu, plansa_nr} sau {success:False,error}.
+    """
+    try:
+        if isinstance(pdf, (bytes, bytearray)):
+            pdf_bytes = bytes(pdf)
+        else:
+            raw = pdf.split(",", 1)[1] if "," in str(pdf) else pdf
+            pdf_bytes = base64.b64decode(raw)
+    except Exception as e:
+        return {"success": False, "error": "pdf invalid: {}".format(e)}
+
+    doc = None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.page_count < 1:
+            return {"success": False, "error": "PDF fara pagini"}
+        page = doc[0]
+        kw = (doc.metadata or {}).get("keywords") or ""
+        stamped_nr = stamped_titlu = False
+
+        # ── casuta "Plansa nr." (label sus + valoare bold jos), reconstruita ca in _draw_cartus ──
+        mp = re.search(r"zy_cartus_plansa=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)", kw)
+        if mp and plansa_nr:
+            px0, py0, px1, py1 = (float(mp.group(i)) for i in range(1, 5))
+            rh = (py1 - py0) / 2.0                       # casuta = 2 randuri (label + valoare)
+            lab = max(4.0, min(6.0, rh * 0.52))
+            val = max(5.0, min(8.5, rh * 0.72))
+            page.draw_rect(fitz.Rect(px0 + 1.0, py0 + 1.0, px1 - 1.0, py1 - 1.0),
+                           color=(1, 1, 1), fill=(1, 1, 1))   # goleste DOAR interiorul casutei
+            _ctext(page, px0, px1, py0 + rh * 0.80, "Plansa nr.", lab)
+            _ctext(page, px0, px1, py0 + rh * 1.78, plansa_nr, val, bold=True)
+            stamped_nr = True
+
+        # ── titlul plansei (numele COMPLET), rescris ca in _apply_cartus_suffix ──
+        mt = re.search(r"zy_cartus_title=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)\|", kw)
+        if mt and plansa_titlu:
+            tx0, ty0, tx1, ty1 = (float(mt.group(i)) for i in range(1, 5))
+            page.draw_rect(fitz.Rect(tx0 + 1.0, ty0 + 1.0, tx1 - 1.0, ty1 - 1.0),
+                           color=(1, 1, 1), fill=(1, 1, 1))
+            rh2 = (ty1 - ty0) / 2.0
+            big = max(5.5, min(9.0, rh2 * 0.78))
+            lines = _wrap2(plansa_titlu, "hebo", big, (tx1 - tx0) - 6.0)[:2]
+            if len(lines) == 1:
+                _ctext(page, tx0, tx1, ty0 + rh2 * 1.30, lines[0], big, bold=True)
+            else:
+                for i, ln in enumerate(lines):
+                    _ctext(page, tx0, tx1, ty0 + rh2 * (0.85 + i * 0.95), ln, big, bold=True)
+            stamped_titlu = True
+
+        out = doc.tobytes(deflate=True)
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(out).decode("utf-8"),
+            "size_bytes": len(out),
+            "stamped_nr": stamped_nr,
+            "stamped_titlu": stamped_titlu,
+            "plansa_nr": plansa_nr,
+        }
+    except Exception as e:
+        return {"success": False, "error": "restamp esuat: {}".format(e)}
+    finally:
+        if doc is not None:
+            doc.close()
