@@ -146,6 +146,11 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // P0-2 (optiunea A): auth webhook finalize — ACELASI pattern ca webhook-urile scumpe
+        // (generate:148 -> zynapse-electrical). n8n valideaza cu credential "Zynapse Webhook Secret".
+        // Ordinea sigura: codul trimite ACUM secretul (n8n inca accepta fara) -> Dan activeaza Header
+        // Auth pe nodul finalize DUPA deploy -> sincron, fara downtime.
+        ...(process.env.N8N_WEBHOOK_SECRET ? { "x-webhook-secret": process.env.N8N_WEBHOOK_SECRET } : {}),
         // FIX (03.07): cheia interna FastAPI prin webhook -> Code nodes din finalize o forwardeaza
         // la /generate-schema-b64 + /generate-memoriu ($env nu ajunge in task runner-ul n8n).
         ...(process.env.ZYNAPSE_INTERNAL_KEY ? { "x-zynapse-key": process.env.ZYNAPSE_INTERNAL_KEY } : {}),
