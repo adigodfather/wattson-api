@@ -1,3 +1,40 @@
 apps/electrical-calculator/.env.local
 .claude/settings.json
 .mcp.json
+
+# Skill-uri de design instalate local (impeccable, frontend-design) — nu se commit-uie
+.agents/
+skills-lock.json
+
+# ── Securitate / hardening (protectie contra `git add -A` accidental in repo PUBLIC) ──
+# NB: fisierele raman pe disc — doar sunt ignorate de git. Nimic periculos nu e tracked azi,
+# deci e pur preventiv (fara git rm --cached).
+
+# Secrete / variabile de mediu — NICIODATA in repo public
+.env
+.env.*
+*.env.local
+# ...dar pastreaza template-ul sigur (doar nume de variabile, zero valori):
+!.env.example
+!**/.env.example
+
+# Dev scripts / exporturi cu date sensibile
+# (ct_check.js contine cheia ANON Supabase; zynapse-workflow.json = export n8n)
+/ct_check.js
+/zynapse-workflow.json
+
+# Planuri client (PII / GDPR) — orice PDF
+*.pdf
+
+# Cache / fixturi / teste locale
+__pycache__/
+*.pyc
+/_geom_fixtures/
+/test_geometry.py
+
+# Binare / documente interne (neutilizate in cod)
+/SETUP-WORKFLOW.md
+apps/zynapse-configurator/public/video-zynapse.jpg
+
+# Dependencies (belt-and-suspenders; app-ul are deja .gitignore nested)
+node_modules/
