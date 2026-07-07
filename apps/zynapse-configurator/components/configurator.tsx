@@ -1060,20 +1060,27 @@ export function ZynapseConfigurator() {
     !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor === "forta" ? "forta" : "iluminat-gata";
 
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
-  async function handleRegenerated(pdfBase64: string, mode: "iluminat" | "forta") {
+  async function handleRegenerated(pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) {
     if (!result || !editorPlansa || !savedProjectId) return;
     // M3: construiește result_data pe mod, apoi PERSISTĂ o singură dată în Supabase.
     let updated: ProjectResult;
     if (mode === "forta") {
       // planse_forta = oglindă planse_iluminat (per etaj). Lazy-init la prima forță; marchează etajul curent.
+      // PAS 2: metadata de FORȚĂ (nu clonată de la iluminat): type=plan_forta + name „— FORȚĂ";
+      // source_plansa_nr = numărul FINAL IE.N stampat de backend (fallback: cel moștenit).
       const base = (result.planse_forta && result.planse_forta.length === planseIluminat.length)
         ? result.planse_forta
-        : planseIluminat.map(p => ({ type: p.type, name: p.name, source_plansa_nr: p.source_plansa_nr,
+        : planseIluminat.map(p => ({ type: "plan_forta",
+                                     name: `${(p.name || "PLAN").replace(/\s*—\s*ILUMINAT\s*$/, "")} — FORȚĂ`,
+                                     source_plansa_nr: p.source_plansa_nr,
                                      pdf_base64: "", regenerated: false }));
       updated = {
         ...result,
         planse_forta: base.map((f, i) => i === editorPlansaIdx
-          ? { ...f, pdf_base64: pdfBase64, regenerated: true, filename: `Plan_forta_${floorCanonic(editorPlansaIdx)}.pdf` }
+          ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_forta",
+              name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ)\s*$/, "")} — FORȚĂ`,
+              ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
+              filename: `Plan_forta_${floorCanonic(editorPlansaIdx)}.pdf` }
           : f),
       };
     } else {

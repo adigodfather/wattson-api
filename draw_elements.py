@@ -2028,7 +2028,57 @@ def _apply_cartus_suffix(doc, page, suffix):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None) -> dict:
+def _apply_cartus_title(doc, page, full_title):
+    """PAS 2 (numerotare): scrie TITLUL COMPLET (din autoritatea compute_plansa_numbering) in celula
+    titlului — acelasi tipar ca _apply_cartus_suffix, dar cu textul integral in loc de base+sufix.
+    PDF fara metadata -> no-op (False); apelantul cade pe sufixul vechi. Defensiv."""
+    try:
+        kw = (doc.metadata or {}).get("keywords") or ""
+        m = re.search(r"zy_cartus_title=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)\|", kw)
+        if not m or not full_title:
+            return False
+        x0, y0, x1, y1 = (float(m.group(i)) for i in range(1, 5))
+        from cartus_swap import _ctext, _wrap2
+        page.draw_rect(fitz.Rect(x0 + 1.0, y0 + 1.0, x1 - 1.0, y1 - 1.0),
+                       color=(1, 1, 1), fill=(1, 1, 1))
+        rh = (y1 - y0) / 2.0
+        big = max(5.5, min(9.0, rh * 0.78))
+        lines = _wrap2(full_title, "hebo", big, (x1 - x0) - 6.0)[:2]
+        if len(lines) == 1:
+            _ctext(page, x0, x1, y0 + rh * 1.30, lines[0], big, bold=True)
+        else:
+            for i, ln in enumerate(lines):
+                _ctext(page, x0, x1, y0 + rh * (0.85 + i * 0.95), ln, big, bold=True)
+        return True
+    except Exception:
+        return False
+
+
+def _stamp_plansa_nr(doc, page, plansa_nr):
+    """PAS 2 (numerotare): scrie numarul FINAL (IE.N, din autoritate) in casuta "Plansa nr." a
+    cartusului — coord din metadata zy_cartus_plansa (scrisa de cartus_swap la swap, post-80dee3a).
+    Acelasi tipar ca cartus_swap.restamp_plansa. PDF vechi fara metadata -> no-op gratios (False):
+    numarul mostenit al planului de baza ramane, nimic nu crapa. Defensiv."""
+    try:
+        kw = (doc.metadata or {}).get("keywords") or ""
+        m = re.search(r"zy_cartus_plansa=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)", kw)
+        if not m or not plansa_nr:
+            return False
+        x0, y0, x1, y1 = (float(m.group(i)) for i in range(1, 5))
+        from cartus_swap import _ctext
+        rh = (y1 - y0) / 2.0
+        lab = max(4.0, min(6.0, rh * 0.52))
+        val = max(5.0, min(8.5, rh * 0.72))
+        page.draw_rect(fitz.Rect(x0 + 1.0, y0 + 1.0, x1 - 1.0, y1 - 1.0),
+                       color=(1, 1, 1), fill=(1, 1, 1))
+        _ctext(page, x0, x1, y0 + rh * 0.80, "Plansa nr.", lab)
+        _ctext(page, x0, x1, y0 + rh * 1.78, plansa_nr, val, bold=True)
+        return True
+    except Exception:
+        return False
+
+
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -2040,8 +2090,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         pdf_bytes = base64.b64decode(raw)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc[0]
-        # Titlul cartusului PER TIP de plansa (din metadata scrisa la swap; no-op daca lipseste)
-        _apply_cartus_suffix(doc, page, "DE ILUMINAT" if draw_plan_type == "iluminat" else "DE FORTA")
+        # Titlul + numarul cartusului. PAS 2 (numerotare): daca /regenerate-plan a determinat intrarea
+        # din AUTORITATE (plansa_nr/plansa_titlu), scrie titlul COMPLET + numarul FINAL (IE.N) —
+        # INAINTE de tobytes, deci PDF-ul livrat le contine. Fara ele / PDF vechi fara metadata ->
+        # comportamentul vechi (base + sufix; numarul mostenit al planului de baza). Defensiv.
+        _stamped_titlu = _apply_cartus_title(doc, page, plansa_titlu) if plansa_titlu else False
+        if not _stamped_titlu:
+            _apply_cartus_suffix(doc, page, "DE ILUMINAT" if draw_plan_type == "iluminat" else "DE FORTA")
+        _stamped_nr = _stamp_plansa_nr(doc, page, plansa_nr) if plansa_nr else False
         # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
         elements = [el for el in (elements or [])
@@ -2177,6 +2233,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             "pdf_base64": base64.b64encode(out).decode("utf-8"),
             "filename": "Plan_{}_editat.pdf".format(draw_plan_type),
             "size_bytes": len(out),
+            # PAS 2 (numerotare): numarul/titlul FINAL aplicat (None = comportament vechi) -> frontend-ul
+            # persista source_plansa_nr corect pe planse_forta. stamped_* = daca s-au scris efectiv pe cartus.
+            "plansa_nr": plansa_nr,
+            "plansa_titlu": plansa_titlu,
+            "plansa_stamped": bool(_stamped_nr),
             "detected": {"bulbs_drawn": n_bulb, "switches_drawn": n_sw, "panels_drawn": n_panel,
                          "prizas_drawn": n_priza, "cables_drawn": n_cable, "skipped": n_skip,
                          "legend_drawn": n_legend, "ground_drawn": n_ground, "receptor_drawn": n_receptor},

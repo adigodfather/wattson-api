@@ -329,7 +329,7 @@ const panelStyle: CSSProperties = {
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta") => void; mode?: "iluminat" | "forta";
+     onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
@@ -927,7 +927,8 @@ export default function PlanEditor({
         setRegenPdf(pdfBlobUrl(data.pdf_base64));     // URL de blob pt. download/open (ambele moduri)
         // M2b: semnalează finalizarea la părinte pentru AMBELE faze. Iluminat -> persistă IE.1 (regenerated);
         // forța -> marchează etajul ca finalizat (tracking în sesiune; persistarea ca planșă = M3).
-        onRegenerated?.(data.pdf_base64, mode);
+        // PAS 2: plansa_nr = numarul FINAL IE.N stampat de backend (autoritate) -> parintele il persista
+        onRegenerated?.(data.pdf_base64, mode, typeof data.plansa_nr === "string" && data.plansa_nr ? data.plansa_nr : undefined);
         setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
       }
     } catch (e) {

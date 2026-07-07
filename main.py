@@ -3477,8 +3477,30 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
             _feeds = [c for c in _circs if isinstance(c, dict) and c.get("type") == "sub_tablou"]
         except Exception as _e2:
             print("[regenerate-plan] feeds skip:", _e2)
+        # PAS 2 (numerotare): planul regenerat primeste numarul FINAL IE.N + titlul din AUTORITATE
+        # (pick_plan_entry -> compute_plansa_numbering — ACEEASI ca borderoul memoriului + nodul n8n
+        # "Numerotare Planse") in loc sa mosteneasca numarul planului de baza (forta parter iesea IE.1
+        # in loc de IE.3). Defensiv: ORICE esec -> None -> redraw = comportamentul vechi.
+        _pl_nr = _pl_titlu = None
+        try:
+            from plansa_numbering import pick_plan_entry
+            try:
+                _rd2 = (_pr.get("result_data") or {})          # reuse fetch-ul din blocul feeds
+            except Exception:
+                _rd2 = {}
+            if not _rd2:
+                from supabase_client import supabase as _supa3
+                _rd2 = (((_supa3.table("projects").select("result_data")
+                          .eq("id", request.project_id).single().execute().data) or {})
+                        .get("result_data")) or {}
+            _ent = pick_plan_entry(_rd2, request.plan_type, request.floor)
+            if _ent:
+                _pl_nr, _pl_titlu = _ent.get("nr"), _ent.get("nume")
+        except Exception as _e3:
+            print("[regenerate-plan] numerotare skip:", _e3)
         return draw_elements.redraw_from_plan_elements(
-            request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms)
+            request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms,
+            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

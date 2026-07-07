@@ -127,3 +127,47 @@ def derive_extra_floors(circuits):
         if fi > 0:
             floors.add(fi)
     return [_floor_to_label(f) for f in sorted(floors)]
+
+
+# tipul planului persistat (result_data.planuri[].type) -> eticheta nivelului. Sursa PREFERATA la
+# regenerare: levels_string NU se persista in result_data (verificat: NULL peste tot), dar tipul
+# planului reflecta numele REAL al nivelului (plan_mansarda pe P+M) — aliniat cu nodul n8n
+# "Numerotare Planse" (care deriva din levels_string la generare).
+_PLAN_TYPE_LABEL = {
+    "plan_etaj": "etaj", "plan_etaj1": "etaj", "plan_etaj2": "etaj 2",
+    "plan_mansarda": "mansarda", "plan_demisol": "demisol", "plan_subsol": "subsol",
+}
+
+
+def pick_plan_entry(result_data, plan_type, floor):
+    """Intrarea {nr, nume, ...} pentru PLANUL (iluminat/forta) al nivelului `floor` din autoritatea
+    compute_plansa_numbering — folosita de /regenerate-plan ca planul regenerat sa primeasca numarul
+    FINAL IE.N (forta parter=IE.3 pe model complet), nu numarul mostenit al planului de baza.
+
+    Derivarea nivelurilor: 1) result_data.planuri[].type (persistat, etichete reale — P+M da
+    'mansarda'); 2) fallback: floor intreg din circuite (derive_extra_floors). has_tect: flag-ul
+    result_data.has_tect SAU panel=TE-CT in circuite.
+
+    `floor` = conventia frontend floorCanonic PE INDEX (parter=0->'parter', 1->'etaj', 2->'mansarda')
+    -> match POZITIONAL pe lista nivelurilor (robust la divergenta de eticheta etaj/mansarda pe P+M:
+    index 1 = primul nivel peste parter, oricum s-ar numi). None daca nu se poate determina —
+    apelantul pastreaza comportamentul vechi (fara stampare)."""
+    rd = result_data or {}
+    circuits = rd.get("circuits") or []
+
+    extra = []
+    for p in (rd.get("planuri") or [])[1:]:            # [0] = parter
+        t = str((p or {}).get("type") or "").strip().lower()
+        extra.append(_PLAN_TYPE_LABEL.get(t, "etaj"))  # tip necunoscut la nivel>0 -> generic 'etaj'
+    if not extra:
+        extra = derive_extra_floors(circuits)
+
+    has_tect = bool(rd.get("has_tect")) or any((c or {}).get("panel") == "TE-CT" for c in circuits)
+    tip = "plan_forta" if str(plan_type or "").strip().lower() == "forta" else "plan_iluminat"
+    entries = [p for p in compute_plansa_numbering(extra, has_tect) if p["tip"] == tip]
+
+    fidx = {"parter": 0, "etaj": 1, "etaj1": 1, "etaj 1": 1,
+            "mansarda": 2, "etaj2": 2, "etaj 2": 2}.get(str(floor or "parter").strip().lower(), 0)
+    if fidx >= len(entries):
+        return None
+    return entries[fidx]
