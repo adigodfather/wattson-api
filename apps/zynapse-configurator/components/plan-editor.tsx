@@ -317,9 +317,15 @@ const FIELD_CSS = `
   padding: 11px 14px; border-radius: 9px; border: 1px solid #378ADD; background: #378ADD; color: #fff;
   font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color .15s ease; }
 .zy-getplan:hover { background: #4A97E6; }
+.zy-gen-prize { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 14px; border-radius: 9px; border: 1px solid #378ADD; background: #378ADD; color: #fff;
+  font-family: inherit; font-size: 13.5px; font-weight: 700; letter-spacing: .2px; cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(55,138,221,0.14); transition: background-color .15s ease; }
+.zy-gen-prize:hover { background: #4A97E6; }
+.zy-gen-prize:disabled { opacity: .6; cursor: default; }
 .zy-soon-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
   padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,0.22); color: #fff; }
-@media (prefers-reduced-motion: reduce) { .zy-chev { transition: none; } .zy-acc-body { animation: none; } .zy-getplan { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .zy-chev { transition: none; } .zy-acc-body { animation: none; } .zy-getplan { transition: none; } .zy-gen-prize { transition: none; } }
 `;
 const panelStyle: CSSProperties = {
   boxSizing: "border-box", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)",
@@ -564,21 +570,25 @@ export default function PlanEditor({
     setSelectedId((data as PlanElement).id);
   }
 
-  // ADD PRIZA: aparataj pe perete, MULTIPLE per plansa (fara guard). Plasare LIBERA in centru;
-  // inginerul o trage (snap pe perete = P3). wall_mounted=true. Acelasi tipar de INSERT ca addPanel.
-  async function addPriza(prizaType: string) {
-    const floor = floorCanonic(elements[0]?.floor);
-    const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
-    const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
+  // ADD PRIZA IN CAMERA: priza noua (default simpla; TIPUL se schimba din dropdown-ul "Tip" la click,
+  // ca la bec/intrerupator). Plasare langa elementul de referinta al camerei (ROOM-SCOPED, nu centru)
+  // -> acelasi tipar ca addElement. plan_type=forta, wall_mounted. Auto-select -> dropdown Tip apare imediat.
+  async function addPrizaInRoom(roomKey: string) {
+    const list = elements.filter(e => (e.room || NO_ROOM) === roomKey);
+    const ref = list[0];   // camera apare in accordion doar cu >=1 element -> ref exista
+    const floor = floorCanonic(ref?.floor);
+    const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
+    const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
+    const stagger = list.filter(e => (e.element_type || "").startsWith("priza")).length;   // evita suprapunerea
     const row = {
       project_id: projectId,
       floor,
-      element_type: prizaType,
+      element_type: "priza_simpla",   // default; retipabil din dropdown-ul "Tip"
       plan_type: "forta",             // prizele/alimentarile = planul de forta
       label: null as string | null,
-      room: null as string | null,
-      x: cx,
-      y: cy,
+      room: roomKey === NO_ROOM ? null : roomKey,
+      x: baseX + 40 + stagger * 6,
+      y: baseY + stagger * 6,
       wall_mounted: true,
       mount_height_m: 0.6,            // inaltime precompletata (editabila in panou)
       rotation: 0,
@@ -586,8 +596,10 @@ export default function PlanEditor({
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT priza esuat", error?.message); return; }
-    setElements(prev => [...prev, data as PlanElement]);
-    setSelectedId((data as PlanElement).id);
+    const created = data as PlanElement;
+    setElements(prev => [...prev, created]);
+    setExpandedRooms(prev => (prev.has(roomKey) ? prev : new Set(prev).add(roomKey)));
+    setSelectedId(created.id);
   }
 
   // R2: GENEREAZA PRIZE AUTOMAT (mode forta) — per camera: prizeRuleForRoom (R1) + placePrizasInRoom (F5a)
@@ -977,7 +989,8 @@ export default function PlanEditor({
     }
     const isBulbSel = isBulbType(selected.element_type);
     const isSwitchSel = isSwitchType(selected.element_type);
-    const typeOptions = isBulbSel ? BULB_TYPES : isSwitchSel ? SWITCH_TYPES : [];
+    const isPrizaSel = isPrizaType(selected.element_type);   // pt. prize: dropdown Tip ca la bec/intrerupator
+    const typeOptions = isBulbSel ? BULB_TYPES : isSwitchSel ? SWITCH_TYPES : isPrizaSel ? PRIZA_TYPES : [];
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -1167,6 +1180,11 @@ export default function PlanEditor({
                 <button type="button" className="zy-add-btn" onClick={() => addElement(key, "switch")}>+ Întrerupător</button>
               </div>
             )}
+            {mode === "forta" && (
+              <div className="flex gap-1.5 mt-2 pl-1">
+                <button type="button" className="zy-add-btn" onClick={() => addPrizaInRoom(key)}>+ Priză</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1237,18 +1255,20 @@ export default function PlanEditor({
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
         Prize
       </div>
-      <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-        {PRIZA_TYPES.map(p => (
-          <button key={p.value} type="button" className="zy-add-btn" onClick={() => addPriza(p.value)}>+ {p.label}</button>
-        ))}
+      {/* Adaugarea pe TIP a disparut (redundanta): prizele se adauga per camera ("+ Priza" in fiecare
+          camera, mai sus) si tipul (simpla/dubla/alimentare/IP44) se schimba cu click pe priza -> dropdown
+          "Tip", exact ca la iluminat. */}
+      <div style={{ fontSize: 11, color: "#545870", lineHeight: 1.5, paddingLeft: 2, marginBottom: 2 }}>
+        Adaugă prize cu <span style={{ color: "#8B8FA8" }}>„+ Priză"</span> în fiecare cameră (mai sus),
+        apoi schimbă-le tipul cu click pe priză. Sau generează-le automat:
       </div>
-      {/* R2: auto-repartizare prize pe regulile Dan (per tip camera) — idempotent */}
-      <div style={{ marginTop: 8, paddingLeft: 2 }}>
-        <button type="button" className="zy-add-btn" onClick={generatePrizasAuto} disabled={genLoading}
-          style={{ fontWeight: 600, color: "#5BB8F5", borderColor: "rgba(55,138,221,0.45)" }}>
+      {/* R2: auto-repartizare prize pe regulile Dan (per tip camera) — idempotent.
+          CTA proeminent (zy-gen-prize, stilul zy-getplan): actiunea PRINCIPALA a fazei de forta. */}
+      <div style={{ marginTop: 10, paddingLeft: 2 }}>
+        <button type="button" className="zy-gen-prize" onClick={generatePrizasAuto} disabled={genLoading}>
           {genLoading ? "Se generează…" : "⚡ Generează prize automat"}
         </button>
-        {genMsg && <div style={{ fontSize: 11, color: "#5BB8F5", marginTop: 6 }}>{genMsg}</div>}
+        {genMsg && <div style={{ fontSize: 11.5, color: "#5BB8F5", marginTop: 6 }}>{genMsg}</div>}
       </div>
     </div>
   );
