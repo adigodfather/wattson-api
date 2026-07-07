@@ -242,8 +242,9 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False):
 def enrich_circuits(plan_elements, form=None, base_circuits=None):
     """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
     base_circuits (heating-driven, ORTOGONAL de plan; dimensionarea normativa din norme_alimentari
-    ramane INTACTA) + feed-ul coloanei (sub_tablou feeds_panel='TE-CT'). Renumerotare flat C1..CN
-    (ordine TEG -> TES -> TE-CT). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
+    ramane INTACTA) + feed-ul coloanei (sub_tablou feeds_panel='TE-CT'). Numerotare PER TABLOU =
+    sistemul PLANULUI: TEG C1..CN, etaj C1-TES..CN-TES, TE-CT C1-TECT..CN-TECT (identice cu
+    plan_elements.circuit_id). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
     form = form or {}
     plan_elements = plan_elements or []
 
@@ -268,7 +269,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     plan_out = []
     for panel in sorted(by_panel.keys()):
         els, fidx = by_panel[panel]
-        general = panel                                # gsuf -> id-uri C1 / C1-TES1 / C1-TES2
+        # SUFIX id = conventia PLANULUI: compute_circuits via _detect_general_panel foloseste "TES"
+        # (nu "TES1") -> id-uri C1-TES (identice cu plan_elements.circuit_id). panel ramane "TES1"/"TES2"
+        # (grupare pe pagini de schema, setat in _enrich_group); DOAR sufixul id-ului se aliniaza.
+        general = "TEG" if panel == "TEG" else "TES"   # gsuf -> C1 (TEG) / C1-TES (etaj+)
         tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
@@ -307,7 +311,9 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
         if t in ("prize", "priza") and plan_has_priza:
             continue                                   # inlocuit de prizele REALE din plan
         kept_base_tect.append(c)                       # echipamente incalzire (dedicat) + generice fara inlocuitor
-    merged_tect = kept_base_tect + plan_tect           # incalzire(baza) + becuri/prize REALE(plan)
+    # ordine TE-CT = becuri/prize PLAN INTAI (C1-TECT.. = identic cu plan_elements.circuit_id, si
+    # ordinea I7: iluminat/prize inainte de 'dedicat') + incalzirea(baza) numerotata DUPA.
+    merged_tect = plan_tect + kept_base_tect
 
     # FIX coloana: recalculeaza breaker+cablu din puterea absorbita (n8n lasa 16A placeholder).
     # force_resum cand planul a atins TE-CT -> power_w = suma MERGED × ks (coloana creste corect,
@@ -321,11 +327,18 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
     out = teg + feed_circuits + tes + merged_tect
 
-    # renumerotare flat C1..CN (id+name); panel/feeds_panel/dimensionarea raman
-    for i, c in enumerate(out):
-        cid = "C%d" % (i + 1)
-        c["id"] = cid
-        c["name"] = cid
+    # renumerotare PER TABLOU = sistemul PLANULUI (id+name; panel/feeds_panel/dimensionarea raman).
+    # Pastreaza ORDINEA compute_circuits (deci id-uri IDENTICE cu plan_elements.circuit_id: TEG C1..,
+    # etaj C1-TES.., TE-CT C1-TECT..) si integreaza circuitele din baza (feed pe TEG, incalzire pe
+    # TE-CT) in numerotarea tabloului lor. NU mai flat C1..CN (care arunca sufixele).
+    def _renumber_panel(circuits, suffix):
+        for i, c in enumerate(circuits):
+            cid = "C%d%s" % (i + 1, suffix)
+            c["id"] = cid
+            c["name"] = cid
+    _renumber_panel(teg + feed_circuits, "")       # TEG + coloana TE-CT -> C1..CN (fara sufix, ca planul)
+    _renumber_panel(tes, "-TES")                   # etaj -> C1-TES..CN-TES (ca planul; nu -TES1, nu flat)
+    _renumber_panel(merged_tect, "-TECT")          # TE-CT -> C1-TECT..CN-TECT (tech plan intai = ca planul)
 
     assign_phases(out)                                 # doar circuitele PLANULUI (TE-CT/feed pastreaza faza)
     return out
