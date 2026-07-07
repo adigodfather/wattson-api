@@ -984,6 +984,9 @@ export function ZynapseConfigurator() {
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
   const [modeEditor, setModeEditor] = useState<"iluminat" | "forta">("iluminat");   // F3: comutator Iluminat/Forta in tab Editor
+  // Fundal editor FORTA = baza CURATA (randata prin /api/render-base-png), NU PNG-ul iluminat (becuri invechite).
+  const [fortaBg, setFortaBg] = useState<{ png_base64: string; png_meta: { dpi?: number; scale?: number;
+    pdf_width_pt?: number; pdf_height_pt?: number; png_width_px?: number; png_height_px?: number } } | null>(null);
   // M2b: etajul SELECTAT în editor (index în planse_iluminat = index etaj). Selectabil prin selector multi-etaj.
   const [editorPlansaIdx, setEditorPlansaIdx] = useState(0);
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
@@ -1024,6 +1027,23 @@ export function ZynapseConfigurator() {
   // Editor vizual (PASUL 3.1): planșa de iluminat SELECTATĂ (M2b: editorPlansaIdx selectabil, nu fix [0]).
   const planseIluminat = result?.planse_iluminat || [];
   const editorPlansa = planseIluminat[editorPlansaIdx] || null;
+  // Baza CURATĂ a planșei curente (arhitectural + cartuș, FĂRĂ becuri) = sursă pt. fundalul forței + prop backend.
+  const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
+  // Mod FORȚĂ: cere PNG-ul bazei CURATE (o dată per planșă/bază) -> fundal fără iluminatul învechit.
+  // Iluminat / lipsă bază -> fără fetch. Cleanup pe schimbare mod/planșă (evită fundal stale).
+  useEffect(() => {
+    if (modeEditor !== "forta" || !fortaCleanBase) { setFortaBg(null); return; }
+    let cancelled = false;
+    setFortaBg(null);
+    fetch("/api/render-base-png", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdf_base64: fortaCleanBase }),
+    })
+      .then(r => r.json())
+      .then(d => { if (!cancelled && d?.success && d.png_base64) setFortaBg({ png_base64: d.png_base64, png_meta: d.png_meta || {} }); })
+      .catch(() => { /* fundal ramane null -> editorul arata starea de incarcare */ });
+    return () => { cancelled = true; };
+  }, [modeEditor, fortaCleanBase, editorPlansaIdx]);
   // Etajele EDITABILE (cu PNG) = opțiunile selectorului de etaj. >1 -> multi-etaj (selector vizibil).
   const editablePlanse = planseIluminat
     .map((p, idx) => ({ idx, p }))
@@ -2457,9 +2477,9 @@ export function ZynapseConfigurator() {
                 <PlanEditor
                   projectId={savedProjectId}
                   mode={modeEditor}
-                  pngBase64={editorPlansa.png_base64}
-                  pngMeta={editorPlansa.png_meta}
-                  cleanBasePdf={(result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null}
+                  pngBase64={modeEditor === "forta" ? (fortaBg?.png_base64 ?? null) : editorPlansa.png_base64}
+                  pngMeta={modeEditor === "forta" ? (fortaBg?.png_meta ?? null) : editorPlansa.png_meta}
+                  cleanBasePdf={fortaCleanBase}
                   floor={floorCanonic(editorPlansaIdx)}
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}

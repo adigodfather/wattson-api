@@ -3506,6 +3506,50 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
 
 
 # -------------------------------------------------
+#  RENDER BASE PNG (fundal editor forta)  —  POST /render-base-png
+#  Randare PURA a paginii PDF -> PNG + png_meta (mapare coordonate), FARA a desena elemente.
+#  Fundalul editorului de FORTA = baza CURATA (planuri[].pdf_base64), nu iluminatul (becuri invechite).
+#  Acelasi DPI/meta ca draw_plan_elements -> editorul mapeaza IDENTIC. Sub x-zynapse-key (middleware).
+# -------------------------------------------------
+
+class RenderBasePngRequest(BaseModel):
+    pdf_base64: str = ""
+    dpi: int = 120          # identic cu draw_plan_elements (png_meta.scale = dpi/72)
+
+
+@app.post("/render-base-png")
+def render_base_png_endpoint(request: RenderBasePngRequest):
+    """PDF (baza curata) -> {png_base64, png_meta}. NU deseneaza nimic. Erori status 200 (frontend)."""
+    doc = None
+    try:
+        import fitz
+        raw = request.pdf_base64.split(",", 1)[1] if "," in request.pdf_base64 else request.pdf_base64
+        if not raw:
+            return {"success": False, "error": "pdf_base64 lipseste"}
+        doc = fitz.open(stream=base64.b64decode(raw), filetype="pdf")
+        if doc.page_count < 1:
+            return {"success": False, "error": "PDF fara pagini"}
+        page = doc[0]
+        W, H = page.rect.width, page.rect.height
+        dpi = int(request.dpi or 120)
+        scale = dpi / 72.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+        png_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+        meta = {"dpi": dpi, "scale": scale, "pdf_width_pt": W, "pdf_height_pt": H,
+                "png_width_px": pix.width, "png_height_px": pix.height}
+        pix = None
+        return {"success": True, "png_base64": png_b64, "png_meta": meta}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+
+# -------------------------------------------------
 #  EXTRACT GEOMETRY (pereti din cleanBasePdf, P1)  —  POST /extract-geometry
 # -------------------------------------------------
 
