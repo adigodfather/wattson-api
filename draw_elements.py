@@ -1826,9 +1826,10 @@ def compute_cables(elements, rooms=None, W=None, H=None):
         exit_ip, t_exit = _project_to_rect(target[0], target[1], R_in)
         items = []
         for pz in prz:
-            bp, inw, alo = _wall_orient(pz["x"], pz["y"], R)         # latura CORECTA a camerei prizei
-            e1 = (bp[0] - alo[0] * _PRIZA_BAR_HALF, bp[1] - alo[1] * _PRIZA_BAR_HALF)
-            e2 = (bp[0] + alo[0] * _PRIZA_BAR_HALF, bp[1] + alo[1] * _PRIZA_BAR_HALF)
+            _, inw, alo = _wall_orient(pz["x"], pz["y"], R)          # DOAR orientare (inward/along) din bbox
+            bx, by = pz["x"], pz["y"]                                # bara centrata pe POZITIA pusa de inginer (autoritara)
+            e1 = (bx - alo[0] * _PRIZA_BAR_HALF, by - alo[1] * _PRIZA_BAR_HALF)
+            e2 = (bx + alo[0] * _PRIZA_BAR_HALF, by + alo[1] * _PRIZA_BAR_HALF)
             be = e1 if ((e1[0]-target[0])**2 + (e1[1]-target[1])**2) <= ((e2[0]-target[0])**2 + (e2[1]-target[1])**2) else e2
             node, t = _project_to_rect(be[0] + inw[0] * 2.0, be[1] + inw[1] * 2.0, R_in)   # punct spine in fata capatului
             items.append({"pz": pz, "node": node, "t": t})
@@ -2274,13 +2275,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_panel += 1
             elif et in _PRIZA_TYPES:
                 # PUNCTUL 3: bara de montaj pe perete + semicerc spre interior. Orientarea din bbox-ul
-                # camerei (_wall_orient), NU din rotation. Ancoram simbolul pe PUNCTUL DE PERETE (bp) ->
-                # bara sta pe perete. Fara bbox (open-plan / camera necunoscuta) -> desenul vechi (rotation).
+                # camerei (_wall_orient = inward/along), NU din rotation. POZITIA prizei = (x,y) PUSA de
+                # inginer (autoritara, pe peretele REAL); bbox-ul e DOAR pentru orientare, NU repozitionare
+                # (bbox-ul Vision e mai mic decat camera -> proiectia pe el ar aduna prizele la mijloc).
+                # Fara bbox (open-plan / camera necunoscuta) -> desenul vechi (rotation).
                 _wi = _wa = None
                 _R = _room_px_map.get((el.get("room") or "").strip()) if _room_px_map else None
                 if _R:
-                    _bp, _wi, _wa = _wall_orient(x, y, _R)
-                    x, y = _bp[0], _bp[1]
+                    _, _wi, _wa = _wall_orient(x, y, _R)     # DOAR orientare; (x,y) raman poz. inginerului
                 _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0),
                             wall_inward=_wi, wall_along=_wa)
                 _sp = _priza_label_spec(x, y, el)                                    # eticheta "C{circuit} - h={h}m"
