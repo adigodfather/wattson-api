@@ -211,15 +211,69 @@ _NET_EDGE  = (0.557, 0.141, 0.667)     # #8E24AA — contur violet inchis
 _NET_WHITE = (1.0, 1.0, 1.0)           # router + unde WiFi (alb)
 
 
-def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0.0):
+def _draw_priza(page, cx, cy, element_type="priza_simpla", scale=1.0, rotation=0.0, wall_inward=None, wall_along=None):
     """Simbol priza (portat din Konva): semicerc (SPATELE, curba JOS in local) + 2 contacte
     DEASUPRA diametrului (DESCHIDEREA prizei). Dimensiune = editorul UI (scale*0.96, nu 1.6:
     PDF era ~png_scale=1.667x mai mare ca UI); IP44 caseta turcoaz + semicerc ALB (contur teal),
     alimentare directa albastru inchis plin.
     rotation (radiani, sens orar): 0=contacte/deschidere SUS, pi=JOS, +pi/2=DREAPTA, -pi/2=STANGA —
-    baza (diametrul) sta pe perete, CONTACTELE spre interiorul camerei (ca la _draw_switch)."""
+    baza (diametrul) sta pe perete, CONTACTELE spre interiorul camerei (ca la _draw_switch).
+    PUNCTUL 3: daca wall_inward (versor spre interior) e dat, deseneaza in schimb BARA DE MONTAJ pe
+    perete (paralela cu el, along) + semicercul sprijinit pe bara, bulbuc spre INTERIOR (nu ingropat).
+    Orientarea vine din bbox (inward/along), NU din rotation. wall_inward=None -> desenul vechi."""
     s = scale * 0.96                    # dimensiune = editorul UI (era 1.6 -> PDF ~1.667x prea mare)
     C = _PRIZA_COLOR
+
+    if wall_inward is not None:
+        ix, iy = float(wall_inward[0]), float(wall_inward[1])
+        _n = math.hypot(ix, iy) or 1.0; ix, iy = ix / _n, iy / _n            # versor interior
+        if wall_along is not None:
+            ax, ay = float(wall_along[0]), float(wall_along[1])
+        else:
+            ax, ay = -iy, ix                                                 # perpendicular pe inward
+        _na = math.hypot(ax, ay) or 1.0; ax, ay = ax / _na, ay / _na         # versor paralel cu peretele
+        r = 8.0 * s
+        et = element_type or "priza_simpla"
+
+        def bar(bx, by, half):          # BARA DE MONTAJ pe perete (segment paralel cu peretele)
+            page.draw_line(fitz.Point(bx - ax * half, by - ay * half),
+                           fitz.Point(bx + ax * half, by + ay * half), color=C, width=1.7)
+
+        def halfdisc(bx, by, rr, fill=_PRIZA_TURQ, edge=C):   # semicerc sprijinit pe bara, bulbuc spre inward
+            pts = [fitz.Point(bx - rr * math.cos(math.pi * k / 16.0) * ax + rr * math.sin(math.pi * k / 16.0) * ix,
+                              by - rr * math.cos(math.pi * k / 16.0) * ay + rr * math.sin(math.pi * k / 16.0) * iy)
+                   for k in range(17)]
+            page.draw_polyline(pts, color=edge, fill=fill, width=1.4, closePath=True)   # inchide pe bara (diametru)
+
+        if et == "priza_dubla":
+            bar(cx, cy, 2.0 * r)
+            for sgn in (-1.0, 1.0):     # 2 semicercuri de-a lungul barei
+                halfdisc(cx + sgn * r * ax, cy + sgn * r * ay, r * 0.85)
+        elif et == "priza_16a":         # ALIMENTARE DIRECTA = cerc plin, sprijinit pe bara (offset spre interior)
+            bar(cx, cy, r * 0.9)
+            page.draw_circle(fitz.Point(cx + ix * r, cy + iy * r), r * 0.9,
+                             color=_PRIZA_DARK, fill=_PRIZA_COLOR, width=1.4)
+        elif et == "priza_exterior_ip44":
+            bar(cx, cy, r * 1.15)
+            bxc, byc = cx + ix * r * 0.55, cy + iy * r * 0.55                 # caseta offset spre interior
+            hw, hh = r * 1.25, r * 1.1
+            corners = [fitz.Point(bxc - ax * hw - ix * hh, byc - ay * hw - iy * hh),
+                       fitz.Point(bxc + ax * hw - ix * hh, byc + ay * hw - iy * hh),
+                       fitz.Point(bxc + ax * hw + ix * hh, byc + ay * hw + iy * hh),
+                       fitz.Point(bxc - ax * hw + ix * hh, byc - ay * hw + iy * hh)]
+            page.draw_polyline(corners, color=_PRIZA_TEAL, fill=_PRIZA_TURQ, width=1.0, closePath=True)
+            halfdisc(cx, cy, r, fill=(1, 1, 1), edge=_PRIZA_TEAL)
+            page.insert_text(fitz.Point(cx + ix * (r * 2.2) - ax * 10 * s, cy + iy * (r * 2.2) - ay * 10 * s + 6),
+                             "IP44", fontsize=6.0 * s, fontname="hebo", color=_PRIZA_TEAL)
+        else:                           # priza_simpla
+            bar(cx, cy, r)
+            halfdisc(cx, cy, r)
+            for off in (-0.34, 0.34):   # 2 contacte (fante) in interiorul discului, spre inward
+                page.draw_line(fitz.Point(cx + off * r * ax + 0.28 * r * ix, cy + off * r * ay + 0.28 * r * iy),
+                               fitz.Point(cx + off * r * ax + 0.72 * r * ix, cy + off * r * ay + 0.72 * r * iy),
+                               color=C, width=1.0)
+        return
+
     cosr, sinr = math.cos(rotation or 0.0), math.sin(rotation or 0.0)
 
     def P(dx, dy):                      # punct local rotit in jurul ancorei (y-down => sens orar)
@@ -1515,6 +1569,65 @@ def _project_to_rect(px, py, R):
     _, bp, t = min(cands, key=lambda c: c[0])
     return bp, t
 
+# ── PUNCTUL 3: orientarea prizei din bbox-ul camerei (NU din campul `rotation`) ──
+def _wall_orient(px, py, R):
+    """Latura CORECTA a camerei pt. priza (px,py) -> (bp, inward, along):
+      bp     = punct pe perete (proiectie pe latura aleasa);
+      inward = versor spre INTERIORUL camerei;  along = versor PARALEL cu peretele.
+    IN INTERIOR: latura cea mai apropiata (ca la _project_to_rect).
+    IN AFARA bbox-ului (bug confirmat pe randarea reala 770c8edd: bbox-ul Vision != peretele real,
+    priza snap-uita pe peretele real cade dincolo de latura): latura = DIRECTIA DEPASIRII (axa cu
+    violarea mai mare), NU min-distanta pe toate 4 — altfel se alegea o latura perpendiculara /
+    un colt (ex. priza la 31pt sub bbox dar la 13pt de latura din dreapta -> 'dreapta') si
+    semicercul iesea INTORS / ancorat pe colt. Prizele exact PE muchie (violare 0) = interior -> stabil."""
+    x0, y0, x1, y1 = R
+    cx = min(max(px, x0), x1); cy = min(max(py, y0), y1)
+    SIDES = {
+        "sus":     ((cx, y0), (0.0, 1.0), (1.0, 0.0)),      # interior = JOS
+        "dreapta": ((x1, cy), (-1.0, 0.0), (0.0, 1.0)),     # interior = STANGA
+        "jos":     ((cx, y1), (0.0, -1.0), (1.0, 0.0)),     # interior = SUS
+        "stanga":  ((x0, cy), (1.0, 0.0), (0.0, 1.0)),      # interior = DREAPTA
+    }
+    vx = (x0 - px) if px < x0 else ((px - x1) if px > x1 else 0.0)   # violarea pe x (>0 = in afara)
+    vy = (y0 - py) if py < y0 else ((py - y1) if py > y1 else 0.0)
+    if vx > 0.0 or vy > 0.0:               # IN AFARA -> latura din directia depasirii
+        if vy >= vx:
+            side = "sus" if py < y0 else "jos"
+        else:
+            side = "stanga" if px < x0 else "dreapta"
+    else:                                   # IN INTERIOR -> latura cea mai apropiata
+        d = {"sus": abs(py - y0), "dreapta": abs(px - x1), "jos": abs(py - y1), "stanga": abs(px - x0)}
+        side = min(d, key=d.get)
+    bp, inward, along = SIDES[side]
+    return bp, inward, along
+
+_PRIZA_BAR_HALF = 7.7   # jumatatea barei de montaj (pt) — capatul barei = startul stub-ului de cablu
+
+def _inset_rect(R, m):
+    """R micsorat cu marja m pe toate laturile (contur INTERIOR, in camera) -> cablul ruleaza in
+    fata peretilor, nu pe ei. Camera prea mica -> R neschimbat (fara inversare)."""
+    x0, y0, x1, y1 = R
+    if (x1 - x0) <= 2 * m or (y1 - y0) <= 2 * m:
+        return R
+    return (x0 + m, y0 + m, x1 - m, y1 - m)
+
+def _rooms_to_px(rooms, W, H):
+    """rooms (bbox fractii 0-1) -> {nume: (x0,y0,x1,y1) puncte PDF}. Identic cu room_px din compute_cables."""
+    out = {}
+    if rooms and W and H:
+        for r in (rooms or []):
+            bb = (r or {}).get("bbox") or {}
+            nm = str((r or {}).get("name") or "").strip()
+            try:
+                x, y, w, h = float(bb["x"]), float(bb["y"]), float(bb["w"]), float(bb["h"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if nm and w > 0 and h > 0:
+                out[nm] = (x * W, y * H, (x + w) * W, (y + h) * H)
+    return out
+
+_PRIZA_INSET = 14.0   # marja (pt) a conturului interior pt. rutarea cablului prizelor in fata peretilor
+
 def _perimeter_path(t1, t2, R):
     """Puncte pe LATURILE lui R intre t1 si t2, pe directia MAI SCURTA (prin colturile intermediare)."""
     w, h, P = _rect_perim(R)
@@ -1700,31 +1813,38 @@ def compute_cables(elements, rooms=None, W=None, H=None):
         add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)
         stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
-    def _route_perimeter(prz, R, room, n):                 # FAZA 2a: lant pe PERIMETRU + O iesire (mananchi count=N)
-        items = []
-        for pz in prz:
-            bp, t = _project_to_rect(pz["x"], pz["y"], R)
-            items.append({"pz": pz, "bp": bp, "t": t})
-        items.sort(key=lambda it: it["t"])                 # ordine pe perimetru
-        _, _, P = _rect_perim(R)
-        cen = (sum(it["bp"][0] for it in items) / len(items), sum(it["bp"][1] for it in items) / len(items))
-        if stripes:                                        # IESIRE = pe contur, cel mai aproape de dunga
+    def _route_perimeter(prz, R, room, n):                 # FAZA 2a + PUNCTUL 3: STUB din capatul barei + spine interior
+        R_in = _inset_rect(R, _PRIZA_INSET)                # spine-ul ruleaza IN FATA peretilor (in camera), nu pe ei
+        _, _, P = _rect_perim(R_in)
+        # IESIRE (target) INTAI -> alegem capatul barei ORIENTAT spre traseu
+        cen = (sum(p["x"] for p in prz) / len(prz), sum(p["y"] for p in prz) / len(prz))
+        if stripes:                                        # IESIRE = pe conturul interior, cel mai aproape de dunga
             si = _nearest_stripe_idx(cen, stripes)
             target = _project_point_on_polyline(cen, stripes[si])[0] if si is not None else general_xy
         else:
             target = general_xy
-        exit_bp, t_exit = _project_to_rect(target[0], target[1], R)
-        for i in range(len(items) - 1):                    # lant priza->priza PE LATURI (nu prin interior)
+        exit_ip, t_exit = _project_to_rect(target[0], target[1], R_in)
+        items = []
+        for pz in prz:
+            bp, inw, alo = _wall_orient(pz["x"], pz["y"], R)         # latura CORECTA a camerei prizei
+            e1 = (bp[0] - alo[0] * _PRIZA_BAR_HALF, bp[1] - alo[1] * _PRIZA_BAR_HALF)
+            e2 = (bp[0] + alo[0] * _PRIZA_BAR_HALF, bp[1] + alo[1] * _PRIZA_BAR_HALF)
+            be = e1 if ((e1[0]-target[0])**2 + (e1[1]-target[1])**2) <= ((e2[0]-target[0])**2 + (e2[1]-target[1])**2) else e2
+            node, t = _project_to_rect(be[0] + inw[0] * 2.0, be[1] + inw[1] * 2.0, R_in)   # punct spine in fata capatului
+            items.append({"pz": pz, "node": node, "t": t})
+            add(pz["et"], be, "contur", node, "priza_stub", room, count=1, path=[be, node])   # STUB: capat bara -> spine
+            stats["priza_stub"] = stats.get("priza_stub", 0) + 1
+        items.sort(key=lambda it: it["t"])                 # spine PE CONTURUL INTERIOR, in ordine
+        for i in range(len(items) - 1):                    # lant node->node (nu pe perete)
             ai, bi = items[i], items[i + 1]
-            path = ([(ai["pz"]["x"], ai["pz"]["y"])] + _perimeter_path(ai["t"], bi["t"], R)
-                    + [(bi["pz"]["x"], bi["pz"]["y"])])
-            add(ai["pz"]["et"], path[0], bi["pz"]["et"], path[-1], "priza_lant", room, count=n, path=path)
+            path = _perimeter_path(ai["t"], bi["t"], R_in)
+            add("contur", ai["node"], "contur", bi["node"], "priza_lant", room, count=n, path=path)
             stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-        head = min(items, key=lambda it: _perim_dist(it["t"], t_exit, P))   # priza cea mai aproape de iesire
-        h2e = [(head["pz"]["x"], head["pz"]["y"])] + _perimeter_path(head["t"], t_exit, R)
-        add(head["pz"]["et"], h2e[0], "iesire", exit_bp, "priza_lant", room, count=n, path=h2e)
+        head = min(items, key=lambda it: _perim_dist(it["t"], t_exit, P))   # node cel mai aproape de iesire
+        h2e = _perimeter_path(head["t"], t_exit, R_in)
+        add("contur", h2e[0], "iesire", exit_ip, "priza_lant", room, count=n, path=h2e)
         stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-        add("iesire", exit_bp, gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)   # O linie -> dunga -> tablou
+        add("iesire", exit_ip, gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)   # O linie -> dunga -> tablou
         stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
     if general_xy and prizes:
@@ -2132,6 +2252,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # se COLECTEAZA ca spec-uri si se deseneaza DUPA toate simbolurile, cu anti-coliziune
         # (_resolve_label_overlaps) — etichetele suprapuse se stivuiesc in sus, restul raman pe loc.
         _labels = []
+        # PUNCTUL 3: bbox camere (puncte PDF) -> orientarea prizei pe perete (bara + semicerc spre interior).
+        _room_px_map = _rooms_to_px(rooms, page.rect.width, page.rect.height)
         for el in (elements or []):
             try:
                 et = (el.get("element_type") or "")
@@ -2151,7 +2273,16 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
             elif et in _PRIZA_TYPES:
-                _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0))   # simbol rotit pe perete
+                # PUNCTUL 3: bara de montaj pe perete + semicerc spre interior. Orientarea din bbox-ul
+                # camerei (_wall_orient), NU din rotation. Ancoram simbolul pe PUNCTUL DE PERETE (bp) ->
+                # bara sta pe perete. Fara bbox (open-plan / camera necunoscuta) -> desenul vechi (rotation).
+                _wi = _wa = None
+                _R = _room_px_map.get((el.get("room") or "").strip()) if _room_px_map else None
+                if _R:
+                    _bp, _wi, _wa = _wall_orient(x, y, _R)
+                    x, y = _bp[0], _bp[1]
+                _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0),
+                            wall_inward=_wi, wall_along=_wa)
                 _sp = _priza_label_spec(x, y, el)                                    # eticheta "C{circuit} - h={h}m"
                 if _sp:
                     _labels.append(_sp)
