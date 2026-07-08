@@ -349,22 +349,34 @@ def _priza_label(el):
     return " - ".join(parts)
 
 
-def _priza_label_spec(cx, cy, el):
-    """Spec eticheta priza (pozitia DE BAZA, identica cu desenul vechi): DEASUPRA prizei, centrata pe cx.
-    Offset -24 (era -16): simbolul marit 1.6x + caseta IP44 urca pana la ~-17.6 -> etichetei
-    ii trebuie mai mult aer ca sa nu se suprapuna. None daca nu e nimic de scris."""
+def _priza_label_spec(cx, cy, el, inward=None):
+    """Spec eticheta priza 'C{circuit} - h={h}m': BOLD (hebo, ca becurile) + fs 9.0 (era helv 7.5) +
+    plasata IN FATA prizei, pe directia `inward` (spre INTERIORUL camerei, aceeasi orientare ca
+    simbolul) -> in spatiul liber, NU peste hasura peretelui (priza sta PE perete). Perete vertical
+    (inward orizontal) -> eticheta LATERAL de priza, centrata vertical; perete orizontal -> eticheta
+    SUB/DEASUPRA prizei, in camera. Fara inward -> deasupra (ca inainte), doar font/marime noi."""
     txt = _priza_label(el)
     if not txt:
         return None
-    fs = 7.5
-    w = len(txt) * fs * 0.46
-    return {"text": txt, "x0": cx - w / 2.0, "y": cy - 24.0, "w": w, "fs": fs,
-            "font": "helv", "color": _PRIZA_COLOR}
+    fs = 9.0                                       # o treapta+ (era 7.5); = becurile (consistent)
+    w = len(txt) * fs * 0.50                       # bold -> caractere mai late (ca la becuri)
+    if inward is not None:
+        ix, iy = float(inward[0]), float(inward[1])
+        if abs(ix) >= abs(iy):                     # perete VERTICAL -> text lateral, in camera
+            x0 = (cx + 22.0) if ix > 0 else (cx - 22.0 - w)
+            y = cy + fs * 0.35                     # ~centrat vertical pe priza
+        else:                                      # perete ORIZONTAL -> text sub/deasupra, in camera
+            x0 = cx - w / 2.0
+            y = (cy + 30.0 + fs * 0.8) if iy > 0 else (cy - 30.0)
+        return {"text": txt, "x0": x0, "y": y, "w": w, "fs": fs,
+                "font": "hebo", "color": _PRIZA_COLOR}
+    return {"text": txt, "x0": cx - w / 2.0, "y": cy - 26.0, "w": w, "fs": fs,
+            "font": "hebo", "color": _PRIZA_COLOR}
 
 
-def _draw_priza_label(page, cx, cy, el):
+def _draw_priza_label(page, cx, cy, el, inward=None):
     """Eticheta prizei, desen IMEDIAT (fara anti-coliziune) — redraw foloseste spec+resolve in loc."""
-    sp = _priza_label_spec(cx, cy, el)
+    sp = _priza_label_spec(cx, cy, el, inward=inward)
     if sp:
         _draw_label_spec(page, sp)
 
@@ -2336,7 +2348,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     _wi, _wa = _o
                 _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0),
                             wall_inward=_wi, wall_along=_wa)
-                _sp = _priza_label_spec(x, y, el)                                    # eticheta "C{circuit} - h={h}m"
+                _sp = _priza_label_spec(x, y, el, inward=_wi)                        # eticheta IN FATA prizei (bold)
                 if _sp:
                     _labels.append(_sp)
                 n_priza += 1
@@ -2356,10 +2368,12 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 if _rh:
                     _rt = ("%s  h=%sm" % (_rt, _rh)).strip()
                 if _rt:
-                    _rfs = 7.5
-                    _rw = len(_rt) * _rfs * 0.46
-                    _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 20.0, "w": _rw,
-                                    "fs": _rfs, "font": "helv", "color": _PRIZA_COLOR})
+                    # acelasi stil ca etichetele prizelor (bold + 9.0, lizibil); receptorul sta LIBER
+                    # in camera (nu pe perete) -> eticheta ramane SUB simbol (y+24, aer pt. cercul marit)
+                    _rfs = 9.0
+                    _rw = len(_rt) * _rfs * 0.50
+                    _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 24.0, "w": _rw,
+                                    "fs": _rfs, "font": "hebo", "color": _PRIZA_COLOR})
                 n_receptor += 1
             elif et == "receptor_internet":
                 _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
