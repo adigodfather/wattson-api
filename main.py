@@ -3323,7 +3323,7 @@ class BomRequest(BaseModel):
     project_id: str = ""
     base_pdf_base64: str = ""   # pt. W/H (scala per-proiect); OPTIONAL -> fallback scala fixa
     form: dict = {}             # extra_equipment (puteri receptoare), ca la enrich
-    waste: float = 1.0          # adaos la capete (1.0 = fara; 1.10 = +10%)
+    waste: float = 1.1          # adaos (decizia Dan: +10% pe orizontale+verticale; acopera mustatile)
 
 
 @app.post("/bom")
@@ -3358,7 +3358,11 @@ def bom_endpoint(request: BomRequest):
         circuits = _ec.enrich_circuits(rows, request.form or {}, base_circuits=base_circuits)
         cables, _cstats = draw_elements.compute_cables(rows)
         scale, ssrc = _bom.derive_scale(_rooms, _W, _H)
-        out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.0))
+        # rooms (height_m) -> COBORARILE VERTICALE; power_summary -> randul de BRANSAMENT TEG;
+        # W/H -> H-ul camerei tabloului (geometric, tablourile au room null).
+        out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.1),
+                             rooms=_rooms, power_summary=rd.get("power_summary") or {},
+                             W=(_W or None), H=(_H or None))
         return {"success": True, "scale_m_per_px": round(scale, 6), "scale_source": ssrc,
                 "rows": out["rows"], "summary": out["summary"]}
     except Exception as e:

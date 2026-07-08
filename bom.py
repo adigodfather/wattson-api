@@ -175,22 +175,162 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
     return out
 
 
+# ── COBORARI VERTICALE (H camera − h montaj) — metri REALI, nu px ───────────
+_H_FALLBACK = 2.7    # H camera lipsa (rooms fara height_m / element fara camera)
+_H_GENERIC  = 0.6    # default-ul UI nespecific al mount_height_m (nu inseamna "editat")
+_H_SWITCH   = 1.1    # intrerupator (decizia Dan; datele au 0.6 generic)
+_H_PANEL    = 1.4    # tablou (plecarile circuitelor urca la tavan de la 1.4)
+
+
+def _room_heights(rooms):
+    """{nume: H (m)} din result_data.rooms[].height_m (Vision, ex. 2.7 / 3.0). Lipsa -> fallback 2.7."""
+    out = {}
+    for r in (rooms or []):
+        nm = str((r or {}).get("name") or "").strip()
+        try:
+            h = float((r or {}).get("height_m") or 0)
+        except (TypeError, ValueError):
+            h = 0.0
+        if nm:
+            out[nm] = h if h > 0 else _H_FALLBACK
+    return out
+
+
+def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
+    """Metri VERTICALI per cable_type: per element racordat max(0, H_camera − h_efectiv) + plecarile
+    din tablou (H_tablou − 1.4) per circuit. h_efectiv = mount_height_m EDITAT (≠ 0.6 generic la
+    tipurile cu alt default natural), altfel default per tip: priza 0.6, intrerupator 1.1, becuri de
+    TAVAN 0 (fara coborare), aplice de perete/senzor = h-ul lor, receptoare = mount_height_m.
+    Bucket pe cable_type-ul circuitului elementului. W/H (px pagina) optionale -> room geometric
+    pt. elementele fara room (ex. tablouri: TE-CT in Spatiu tehnic H=3.0)."""
+    hs = _room_heights(rooms)
+
+    def room_of(el):
+        r = ((el or {}).get("room") or "").strip()
+        if r:
+            return r
+        if W and H and rooms:                            # fallback geometric (tablourile au room null)
+            try:
+                return (draw_elements._room_of_point(float(el["x"]), float(el["y"]), rooms, W, H) or "").strip()
+            except (TypeError, ValueError, KeyError):
+                return ""
+        return ""
+
+    def Hc(el):
+        return hs.get(room_of(el), _H_FALLBACK)
+
+    out = {}
+
+    def put(ct, m):
+        if m > 0:
+            out[ct] = out.get(ct, 0.0) + m
+
+    # cablul circuitului elementului (id-urile per-tablou din enrich = plan_elements.circuit_id)
+    cab = {str(c.get("id") or ""): _norm_cable(c.get("cable_type")) for c in (circuits or [])}
+
+    # DEDICATELE de plan (receptoare): coborarea la element, pe cablul circuitului dedicat
+    pool = [el for el in (plan_elements or [])
+            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")]
+    for c in (circuits or []):
+        if c.get("type") != "dedicat":
+            continue
+        if not str(c.get("description") or "").strip().lower().startswith("alimentare"):
+            continue                                     # incalzirea din baza nu are element pe plan
+        el = _match_receptor(c.get("description"), pool)
+        if not el:
+            continue
+        hm = el.get("mount_height_m")
+        h = float(hm) if hm is not None else 1.0
+        put(_norm_cable(c.get("cable_type")), max(0.0, Hc(el) - h))
+
+    _SW = draw_elements._SWITCH_TYPES
+    _WALL_BULBS = {"aplica_perete", "aplica_senzor"}     # pe perete -> coboara; tavanul NU coboara
+    for el in (plan_elements or []):
+        et = (el.get("element_type") or "")
+        hm = el.get("mount_height_m")
+        try:
+            hm = None if hm is None else float(hm)
+        except (TypeError, ValueError):
+            hm = None
+        if et in _PRIZA_TYPES:
+            h = hm if hm is not None else 0.6            # 0.6 = default-ul CORECT al prizei
+            put(cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
+        elif et in _SW:
+            h = hm if (hm is not None and abs(hm - _H_GENERIC) > 1e-9) else _H_SWITCH
+            put(_ILUM_CABLE, max(0.0, Hc(el) - h))
+        elif et in _WALL_BULBS:
+            h = hm if hm is not None else _H_GENERIC
+            put(_ILUM_CABLE, max(0.0, Hc(el) - h))
+        # aplica_tavan / lustra_led / banda_led: racord la tavan -> coborare 0
+
+    # PLECARILE DIN TABLOU: fiecare circuit urca din tabloul lui la tavan (H_tablou − 1.4),
+    # pe cablul circuitului (inclusiv dedicatele de incalzire + feed-ul coloanei).
+    ppos = {}
+    for el in (plan_elements or []):
+        if (el.get("element_type") or "") in _PANEL_TYPES:
+            ppos[(el.get("element_type") or "")] = el
+    for c in (circuits or []):
+        if _section_of(c.get("cable_type")) <= 0:
+            continue                                     # fara sectiune parsabila (ex. rezerva "—")
+        panel = str(c.get("panel") or "TEG")
+        key = ("tablou_te_ct" if panel == "TE-CT" else
+               ("tablou_tes" if panel.startswith("TES") else "tablou_teg"))
+        el = ppos.get(key) or ppos.get("tablou_teg")
+        if el is None:
+            continue
+        put(_norm_cable(c.get("cable_type")), max(0.0, Hc(el) - _H_PANEL))
+    return out
+
+
+# ── BRANSAMENT TEG (coloana generala, dimensionata ca in monofilara) ─────────
+def _bransament_cable(power_summary):
+    """Tipul cablului de bransament din power_summary (schema monofilara): sectiunea din current_a
+    (aceeasi mapare normativa ca feeder-ele TEG->TES din main.py), 5x trifazat / 3x monofazat.
+    None daca nu exista power_summary (randul se omite)."""
+    ps = power_summary or {}
+    try:
+        ia = float(ps.get("current_a") or 0)
+    except (TypeError, ValueError):
+        ia = 0.0
+    if ia <= 0:
+        return None
+    size = "35"
+    for max_a, s in ((16, "2.5"), (25, "4"), (35, "6"), (50, "10"), (63, "16"), (80, "25")):
+        if ia <= max_a:
+            size = s
+            break
+    tri = "trifazat" in str(ps.get("connection") or "").lower() or "3P" in str(ps.get("main_breaker_type") or "")
+    return "CYY-F %sx%s" % ("5" if tri else "3", size)
+
+
+_BRANSAMENT_M = 20.0   # marja fixa Dan (deja acopera; NU se aplica waste peste)
+
+
 # ── BOM ──────────────────────────────────────────────────────────────────────
 def _row(cat, den, spec, qty, um):
     return {"categorie": cat, "denumire": den, "specificatie": spec, "cantitate": qty, "um": um}
 
 
-def build_bom(plan_elements, circuits, cables, scale, waste=1.0):
+def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
+              W=None, H=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
     compute_cables(plan_elements)[0] (cu length/kind). `scale` = m/px (derive_scale). `waste` =
-    factor adaos capete (1.0 = fara; 1.10 = +10%). Intoarce {rows:[...], summary, meters_source}."""
+    adaos aplicat LA FINAL pe orizontale+verticale (default 1.1 = +10%, decizia Dan; acopera si
+    mustatile). `rooms` (height_m) -> COBORARILE VERTICALE per element + plecarile din tablou.
+    `power_summary` -> randul de BRANSAMENT TEG (tip din monofilara, 20 m FIX, fara waste).
+    W/H (px pagina) optionale -> H-ul camerei tabloului determinat geometric."""
     plan_elements = plan_elements or []
     circuits = circuits or []
     rows = []
 
     # 2+7 metri cablu (per cable_type normalizat): iluminat/prize (desenate) + dedicate/coloana
+    # (ORIZONTALE, px*scale) + COBORARILE VERTICALE (H camera − h montaj + plecarile din tablou,
+    # metri reali). Waste-ul se aplica LA FINAL pe suma.
     m_by_type = _cable_meters_by_type(cables, scale)
     for ct, m in _extra_meters_by_type(plan_elements, circuits, scale).items():
+        m_by_type[ct] = m_by_type.get(ct, 0.0) + m
+    vertical_m = _vertical_drops(plan_elements, circuits, rooms, W=W, H=H)
+    for ct, m in vertical_m.items():
         m_by_type[ct] = m_by_type.get(ct, 0.0) + m
     m_by_type = {ct: v * waste for ct, v in m_by_type.items()}
 
@@ -220,12 +360,18 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.0):
     for ma, n in sorted(rccb.items()):
         rows.append(_row("Sigurante", "Protectie diferentiala RCCB %dmA" % ma, "", n, "buc"))
 
-    # ── 2. CABLURI (tip + metri) ──
+    # ── 2. CABLURI (tip + metri: orizontale + verticale, × waste) ──
     for ct in sorted(set(list(m_by_type.keys()) + list(circ_by_cable.keys()))):
         m = m_by_type.get(ct, 0.0)
         n = circ_by_cable.get(ct, 0)
         spec = "%d circuite" % n if n else "coloana/feed"
         rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m"))
+    # BRANSAMENT TEG (coloana generala): tip dimensionat ca in monofilara (power_summary),
+    # 20 m FIX (marja Dan — deja acopera, NU intra sub waste; nici la tuburi: pozare separata).
+    bransament_ct = _bransament_cable(power_summary)
+    bransament_m = _BRANSAMENT_M if bransament_ct else 0.0
+    if bransament_ct:
+        rows.append(_row("Cabluri", bransament_ct, "bransament TEG (fix)", round(bransament_m, 1), "m"))
 
     # ── 3. PRIZE (plan_elements, pe tip) ──
     prz = {}
@@ -279,7 +425,8 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.0):
     for d, m in sorted(tub.items()):
         rows.append(_row("Tuburi", d, "", round(m, 1), "m"))
 
-    total_m = round(sum(m_by_type.values()), 1)
+    total_m = round(sum(m_by_type.values()) + bransament_m, 1)
     summary = {"circuite": len(circuits), "metri_cablu_total": total_m,
+               "metri_verticali": round(sum(vertical_m.values()), 1), "waste": waste,
                "randuri": len(rows), "categorii": len(set(r["categorie"] for r in rows))}
     return {"rows": rows, "summary": summary}
