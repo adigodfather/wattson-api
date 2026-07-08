@@ -468,8 +468,48 @@ def swap_cartus_plan(data: dict) -> dict:
             "detected": {"format": fmt, "scara": scara, "cartus_bbox": None},
         }
 
-    # 5. Acoperire cartus vechi cu alb opac
-    page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
+    # 5. Acoperire cartus vechi cu alb opac. +6pt pe laturi: CHENARUL vectorial al cartusului e
+    # putin in AFARA bbox-ului text-detectat (masurat pe c7890: linia de sus la y=1055 vs bbox
+    # 1059.6) — altfel ramane un chenar dublu subtire la cartusul Zynapse. Blocul e in colt: safe.
+    page.draw_rect(fitz.Rect(max(0.0, bbox.x0 - 6.0), max(0.0, bbox.y0 - 6.0),
+                             min(W, bbox.x1 + 6.0), min(H, bbox.y1 + 6.0)),
+                   color=(1, 1, 1), fill=(1, 1, 1))
+
+    # 5a. GUNOI DE EXPORT + contact izolat — TINTIT pe BBOX-uri de CUVINTE (nu zone: imposibil sa
+    # taie din plan): (1) watermark-ul ArchiCAD 'GSPublisherVersion' + numarul de versiune adiacent,
+    # ORIUNDE pe plansa (mereu gunoi de export, niciodata continut; pe portrait banda de jos il
+    # prinde oricum — aici e universal); (2) LANDSCAPE, in banda cartusului (sub nivelul lui, in
+    # afara blocului): telefoane/email/'Tel.'/'contact' — pattern CONSERVATOR: numar cu >=2
+    # separatoare (telefon '586.42.43.21' DA; cota '16.80' are 1 -> NU; bulinele/ACCES nu
+    # match-uiesc). La dubiu nu se sterge.
+    wiped_words = []
+    try:
+        _words_all = page.get_text("words")
+        _marks = []
+        _re_ver = re.compile(r"^[\d.]+$")      # STRICT numar de versiune: doar cifre+puncte, >=2 puncte
+        for _w in _words_all:
+            if "gspublisher" in _norm(_w[4]):
+                _marks.append(_w)
+                for _v in _words_all:          # versiunea de pe aceeasi linie, imediat dupa ('0.0.100.100')
+                    if (_v is not _w and abs(_v[1] - _w[1]) < 3.0 and 0.0 <= _v[0] - _w[2] < 25.0
+                            and _re_ver.match(_v[4]) and _v[4].count(".") >= 2):
+                        _marks.append(_v)      # cotele planului ('1560', '85') NU trec (0-1 puncte)
+        if W > H:
+            _re_num = re.compile(r"^[\d\.\-/ ]{8,}$")
+            for _w in _words_all:
+                if _w[1] < bbox.y0 - 15.0 or (bbox.x0 - 8.0 <= _w[0] <= bbox.x1 + 8.0):
+                    continue                   # doar banda cartusului, in AFARA blocului lui
+                _t = _norm(_w[4])
+                _nsep = _w[4].count(".") + _w[4].count("-") + _w[4].count("/")
+                if (_t in ("tel", "tel.", "fax", "fax.", "email", "e-mail", "contact") or "@" in _w[4]
+                        or (_re_num.match(_w[4]) and _nsep >= 2)):
+                    _marks.append(_w)
+        for _w in _marks:
+            page.draw_rect(fitz.Rect(_w[0] - 1.5, _w[1] - 1.5, _w[2] + 1.5, _w[3] + 1.5),
+                           color=(1, 1, 1), fill=(1, 1, 1))
+            wiped_words.append(_w[4])
+    except Exception:
+        pass
 
     # 5b. CURATAREA BENZII ADMINISTRATIVE DE JOS (decizia Dan, 08.07.2026 v2). Plansa de
     # arhitectura = PLANUL (sus: camere/cote/axe/titluri — ramane INTACT, fara masca pe margini,
@@ -612,6 +652,7 @@ def swap_cartus_plan(data: dict) -> dict:
             "tables_bbox_mijloc": tables_bbox_mijloc,
             "bottom_band": bottom_band,       # [0,G,W,H] banda de jos albita COMPLET (None = fallback/lateral)
             "right_band": right_band,         # [G,top,W,H] coloana dreapta albita (LANDSCAPE; None = fallback)
+            "wiped_words": wiped_words,       # gunoi export (GSPublisherVersion) + contact izolat (bbox-uri albite)
             "margins_masked": margins_bbox,   # mereu None (masca Vision dezactivata — taia planul)
         },
     }
