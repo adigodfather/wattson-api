@@ -1996,15 +1996,72 @@ def assign_rooms_to_prizas(elements, rooms, W, H):
 _BULB_DEFAULT_W = 25   # bec fara power_w -> 25W (valoarea reala precompletata)
 
 
+_TECH_ROOM_TOL_PT = 60.0   # decizia Dan (Faza 1 TE-CT): tabloul la <=60pt (~1.2m la 1:50) de bbox
+_TECH_SIGNALS = ("tehnic", "technical", "spatiu_tehnic")   # nume RO / function / room_type (Vision)
+
+
+def _room_is_tech(r):
+    """Semnalul de camera TEHNICA al unei camere Vision: name / function / room_type."""
+    for k in ("name", "function", "room_type"):
+        if any(s in str((r or {}).get(k) or "").strip().lower() for s in _TECH_SIGNALS):
+            return True
+    return False
+
+
 def _detect_tech_room(elements, rooms, W, H):
-    """Camera TE-CT = camera care CONTINE elementul tablou_te_ct (point-in-bbox, ca prizele).
-    None daca lipseste tabloul TE-CT pe plan -> fara grup -TECT (toate elementele raman TEG)."""
-    for el in (elements or []):
+    """Camera TE-CT = POZITIA tabloului_te_ct, DOAR printre camerele cu SEMNAL TEHNIC (name/
+    function/room_type Vision — sinteza regulilor Dan #1+#2): tabloul IN bbox-ul unei camere
+    tehnice (overlap -> cea mai mica), altfel camera tehnica cu bbox-ul la <=60pt (daca >=2
+    tehnice in prag -> ambiguu -> None). Camerele NORMALE nu pot ajunge pe TE-CT indiferent
+    de apropiere (regula #1) — MASURAT pe cazurile reale: tabloul era la 2pt de bbox-ul
+    'Dormitor 1' (b22) si la 56pt de 'Dressing' (c7890), dar la 100-170pt de 'Spatiu tehnic'
+    (bbox-urile Vision sunt mici/nealiniate) -> orice regula pur-geometrica captura camere
+    normale. Fara camera tehnica in prag -> None = NIMIC din plan pe TE-CT (sigur; incalzirea
+    din formular ramane pe TE-CT). NU foloseste fallback-ul nearest-center al _room_of_point
+    (ala alegea la RULETA — bug-ul initial); _room_of_point ramane NEATINS pentru prize."""
+    tab = next((el for el in (elements or [])
+                if ((el or {}).get("element_type") or "") == "tablou_te_ct"), None)
+    if tab is None or not rooms or not W or not H:
+        return None
+    try:
+        px, py = float(tab["x"]), float(tab["y"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    containing = []                                        # (arie_bbox, nume) — doar camere TEHNICE
+    near = []                                              # (dist_la_BBOX, nume) in prag — doar TEHNICE
+    for r in rooms:
+        if not _room_is_tech(r):
+            continue
+        bb = (r or {}).get("bbox") or {}
+        try:
+            x, y, w, h = float(bb["x"]), float(bb["y"]), float(bb["w"]), float(bb["h"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        name = str((r or {}).get("name") or "").strip()
+        if not name:
+            continue
+        x0, y0, x1, y1 = x * W, y * H, (x + w) * W, (y + h) * H
+        if x0 <= px <= x1 and y0 <= py <= y1:
+            containing.append((w * h, name))
+        else:
+            d = math.hypot(max(x0 - px, 0.0, px - x1), max(y0 - py, 0.0, py - y1))
+            if d <= _TECH_ROOM_TOL_PT:
+                near.append((d, name))
+    if containing:
+        return min(containing, key=lambda c: c[0])[1]
+    if len(near) == 1:
+        return near[0][1]
+    return None                                            # 0 in prag (departe) sau >=2 (ambiguu)
+
+
+def tech_room_from_elements(plan_elements):
+    """SURSA UNICA plan<->enrich (Faza 1 TE-CT): camera tehnica = room-ul PERSISTAT al elementului
+    tablou_te_ct (scris de assign_circuits cu detectia geometrica stricta pe POZITIA tabloului).
+    None daca tabloul lipseste sau room-ul nu e setat (proiect vechi/neregenerat -> apelantul
+    poate cadea pe fallback-ul legacy dupa nume)."""
+    for el in (plan_elements or []):
         if ((el or {}).get("element_type") or "") == "tablou_te_ct":
-            try:
-                return _room_of_point(float(el["x"]), float(el["y"]), rooms, W, H)
-            except (TypeError, ValueError, KeyError):
-                return None
+            return ((el or {}).get("room") or "").strip() or None
     return None
 
 
@@ -2147,15 +2204,21 @@ def assign_circuits(elements, rooms, W, H):
     Determinist/idempotent. Intoarce {n_iluminat, tech_room, n_circuits, circuits,
     updates:[{id, room, circuit_id, changed}]} -> caller-ul persista in DB DOAR `changed`."""
     elements = elements or []
-    # snapshot vechi (room+circuit_id) INAINTE de mutatie -> persistare doar daca s-a schimbat
+    # snapshot vechi (room+circuit_id) INAINTE de mutatie -> persistare doar daca s-a schimbat.
+    # + tabloul TE-CT: room-ul lui (camera tehnica detectata) se persista si el (sursa UNICA
+    # pt. enrich — tech_room_from_elements).
     old = {}
     for el in elements:
         et = (el or {}).get("element_type") or ""
-        if (et in _PRIZA_TYPES or et in _BULB_TYPES or et in _RECEPTOR_TYPES) and el.get("id"):
+        if (et in _PRIZA_TYPES or et in _BULB_TYPES or et in _RECEPTOR_TYPES
+                or et == "tablou_te_ct") and el.get("id"):
             old[el["id"]] = (el.get("room"), el.get("circuit_id"))
 
     assign_rooms_to_prizas(elements, rooms, W, H)          # seteaza el['room'] pe prize (point-in-bbox)
-    tech_room = _detect_tech_room(elements, rooms, W, H)   # camera cu tablou_te_ct (sau None -> fara -TECT)
+    tech_room = _detect_tech_room(elements, rooms, W, H)   # POZITIA tabloului (strict+60pt unic; None=sigur)
+    for el in elements:                                    # persista camera tehnica PE TABLOU (sursa unica)
+        if ((el or {}).get("element_type") or "") == "tablou_te_ct":
+            el["room"] = tech_room
     general = _detect_general_panel(elements)              # 'TES' daca planul are tablou_tes (etaj) -> sufix -TES; altfel 'TEG'
     info = compute_circuits(elements, tech_room=tech_room, general=general)
     ec = info["element_circuit"]                           # index -> circuit_id (becuri tech + TOATE prizele)
@@ -2163,6 +2226,13 @@ def assign_circuits(elements, rooms, W, H):
     updates = []
     for idx, el in enumerate(elements):
         et = (el or {}).get("element_type") or ""
+        if et == "tablou_te_ct":
+            # persista DOAR room-ul (camera tehnica = sursa unica pt. enrich); fara circuit_id
+            pid = el.get("id")
+            if pid and old.get(pid) != (el.get("room"), el.get("circuit_id")):
+                updates.append({"id": pid, "room": el.get("room"),
+                                "circuit_id": el.get("circuit_id"), "changed": True})
+            continue
         if et not in _PRIZA_TYPES and et not in _BULB_TYPES and et not in _RECEPTOR_TYPES:
             continue
         cid = ec.get(idx)                                  # None pt. becuri non-tech + receptoare (neetichetate de compute_circuits)

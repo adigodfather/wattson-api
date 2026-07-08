@@ -6,7 +6,7 @@
 # Sursa = PLANUL. Puterile: iluminat=suma becuri (plan are power_w); prize=2kW normativ (plan
 # n-are power_w pe prize); receptoare=din formular extra_equipment (plan are doar label).
 import math
-from draw_elements import compute_circuits, _BULB_DEFAULT_W
+from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
 
@@ -202,16 +202,23 @@ def assign_phases(circuits):
 _TECH_ROOM_KW = ("tehnic",)   # "spatiu tehnic" / "camera tehnica" / "tehnică" (substring lowercase)
 
 def _detect_tech_room_name(elements):
-    """Numele camerei tehnice (sau None). Doar daca planul contine un tablou_te_ct (panou TE-CT
-    plasat) SI exista o camera (din room-urile elementelor) al carei nume contine 'tehnic'.
-    None -> compute_circuits(tech_room=None) = comportament vechi (tech pe TEG)."""
+    """Numele camerei tehnice (sau None) — SURSA UNICA plan<->enrich (Faza 1 TE-CT):
+    room-ul PERSISTAT al elementului tablou_te_ct (tech_room_from_elements — scris de
+    assign_circuits cu detectia geometrica stricta pe POZITIA tabloului: in bbox / <=60pt
+    candidat unic / None). Plan si enrich = ACEEASI camera, prin constructie.
+    FALLBACK LEGACY (doar proiecte vechi, cu room-ul tabloului nepersistat): camera al carei
+    nume contine 'tehnic' — detectia istorica, pastrata pentru compatibilitate.
+    Gate: fara tablou_te_ct pe plan -> None (comportament vechi, tech pe TEG)."""
     els = elements or []
     if not any(((el or {}).get("element_type") or "") == "tablou_te_ct" for el in els):
         return None                                     # fara panou TE-CT pe plan -> fara rutare tech
-    for el in els:
-        r = ((el or {}).get("room") or "").strip()
-        if r and any(k in r.lower() for k in _TECH_ROOM_KW):
-            return r
+    r = tech_room_from_elements(els)                    # sursa unica (room persistat pe tablou)
+    if r:
+        return r
+    for el in els:                                      # LEGACY: dupa nume (proiecte neregenerate)
+        rr = ((el or {}).get("room") or "").strip()
+        if rr and any(k in rr.lower() for k in _TECH_ROOM_KW):
+            return rr
     return None
 
 
