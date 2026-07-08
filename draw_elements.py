@@ -1453,10 +1453,17 @@ def _stripe_thickness(grp, spts):
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
 
-def _draw_column(page, a, b, width=2.6):
-    """Coloana de legatura = linie SOLIDA groasa TEAL, ORTOGONALA (L) de la a=(x,y) la b=(x,y).
-    Ex. TE-CT -> TEG (ambele parter). a/b lipsa -> skip."""
+def _draw_column(page, a, b, width=2.6, path=None):
+    """Coloana de legatura = linie SOLIDA groasa TEAL de la a=(x,y) la b=(x,y). Ex. TE-CT -> TEG.
+    `path` (polilinie) dat -> coloana URMEAZA TRASEUL desenat de inginer (patul de cabluri comun,
+    ca in realitate), nu taie prin incaperi. Fara path -> L ortogonal direct (fallback, ca inainte).
+    a/b lipsa -> skip."""
     if not a or not b:
+        return
+    if path and len(path) >= 2:
+        for i in range(len(path) - 1):
+            page.draw_line(fitz.Point(path[i][0], path[i][1]), fitz.Point(path[i + 1][0], path[i + 1][1]),
+                           color=_COLUMN_COLOR, width=width)
         return
     mid = (b[0], a[1]) if abs(b[0] - a[0]) >= abs(b[1] - a[1]) else (a[0], b[1])
     for p, q in ((a, mid), (mid, b)):
@@ -1603,6 +1610,42 @@ def _wall_orient(px, py, R):
 
 _PRIZA_BAR_HALF = 7.7   # jumatatea barei de montaj (pt) — capatul barei = startul stub-ului de cablu
 
+def _room_centroids(elements):
+    """{room: (cx,cy)} = centroidul GEOMETRIC REAL al elementelor plasate in camera (becuri,
+    intrerupatoare, prize, receptoare — orice element cu room). Sursa de ORIENTARE a prizelor:
+    bbox-ul Vision e mai mic/nealiniat fata de camera reala, dar elementele sunt puse de inginer
+    pe geometria REALA -> centroidul lor e in interiorul camerei reale."""
+    pts = {}
+    for el in (elements or []):
+        room = ((el or {}).get("room") or "").strip()
+        et = (el or {}).get("element_type") or ""
+        if not room or et in ("traseu", "legenda"):
+            continue
+        try:
+            x, y = float(el["x"]), float(el["y"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        pts.setdefault(room, []).append((x, y))
+    return {r: (sum(p[0] for p in v) / len(v), sum(p[1] for p in v) / len(v)) for r, v in pts.items()}
+
+
+def _orient_axial(px, py, cen):
+    """(inward, along) pt. priza (px,py) din centroidul REAL al camerei: inward = AXA DOMINANTA a
+    vectorului priza->centroid (cvantizat axial: peretii planului sunt ortogonali -> bara de montaj
+    ramane paralela cu peretele; un inward oblic ar desena bara/semicercul strambe). along = perpendicular.
+    None daca degenerat (priza ~pe centroid, ex. camera cu 1 element) -> apelantul cade pe fallback."""
+    if not cen:
+        return None
+    dx, dy = float(cen[0]) - px, float(cen[1]) - py
+    if abs(dx) < 4.0 and abs(dy) < 4.0:
+        return None                                      # degenerat -> fallback (bbox / desen vechi)
+    if abs(dx) >= abs(dy):
+        inw = (1.0 if dx > 0 else -1.0, 0.0)
+    else:
+        inw = (0.0, 1.0 if dy > 0 else -1.0)
+    return inw, (-inw[1], inw[0])
+
+
 def _inset_rect(R, m):
     """R micsorat cu marja m pe toate laturile (contur INTERIOR, in camera) -> cablul ruleaza in
     fata peretilor, nu pe ei. Camera prea mica -> R neschimbat (fara inversare)."""
@@ -1651,11 +1694,13 @@ def _perim_dist(t1, t2, P):
     return min(d, P - d)
 
 
-def compute_cables(elements, rooms=None, W=None, H=None):
+def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
     """PAS 3 (LOGICA pura, FARA desen): asociaza becuri->intrerupatoare (pe room + tip) si
-    intrerupatoare->tablou, cu trasee L. FAZA 2a: daca rooms(bbox)+W,H sunt date, prizele unui
-    circuit se inlantuie pe PERIMETRUL bbox (nu L direct prin interior) + O SINGURA linie (mananchi
-    count=N) iese spre tablou. Fara rooms -> L direct (backward-compatible, ex. bom.py). Reguli:
+    intrerupatoare->tablou, cu trasee L. PRIZE (regula de aur, ca in realitate): DAISY-CHAIN —
+    prizele aceluiasi circuit se leaga IN LANT (capat de bara -> capat de bara), apoi O SINGURA
+    iesire din capul lantului spre TRASEUL desenat de inginer (element 'traseu', AUTORITAR) sau
+    direct spre tablou. Orientarea barelor = centroidul REAL al elementelor camerei
+    (room_centroids; se calculeaza din elements daca lipseste), bbox-ul Vision doar fallback. Reguli:
       - intrerupator_simplu + N becuri -> LANT in serie (switch -> bec nearest -> next nearest ...);
       - dublu/triplu/cap_scara -> fiecare bec -> switch (PARALEL);
       - aplica_senzor -> direct TEG (NU la intrerupator);
@@ -1703,6 +1748,9 @@ def compute_cables(elements, rooms=None, W=None, H=None):
              "skip_bec_fara_sw": 0, "skip_tablou_lipsa": 0}
 
     stripes = _extract_stripes(elements)   # FAZA B: TOATE dungile 'traseu'; [] -> fallback L direct
+    # ORIENTARE prize: centroidul REAL al elementelor per camera. redraw paseaza centroids din TOATE
+    # elementele planului (inainte de filtrarea pe plan_type) -> glyph si cablu identic orientate.
+    cen_map = room_centroids if room_centroids is not None else _room_centroids(elements)
 
     def add(ft, a, tt, b, kind, room, via_stripe=False, count=1, path=None):
         # traseele ...->tablou trec prin dunga CEA MAI APROPIATA de origine (SOL B, faza B); bec->switch local = L direct.
@@ -1798,54 +1846,54 @@ def compute_cables(elements, rooms=None, W=None, H=None):
     # un circuit = o singura plecare din tablou (capul lantului, priza cea mai apropiata de tablou).
     gen_type = "tablou_teg" if panels.get("tablou_teg") else ("tablou_tes" if panels.get("tablou_tes") else None)
     general_xy = panels.get(gen_type) if gen_type else None
-    def _route_l_direct(prz, room, n):                     # FALLBACK (fara bbox): lant nearest-neighbor L direct
+    def _route_chain(prz, room, n, R=None):
+        """REGULA DE AUR (Dan): DAISY-CHAIN — prizele circuitului in LANT (capat de bara -> capat de
+        bara, nearest-neighbor pornind de la priza cea mai apropiata de IESIRE), apoi O SINGURA iesire
+        din capul lantului spre TRASEUL desenat de inginer (autoritar, via_stripe) sau spre tablou.
+        NU mai ruteaza pe conturul bbox-ului Vision (mai mic decat camera reala -> cabluri prin mijloc).
+        Grosime: segmentul k alimenteaza prizele din aval -> count cumulativ spre iesire (trepte)."""
+        cen_room = cen_map.get((room or "").strip())
+
+        def _bar_ends(p):                                  # capetele barei de montaj (orientarea = glyph)
+            o = _orient_axial(p["x"], p["y"], cen_room)    # centroid REAL; fallback bbox doar daca degenerat
+            if o is None and R is not None:
+                _bp, _inw, _alo = _wall_orient(p["x"], p["y"], R)
+                o = (_inw, _alo)
+            if o is None:
+                return None                                # fara orientare -> lantul intra in centrul prizei
+            _inw, alo = o
+            return ((p["x"] - alo[0] * _PRIZA_BAR_HALF, p["y"] - alo[1] * _PRIZA_BAR_HALF),
+                    (p["x"] + alo[0] * _PRIZA_BAR_HALF, p["y"] + alo[1] * _PRIZA_BAR_HALF))
+
+        def _end_toward(p, t):                             # capatul barei ORIENTAT spre tinta t
+            es = _bar_ends(p)
+            if not es:
+                return (p["x"], p["y"])
+            return min(es, key=lambda e: (e[0] - t[0]) ** 2 + (e[1] - t[1]) ** 2)
+
+        # IESIREA intai: traseul desenat de inginer (cel mai apropiat de grup) sau tabloul
+        gcen = (sum(p["x"] for p in prz) / len(prz), sum(p["y"] for p in prz) / len(prz))
+        if stripes:
+            si = _nearest_stripe_idx(gcen, stripes)
+            target = _project_point_on_polyline(gcen, stripes[si])[0] if si is not None else general_xy
+        else:
+            target = general_xy
+        # LANT nearest-neighbor de la priza cea mai apropiata de iesire
         rem = list(prz)
-        start = nearest(general_xy, rem)                   # capul lantului = priza cea mai apropiata de tablou
+        start = min(rem, key=lambda p: (p["x"] - target[0]) ** 2 + (p["y"] - target[1]) ** 2)
         chain = [start]; rem.remove(start)
         cur = (start["x"], start["y"])
         while rem:
             nb = nearest(cur, rem); rem.remove(nb)
             chain.append(nb); cur = (nb["x"], nb["y"])
-        for i in range(len(chain) - 1):
-            a = (chain[i]["x"], chain[i]["y"]); b = (chain[i + 1]["x"], chain[i + 1]["y"])
-            add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", room, count=n)
+        for i in range(len(chain) - 1):                    # segmente capat-bara -> capat-bara (L simplu)
+            a = _end_toward(chain[i], (chain[i + 1]["x"], chain[i + 1]["y"]))
+            b = _end_toward(chain[i + 1], (chain[i]["x"], chain[i]["y"]))
+            add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", room, count=len(chain) - 1 - i)
             stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-        add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)
-        stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
-
-    def _route_perimeter(prz, R, room, n):                 # FAZA 2a + PUNCTUL 3: STUB din capatul barei + spine interior
-        R_in = _inset_rect(R, _PRIZA_INSET)                # spine-ul ruleaza IN FATA peretilor (in camera), nu pe ei
-        _, _, P = _rect_perim(R_in)
-        # IESIRE (target) INTAI -> alegem capatul barei ORIENTAT spre traseu
-        cen = (sum(p["x"] for p in prz) / len(prz), sum(p["y"] for p in prz) / len(prz))
-        if stripes:                                        # IESIRE = pe conturul interior, cel mai aproape de dunga
-            si = _nearest_stripe_idx(cen, stripes)
-            target = _project_point_on_polyline(cen, stripes[si])[0] if si is not None else general_xy
-        else:
-            target = general_xy
-        exit_ip, t_exit = _project_to_rect(target[0], target[1], R_in)
-        items = []
-        for pz in prz:
-            _, inw, alo = _wall_orient(pz["x"], pz["y"], R)          # DOAR orientare (inward/along) din bbox
-            bx, by = pz["x"], pz["y"]                                # bara centrata pe POZITIA pusa de inginer (autoritara)
-            e1 = (bx - alo[0] * _PRIZA_BAR_HALF, by - alo[1] * _PRIZA_BAR_HALF)
-            e2 = (bx + alo[0] * _PRIZA_BAR_HALF, by + alo[1] * _PRIZA_BAR_HALF)
-            be = e1 if ((e1[0]-target[0])**2 + (e1[1]-target[1])**2) <= ((e2[0]-target[0])**2 + (e2[1]-target[1])**2) else e2
-            node, t = _project_to_rect(be[0] + inw[0] * 2.0, be[1] + inw[1] * 2.0, R_in)   # punct spine in fata capatului
-            items.append({"pz": pz, "node": node, "t": t})
-            add(pz["et"], be, "contur", node, "priza_stub", room, count=1, path=[be, node])   # STUB: capat bara -> spine
-            stats["priza_stub"] = stats.get("priza_stub", 0) + 1
-        items.sort(key=lambda it: it["t"])                 # spine PE CONTURUL INTERIOR, in ordine
-        for i in range(len(items) - 1):                    # lant node->node (nu pe perete)
-            ai, bi = items[i], items[i + 1]
-            path = _perimeter_path(ai["t"], bi["t"], R_in)
-            add("contur", ai["node"], "contur", bi["node"], "priza_lant", room, count=n, path=path)
-            stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-        head = min(items, key=lambda it: _perim_dist(it["t"], t_exit, P))   # node cel mai aproape de iesire
-        h2e = _perimeter_path(head["t"], t_exit, R_in)
-        add("contur", h2e[0], "iesire", exit_ip, "priza_lant", room, count=n, path=h2e)
-        stats["priza_lant"] = stats.get("priza_lant", 0) + 1
-        add("iesire", exit_ip, gen_type, general_xy, "priza_tablou", room, via_stripe=True, count=n)   # O linie -> dunga -> tablou
+        # O SINGURA IESIRE: capatul barei capului de lant -> dunga (autoritara) -> tablou
+        add(start["et"], _end_toward(start, target), gen_type, general_xy, "priza_tablou", room,
+            via_stripe=True, count=n)
         stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
 
     if general_xy and prizes:
@@ -1853,16 +1901,12 @@ def compute_cables(elements, rooms=None, W=None, H=None):
         for pz in prizes:
             by_circuit.setdefault(pz.get("cid") or "", []).append(pz)
         for _cid, group in by_circuit.items():
-            by_room = {}                                   # rutare PER (circuit, camera): fiecare camera are conturul ei
+            by_room = {}                                   # rutare PER (circuit, camera): lantul nu sare intre camere
             for pz in group:
                 by_room.setdefault(pz.get("room") or "", []).append(pz)
             for _room, prz in by_room.items():
                 _n = len(prz)                              # GROSIME: mananchi de N prize -> count=N
-                R = room_px.get((_room or "").strip())
-                if R and _n >= 1:
-                    _route_perimeter(prz, R, _room, _n)    # camera cu bbox -> pe perimetru + iesire unica
-                else:
-                    _route_l_direct(prz, _room, _n)        # fara bbox (open-plan) -> L direct (ca acum)
+                _route_chain(prz, _room, _n, R=room_px.get((_room or "").strip()))
 
     # MANUNCHI PER DUNGA (GROSIME pe trepte): cablurile care converg pe ACEEASI dunga se ADUNA ->
     # o SINGURA linie cu grosime CUMULATIVA (mai groasa spre tablou), nu linii paralele. Non-stripe
@@ -2219,6 +2263,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         if not _stamped_titlu:
             _apply_cartus_suffix(doc, page, "DE ILUMINAT" if draw_plan_type == "iluminat" else "DE FORTA")
         _stamped_nr = _stamp_plansa_nr(doc, page, plansa_nr) if plansa_nr else False
+        # ORIENTAREA prizelor: centroidul REAL al elementelor per camera, din TOATE elementele
+        # planului (INAINTE de filtrarea pe plan_type: becurile/intrerupatoarele de pe iluminat
+        # fac centroidul robust si pe planul de forta). Acelasi cen_map -> glyph + cablu identice.
+        _cen_map = _room_centroids(elements)
         # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
         elements = [el for el in (elements or [])
@@ -2230,7 +2278,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _cables = []   # traseele cablurilor (path = puncte PDF) -> expuse in raspuns pt. overlay-ul editorului
         try:
             # FAZA 2a: rooms(bbox) + W,H din pagina -> prizele se ruteaza pe PERIMETRU (nu prin interior).
-            _cables, _cstats = compute_cables(elements, rooms=rooms, W=page.rect.width, H=page.rect.height)
+            _cables, _cstats = compute_cables(elements, rooms=rooms, W=page.rect.width, H=page.rect.height,
+                                              room_centroids=_cen_map)
             for _c in _cables:
                 # C2: forța (prize->tablou) = ALBASTRU (_PRIZA_COLOR); iluminat (bec/întrer./senzor) = roșu (default).
                 _kind = _c.get("kind") or ""
@@ -2274,15 +2323,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
             elif et in _PRIZA_TYPES:
-                # PUNCTUL 3: bara de montaj pe perete + semicerc spre interior. Orientarea din bbox-ul
-                # camerei (_wall_orient = inward/along), NU din rotation. POZITIA prizei = (x,y) PUSA de
-                # inginer (autoritara, pe peretele REAL); bbox-ul e DOAR pentru orientare, NU repozitionare
-                # (bbox-ul Vision e mai mic decat camera -> proiectia pe el ar aduna prizele la mijloc).
-                # Fara bbox (open-plan / camera necunoscuta) -> desenul vechi (rotation).
+                # PUNCTUL 3: bara de montaj pe perete + semicerc spre interior. POZITIA = (x,y) PUSA
+                # de inginer (autoritara). ORIENTAREA din GEOMETRIA REALA: inward = spre centroidul
+                # elementelor camerei (cvantizat axial — bara paralela cu peretii ortogonali); bbox-ul
+                # Vision DOAR fallback (centroid degenerat). Fara nimic -> desenul vechi (rotation).
                 _wi = _wa = None
-                _R = _room_px_map.get((el.get("room") or "").strip()) if _room_px_map else None
-                if _R:
-                    _, _wi, _wa = _wall_orient(x, y, _R)     # DOAR orientare; (x,y) raman poz. inginerului
+                _room_nm = (el.get("room") or "").strip()
+                _o = _orient_axial(x, y, _cen_map.get(_room_nm))
+                if _o is None and _room_px_map and _room_px_map.get(_room_nm):
+                    _, _wi, _wa = _wall_orient(x, y, _room_px_map[_room_nm])   # fallback bbox
+                elif _o:
+                    _wi, _wa = _o
                 _draw_priza(page, x, y, et, rotation=float(el.get("rotation") or 0.0),
                             wall_inward=_wi, wall_along=_wa)
                 _sp = _priza_label_spec(x, y, el)                                    # eticheta "C{circuit} - h={h}m"
@@ -2332,7 +2383,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             _draw_label_spec(page, _sp)
         # COLOANE de legatura (FORTA): feed TE-CT -> TEG (ambele parter) = linie TEAL solida.
         # Sectiunea vine din feed (result_data.circuits sub_tablou). Doar TE-CT->TEG acum
-        # (TES->TEG cross-plansa = follow-up). Defensiv: orice eroare -> skip, nu strica planul.
+        # (TES->TEG cross-plansa = follow-up). COLOANA URMEAZA TRASEELE desenate de inginer
+        # (autoritar, ca iesirile circuitelor: dunga cea mai apropiata de origine) — coloana merge
+        # prin patul comun de cabluri, NU taie prin incaperi. Fara trasee -> L direct (ca inainte).
+        # Defensiv: orice eroare -> skip, nu strica planul.
         try:
             if draw_plan_type == "forta" and feeds:
                 _pan_xy = {}
@@ -2344,10 +2398,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                         except (TypeError, ValueError, KeyError):
                             pass
                 _teg = _pan_xy.get("tablou_teg")
+                _col_stripes = _extract_stripes(elements)      # traseele plansei (deja filtrate pe forta)
                 for f in (feeds or []):
                     if (isinstance(f, dict) and f.get("type") == "sub_tablou"
                             and f.get("feeds_panel") == "TE-CT" and _teg and _pan_xy.get("tablou_te_ct")):
-                        _draw_column(page, _pan_xy["tablou_te_ct"], _teg)
+                        _a = _pan_xy["tablou_te_ct"]
+                        _si = _nearest_stripe_idx(_a, _col_stripes) if _col_stripes else None
+                        _cp = _stripe_path(_a, _teg, _col_stripes[_si]) if _si is not None else None
+                        _draw_column(page, _a, _teg, path=_cp)
         except Exception:
             pass
         # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
