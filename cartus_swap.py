@@ -140,6 +140,68 @@ def _detect_tables_bbox(page, W: float, H: float, cy0: float):
     return rect
 
 
+def _detect_tables_right(page, W, H):
+    """Bbox-ul blocului administrativ din COLOANA DREAPTA (LANDSCAPE: bilant/indicii/retrageri
+    stivuite vertical la dreapta planului): ancore TABLE_ANCORE cu x0 > 0.55W, >=4. Rect sau None."""
+    words = page.get_text("words")
+    hits = []
+    for w in words:
+        if w[0] <= 0.55 * W:
+            continue
+        if any(a in _norm(w[4]) for a in TABLE_ANCORE):
+            hits.append((w[0], w[1], w[2], w[3]))
+    if len(hits) < 4:
+        return None
+    return fitz.Rect(min(h[0] for h in hits), min(h[1] for h in hits),
+                     max(h[2] for h in hits), max(h[3] for h in hits))
+
+
+_TITLE_TOP_FRAC = 0.045   # banda titlului plansei (dreapta-sus, ex. "PLAN C1 - CASA") — PROTEJATA
+                          # la curatarea coloanei drepte (simetric cu portrait, unde titlul ramane)
+
+
+def _right_col_safe(page, W, H, G, skip=None):
+    """GARDA vectoriala (LANDSCAPE) pt. albirea FULL-HEIGHT a coloanei drepte de la granita
+    verticala G: True daca NICIUN vector de PLAN nu traverseaza G (r.x0 < G-6 si r.x1 > G+6).
+    Exclusi: chenarul paginii / liniile foarte lungi (span>0.85) + vectorii din blocul cartusului
+    (`skip` — se albeste oricum la pasul 5, cartusul traverseaza natural granita). NB: suprapunerea
+    cu skip se testeaza MANUAL — Rect.intersects() da False pe liniile degenerate (width/height=0)."""
+    try:
+        for d in page.get_drawings():
+            r = d.get("rect")
+            if not r:
+                continue
+            if r.width > 0.85 * W or r.height > 0.85 * H:
+                continue
+            if skip is not None and not (r.x1 < skip.x0 or r.x0 > skip.x1
+                                         or r.y1 < skip.y0 or r.y0 > skip.y1):
+                continue
+            if r.x0 < G - 6.0 and r.x1 > G + 6.0:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _bottom_band_safe(page, W, H, G):
+    """GARDA vectoriala pt. albirea FULL-WIDTH a benzii de jos de la granita G: True daca NICIUN
+    vector de PLAN nu traverseaza G (r.y0 < G-6 si r.y1 > G+6). Exclusi (retezati natural la G /
+    nu-s plan): chenarul paginii + liniile FOARTE lungi (x-span>0.85W sau y-span>0.85H, ex. limita
+    de proprietate verticala). Un perete/cota care traverseaza G => granita taie prin plan -> False."""
+    try:
+        for d in page.get_drawings():
+            r = d.get("rect")
+            if not r:
+                continue
+            if r.width > 0.85 * W or r.height > 0.85 * H:
+                continue                                   # chenar pagina / linii lungi de delimitare
+            if r.y0 < G - 6.0 and r.y1 > G + 6.0:
+                return False
+        return True
+    except Exception:
+        return False                                       # defensiv: garda picata -> fallback partial
+
+
 # Diacritice -> ASCII cu pastrarea CASE-ului (helv/hebo base14 nu au s/t-comma; Excelul
 # de referinta CARTUS.xlsx e oricum fara diacritice: "INSTALATII", "Plansa nr.").
 _DIAC_CASE = {"ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t",
@@ -409,42 +471,107 @@ def swap_cartus_plan(data: dict) -> dict:
     # 5. Acoperire cartus vechi cu alb opac
     page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
 
-    # 5b. Acoperire tabele arhitect in forma de L (bilant teritorial, suprafete,
-    # retrageri, categorii pericol) — face loc legendelor electrice. Inainte de desenarea
-    # cartusului Zynapse, dupa detectarea cartus_bbox.
-    #   - STANGA (x < cartus): acopera de la ty0 pana JOS (H) — acolo nu e cartus.
-    #   - MIJLOC/DEASUPRA cartus: acopera de la ty0 doar pana la cy0-2 (cartus intact).
-    # ty0 = prima ancora (cotele/axele de sus raman intacte).
+    # 5b. CURATAREA BENZII ADMINISTRATIVE DE JOS (decizia Dan, 08.07.2026 v2). Plansa de
+    # arhitectura = PLANUL (sus: camere/cote/axe/titluri — ramane INTACT, fara masca pe margini,
+    # fara Vision) + BANDA ADMINISTRATIVA jos (bilant teritorial, indicii, retrageri, categorii,
+    # cartusul arhitectului). Banda de JOS se albeste COMPLET -> loc pentru cartusul Zynapse +
+    # legenda electrica (plasata manual de inginer). DETERMINIST (text vectorial, NU Vision):
+    #   granita G = prima ancora de TABEL administrativ JOS (y>0.55H, >=4 ancore) - 4pt.
+    #   Masurat pe plansele reale: GAP plan->tabele = 8-9pt (portrait 9926) -> G nu atinge planul.
+    #   GARDA vectoriala (_bottom_band_safe): daca un vector de PLAN traverseaza G (pereti/cote;
+    #   exclus chenarul paginii + liniile verticale lungi, ex. limita de proprietate, care sunt
+    #   retezate natural la G) -> fallback L-shape DOAR pe zona tabelelor (mai bine partial
+    #   decat taiat). FARA tabele JOS (ex. landscape: bilant/NOTA LATERAL — raman, caz acceptat;
+    #   sub nivelul cartusului e ACCES-ul/axele planului) -> se albeste doar blocul cartusului
+    #   arhitectului (pasul 5). _mask_margins (Vision) RAMANE DEZACTIVAT — taia peretii pe
+    #   portrait, intermitent (diagnoza 9926ba23).
     tables_bbox = _detect_tables_bbox(page, W, H, bbox.y0)
     tables_bbox_stanga = None
     tables_bbox_mijloc = None
+    bottom_band = None
+    right_band = None
+    margins_bbox = None
+    # 5b-L. LANDSCAPE (W > H): coloana administrativa e in DREAPTA (bilant/indicii/retrageri/NOTA
+    # stivuite vertical) -> SIMETRIC cu banda de jos: granita VERTICALA G = prima ancora de tabel
+    # din dreapta (x>0.55W) - 4pt, albire FULL-HEIGHT [G -> W] sub banda titlului (protejata,
+    # _TITLE_TOP_FRAC — titlul plansei ramane, ca la portrait). GARDA _right_col_safe: vectorii de
+    # PLAN care traverseaza G (ex. cote/sageti — ACCES-ul e departe, la ~0.45W) -> fallback fara
+    # albire (doar cartusul, pasul 5). Masurat pe c7890d8d: plan pana ~0.69W, ancore de la ~0.75W.
+    if W > H:
+        _tr = _detect_tables_right(page, W, H)
+        if _tr is not None:
+            # pad 14: bbox-ul cartusului e din ANCORE-TEXT — chenarul lui vectorial e cu ~7-10pt
+            # in afara textului (masurat: linia de sus la y=1055 vs bbox text 1065) si ar umple
+            # histograma / declansa garda degeaba.
+            _skip = fitz.Rect(bbox.x0 - 14.0, bbox.y0 - 14.0, bbox.x1 + 14.0, bbox.y1 + 14.0)
+            # Granita G = mijlocul GOLULUI VECTORIAL dintre plan si coloana administrativa
+            # (histograma ocuparii pe X, excl. chenarul paginii + blocul cartusului): planul se
+            # termina (pe c7890: axe pana ~1151), box-urile admin incep (~1262) -> gol ~110pt.
+            # Prima ancora-TEXT nu e buna ca granita (box-urile incep la STANGA textului si ar
+            # traversa G). Fara gol >= 24pt intre 0.55W si ancore -> fallback (fara albire).
+            _G = None
+            try:
+                _x0d, _x1d = 0.5 * W, min(_tr.x0 + 2.0, W)
+                _n = max(1, int((_x1d - _x0d) / 2.0))          # benzi de 2pt
+                _occ = [False] * _n
+                for _d in page.get_drawings():
+                    _r = _d.get("rect")
+                    if not _r or _r.width > 0.85 * W or _r.height > 0.85 * H:
+                        continue
+                    if _r.x1 < _x0d:
+                        continue
+                    # suprapunere cu blocul cartusului testata MANUAL (Rect.intersects() da False
+                    # pe liniile degenerate width/height=0 -> cartusul ar fi umplut histograma)
+                    if not (_r.x1 < _skip.x0 or _r.x0 > _skip.x1
+                            or _r.y1 < _skip.y0 or _r.y0 > _skip.y1):
+                        continue
+                    _a = max(0, int((_r.x0 - _x0d) / 2.0))
+                    _b = min(_n, int((_r.x1 - _x0d) / 2.0) + 1)
+                    for _k in range(_a, _b):
+                        _occ[_k] = True
+                # cel mai larg gol [in benzi] care se termina la ancore / incepe dupa 0.55W
+                _best = (0, None)                              # (latime_benzi, centru_pt)
+                _run = 0
+                for _k in range(_n + 1):
+                    if _k < _n and not _occ[_k]:
+                        _run += 1
+                    else:
+                        if _run > _best[0]:
+                            _c = _x0d + (_k - _run / 2.0) * 2.0
+                            if _c >= 0.55 * W:
+                                _best = (_run, _c)
+                        _run = 0
+                if _best[0] * 2.0 >= 24.0:
+                    _G = _best[1]
+            except Exception:
+                _G = None
+            if _G is not None and _right_col_safe(page, W, H, _G, skip=_skip):
+                _top = _TITLE_TOP_FRAC * H
+                page.draw_rect(fitz.Rect(_G, _top, W, H), color=(1, 1, 1), fill=(1, 1, 1))
+                right_band = [round(_G, 1), round(_top, 1), round(W, 1), round(H, 1)]
     if tables_bbox is not None:
-        cx0, cy0 = bbox.x0, bbox.y0
-        tx0, ty0, tx1 = tables_bbox.x0, tables_bbox.y0, tables_bbox.x1
-        # Marginea dreapta a zonei MIJLOC = include TOATE cuvintele din banda tabelelor
-        # (nu doar ancorele) — prinde valorile izolate din extrema dreapta (C/3/IV/D,
-        # "sau"/"cu"/"de" etc.) care altfel raman ca o coada vizibila deasupra cartusului.
-        banda = [w for w in page.get_text("words")
-                 if w[0] >= tx0 and w[1] >= ty0 and w[3] <= cy0 + 2]
-        tx1_mijloc = max((w[2] for w in banda), default=tx1)
-        # plafoneaza ca sa NU atingi rama/chenarul planului din dreapta
-        tx1_mijloc = min(tx1_mijloc + 4.0, W * 0.96)
-        # a) STANGA: pana jos la H-2, doar pana la marginea stanga a cartusului (cx0-2)
-        rs = (tx0, ty0, min(tx1, cx0 - 2.0), H - 2.0)
-        # b) MIJLOC: de la marginea stanga a cartusului pana la tx1_mijloc, doar pana la cy0-2
-        rm = (max(tx0, cx0 - 2.0), ty0, tx1_mijloc, cy0 - 2.0)
-        if rs[0] < rs[2] and rs[1] < rs[3]:
-            page.draw_rect(fitz.Rect(*rs), color=(1, 1, 1), fill=(1, 1, 1))
-            tables_bbox_stanga = [round(rs[0], 1), round(rs[1], 1),
-                                  round(rs[2], 1), round(rs[3], 1)]
-        if rm[0] < rm[2] and rm[1] < rm[3]:
-            page.draw_rect(fitz.Rect(*rm), color=(1, 1, 1), fill=(1, 1, 1))
-            tables_bbox_mijloc = [round(rm[0], 1), round(rm[1], 1),
-                                  round(rm[2], 1), round(rm[3], 1)]
-
-    # 5c. Curatare partiala: maschera marginile (bloc arhitect, cote/bule exterioare, legende vechi)
-    # pe baza union(rooms.bbox)+padding. INAINTE de cartus -> cartusul Zynapse ramane DEASUPRA mastii.
-    margins_bbox = _mask_margins(page, data.get("rooms"))
+        G = max(0.55 * H, tables_bbox.y0 - 4.0)
+        if _bottom_band_safe(page, W, H, G):
+            # banda administrativa COMPLETA (toata latimea, pana jos) — cartusul Zynapse se
+            # deseneaza DUPA, peste banda alba (pasul 6), pe pozitia conventionala dreapta-jos.
+            page.draw_rect(fitz.Rect(0.0, G, W, H), color=(1, 1, 1), fill=(1, 1, 1))
+            bottom_band = [0.0, round(G, 1), round(W, 1), round(H, 1)]
+        else:
+            # fallback partial (garda a gasit vectori de plan peste granita): L-shape pe zona
+            # tabelelor, ca inainte — STANGA de cartus pana jos + MIJLOC pana deasupra cartusului.
+            cx0, cy0 = bbox.x0, bbox.y0
+            tx0, ty0, tx1 = tables_bbox.x0, tables_bbox.y0, tables_bbox.x1
+            banda = [w for w in page.get_text("words")
+                     if w[0] >= tx0 and w[1] >= ty0 and w[3] <= cy0 + 2]
+            tx1_mijloc = min(max((w[2] for w in banda), default=tx1) + 4.0, W * 0.96)
+            rs = (tx0 - 4.0, ty0 - 4.0, min(tx1 + 4.0, cx0 - 2.0), H - 2.0)
+            rm = (max(tx0 - 4.0, cx0 - 2.0), ty0 - 4.0, tx1_mijloc, cy0 - 2.0)
+            if rs[0] < rs[2] and rs[1] < rs[3]:
+                page.draw_rect(fitz.Rect(*rs), color=(1, 1, 1), fill=(1, 1, 1))
+                tables_bbox_stanga = [round(v, 1) for v in rs]
+            if rm[0] < rm[2] and rm[1] < rm[3]:
+                page.draw_rect(fitz.Rect(*rm), color=(1, 1, 1), fill=(1, 1, 1))
+                tables_bbox_mijloc = [round(v, 1) for v in rm]
 
     # 6. Cartus nou (acelasi bbox, scara detectata)
     title_rect, title_base, plansa_box = _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
@@ -483,7 +610,9 @@ def swap_cartus_plan(data: dict) -> dict:
                             if tables_bbox is not None else None),
             "tables_bbox_stanga": tables_bbox_stanga,
             "tables_bbox_mijloc": tables_bbox_mijloc,
-            "margins_masked": margins_bbox,   # [X0,Y0,X1,Y1] pct PDF (None daca fara rooms)
+            "bottom_band": bottom_band,       # [0,G,W,H] banda de jos albita COMPLET (None = fallback/lateral)
+            "right_band": right_band,         # [G,top,W,H] coloana dreapta albita (LANDSCAPE; None = fallback)
+            "margins_masked": margins_bbox,   # mereu None (masca Vision dezactivata — taia planul)
         },
     }
 
