@@ -1294,14 +1294,72 @@ def generate_schema_pdf(request: SchemaRequest) -> bytes:
                            zones["footer_top"], zones["footer_bottom"],
                            x_override=legend_notes_x,
                            w_override=legend_notes_w)
-    draw_cartouche(c, layout["width_mm"], request,
-                   zones["footer_top"], zones["footer_bottom"],
-                   x_override=cartouche_x,
-                   w_override=CARTOUCHE_WIDTH_MM)
     c.showPage()
 
     c.save()
-    return buf.getvalue()
+    raw = buf.getvalue()
+
+    # CARTUS UNIFICAT (decizia Dan, 08.07.2026): cartusul schemei = IDENTIC cu al PLANURILOR —
+    # nu replica reportlab, ci ACEEASI functie (cartus_swap._draw_cartus) aplicata cu fitz pe
+    # PDF-ul reportlab, pe locul fostului cartouche (dreapta-jos, 210mm). Titlul + numarul se
+    # scriu prin ACELASI mecanism ca la planuri (metadata zy_cartus_* + restamp_plansa) ->
+    # restamp-ul ulterioar din n8n ramane compatibil. Numerotarea (plansa_nr din request, Pas 1
+    # n8n) NEATINSA. Defensiv: orice eroare -> schema cu cartouche-ul reportlab VECHI (fallback
+    # desenat mai jos), niciodata crash.
+    try:
+        import fitz
+        import cartus_swap as _cs
+        doc = fitz.open(stream=raw, filetype="pdf")
+        pg = doc[0]
+        MMPT = 72.0 / 25.4
+        bbox = fitz.Rect(cartouche_x * MMPT, zones["footer_top"] * MMPT,
+                         (cartouche_x + CARTOUCHE_WIDTH_MM) * MMPT,
+                         zones["footer_bottom"] * MMPT)
+        cf = request.cartus_firma.dict()
+        cp = request.cartus_proiect.dict()
+        nr = request.cartus_proiect.plansa_nr or ""
+        scara = request.cartus_proiect.scara or "-"          # schema monofilara: fara scara
+        title_rect, title_base, plansa_box = _cs._draw_cartus(pg, bbox, cf, cp, nr, None, scara)
+        try:
+            doc.set_metadata({**(doc.metadata or {}),
+                              "keywords": "zy_cartus_plansa=%.1f,%.1f,%.1f,%.1f|"
+                                          "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
+                                          % (plansa_box[0], plansa_box[1], plansa_box[2], plansa_box[3],
+                                             title_rect[0], title_rect[1], title_rect[2], title_rect[3],
+                                             title_base)})
+        except Exception:
+            pass
+        out = doc.tobytes(deflate=True)
+        doc.close()
+        # titlul REAL al plansei (numele oficial din borderou: SCHEMA ELECTRICA MONOFILARA <tablou>)
+        # scris prin restamp_plansa — EXACT mecanismul folosit de n8n la renumerotarea finala.
+        titlu = "SCHEMA ELECTRICA MONOFILARA %s" % (request.tablou_descriere or request.tablou_nume or "").strip()
+        rs = _cs.restamp_plansa(out, nr, titlu.strip())
+        if rs.get("success") and rs.get("pdf_base64"):
+            import base64 as _b64
+            return _b64.b64decode(rs["pdf_base64"])
+        return out
+    except Exception:
+        # fallback: regenereaza cu cartouche-ul reportlab vechi (schema NU ramane fara cartus)
+        buf2 = BytesIO()
+        c2 = canvas.Canvas(buf2, pagesize=page_size)
+        draw_page_frame(c2, layout["width_mm"])
+        draw_header(c2, layout["width_mm"], request)
+        draw_schema_full(c2, layout["width_mm"], request,
+                         request.circuits or [], 1, layout, zones)
+        draw_table_full(c2, layout["width_mm"], request.circuits or [],
+                        zones["table_top"], zones["table_bottom"])
+        draw_legend_notes_full(c2, layout["width_mm"],
+                               zones["footer_top"], zones["footer_bottom"],
+                               x_override=legend_notes_x,
+                               w_override=legend_notes_w)
+        draw_cartouche(c2, layout["width_mm"], request,
+                       zones["footer_top"], zones["footer_bottom"],
+                       x_override=cartouche_x,
+                       w_override=CARTOUCHE_WIDTH_MM)
+        c2.showPage()
+        c2.save()
+        return buf2.getvalue()
 
 
 # =============================================================================
