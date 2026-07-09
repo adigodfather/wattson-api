@@ -13,7 +13,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
-import { HEATING_RECEPTOR_TYPES } from "@/lib/constants";   // Regula 10: receptoare termice (radiator/VCV/distribuitor zona)
+import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors } from "@/lib/constants";   // Regula 10 + H5: receptoare termice gate-uite pe heating_distribution
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -341,10 +341,11 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [], heatingDistribution = null,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
-     rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[] }) {
+     rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
+     heatingDistribution?: string | null }) {   // H5: emisia din formular -> ce butoane termice apar in paleta
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1448,9 +1449,10 @@ export default function PlanEditor({
             ))}
             {/* RETEA INTERNET = element_type propriu + SIMBOL propriu (turcoaz + router + WiFi), acelasi mod 1-click. */}
             <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("receptor_internet", "internet")}>+ Rețea internet</button>
-            {/* Regula 10: receptoare termice — radiator/VCV se GRUPEAZA (plafon 2kW), distribuitor zona = dedicat.
-                Label EXACT ("Distribuitor zona" declanseaza _is_zone_distributor in backend -> TEG/TES). */}
-            {HEATING_RECEPTOR_TYPES.map(h => (
+            {/* Regula 10 + H5: receptoare termice — apar STRICT dupa emisia din formular (heating_distribution):
+                pardoseala -> Distribuitor zona ; VCV -> VCV + Distribuitor ; radiatoare electrice -> Radiator.
+                Irelevantele NU se randeaza (ascunse complet, nu disabled). Radiator/VCV se GRUPEAZA (plafon 2kW). */}
+            {visibleHeatingReceptors(heatingDistribution).map(h => (
               <button key={h.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", h.label)}>+ {h.label}</button>
             ))}
           </div>

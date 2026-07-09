@@ -112,11 +112,22 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
 export const HEATING_RECEPTOR_TYPES: {
   label: string; default_w: number; default_phase: "mono" | "tri"; default_height: number;
   editablePower: boolean; editablePhase: boolean;
+  visibleFor: string[];   // H5: valorile EXACTE de heating_distribution la care butonul apare in paleta
 }[] = [
-  { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true },
-  { label: "VCV",               default_w: 100,  default_phase: "mono", default_height: 2.2, editablePower: true, editablePhase: true },
-  { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false },
+  { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true,  visibleFor: ["electric_radiator"] },
+  { label: "VCV",               default_w: 100,  default_phase: "mono", default_height: 2.2, editablePower: true, editablePhase: true,  visibleFor: ["fan_coil"] },
+  { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false, visibleFor: ["floor_heating", "fan_coil"] },
 ];
+
+// H5: butoanele termice apar STRICT dupa emisia aleasa in formular (heating_distribution). Helper PUR.
+// floor_heating -> Distribuitor zona ; fan_coil -> VCV + Distribuitor zona ; electric_radiator -> Radiator.
+// Orice altceva (radiant_ceiling / existing / "radiatoare pe apa" / gol / necunoscut) -> [] (ascunse complet,
+// nu propunem echipamente gresite cand sistemul nu e cunoscut). Fara override, fara "adauga oricum".
+export function visibleHeatingReceptors(heatingDistribution: string | null | undefined) {
+  const d = (heatingDistribution || "").trim();
+  if (!d) return [];
+  return HEATING_RECEPTOR_TYPES.filter(t => t.visibleFor.includes(d));
+}
 
 // ─── Motor (industrial) ───────────────────────────────────────────────────────
 

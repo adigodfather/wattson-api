@@ -2483,6 +2483,7 @@ export function ZynapseConfigurator() {
                   floor={floorCanonic(editorPlansaIdx)}
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}
+                  heatingDistribution={form.heating_distribution}
                 />
               </div>
             )}
