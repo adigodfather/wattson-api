@@ -116,13 +116,14 @@ export const HEATING_RECEPTOR_TYPES: {
 }[] = [
   { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true,  visibleFor: ["electric_radiator"] },
   { label: "VCV",               default_w: 100,  default_phase: "mono", default_height: 2.2, editablePower: true, editablePhase: true,  visibleFor: ["fan_coil"] },
-  { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false, visibleFor: ["floor_heating", "fan_coil"] },
+  { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false, visibleFor: ["floor_heating", "radiant_ceiling", "fan_coil"] },
 ];
 
 // H5: butoanele termice apar STRICT dupa emisia aleasa in formular (heating_distribution). Helper PUR.
-// floor_heating -> Distribuitor zona ; fan_coil -> VCV + Distribuitor zona ; electric_radiator -> Radiator.
-// Orice altceva (radiant_ceiling / existing / "radiatoare pe apa" / gol / necunoscut) -> [] (ascunse complet,
-// nu propunem echipamente gresite cand sistemul nu e cunoscut). Fara override, fara "adauga oricum".
+// floor_heating + radiant_ceiling -> Distribuitor zona (aceleasi bucle/actuatoare/distribuitor de zona) ;
+// fan_coil -> VCV + Distribuitor zona ; electric_radiator -> Radiator electric.
+// Orice altceva (existing / "radiatoare pe apa" / gol / necunoscut) -> [] (ascunse complet, nu propunem
+// echipamente gresite cand sistemul nu e cunoscut). Fara override, fara "adauga oricum".
 export function visibleHeatingReceptors(heatingDistribution: string | null | undefined) {
   const d = (heatingDistribution || "").trim();
   if (!d) return [];
