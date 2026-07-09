@@ -3504,7 +3504,7 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
             print("[regenerate-plan] numerotare skip:", _e3)
         return draw_elements.redraw_from_plan_elements(
             request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms,
-            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu)
+            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

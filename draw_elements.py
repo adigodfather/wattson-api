@@ -446,27 +446,52 @@ def _legend_label(kind, element_type, power_w=None, label=None):
     return base
 
 
-def _legend_cable_rows(elements, plan_type, present, feeds=None):
-    """Randuri de cablu pt. legenda, pe plan_type: iluminat -> 3x1.5; forta -> 3x2.5 (prize) +
-    sectiunile DEDICATELOR daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal)."""
+def _norm_cable_display(cbl):
+    """Format UNIC 'CYY-F NxM' din formatele variate din DB ('5x4 mm2 CYYF', 'CYY-F 3x2.5',
+    'CYY-F 5x6mmp'). None/neparsabil -> textul brut trimmat."""
+    m = re.search(r"(\d+)\s*[xX]\s*([\d.]+)", str(cbl or ""))
+    if not m:
+        return str(cbl or "").strip()
+    sec = ("%s" % m.group(2)).rstrip("0").rstrip(".") or m.group(2)
+    return "CYY-F %sx%s" % (m.group(1), sec)
+
+
+def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None):
+    """Randuri de cablu pt. legenda, din CIRCUITELE REALE (sursa unica), pe plan_type:
+    iluminat -> 3x1.5; forta -> 3x2.5 (prize) + sectiunile DEDICATELOR (din circuits, NU re-derivate
+    din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
+    circuits lipsa (proiect vechi) -> FALLBACK la re-derivarea din puteri default (comportamentul vechi)."""
     if plan_type != "forta":
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
     texts = []
     if present & _PRIZA_TYPES:
-        texts.append(_LEGEND_CABLE_FORTA)                           # 2.5 prize
-    recs = [el for el in (elements or []) if ((el or {}).get("element_type") or "") == "alimentare_receptor"]
+        texts.append(_LEGEND_CABLE_FORTA)                           # 2.5 prize (normativ fix)
+    recs = [el for el in (elements or [])
+            if ((el or {}).get("element_type") or "") in ("alimentare_receptor", "receptor_internet")]
     if recs:
         try:                                                        # lazy (evita import circular)
             import enrich_circuits as _ec
+            # SURSA UNICA: tip echipament -> cable_type REAL din circuits (dimensionat de enrich,
+            # inclusiv puterile custom din formular). Fallback: re-derivare din default daca circuits lipsa.
+            eqmap = {}
+            for c in (circuits or []):
+                if isinstance(c, dict) and c.get("type") == "dedicat":
+                    k = _ec._equip_key(c.get("description") or c.get("usage"))
+                    if k and k not in eqmap:
+                        eqmap[k] = c.get("cable_type")
             for el in recs:
-                pw, _tip, ph, _src = _ec.receptor_power(el.get("label"), {})
-                if not pw:
-                    continue
-                tri = str(ph).lower() in ("tri", "trifazat", "3")
-                brk, _ia = _ec.breaker_and_ia(pw, tri=tri, minimum=16)
-                cbl, sec = _ec.cable_type("dedicat", brk, False, tri=tri)
-                if sec and sec != 2.5:                              # sectiuni DIFERITE de prize -> nu dublam
-                    texts.append("Cablu alimentare dedicata " + cbl + " mmp")
+                is_net = (el.get("element_type") or "") == "receptor_internet"
+                lbl = "internet" if is_net else el.get("label")
+                cbl = eqmap.get(_ec._equip_key(lbl))                # sectiunea REALA din circuits
+                if not cbl:                                         # FALLBACK: proiect vechi fara circuits
+                    pw, _tip, ph, _src = _ec.receptor_power(lbl, {})
+                    pw = pw or (_ec._NET_RECEPTOR_W if is_net else 0)
+                    if not pw:
+                        continue
+                    tri = str(ph).lower() in ("tri", "trifazat", "3")
+                    cbl, _sec = _ec.cable_type("dedicat", _ec.breaker_and_ia(pw, tri=tri, minimum=16)[0], False, tri=tri)
+                if _ec._section_of(cbl) not in (0.0, 2.5):          # != prize (2.5 = deja in randul generic)
+                    texts.append("Cablu alimentare dedicata %s mmp" % _norm_cable_display(cbl))
         except Exception:
             pass
     if not texts:
@@ -489,7 +514,7 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None):
     return out
 
 
-def build_legend_rows(elements, plan_type="iluminat", feeds=None):
+def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None):
     """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
     Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
       ILUMINAT: becuri (pe tip+putere) + intrerupatoare (prezente) + tablouri + cablu 3x1.5.
@@ -541,8 +566,8 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None):
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
-    # g) CABLU pe plan_type (+ dedicate la forta + COLOANE feed sub_tablou)
-    cable_rows = _legend_cable_rows(elements, plan_type, present, feeds)
+    # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
+    cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits)
 
     return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + cable_rows
 
@@ -1462,6 +1487,57 @@ def _stripe_thickness(grp, spts):
     return out
 
 
+_BUNDLE_CAP = 5   # cate manunchiuri PARALELE distincte incap pe o dunga (surplusul se cumuleaza in slotul exterior)
+# coloana TE-CT (teal) = slot LATERAL fix, dincolo de manunchiurile de prize (centrate pe ±(cap-1)/2*gap=±6pt)
+_COLUMN_STRIPE_OFFSET = ((_BUNDLE_CAP - 1) / 2.0 + 1.0) * _BUNDLE_GAP   # = 9pt
+
+
+def _stripe_parallel(grp, spts, cap=_BUNDLE_CAP, gap=_BUNDLE_GAP):
+    """BUG 4: manunchiurile care urmeaza ACEEASI dunga se deseneaza PARALEL (offset lateral simetric),
+    NU cumulate intr-o linie groasa. Fiecare cablu re-rutat via _stripe_path cu offset-ul slotului lui:
+      - ALOCARE GEOGRAFICA: sortare dupa latura de intrare (proiectia perpendiculara a from_xy pe dunga)
+        -> cel din stanga primeste slotul din stanga (fara incrucisari la intrare).
+      - offset(slot i din n) = (i - (n-1)/2) * gap, simetric fata de centru.
+      - CAPACITATE cap: primele cap sloturi distincte; surplusul (cap+1..) -> slotul exterior (cumulat).
+    Endpoint-urile (from_xy/to_xy) raman FIXE (doar portiunea comuna de pe dunga e paralela). spts<2 -> neschimbat."""
+    if not spts or len(spts) < 2 or not grp:
+        return grp
+    arcs = _arc_lengths(spts)
+    dx, dy = spts[-1][0] - spts[0][0], spts[-1][1] - spts[0][1]
+    L = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / L, dx / L                              # normala unitara a dungii (axa perpendiculara)
+
+    def _side(c):                                         # latura de intrare = proiectia perpendiculara a from_xy
+        fxy = c.get("from_xy")
+        if not fxy:
+            return 0.0
+        _ea, ep = _arc_of_proj(fxy, spts, arcs)
+        return (fxy[0] - ep[0]) * nx + (fxy[1] - ep[1]) * ny
+
+    ordered = sorted(grp, key=_side)                      # geografic: stanga->dreapta pe axa perpendiculara
+    nslots = min(len(ordered), cap)
+    out = []
+    for i, c in enumerate(ordered):
+        slot = min(i, cap - 1)                            # surplus -> slotul exterior
+        off = (slot - (nslots - 1) / 2.0) * gap           # simetric fata de centrul dungii
+        a, b = c.get("from_xy"), c.get("to_xy")
+        c2 = dict(c)
+        if a and b:
+            c2["path"] = _stripe_path(a, b, spts, offset=off)   # re-rutare PARALELA (endpoint-uri fixe)
+        out.append(c2)
+    return out
+
+
+_HEATING_KW = ("boiler", "pdc", "pompa", "bms", "automatizare", "distribuitor", "aer-apa", "sol-apa", "centrala termic")
+
+
+def _is_heating_receptor(label):
+    """Receptor din CLASA 1 (echipament de incalzire, legat de TE-CT indiferent de pozitie):
+    boiler/pdc/pompe/bms/distribuitor. Clasa 2 (cuptor/AC/internet/EV) -> panel dupa camera."""
+    t = (label or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
+    return any(k in t for k in _HEATING_KW)
+
+
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
 
@@ -1719,7 +1795,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
       - intrerupator -> TEG, EXCEPTIE room contine 'tehnic' -> TE-CT.
     Skip sigure: intrerupator cu room null (legacy), bec non-senzor fara switch in camera, tablou lipsa.
     Returneaza (cables, stats). cable = {from_type, from_xy, to_type, to_xy, path:[(x,y)..], kind, length, room}."""
-    bulbs, switches, panels, prizes = [], [], {}, []
+    bulbs, switches, panels, prizes, receptors = [], [], {}, [], []
     for el in (elements or []):
         try:
             et = el.get("element_type") or ""
@@ -1736,6 +1812,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
             panels[et] = (x, y)            # de obicei 1 per tip
         elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
             prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id")})
+        elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> O LINIE proprie la tabloul lui (BUG 3b)
+            receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label")})
     teg = panels.get("tablou_teg")
     tect = panels.get("tablou_te_ct")
 
@@ -1920,10 +1998,27 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 _n = len(prz)                              # GROSIME: mananchi de N prize -> count=N
                 _route_chain(prz, _room, _n, R=room_px.get((_room or "").strip()))
 
-    # MANUNCHI PER DUNGA (GROSIME pe trepte): cablurile care converg pe ACEEASI dunga se ADUNA ->
-    # o SINGURA linie cu grosime CUMULATIVA (mai groasa spre tablou), nu linii paralele. Non-stripe
-    # (lant intra-camera, iluminat) raman cu grosimea lor pe count. _stripe_thickness sparge dunga
-    # pe segmente cu count cumulat + adauga cozile priza->dunga.
+    # RECEPTOARE (FORTA, BUG 3b): fiecare receptor = O LINIE PROPRIE de la pozitia lui la TABLOUL lui,
+    # via traseu (ca iesirile prizelor). Panel dupa CAMERA: camera tehnica SAU echipament de incalzire
+    # (boiler/pdc/pompe/bms/distribuitor = clasa 1, legate de tabloul lor) -> TE-CT; altfel (cuptor/AC/
+    # internet/EV = clasa 2) -> tabloul general (TEG/TES). Dedicat -> linie proprie, grosime proprie (count=1).
+    if receptors and (general_xy or tect):
+        tech_l = (tech_room_from_elements(elements) or "").strip().lower()
+        for rc in receptors:
+            rroom = (rc.get("room") or "").strip().lower()
+            to_tect = (tect is not None) and (_is_heating_receptor(rc.get("label"))
+                                              or (bool(tech_l) and rroom == tech_l))
+            tgt_xy = tect if to_tect else general_xy
+            tgt_ty = "tablou_te_ct" if to_tect else gen_type
+            if tgt_xy is None:
+                continue
+            add(rc["et"], (rc["x"], rc["y"]), tgt_ty, tgt_xy, "receptor_dedicat", rc.get("room"),
+                via_stripe=True, count=1)                 # linie proprie (nu daisy-chain), grosime proprie
+            stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
+
+    # MANUNCHI PER DUNGA (BUG 4): cablurile care converg pe ACEEASI dunga se deseneaza PARALEL (offset
+    # lateral simetric, alocare geografica dupa latura de intrare), NU cumulate intr-o linie groasa.
+    # Non-stripe (lant intra-camera, iluminat) raman neatinse. Capacitate 5 sloturi + surplus cumulat.
     if stripes:
         by_stripe, rest = {}, []
         for c in cables:
@@ -1933,7 +2028,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 rest.append(c)
         new_stripe = []
         for si, grp in by_stripe.items():
-            new_stripe.extend(_stripe_thickness(grp, stripes[si]))
+            new_stripe.extend(_stripe_parallel(grp, stripes[si]))
         cables = rest + new_stripe
         stats["bundle"] = sum(len(g) for g in by_stripe.values())
 
@@ -2325,7 +2420,7 @@ def _stamp_plansa_nr(doc, page, plansa_nr):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None) -> dict:
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None, circuits: list = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -2363,10 +2458,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             _cables, _cstats = compute_cables(elements, rooms=rooms, W=page.rect.width, H=page.rect.height,
                                               room_centroids=_cen_map)
             for _c in _cables:
-                # C2: forța (prize->tablou) = ALBASTRU (_PRIZA_COLOR); iluminat (bec/întrer./senzor) = roșu (default).
+                # C2: forța (prize + receptoare -> tablou) = ALBASTRU (_PRIZA_COLOR); iluminat = roșu (default).
                 _kind = _c.get("kind") or ""
                 # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
-                _draw_cable(page, _c.get("path"), color=_PRIZA_COLOR if _kind.startswith("priza") else None,
+                _draw_cable(page, _c.get("path"),
+                            color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor")) else None,
                             width=_cable_width_for(_c.get("count", 1)))
                 n_cable += 1
         except Exception:
@@ -2488,7 +2584,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                             and f.get("feeds_panel") == "TE-CT" and _teg and _pan_xy.get("tablou_te_ct")):
                         _a = _pan_xy["tablou_te_ct"]
                         _si = _nearest_stripe_idx(_a, _col_stripes) if _col_stripes else None
-                        _cp = _stripe_path(_a, _teg, _col_stripes[_si]) if _si is not None else None
+                        # BUG 4: coloana TE-CT primeste un SLOT propriu (offset lateral fix, dincolo de
+                        # manunchiurile de prize centrate ±(cap-1)/2*gap) -> nu mai acopera restul.
+                        _cp = (_stripe_path(_a, _teg, _col_stripes[_si], offset=_COLUMN_STRIPE_OFFSET)
+                               if _si is not None else None)
                         _draw_column(page, _a, _teg, path=_cp)
         except Exception:
             pass
@@ -2498,7 +2597,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             _leg = next((e for e in (elements or [])
                          if ((e or {}).get("element_type") or "") == "legenda"), None)
             if _leg is not None:
-                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds))
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds, circuits))
                 n_legend = 1
         except Exception:
             n_legend = 0
