@@ -6,6 +6,7 @@
 # Sursa = PLANUL. Puterile: iluminat=suma becuri (plan are power_w); prize=2kW normativ (plan
 # n-are power_w pe prize); receptoare=din formular extra_equipment (plan are doar label).
 import math
+import re
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
@@ -18,6 +19,22 @@ def _std_breaker(amps):
         if b >= amps:
             return b
     return 200
+
+def _next_breaker(b):
+    """Treapta imediat SUPERIOARA lui b din ladder (pt. SELECTIVITATE feed>circuit). Max -> ultima."""
+    for x in _BREAKER_LADDER:
+        if x > b:
+            return x
+    return _BREAKER_LADDER[-1]
+
+def _section_of(cable_type):
+    """Sectiunea (mm², = M din NxM) dintr-un cable_type variat ('5x4 mm2 CYYF', 'CYY-F 3x2.5',
+    'CYY-F 5x2.5mmp'). 0 daca nu se poate parsa."""
+    m = re.search(r"\d+\s*[xX]\s*([\d.]+)", str(cable_type or ""))
+    try:
+        return float(m.group(1)) if m else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 def breaker_and_ia(power_w, tri=False, minimum=0):
     """Ia = P/230 (mono) sau P/636.4 (tri = sqrt3*400*0.92); breaker = prima treapta >= ceil(Ia*1.25).
@@ -84,6 +101,28 @@ def receptor_type_of(label):
     for kw, t in _RECEPTOR_LABEL_MAP:
         if kw in l:
             return t
+    return None
+
+_NET_RECEPTOR_W = 150   # alimentare echipament de retea (router/switch/rack) — circuit dedicat (nu date low-voltage)
+
+# TIP NORMALIZAT pt. DEDUP receptor plan <-> circuit formular (ordine SPECIFIC->generic; robust la
+# variatii de descriere: 'PDC aer-apa 20kW' -> pdc, NU ac). Substring lowercase. None = nemapabil.
+_EQUIP_KEYS = [
+    ("boiler", "boiler"), ("cuptor", "cuptor"),
+    ("pdc", "pdc"), ("pompa de caldura", "pdc"), ("pompa caldura", "pdc"), ("aer-apa", "pdc"),
+    ("sol-apa", "pdc"), ("pompa circulatie", "pompa"), ("pompa recirculare", "pompa"),
+    ("automatizare", "bms"), ("bms", "bms"), ("distribuitor", "distribuitor"),
+    ("recuperare", "hrv"), ("hrv", "hrv"), ("aer conditionat", "ac"), ("conditionat", "ac"),
+    ("internet", "internet"), ("retea", "internet"),
+    ("incarcare", "ev"), ("statie incarcare", "ev"), ("masina electrica", "ev"), ("ev_charger", "ev"),
+]
+
+def _equip_key(s):
+    """Tip normalizat de echipament din label/descriere (pt. dedup plan<->formular). None = nemapabil."""
+    t = (s or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
+    for kw, k in _EQUIP_KEYS:
+        if kw in t:
+            return k
     return None
 
 def receptor_power(label, form):
@@ -160,6 +199,8 @@ def _enrich_receptor(el, cid, panel, floor_idx, form):
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea."""
     is_net = (el.get("element_type") or "") == "receptor_internet"
     power_w, tip, ph, src = receptor_power(el.get("label"), form)
+    if is_net:                                            # alimentare router/switch/rack = 150W (decizia Dan),
+        power_w, tip, src = _NET_RECEPTOR_W, "internet", "default UI"   # NU 0 (era 'date low-voltage')
     tri = str(ph).lower() in ("tri", "trifazat", "3")
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
@@ -238,7 +279,15 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False):
         feed["power_w"] = pw
     tri = str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")
     breaker, ia = breaker_and_ia(pw, tri=tri, minimum=16)   # min 16A (coloana principala)
+    # SELECTIVITATE + podea normativa (decizia Dan): coloana unui tablou NU poate fi mai mica decat
+    # circuitele lui. breaker feed >= o TREAPTA peste max breaker intern; sectiune >= max sectiune
+    # interna. Regula generala pt. ORICE feed de sub-tablou (ff42: max intern 20A/5x4 -> feed 25A/5x6).
+    max_brk = max([int(c.get("breaker_a") or 0) for c in (tect_circuits or [])] or [0])
+    if max_brk:
+        breaker = max(breaker, _next_breaker(max_brk))
     sec = _dedicate_section(breaker)                        # scara: 16->2.5, 20->4, 25/32->6, 40->10...
+    max_sec = max([_section_of(c.get("cable_type")) for c in (tect_circuits or [])] or [0.0])
+    sec = max(sec, max_sec)                                 # >= cel mai gros cablu din tablou
     n = "5x" if tri else "3x"
     feed["breaker_a"] = breaker
     feed["cable_type"] = "CYY-F %s%smmp" % (n, ("%.1f" % sec).rstrip("0").rstrip("."))
@@ -269,6 +318,16 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # TE-CT (circuite TE-CT sau feed coloana). 'existing' (fara incalzire) -> tech ramane pe TEG (ca inainte).
     has_base_tect = bool(tect_circuits) or bool(feed_circuits)
 
+    # DEDUP receptor plan <-> circuit formular: tipurile de echipament DEJA acoperite de baza
+    # (breviar incalzire: boiler/pdc/pompa/bms/distribuitor). Un element de plan cu acelasi tip NU
+    # creeaza circuit nou -> circuitul base (dimensionat normativ) primeste POZITIA elementului.
+    base_covered = {}
+    for c in tect_circuits:
+        if c.get("type") == "dedicat":
+            k = _equip_key(c.get("description") or c.get("usage"))
+            if k and k not in base_covered:
+                base_covered[k] = c
+
     by_panel = {}                                      # panel -> (elements, floor_idx)
     for el in plan_elements:
         panel, fidx = _floor_panel(el.get("floor"))
@@ -292,10 +351,19 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             if et not in ("alimentare_receptor", "receptor_internet"):
                 continue
             is_tech = bool(tech_l) and (el.get("room") or "").strip().lower() == tech_l
-            if et == "receptor_internet" and not is_tech:
-                continue                               # net in afara camerei tehnice = date low-voltage, NU circuit de putere (ca inainte)
             if et == "alimentare_receptor" and receptor_type_of(el.get("label")) == "ev_charger":
                 continue                               # EV = separat (ca fotovoltaicele)
+            # DEDUP plan<->formular pe TIP NORMALIZAT: receptorul de plan care se potriveste cu un
+            # echipament din breviar (base) NU creeaza circuit nou -> circuitul base primeste POZITIA
+            # elementului (pt. Faza B: desenul cablului). Nu pierde receptoare multiple legitime
+            # (AC/cuptor NU-s in base -> raman circuite separate per element).
+            _ek = _equip_key(el.get("label") if et == "alimentare_receptor" else "internet")
+            if _ek and _ek in base_covered:
+                _bc = base_covered[_ek]
+                _bc["_plan_x"], _bc["_plan_y"], _bc["_plan_room"] = el.get("x"), el.get("y"), el.get("room")
+                continue                               # UN singur circuit (base), elementul da pozitia
+            # receptor_internet: MEREU circuit dedicat (150W, alimentare router/rack) — oriunde plasat
+            # (skip-ul vechi 'net in afara camerei tehnice -> ignorat' e ELIMINAT).
             rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
             rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
             plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form))
