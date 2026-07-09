@@ -7,7 +7,7 @@
 # n-are power_w pe prize); receptoare=din formular extra_equipment (plan are doar label).
 import math
 import re
-from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W
+from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
 
@@ -89,9 +89,11 @@ def rccb_zone(room):
 # ── Regula 2: putere receptor din formular (join pe label) ───────────────────
 # Puteri default (W) — oglinda EXTRA_EQUIPMENT_DEFAULTS (constants.ts); fallback daca lipseste din formular.
 _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv": 200,
-                       "ev_charger": 7400, "internet": 0, "solar": 5000}
-# label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular
-_RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"), ("aer", "ac"),
+                       "ev_charger": 7400, "internet": 0, "solar": 5000, "distribuitor_zona": 300}
+# label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular. Regula 10:
+# "distribuitor" (zona/nivel) INAINTE de "aer"/etc. — distribuitorul de zona = receptor dedicat 300W.
+_RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
+                       ("distribuitor", "distribuitor_zona"), ("aer", "ac"),
                        ("condi", "ac"), (" ac", "ac"), ("hrv", "hrv"), ("recuper", "hrv"),
                        ("incarcare", "ev_charger"), ("statie", "ev_charger"), ("masina", "ev_charger"),
                        ("ev_charger", "ev_charger"), ("internet", "internet"), ("retea", "internet")]
@@ -111,7 +113,12 @@ _EQUIP_KEYS = [
     ("boiler", "boiler"), ("cuptor", "cuptor"),
     ("pdc", "pdc"), ("pompa de caldura", "pdc"), ("pompa caldura", "pdc"), ("aer-apa", "pdc"),
     ("sol-apa", "pdc"), ("pompa circulatie", "pompa"), ("pompa recirculare", "pompa"),
-    ("automatizare", "bms"), ("bms", "bms"), ("distribuitor", "distribuitor"),
+    ("automatizare", "bms"), ("bms", "bms"),
+    # Regula 10 / CAPCANA 1: distribuitorul de ZONA/NIVEL -> cheie DISTINCTA (nu se contopeste prin
+    # dedup cu "Distribuitor principal incalzire" din baza TE-CT). Ordine SPECIFIC->generic.
+    ("distribuitor de zona", "distribuitor_zona"), ("distribuitor zona", "distribuitor_zona"),
+    ("distribuitor de nivel", "distribuitor_zona"), ("distribuitor nivel", "distribuitor_zona"),
+    ("distribuitor", "distribuitor"),
     ("recuperare", "hrv"), ("hrv", "hrv"), ("aer conditionat", "ac"), ("conditionat", "ac"),
     ("internet", "internet"), ("retea", "internet"),
     ("incarcare", "ev"), ("statie incarcare", "ev"), ("masina electrica", "ev"), ("ev_charger", "ev"),
@@ -217,6 +224,28 @@ def _enrich_receptor(el, cid, panel, floor_idx, form):
         "normalize_reason": ("Putere din formular" if src == "formular" else
                              "Putere default UI (%s)" % tip if src == "default UI" else "Tip receptor necunoscut"),
         "name": cid, "_receptor_src": src,
+    }
+
+def _enrich_heating_group(c, panel, floor_idx):
+    """REGULA 10: circuit de INCALZIRE ELECTRICA grupat (VCV + radiatoare). SURSA UNICA — gruparea +
+    puterea REALA insumata vin din compute_circuits (c['power_w'], c['tri']); enrich NU regrupeaza,
+    doar dimensioneaza: breaker MINIM 16A (peste = Ia*1.25), cablu scaleaza cu breaker (regula 4),
+    mono '3x' / tri '5x'. Panel = general (TEG/TES), NU TE-CT. Faza: None (assign_phases o pune —
+    mono round-robin, tri 'RST')."""
+    power_w = int(c.get("power_w") or 0)
+    tri = bool(c.get("tri"))
+    breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
+    cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
+    _FLOOR_NAME = {0: "parter", 1: "etaj", 2: "mansarda"}
+    desc = "Incalzire electrica " + _FLOOR_NAME.get(floor_idx, str(panel))
+    return {
+        "id": c["id"], "fasa": None, "room": None, "type": "dedicat", "floor": floor_idx,
+        "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
+        "breaker_a": breaker_a, "room_type": None, "cable_type": cbl, "description": desc,
+        "is_bathroom": False, "is_exterior": False, "breaker_type": ("MCB-3P-C" if tri else "MCB-1P-C"),
+        "pi_normalized": False, "ia_calculated_a": ia,
+        "normalize_reason": "Incalzire electrica grupata (putere reala insumata, plafon 2kW, FFD)",
+        "name": c["id"], "_heating_group": True,
     }
 
 # ── Regula 5: faza round-robin ciclic PER TABLOU ─────────────────────────────
@@ -342,7 +371,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
         tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
-            plan_out.append(_enrich_group(c, els, panel, fidx))
+            if c.get("kind") == "incalzire":                               # Regula 10: VCV/radiatoare grupate
+                plan_out.append(_enrich_heating_group(c, panel, fidx))
+            else:
+                plan_out.append(_enrich_group(c, els, panel, fidx))
         nextn = cc["n_circuits"] + 1
         gsuf = "" if general == "TEG" else "-%s" % general
         tech_l = (tech_room or "").strip().lower()     # NIVEL 2: receptor cu room==camera tehnica -> TE-CT
@@ -350,6 +382,8 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             et = (el.get("element_type") or "")
             if et not in ("alimentare_receptor", "receptor_internet"):
                 continue
+            if _grouped_heating_kind(el.get("label")) is not None:
+                continue                               # Regula 10: VCV/radiatoare -> circuit grupat (compute_circuits), NU 1:1
             is_tech = bool(tech_l) and (el.get("room") or "").strip().lower() == tech_l
             if et == "alimentare_receptor" and receptor_type_of(el.get("label")) == "ev_charger":
                 continue                               # EV = separat (ca fotovoltaicele)

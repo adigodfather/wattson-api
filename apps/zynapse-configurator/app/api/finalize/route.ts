@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     // Faza 2: planul EDITAT (plan_elements) -> sursa circuitelor pt. schema+memoriu (RLS: doar owner).
     const { data: peData } = await supa
       .from("plan_elements")
-      .select("element_type, power_w, room, floor, label, x, y")
+      .select("element_type, power_w, phase, room, floor, label, x, y")
       .eq("project_id", projectId);
     planElements = Array.isArray(peData) ? peData : [];
   } catch {

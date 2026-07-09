@@ -1531,11 +1531,44 @@ def _stripe_parallel(grp, spts, cap=_BUNDLE_CAP, gap=_BUNDLE_GAP):
 _HEATING_KW = ("boiler", "pdc", "pompa", "bms", "automatizare", "distribuitor", "aer-apa", "sol-apa", "centrala termic")
 
 
+def _norm_lbl(label):
+    return (label or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
+
+
+# ── REGULA 10: receptoare termice (VCV + radiatoare GRUPATE + distribuitor de ZONA) ──
+# VCV/radiator = grupate pe (etaj, faza), plafon 2kW, putere REALA insumata (grupate in
+# compute_circuits = sursa unica pt. circuit_id). Distribuitorul de ZONA = dedicat 1:1 (ca boiler)
+# DAR pe TEG/TES (NU clasa 1) — distinct de "Distribuitor principal incalzire" (TE-CT). Detectia pe
+# LABEL (element_type ramane alimentare_receptor -> fara migratie de tip).
+_GROUPED_HEATING_DEFAULT_W = {"vcv": 100, "radiator": 1500}   # fallback cand power_w lipseste (H2 il seteaza la inserare)
+
+
+def _is_zone_distributor(label):
+    """Distribuitor de ZONA/NIVEL (dedicat, TEG/TES) — distinct de 'Distribuitor principal incalzire'
+    (TE-CT, clasa 1). CAPCANA 1: fara asta, cuvantul 'distribuitor' l-ar trimite la clasa 1 + l-ar
+    contopi prin dedup cu cel principal."""
+    t = _norm_lbl(label)
+    return "distribuitor" in t and ("zona" in t or "nivel" in t)
+
+
+def _grouped_heating_kind(label):
+    """'vcv' | 'radiator' | None — tipurile GRUPATE (putere reala insumata). Distribuitorul de zona NU
+    e grupat (e dedicat 1:1); boiler/cuptor/etc. NU sunt aici (dedicate)."""
+    t = _norm_lbl(label)
+    if "ventiloconvector" in t or "vcv" in t:
+        return "vcv"
+    if "radiator" in t:
+        return "radiator"
+    return None
+
+
 def _is_heating_receptor(label):
     """Receptor din CLASA 1 (echipament de incalzire, legat de TE-CT indiferent de pozitie):
-    boiler/pdc/pompe/bms/distribuitor. Clasa 2 (cuptor/AC/internet/EV) -> panel dupa camera."""
-    t = (label or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
-    return any(k in t for k in _HEATING_KW)
+    boiler/pdc/pompe/bms/distribuitor. Clasa 2 (cuptor/AC/internet/EV) -> panel dupa camera.
+    EXCEPTIE (Regula 10): distribuitorul de ZONA/NIVEL NU e clasa 1 (merge pe TEG/TES, nu TE-CT)."""
+    if _is_zone_distributor(label):
+        return False                                   # CAPCANA 1: distribuitor zona != cel principal
+    return any(k in _norm_lbl(label) for k in _HEATING_KW)
 
 
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
@@ -1812,8 +1845,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
             panels[et] = (x, y)            # de obicei 1 per tip
         elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
             prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id")})
-        elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> O LINIE proprie la tabloul lui (BUG 3b)
-            receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label")})
+        elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> linie proprie (dedicat) SAU daisy-chain (grupate, Regula 10)
+            receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label"), "cid": el.get("circuit_id")})
     teg = panels.get("tablou_teg")
     tect = panels.get("tablou_te_ct")
 
@@ -1998,13 +2031,52 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 _n = len(prz)                              # GROSIME: mananchi de N prize -> count=N
                 _route_chain(prz, _room, _n, R=room_px.get((_room or "").strip()))
 
-    # RECEPTOARE (FORTA, BUG 3b): fiecare receptor = O LINIE PROPRIE de la pozitia lui la TABLOUL lui,
-    # via traseu (ca iesirile prizelor). Panel dupa CAMERA: camera tehnica SAU echipament de incalzire
-    # (boiler/pdc/pompe/bms/distribuitor = clasa 1, legate de tabloul lor) -> TE-CT; altfel (cuptor/AC/
-    # internet/EV = clasa 2) -> tabloul general (TEG/TES). Dedicat -> linie proprie, grosime proprie (count=1).
-    if receptors and (general_xy or tect):
+    # RECEPTOARE (FORTA): 2 clase de rutare.
+    #  (1) GRUPATE (Regula 10 / H3: VCV+radiatoare cu circuit_id PARTAJAT) -> DAISY-CHAIN pe circuit_id,
+    #      ACROSS-ROOM (grupate pe ETAJ, nu pe camera ca prizele), ca prizele dar CENTRU-CENTRU (receptoarele
+    #      n-au bara de montaj). O SINGURA iesire spre tabloul general (TEG/TES) pe traseu.
+    #  (2) DEDICATE (boiler/cuptor/internet/EV/distribuitor zona) -> O LINIE PROPRIE la tabloul lor (B1, BUG 3b).
+    #      Panel dupa CAMERA: camera tehnica SAU echipament clasa 1 (boiler/pdc/pompe/bms/distribuitor PRINCIPAL)
+    #      -> TE-CT; altfel (cuptor/AC/internet/EV/distribuitor ZONA) -> general (TEG/TES).
+    def _is_grouped_rc(rc):
+        return bool(_grouped_heating_kind(rc.get("label")) and rc.get("cid"))
+    grouped = [rc for rc in receptors if _is_grouped_rc(rc)]
+    dedicated = [rc for rc in receptors if not _is_grouped_rc(rc)]
+
+    def _route_heating_chain(grp, n):
+        """Un circuit de incalzire grupat (ACELASI cid, camere diferite): lant nearest-neighbor de la
+        elementul cel mai apropiat de IESIRE + O SINGURA iesire spre tabloul general pe traseu. Centru-centru."""
+        gcen = (sum(p["x"] for p in grp) / len(grp), sum(p["y"] for p in grp) / len(grp))
+        if stripes:
+            si = _nearest_stripe_idx(gcen, stripes)
+            target = _project_point_on_polyline(gcen, stripes[si])[0] if si is not None else general_xy
+        else:
+            target = general_xy
+        if target is None:
+            return
+        rem = list(grp)
+        start = min(rem, key=lambda p: (p["x"] - target[0]) ** 2 + (p["y"] - target[1]) ** 2)
+        chain = [start]; rem.remove(start); cur = (start["x"], start["y"])
+        while rem:                                          # lant nearest-neighbor (ca prizele)
+            nb = nearest(cur, rem); rem.remove(nb); chain.append(nb); cur = (nb["x"], nb["y"])
+        for i in range(len(chain) - 1):                     # segmente CENTRU-CENTRU (fara bara de montaj)
+            add(chain[i]["et"], (chain[i]["x"], chain[i]["y"]), chain[i + 1]["et"],
+                (chain[i + 1]["x"], chain[i + 1]["y"]), "incalzire_lant", None, count=len(chain) - 1 - i)
+            stats["incalzire_lant"] = stats.get("incalzire_lant", 0) + 1
+        add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "incalzire_tablou", None,
+            via_stripe=True, count=n)                        # O IESIRE: capul lantului -> traseu -> tablou general
+        stats["incalzire_tablou"] = stats.get("incalzire_tablou", 0) + 1
+
+    if grouped and general_xy:
+        by_cid = {}
+        for rc in grouped:
+            by_cid.setdefault(rc["cid"], []).append(rc)     # lant pe circuit_id (NU pe camera -> across-floor)
+        for _cid, grp in by_cid.items():
+            _route_heating_chain(grp, len(grp))
+
+    if dedicated and (general_xy or tect):
         tech_l = (tech_room_from_elements(elements) or "").strip().lower()
-        for rc in receptors:
+        for rc in dedicated:
             rroom = (rc.get("room") or "").strip().lower()
             to_tect = (tect is not None) and (_is_heating_receptor(rc.get("label"))
                                               or (bool(tech_l) and rroom == tech_l))
@@ -2287,6 +2359,50 @@ def compute_circuits(elements, tech_room=None, general="TEG"):
                 element_circuit[j] = cid
             next_c += 1
 
+    # ── REGULA 10: INCALZIRE ELECTRICA (VCV + radiatoare) grupate pe (etaj, faza), plafon 2kW, FFD pur ──
+    # SURSA UNICA: gruparea (cine-cu-cine + circuit_id) traieste AICI, ca la prize -> planul si documentele
+    # (enrich) folosesc ACELASI circuit_id. Merg pe general TEG/TES (NU tech/TE-CT). Distribuitorul de ZONA
+    # NU e aici (dedicat 1:1, tratat in enrich). Puterea = reala (power_w editat, fallback default per tip).
+    _HEATING_CEILING_W = 2000
+    hbucket = {}
+    for i, el in enumerate(elements):
+        if _grouped_heating_kind((el or {}).get("label")) is None:
+            continue
+        fl = str((el or {}).get("floor") or "parter").strip().lower()          # split pe (etaj, faza)
+        tri = str((el or {}).get("phase") or "mono").strip().lower() in ("tri", "trifazat", "3")
+        hbucket.setdefault((fl, tri), []).append(i)
+
+    def _hw(i):                                                    # putere reala (fallback default per tip)
+        el = elements[i]
+        pw = el.get("power_w")
+        try:
+            v = int(pw) if pw not in (None, "") else None
+        except (TypeError, ValueError):
+            v = None
+        return v if v is not None else _GROUPED_HEATING_DEFAULT_W.get(_grouped_heating_kind(el.get("label")), 0)
+
+    for key in sorted(hbucket.keys()):                             # ordine grupuri FIXA (etaj, faza)
+        tri = key[1]
+        order = sorted(hbucket[key], key=lambda i: (-_hw(i),       # FFD: DESC pe putere (determinist)
+                                                    float(elements[i].get("y") or 0),
+                                                    float(elements[i].get("x") or 0)))
+        bins = []                                                  # [{indices, w}] — plafon 2kW
+        for i in order:
+            w = _hw(i)
+            placed = False
+            for b in bins:                                         # FFD pur: primul bin care il suporta
+                if b["w"] + w <= _HEATING_CEILING_W:
+                    b["indices"].append(i); b["w"] += w; placed = True; break
+            if not placed:                                         # niciun bin (sau w > plafon) -> bin propriu
+                bins.append({"indices": [i], "w": w})
+        for b in bins:
+            cid = "C%d%s" % (next_c, gsuf)
+            circuits.append({"id": cid, "kind": "incalzire", "room": None,
+                             "indices": b["indices"], "power_w": b["w"], "tri": tri})
+            for j in b["indices"]:
+                element_circuit[j] = cid                           # circuit_id PARTAJAT (pt. daisy-chain H3)
+            next_c += 1
+
     return {"n_iluminat": n_iluminat, "tech_room": tech_room, "total_bulb_w": total_W,
             "nr_becuri": nr_becuri, "n_circuits": len(circuits),
             "circuits": circuits, "element_circuit": element_circuit}
@@ -2330,8 +2446,8 @@ def assign_circuits(elements, rooms, W, H):
             continue
         if et not in _PRIZA_TYPES and et not in _BULB_TYPES and et not in _RECEPTOR_TYPES:
             continue
-        cid = ec.get(idx)                                  # None pt. becuri non-tech + receptoare (neetichetate de compute_circuits)
-        el["circuit_id"] = cid                             # IN-MEMORY (pt. C4). Receptoarele: cid=None (NIVEL 2 persista DOAR room)
+        cid = ec.get(idx)                                  # None pt. becuri non-tech + receptoare DEDICATE; grupatele (VCV/radiator, Regula 10) au cid PARTAJAT
+        el["circuit_id"] = cid                             # IN-MEMORY (pt. C4). Receptoare dedicate: cid=None; grupate: cid comun (pt. daisy-chain)
         pid = el.get("id")
         if pid:
             new = (el.get("room"), cid)
@@ -2462,7 +2578,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _kind = _c.get("kind") or ""
                 # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
                 _draw_cable(page, _c.get("path"),
-                            color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor")) else None,
+                            color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
                             width=_cable_width_for(_c.get("count", 1)))
                 n_cable += 1
         except Exception:

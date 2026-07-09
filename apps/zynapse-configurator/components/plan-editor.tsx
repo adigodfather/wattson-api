@@ -13,6 +13,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
+import { HEATING_RECEPTOR_TYPES } from "@/lib/constants";   // Regula 10: receptoare termice (radiator/VCV/distribuitor zona)
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -34,6 +35,7 @@ type PlanElement = {
   status: string | null;   // doar tablouri: 'nou' | 'existent' (altele null)
   wall_mounted?: boolean | null;   // true pt. aparataj pe perete (intrerupatoare/prize)
   mount_height_m?: number | null;   // doar prize (metri); default 0.6, editabil per priza
+  phase?: string | null;            // Regula 10: 'mono' | 'tri' (radiator/VCV per element); null = mono
   circuit_id?: string | null;       // atribuit AUTOMAT la "Obtine plan" (C3); incarcat pt. eticheta (C4)
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
 };
@@ -45,7 +47,7 @@ const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -92,7 +94,13 @@ const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoa
 const isInternetType = (t: string) => t === "receptor_internet";     // Retea internet (RJ45): simbol propriu (turcoaz + router + WiFi)
 // Inaltime de montaj DEFAULT pe tip la receptoare (metri), ca la prize; modificabila in editor.
 // boiler/AC/HRV/net = 2.0 ; cuptor = 0.5 ; EV/statie = 1.2 ; necunoscut = 0.6 (default coloana).
+// Regula 10: metadata receptorului termic din LABEL exact (radiator/VCV/distribuitor zona) sau null.
+function heatingReceptorDef(label: string | null | undefined) {
+  return HEATING_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
+}
 function receptorDefaultHeight(et: string, label: string): number {
+  const h = heatingReceptorDef(label);
+  if (h) return h.default_height;                    // Regula 10: radiator 0.3 / VCV 2.2 / distribuitor 0.5
   if (et === "receptor_internet") return 2.0;
   const l = (label || "").toLowerCase();
   if (l.includes("cuptor")) return 0.5;
@@ -860,18 +868,21 @@ export default function PlanEditor({
     if (!p) return;
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
+    const heat = heatingReceptorDef(p.label);          // Regula 10: radiator/VCV/distribuitor -> putere+faza DEFAULT
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
       element_type: p.et,                // "alimentare_receptor" | "receptor_internet"
       plan_type: "forta",
-      label: p.label,                    // alimentari: boiler/cuptor/...; retea: "internet"
+      label: p.label,                    // alimentari: boiler/cuptor/...; retea: "internet"; termice: Radiator/VCV/Distribuitor zona
       room: null as string | null,
       x: pos.x / scale,
       y: pos.y / scale,
       wall_mounted: false,
       rotation: 0,
       mount_height_m: receptorDefaultHeight(p.et, p.label),   // inaltime DEFAULT pe tip (editabila)
+      // Regula 10: termicele primesc power_w + phase la plasare (editabile in inspector; fallback in backend daca null)
+      ...(heat ? { power_w: heat.default_w, phase: heat.default_phase } : {}),
       status: null as string | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
@@ -1041,6 +1052,50 @@ export default function PlanEditor({
               }}
               style={inputStyle}
             />
+          </>
+        )}
+
+        {/* Regula 10: Putere (W) + Fază (mono/tri) — receptoare termice. Radiator/VCV: ambele editabile;
+            Distribuitor zona: doar putere (fază fixă mono). Persistă imediat pe plan_elements. */}
+        {isReceptorType(selected.element_type) && heatingReceptorDef(selected.label) && (
+          <>
+            <label style={fieldLabel}>Putere (W)</label>
+            <input
+              type="number"
+              className="zy-ed-field"
+              min={0}
+              placeholder={String(heatingReceptorDef(selected.label)!.default_w)}
+              value={selected.power_w ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                setLocalField(selected.id, { power_w: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              onBlur={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                persist(selected.id, { power_w: raw === "" || !Number.isFinite(n) ? null : n });
+              }}
+              style={inputStyle}
+            />
+            {heatingReceptorDef(selected.label)!.editablePhase && (
+              <>
+                <label style={fieldLabel}>Fază</label>
+                <select
+                  className="zy-ed-field"
+                  value={selected.phase ?? "mono"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLocalField(selected.id, { phase: v });
+                    persist(selected.id, { phase: v });   // schimbare deliberată -> salvează imediat
+                  }}
+                  style={inputStyle}
+                >
+                  <option value="mono">Monofazat (3 fire)</option>
+                  <option value="tri">Trifazat (5 fire)</option>
+                </select>
+              </>
+            )}
           </>
         )}
 
@@ -1393,6 +1448,11 @@ export default function PlanEditor({
             ))}
             {/* RETEA INTERNET = element_type propriu + SIMBOL propriu (turcoaz + router + WiFi), acelasi mod 1-click. */}
             <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("receptor_internet", "internet")}>+ Rețea internet</button>
+            {/* Regula 10: receptoare termice — radiator/VCV se GRUPEAZA (plafon 2kW), distribuitor zona = dedicat.
+                Label EXACT ("Distribuitor zona" declanseaza _is_zone_distributor in backend -> TEG/TES). */}
+            {HEATING_RECEPTOR_TYPES.map(h => (
+              <button key={h.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", h.label)}>+ {h.label}</button>
+            ))}
           </div>
         )}
         {/* LISTA receptoarelor plasate + Sterge (pattern renderTraseuSection). `elements` e deja

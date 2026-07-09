@@ -102,6 +102,22 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
   { type: "ev_charger", label: "Stație încărcare mașină electrică",      icon: "🚗", default_kw: 7.4, default_phase: "mono" },
 ];
 
+// ─── Regula 10: receptoare termice plasabile pe PLAN (mod forță) ──────────────
+// element_type = "alimentare_receptor" (FĂRĂ tip nou / migrație); diferențiate prin LABEL.
+// Label-ul EXACT contează: "Distribuitor zona" declanșează _is_zone_distributor în backend
+// (draw_elements) → TEG/TES + circuit dedicat, NU TE-CT / NU se contopește cu cel principal.
+// VCV + radiatoarele se GRUPEAZĂ (compute_circuits, plafon 2 kW, mono/tri separate); distribuitorul
+// de zonă = dedicat 1:1. default_w/default_phase se scriu pe plan_elements la plasare (fallback în
+// backend dacă null: radiator 1500W, VCV 100W, distribuitor 300W).
+export const HEATING_RECEPTOR_TYPES: {
+  label: string; default_w: number; default_phase: "mono" | "tri"; default_height: number;
+  editablePower: boolean; editablePhase: boolean;
+}[] = [
+  { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true },
+  { label: "VCV",               default_w: 100,  default_phase: "mono", default_height: 2.2, editablePower: true, editablePhase: true },
+  { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false },
+];
+
 // ─── Motor (industrial) ───────────────────────────────────────────────────────
 
 export interface Motor {
