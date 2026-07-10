@@ -14,7 +14,8 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
-import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
+import { floorCanonic, floorIndex } from "@/lib/floors";
+import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
 import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard, PlanPdfSection,
@@ -2577,6 +2578,8 @@ export function ZynapseConfigurator() {
                   heatingType={form.heating_type}
                   enabledEquipment={Object.keys(equipment).filter(t => equipment[t]?.enabled)}
                   isAdmin={user?.id === ADMIN_USER_ID}
+                  heatingEquipment={heatingEquipmentFromCircuits(result?.circuits as never[] | undefined)}
+                  hasTechRoom={form.has_tech_room}
                 />
               </div>
             )}

@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
+import type { HeatingEquipment } from "@/lib/heating-equipment";   // T3: echipamentele de incalzire auto-plasabile
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -343,13 +344,17 @@ const panelStyle: CSSProperties = {
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
+  heatingEquipment = [], hasTechRoom = true,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
      heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[];
      bgLoading?: boolean;   // forta: fundalul curat se randeaza -> spinner in loc de gol/eroare
-     isAdmin?: boolean }) {  // Dan: unelte de debug (overlay pereti) vizibile doar admin-ului
+     isAdmin?: boolean;     // Dan: unelte de debug (overlay pereti) vizibile doar admin-ului
+     // T3: echipamentele de incalzire (din circuitele reale, pre-filtrate in configurator) + checkbox-ul
+     // "am camera tehnica" -> tabloul DESTINATIE al auto-plasarii (TE-CT bifat / TEG nebifat)
+     heatingEquipment?: HeatingEquipment[]; hasTechRoom?: boolean }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -678,6 +683,45 @@ export default function PlanEditor({
       setGenMsg("S-au generat " + data.length + " prize in " + nRooms + " camere.");
     } finally {
       setGenLoading(false);
+    }
+  }
+
+  // ── T3: GENEREAZA ECHIPAMENTE INCALZIRE (mode forta) — echipamentele din CIRCUITELE reale
+  // (heatingEquipment, pre-filtrat) plasate GRID compact langa tabloul DESTINATIE (TE-CT daca
+  // hasTechRoom + plasat; TEG daca nebifat). Tabloul e FIX (plasat la iluminat) — zero urmarire.
+  // IDEMPOTENT: match element_type+label -> plaseaza DOAR lipsurile (fara confirm-sterge-tot).
+  // circuit_id=null: dedup-ul Faza A (enrich) leaga elementul de circuitul base la finalize;
+  // desenul B1 ruteaza dupa label (clasa 1 -> TE-CT daca tabloul exista, altfel TEG). ──
+  const [heqLoading, setHeqLoading] = useState(false);
+  const [heqMsg, setHeqMsg] = useState<string | null>(null);
+  async function generateHeatingEquipAuto() {
+    if (mode !== "forta" || heqLoading || heatingEquipment.length === 0) return;
+    const destType = hasTechRoom ? "tablou_te_ct" : "tablou_teg";
+    const tab = elements.find(e => e.element_type === destType);
+    if (!tab) {
+      // decizia Dan: AVERTISMENT, nu fallback silentios (destinatia gresita ar fi tacuta)
+      setHeqMsg(`Plasează întâi tabloul ${hasTechRoom ? "TE-CT (camera tehnică)" : "TEG"} pe plan.`);
+      return;
+    }
+    const placed = new Set(elements.filter(e => e.element_type === "alimentare_receptor")
+                                   .map(e => (e.label || "").trim()));
+    const missing = heatingEquipment.filter(h => !placed.has(h.label));
+    if (missing.length === 0) { setHeqMsg("Toate echipamentele de încălzire sunt deja plasate."); return; }
+    setHeqLoading(true); setHeqMsg(null);
+    try {
+      // GRID compact langa tablou: dx=+35pt, dy=28pt, a doua coloana dupa 4 elemente
+      const rows = missing.map((h, i) => ({
+        project_id: projectId, floor: floorCanonic(floor), element_type: "alimentare_receptor",
+        plan_type: "forta", label: h.label, room: null as string | null,
+        x: tab.x + 35 + Math.floor(i / 4) * 30, y: tab.y + (i % 4) * 28 - 42,
+        wall_mounted: false, rotation: 0, mount_height_m: h.mountHeight, status: null as string | null,
+      }));
+      const { data, error } = await supabase.from("plan_elements").insert(rows).select(SELECT_COLS);
+      if (error || !data) { setHeqMsg("INSERT echipamente eșuat: " + (error?.message || "necunoscut")); return; }
+      setElements(prev => [...prev, ...(data as PlanElement[])]);
+      setHeqMsg(`S-au plasat ${data.length} echipamente lângă ${hasTechRoom ? "TE-CT" : "TEG"}.`);
+    } finally {
+      setHeqLoading(false);
     }
   }
 
@@ -1497,6 +1541,43 @@ export default function PlanEditor({
     );
   };
 
+  // T3: sectiunea "Echipamente incalzire" — buton de auto-plasare + LISTA STATUS (informativa v1):
+  // ✓ plasat / ○ neplasat per echipament (match element_type+label cu elementele planului).
+  // Ascunsa cand proiectul n-are echipamente de incalzire dedicate (fara PDC/centrala).
+  const renderHeatingEquipSection = () => {
+    if (mode !== "forta" || heatingEquipment.length === 0) return null;
+    const placed = new Set(elements.filter(e => e.element_type === "alimentare_receptor")
+                                   .map(e => (e.label || "").trim()));
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Echipamente încălzire
+        </div>
+        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2, marginBottom: 8 }}>
+          <button type="button" className="zy-add-btn" onClick={generateHeatingEquipAuto} disabled={heqLoading}>
+            {heqLoading ? "Se plasează…" : "⚡ Generează echipamente încălzire"}
+          </button>
+        </div>
+        {heqMsg && (
+          <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2, marginBottom: 6, lineHeight: 1.5 }}>{heqMsg}</div>
+        )}
+        <div style={{ paddingLeft: 2 }}>
+          {heatingEquipment.map(h => {
+            const ok = placed.has(h.label);
+            return (
+              <div key={h.label} style={{ fontSize: 11, color: ok ? "#3ECFA0" : "#545870",
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 12, textAlign: "center", flexShrink: 0 }}>{ok ? "✓" : "○"}</span>
+                {h.label}
+                <span style={{ color: "#3A3D50" }}>· h={h.mountHeight}m</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -1534,6 +1615,7 @@ export default function PlanEditor({
           {renderTraseuSection()}
           {renderGroundingSection()}
           {renderReceptorSection()}
+          {renderHeatingEquipSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}

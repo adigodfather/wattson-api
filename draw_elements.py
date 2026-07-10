@@ -1535,7 +1535,8 @@ def _stripe_parallel(grp, spts, cap=_BUNDLE_CAP, gap=_BUNDLE_GAP):
     return out
 
 
-_HEATING_KW = ("boiler", "pdc", "pompa", "bms", "automatizare", "distribuitor", "aer-apa", "sol-apa", "centrala termic")
+_HEATING_KW = ("boiler", "pdc", "pompa", "bms", "automatizare", "distribuitor", "aer-apa", "sol-apa",
+               "centrala")   # T3: "centrala electrica/pe gaz/termica" = clasa 1 (era doar "centrala termic")
 
 
 def _norm_lbl(label):

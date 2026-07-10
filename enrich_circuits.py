@@ -114,6 +114,9 @@ _EQUIP_KEYS = [
     ("pdc", "pdc"), ("pompa de caldura", "pdc"), ("pompa caldura", "pdc"), ("aer-apa", "pdc"),
     ("sol-apa", "pdc"), ("pompa circulatie", "pompa"), ("pompa recirculare", "pompa"),
     ("automatizare", "bms"), ("bms", "bms"),
+    # T3 anti-dublare: "Centrala electrica 12kW" / "Centrala pe gaz" nu mapau pe nicio cheie ->
+    # elementul auto-plasat nu se lega prin dedup si _enrich_receptor crea circuit DUPLICAT (0W).
+    ("centrala", "centrala"),
     # Regula 10 / CAPCANA 1: distribuitorul de ZONA/NIVEL -> cheie DISTINCTA (nu se contopeste prin
     # dedup cu "Distribuitor principal incalzire" din baza TE-CT). Ordine SPECIFIC->generic.
     ("distribuitor de zona", "distribuitor_zona"), ("distribuitor zona", "distribuitor_zona"),
