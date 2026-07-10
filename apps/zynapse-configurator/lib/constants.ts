@@ -73,6 +73,13 @@ export const HEATING_GENERATION = [
   { value: "existing",         label: "Sistem existent (fără modificări)" },
 ];
 
+// Faza 2 TE-CT: default-ul checkbox-ului "am camera tehnica" PER SURSA (decizia Dan):
+// BIFAT pe sursele care produc TE-CT natural (PDC aer/sol + centrala electrica);
+// NEBIFAT pe gaz/termoficare/existing (echipamentele merg pe TEG, in alta incapere).
+export function defaultTechRoom(heatingType: string | null | undefined): boolean {
+  return ["pdc_air_water", "pdc_ground_water", "electric_boiler"].includes((heatingType || "").trim());
+}
+
 // ─── Heating distribution (TIP DISTRIBUȚIE CĂLDURĂ) ─────────────────────────
 
 export const HEATING_DISTRIBUTION = [
@@ -193,6 +200,9 @@ export interface FormData {
   insulation_level: string;
   heating_type: string;         // generation type
   heating_distribution: string;
+  // Faza 2 TE-CT: "am camera tehnica" -> echipamentele de incalzire pe TE-CT (bifat) sau TEG (nebifat).
+  // Default per sursa (defaultTechRoom): bifat pe PDC/centrala electrica, nebifat pe gaz/termoficare/existing.
+  has_tech_room: boolean;
   notes: string;
   main_entrance: string;
   // Manual height (Vision may override; always sent as fallback)
@@ -219,6 +229,7 @@ export const INITIAL_FORM: FormData = {
   insulation_level: "",
   heating_type: "",
   heating_distribution: "",
+  has_tech_room: true,
   notes: "",
   main_entrance: "",
   has_basement: false,

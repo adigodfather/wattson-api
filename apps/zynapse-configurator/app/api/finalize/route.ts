@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
   let phase: string | null;
   let firma: CartusFirma;
   let planElements: unknown[] = [];   // Faza 2: planul EDITAT -> circuitele schemei/memoriului
+  let inputData: Record<string, unknown> = {};   // formularul salvat (has_tech_room/heating_type/echipamente)
   try {
     const cookieStore = await cookies();
     const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
@@ -45,13 +46,14 @@ export async function POST(req: NextRequest) {
 
     const { data: proj } = await supa
       .from("projects")
-      .select("result_data, faza, phase")
+      .select("result_data, faza, phase, input_data")
       .eq("id", projectId)
       .eq("user_id", user.id)   // ownership: RLS + filtru explicit (anti-IDOR, ca la regenerate-plan)
       .single();
     if (!proj) return NextResponse.json({ error: "Proiect inexistent sau neautorizat" }, { status: 403 });
 
     rd = (proj.result_data as Record<string, unknown>) || {};
+    inputData = (proj.input_data as Record<string, unknown>) || {};
     faza = (proj.faza as string | null) ?? null;
     phase = (proj.phase as string | null) ?? null;
 
@@ -88,8 +90,19 @@ export async function POST(req: NextRequest) {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
         // base_circuits = circuitele vechi (Vision) -> enrich PRESERVA din ele TE-CT + feed-ul coloanei
-        // (heating-driven, ortogonal de plan); TEG/TES vin din plan.
-        body: JSON.stringify({ plan_elements: planElements, form: { power_phase, extra_equipment: [] }, base_circuits: visionCircuits }),
+        // (heating-driven, ortogonal de plan); TEG/TES vin din plan. Faza 2 TE-CT: form-ul include
+        // has_tech_room (checkbox; absent -> True in enrich) + heating_type (sinteza setului de GAZ) +
+        // extra_equipment (puterile/fazele bifate — regula #2 + boilerul optional la gaz).
+        body: JSON.stringify({
+          plan_elements: planElements,
+          form: {
+            power_phase,
+            has_tech_room: (inputData.has_tech_room as boolean | undefined) ?? true,
+            heating_type: (inputData.heating_type as string | undefined) ?? "",
+            extra_equipment: Array.isArray(inputData.extra_equipment) ? inputData.extra_equipment : [],
+          },
+          base_circuits: visionCircuits,
+        }),
       });
       const ej = await er.json();
       if (ej?.success && Array.isArray(ej.circuits) && ej.circuits.length > 0) {

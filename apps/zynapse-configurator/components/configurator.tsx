@@ -8,6 +8,7 @@ import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
+  defaultTechRoom,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -2035,10 +2036,24 @@ export function ZynapseConfigurator() {
           {/* 7. Sistem termoenergetic */}
           <SectionLabel>Sistem termoenergetic</SectionLabel>
           <SelectField label="Tip generare căldură" value={form.heating_type}
-            onChange={v => update("heating_type", v)} options={HEATING_GENERATION} required />
+            onChange={v => {
+              update("heating_type", v);
+              // Faza 2 TE-CT: la schimbarea SURSEI, checkbox-ul revine la default-ul ei
+              // (bifat pe PDC/centrala electrica, nebifat pe gaz/termoficare/existing)
+              update("has_tech_room", defaultTechRoom(v));
+            }} options={HEATING_GENERATION} required />
           {form.heating_type && form.heating_type !== "existing" && (
             <SelectField label="Tip distribuție căldură" value={form.heating_distribution}
               onChange={v => update("heating_distribution", v)} options={HEATING_DISTRIBUTION} />
+          )}
+          {/* Faza 2 TE-CT: camera tehnica e OPTIONALA pe ORICE sursa — decide DOAR destinatia
+              echipamentelor de incalzire: bifat -> tablou TE-CT; nebifat -> TEG (alta incapere). */}
+          {form.heating_type && (
+            <Toggle label="Am cameră tehnică" checked={form.has_tech_room}
+              onChange={v => update("has_tech_room", v)}
+              description={form.has_tech_room
+                ? "Echipamentele de încălzire pe tablou separat TE-CT (cameră tehnică)"
+                : "Echipamentele de încălzire pe TEG (debara / cămară / altă încăpere)"} />
           )}
           {isPDC && (
             <SelectField label="Fază PDC" value={form.power_phase}

@@ -340,6 +340,40 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False, force_mono=False
     feed["pozare"] = pozare_for(sec)
 
 
+def _synth_gas_tect(form, is_mono):
+    """FAZA 2 TE-CT / GAZ: breviarul n8n nu emite circuite TE-CT pe gas_boiler. Setul minim (Dan):
+    DISTRIBUITOR principal incalzire (mereu — dimensionat ca C21 din breviarul PDC: 200W/10A/3x1.5,
+    RCCB 30mA) + BOILER ACM (OPTIONAL: doar daca bifat in echipamente — centrala pe gaz face si ACM;
+    puterea/faza din formular, default 2kW mono). Panel TE-CT; redirectul (nebifat) le muta pe TEG."""
+    out = [{
+        "id": None, "name": None, "fasa": None, "room": None, "type": "dedicat", "panel": "TE-CT",
+        "usage": "Distribuitor principal incalzire", "description": "Distribuitor principal incalzire",
+        "power_w": 200, "breaker_a": 10, "cable_type": "3x1.5 mm2 CYYF", "pozare": pozare_for(1.5),
+        "breaker_type": "MCB-1P-C", "ia_calculated_a": round(200 / 230.0, 2), "rccb_ma": 30,
+        "has_rccb_individual": True, "is_main_distributor": True, "phases": 1, "outlets": 0,
+        "notes": "Distribuitor incalzire (pompe/actuatoare) — centrala pe gaz",
+    }]
+    for eq in (form or {}).get("extra_equipment") or []:
+        if (eq.get("type") or "") != "boiler":
+            continue
+        try:
+            pw = int(round(float(eq.get("power_kw") or 2.0) * 1000))
+        except (TypeError, ValueError):
+            pw = 2000
+        tri = str(eq.get("phase") or "mono").lower() in ("tri", "trifazat", "3") and not is_mono
+        breaker_a, ia = breaker_and_ia(pw, tri=tri, minimum=16)
+        cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
+        out.append({
+            "id": None, "name": None, "fasa": None, "room": None, "type": "dedicat", "panel": "TE-CT",
+            "usage": "Boiler ACM", "description": "Alimentare boiler", "power_w": pw,
+            "breaker_a": breaker_a, "cable_type": cbl, "pozare": pozare_for(sec),
+            "breaker_type": ("MCB-3P-C" if tri else "MCB-1P-C"), "ia_calculated_a": ia,
+            "rccb_ma": 30, "has_rccb_individual": True, "phases": (3 if tri else 1), "outlets": 0,
+        })
+        break                                          # un singur boiler
+    return out
+
+
 def enrich_circuits(plan_elements, form=None, base_circuits=None):
     """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
     base_circuits (heating-driven, ORTOGONAL de plan; dimensionarea normativa din norme_alimentari
@@ -353,6 +387,11 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # UN punct de decizie; absent -> "tri" (conservator, identic cu comportamentul de azi).
     is_mono = str(form.get("power_phase") or "tri").strip().lower() != "tri"
 
+    # FAZA 2 TE-CT: camera tehnica e OPTIONALA — checkbox-ul (form.has_tech_room) decide DOAR destinatia
+    # echipamentelor de incalzire: bifat -> TE-CT (ca azi); nebifat -> TEG (alta incapere). Absent -> True
+    # (non-regresie totala pe proiectele existente).
+    is_tech_room = form.get("has_tech_room", True) is not False
+
     # PRESERVARE din base_circuits (parsat INTAI): circuitele TE-CT (heating) + feed-ul coloanei.
     # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
     tect_circuits, feed_circuits = [], []
@@ -363,6 +402,26 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             tect_circuits.append(dict(c))
         elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
             feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+
+    # SINTEZA GAZ (functionalitate NOUA, ca feed-ul TES — "daca base nu emite, enrich creeaza"):
+    # breviarul n8n NU emite TE-CT pe gas_boiler (doar circuit dedicat centrala pe TEG). Setul minim
+    # (decizia Dan): DISTRIBUITOR principal (mereu) + BOILER ACM (optional, daca bifat in echipamente —
+    # gazul face si ACM). Sintetizat pe TE-CT; redirectul de mai jos il muta pe TEG daca nebifat.
+    if str(form.get("heating_type") or "") == "gas_boiler" and not tect_circuits:
+        tect_circuits.extend(_synth_gas_tect(form, is_mono))
+
+    # REDIRECT TE-CT -> TEG (nebifat): dedicatele (echipamentele sursei, ORICARE set — mutam circuitele
+    # existente, nu re-derivam) -> panel TEG (numerotare/faza/schema/BOM TEG natural); genericele legate
+    # de camera ("Iluminat/Priza rezerva camera tehnica") -> DROP (camera nu exista); feed -> DROP (fara
+    # coloana orfana). Fizic: PDC afara fara puffer, boiler mascat in debara, pompele acolo.
+    redirected_teg = []
+    if not is_tech_room:
+        for c in tect_circuits:
+            if c.get("type") == "dedicat":
+                c["panel"] = "TEG"
+                redirected_teg.append(c)
+        tect_circuits = []                             # genericele raman aici -> dropate
+        feed_circuits = []
     # TE-CT e HEATING-DRIVEN: rutam tech-ul planului pe TE-CT DOAR daca baza are deja un context
     # TE-CT (circuite TE-CT sau feed coloana). 'existing' (fara incalzire) -> tech ramane pe TEG (ca inainte).
     has_base_tect = bool(tect_circuits) or bool(feed_circuits)
@@ -370,8 +429,9 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # DEDUP receptor plan <-> circuit formular: tipurile de echipament DEJA acoperite de baza
     # (breviar incalzire: boiler/pdc/pompa/bms/distribuitor). Un element de plan cu acelasi tip NU
     # creeaza circuit nou -> circuitul base (dimensionat normativ) primeste POZITIA elementului.
+    # + redirectatele pe TEG (nebifat): elementul de plan tot pe circuitul base se leaga (pozitia).
     base_covered = {}
-    for c in tect_circuits:
+    for c in tect_circuits + redirected_teg:
         if c.get("type") == "dedicat":
             k = _equip_key(c.get("description") or c.get("usage"))
             if k and k not in base_covered:
@@ -479,7 +539,23 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
         _fd["cable"] = _fd.get("cable_type")           # alias-ul legacy `cable` (schema il afiseaza la feed-uri)
         feed_circuits.append(_fd)
 
-    out = teg + feed_circuits + tes + merged_tect
+    # FEED TE-CT SINTETIZAT (gaz bifat): base-ul de gaz nu are feed (breviarul nu emite TE-CT pe gaz) —
+    # daca exista circuite TE-CT (sintetizate) si niciun feed TE-CT, il cream ca la TES (acelasi mecanism,
+    # dimensionat pe merged_tect cu selectivitate). Pe proiectele existente feed-ul vine din breviar -> skip.
+    if is_tech_room and merged_tect and not any(str(f.get("feeds_panel") or "") == "TE-CT" for f in feed_circuits):
+        _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
+               "panel": "TEG", "feeds_panel": "TE-CT", "phases": (1 if is_mono else 3),
+               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
+               "description": "Alimentare TE-CT (camera tehnica)",
+               "usage": "Alimentare TE-CT (camera tehnica)",
+               "sub_tablou_color1": "#e74c3c", "sub_tablou_color2": "#3498db"}
+        _resize_column_feed(_fd, merged_tect, force_resum=True, force_mono=is_mono)
+        _fd["cable"] = _fd.get("cable_type")
+        feed_circuits.append(_fd)
+
+    # FAZA 2 TE-CT (nebifat): dedicatele redirectate intra in fluxul TEG (dupa circuitele planului),
+    # numerotate C{n} fara sufix — exact ca feed-urile.
+    out = teg + redirected_teg + feed_circuits + tes + merged_tect
 
     # renumerotare PER TABLOU = sistemul PLANULUI (id+name; panel/feeds_panel/dimensionarea raman).
     # Pastreaza ORDINEA compute_circuits (deci id-uri IDENTICE cu plan_elements.circuit_id: TEG C1..,
@@ -490,7 +566,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             cid = "C%d%s" % (i + 1, suffix)
             c["id"] = cid
             c["name"] = cid
-    _renumber_panel(teg + feed_circuits, "")       # TEG + coloana TE-CT -> C1..CN (fara sufix, ca planul)
+    _renumber_panel(teg + redirected_teg + feed_circuits, "")   # TEG + redirectate + coloane -> C1..CN
     _renumber_panel(tes, "-TES")                   # etaj -> C1-TES..CN-TES (ca planul; nu -TES1, nu flat)
     _renumber_panel(merged_tect, "-TECT")          # TE-CT -> C1-TECT..CN-TECT (tech plan intai = ca planul)
 
