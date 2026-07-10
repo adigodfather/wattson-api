@@ -456,7 +456,7 @@ def _norm_cable_display(cbl):
     return "CYY-F %sx%s" % (m.group(1), sec)
 
 
-def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None):
+def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, cross_floor=None):
     """Randuri de cablu pt. legenda, din CIRCUITELE REALE (sursa unica), pe plan_type:
     iluminat -> 3x1.5; forta -> 3x2.5 (prize) + sectiunile DEDICATELOR (din circuits, NU re-derivate
     din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
@@ -510,11 +510,18 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None):
         txt = ("Coloana alimentare %s %s" % (tgt, cbl)).strip()
         if txt not in seen:
             seen.add(txt)
-            out.append({"kind": "column", "text": txt})
+            # feeds_panel pastrat -> _draw_legend coloreaza randul TES cu verdele coloanei cross-plansa
+            out.append({"kind": "column", "text": txt, "feeds_panel": tgt})
+    # TRAVERSARE INTRE NIVELURI (cross-plansa): simbolul cerc+sageata in legenda cand plansa il are
+    if cross_floor and isinstance(cross_floor, dict) and cross_floor.get("mode") in ("up", "down"):
+        _up = cross_floor["mode"] == "up"
+        out.append({"kind": "crossing", "up": _up,
+                    "text": ("Traversare nivel: coloana urca la etajul urmator" if _up
+                             else "Traversare nivel: alimentare venita de la nivelul inferior")})
     return out
 
 
-def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None):
+def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None, cross_floor=None):
     """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
     Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
       ILUMINAT: becuri (pe tip+putere) + intrerupatoare (prezente) + tablouri + cablu 3x1.5.
@@ -567,7 +574,7 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None)
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
-    cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits)
+    cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
 
     return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + cable_rows
 
@@ -1573,22 +1580,117 @@ def _is_heating_receptor(label):
 
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
+# Coloana TEG->TES (cross-plansa) + simbolurile ei de traversare: VERDE INCHIS #1B5E20 (decizia Dan) —
+# DISTINCTA de teal-ul coloanei TE-CT, vizibila pe planul gri/negru + fundal alb. SURSA UNICA.
+_TES_COLUMN_COLOR = (0.106, 0.369, 0.125)
 
-def _draw_column(page, a, b, width=2.6, path=None):
-    """Coloana de legatura = linie SOLIDA groasa TEAL de la a=(x,y) la b=(x,y). Ex. TE-CT -> TEG.
+def _draw_column(page, a, b, width=2.6, path=None, color=None):
+    """Coloana de legatura = linie SOLIDA groasa de la a=(x,y) la b=(x,y). Ex. TE-CT -> TEG.
     `path` (polilinie) dat -> coloana URMEAZA TRASEUL desenat de inginer (patul de cabluri comun,
     ca in realitate), nu taie prin incaperi. Fara path -> L ortogonal direct (fallback, ca inainte).
+    `color` None -> TEAL (coloana TE-CT, neschimbata); coloana TES paseaza verdele ei.
     a/b lipsa -> skip."""
     if not a or not b:
         return
+    col = color or _COLUMN_COLOR
     if path and len(path) >= 2:
         for i in range(len(path) - 1):
             page.draw_line(fitz.Point(path[i][0], path[i][1]), fitz.Point(path[i + 1][0], path[i + 1][1]),
-                           color=_COLUMN_COLOR, width=width)
+                           color=col, width=width)
         return
     mid = (b[0], a[1]) if abs(b[0] - a[0]) >= abs(b[1] - a[1]) else (a[0], b[1])
     for p, q in ((a, mid), (mid, b)):
-        page.draw_line(fitz.Point(p[0], p[1]), fitz.Point(q[0], q[1]), color=_COLUMN_COLOR, width=width)
+        page.draw_line(fitz.Point(p[0], p[1]), fitz.Point(q[0], q[1]), color=col, width=width)
+
+
+# ── CROSS-PLANSA (TEG parter <-> TES etaj): transformarea intre plansele etajelor + simbolul de
+# traversare. R&D (masurat pe 9926+701b): plansele-s SUPRAPUSE — translatie PURA (spread 0.02pt),
+# offset ~2.6pt. Cascada obligatorie: (a) axele CAD (grid, ~0.1pt) -> (b) pereti (mediana deltelor)
+# -> (c) IDENTITATE (etaje desenate suprapus in CAD = practica standard; eroare ~3pt, sub simbol).
+# Niciodata "nu desena". ──
+def _grid_rects(page):
+    """Dreptunghiurile itemelor de pe layerele de AXE structurale (grid/axe/axis), sortate —
+    amprenta axelor e identica intre etaje (aceleasi axe) => diferentele dau translatia."""
+    return sorted((round(d["rect"].x0, 2), round(d["rect"].y0, 2), round(d["rect"].x1, 2), round(d["rect"].y1, 2))
+                  for d in page.get_drawings()
+                  if any(k in (d.get("layer") or "").lower() for k in ("grid", "axe", "axis")))
+
+
+def floor_offset(pdf_from_b64, pdf_to_b64):
+    """Translatia care duce coordonatele plansei FROM in plansa TO: p_to = p_from + (dx, dy).
+    Returneaza (dx, dy, sursa) cu sursa in {'grid','walls','identity'}. Defensiv: orice esec -> identitate."""
+    try:
+        a_raw = (pdf_from_b64 or "").split(",", 1)[-1]
+        b_raw = (pdf_to_b64 or "").split(",", 1)[-1]
+        if not a_raw or not b_raw:
+            return 0.0, 0.0, "identity"
+        A = fitz.open(stream=base64.b64decode(a_raw), filetype="pdf")
+        B = fitz.open(stream=base64.b64decode(b_raw), filetype="pdf")
+        try:
+            pa, pb = A[0], B[0]
+            ga, gb = _grid_rects(pa), _grid_rects(pb)
+            if ga and len(ga) == len(gb) and len(ga) >= 4:
+                dx = sorted([b[0] - a[0] for a, b in zip(ga, gb)] + [b[2] - a[2] for a, b in zip(ga, gb)])
+                dy = sorted([b[1] - a[1] for a, b in zip(ga, gb)] + [b[3] - a[3] for a, b in zip(ga, gb)])
+                if max(dx[-1] - dx[0], dy[-1] - dy[0]) <= 1.0:      # translatie PURA (nu forme diferite)
+                    return dx[len(dx) // 2], dy[len(dy) // 2], "grid"
+            # (b) peretii: pozitiile fetelor (x verticali / y orizontali), mediana deltelor nearest
+            import geometry as _g
+            hA, vA, _ = _g._collect(pa)
+            hB, vB, _ = _g._collect(pb)
+
+            def _pos(segs):
+                vals = sorted(p[2] for p in segs if abs(p[1] - p[0]) > 15)
+                out = []
+                for v in vals:
+                    if not out or v - out[-1] > 1.5:
+                        out.append(v)
+                return out
+            xa, xb, ya, yb = _pos(vA), _pos(vB), _pos(hA), _pos(hB)
+            if xa and xb and ya and yb:
+                # registration 1D robust: MODUL diferentelor pereche-la-pereche (nu nearest-median —
+                # fetele de perete dese fac nearest-ul degenerat, mediana trage spre 0). Peretii
+                # OMOLOGI (multi) voteaza toti aceeasi translatie; zgomotul se imprastie in binuri.
+                def _mode_delta(av, bv, win=12.0, binw=0.5):
+                    votes = {}
+                    for a in av:
+                        for b in bv:
+                            d = b - a
+                            if abs(d) <= win:
+                                votes.setdefault(round(d / binw) * binw, []).append(d)
+                    if not votes:
+                        return 0.0
+                    best = max(votes.values(), key=len)
+                    best.sort()
+                    return best[len(best) // 2]
+                return _mode_delta(xa, xb), _mode_delta(ya, yb), "walls"
+        finally:
+            A.close()
+            B.close()
+    except Exception:
+        pass
+    return 0.0, 0.0, "identity"
+
+
+def _draw_floor_crossing(page, x, y, up=True, label=None):
+    """Simbol conventional de traversare intre niveluri (varianta A, decizia Dan): cerc VERDE INCHIS
+    (_TES_COLUMN_COLOR, ca si coloana TES — distinct de teal-ul TE-CT) cu sageata verticala (SUS =
+    coloana urca la etaj; JOS = alimentarea vine de jos) + eticheta bold.
+    Plasat la POZITIA (proiectata a) tabloului de pe celalalt nivel."""
+    r = 8.0
+    page.draw_circle(fitz.Point(x, y), r, color=_TES_COLUMN_COLOR, fill=(1, 1, 1), width=1.8)
+    tip_y = y - 4.5 if up else y + 4.5                     # varful sagetii spre directia de mers
+    tail_y = y + 4.5 if up else y - 4.5
+    page.draw_line(fitz.Point(x, tail_y), fitz.Point(x, tip_y), color=_TES_COLUMN_COLOR, width=1.6)
+    wing_y = tip_y + (3.2 if up else -3.2)                 # aripile varfului, inapoi spre coada
+    for dx in (-2.6, 2.6):
+        page.draw_line(fitz.Point(x, tip_y), fitz.Point(x + dx, wing_y), color=_TES_COLUMN_COLOR, width=1.6)
+    if label:
+        # eticheta DEASUPRA simbolului (sub el pica de regula pe numele camerei — text negru bold)
+        fs = 7.5
+        w = fitz.get_text_length(label, fontname="hebo", fontsize=fs)
+        page.insert_text(fitz.Point(x - w / 2.0, y - r - 4.0), label,
+                         fontsize=fs, fontname="hebo", color=_TES_COLUMN_COLOR)
 
 
 # ── LEGENDA (L3): deseneaza caseta legendei pe PDF (chenar + titlu + randuri simbol+text). ──
@@ -1655,9 +1757,13 @@ def _draw_legend(page, x, y, rows):
             for _dy in (-2.3, 0.0, 2.3):
                 _draw_cable(page, [(x + PAD + 3.0, cy + _dy), (x + PAD + SYM_W - 3.0, cy + _dy)], width=0.7)
         elif kind == "column":
-            # COLOANA: o linie SOLIDA groasa TEAL (feed TEG->TE-CT/TES)
+            # COLOANA: linie SOLIDA groasa — TEAL pt. TE-CT, VERDE INCHIS pt. TES (cross-plansa)
+            _ccol = _TES_COLUMN_COLOR if (r.get("feeds_panel") or "").startswith("TES") else _COLUMN_COLOR
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
-                           color=_COLUMN_COLOR, width=2.2)
+                           color=_ccol, width=2.2)
+        elif kind == "crossing":
+            # TRAVERSARE NIVEL: cercul cu sageata (sus/jos), micsorat pt. celula legendei
+            _draw_floor_crossing(page, cx, cy, up=bool(r.get("up", True)), label=None)
         # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
         page.insert_text(fitz.Point(text_x, cy + ROW_FS * 0.35), r.get("text") or "",
                          fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
@@ -2536,7 +2642,7 @@ def _stamp_plansa_nr(doc, page, plansa_nr):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None, circuits: list = None) -> dict:
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None, circuits: list = None, cross_floor: dict = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -2707,13 +2813,42 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                         _draw_column(page, _a, _teg, path=_cp)
         except Exception:
             pass
+        # TRAVERSARE INTRE NIVELURI (cross-plansa, varianta A): pe plansa cu TEG -> coloana TEG ->
+        # PROIECTIA TES (pe traseele desenate, slot propriu OPUS coloanei TE-CT) + simbol "URCA";
+        # pe plansa cu TES -> doar simbolul "VINE DE JOS" la TES (coloana urca prin planseu).
+        # cross_floor = {"mode": "up"/"down", "xy": (x,y), "label": str} — construit de /regenerate-plan
+        # (proiectia = pozitia TES transformata cu floor_offset, cascada grid->pereti->identitate).
+        # Defensiv: orice eroare -> skip, planul ramane intact.
+        try:
+            if draw_plan_type == "forta" and isinstance(cross_floor, dict) and cross_floor.get("xy"):
+                _cxy = (float(cross_floor["xy"][0]), float(cross_floor["xy"][1]))
+                if cross_floor.get("mode") == "up":
+                    _teg2 = None
+                    for e in (elements or []):
+                        if ((e or {}).get("element_type") or "") == "tablou_teg":
+                            try:
+                                _teg2 = (float(e["x"]), float(e["y"]))
+                            except (TypeError, ValueError, KeyError):
+                                pass
+                    if _teg2:
+                        _st2 = _extract_stripes(elements)
+                        _si2 = _nearest_stripe_idx(_cxy, _st2) if _st2 else None
+                        # slot OPUS coloanei TE-CT (−offset) -> cele doua coloane nu se acopera pe traseu
+                        _cp2 = (_stripe_path(_cxy, _teg2, _st2[_si2], offset=-_COLUMN_STRIPE_OFFSET)
+                                if _si2 is not None else None)
+                        _draw_column(page, _cxy, _teg2, path=_cp2, color=_TES_COLUMN_COLOR)
+                    _draw_floor_crossing(page, _cxy[0], _cxy[1], up=True, label=cross_floor.get("label"))
+                elif cross_floor.get("mode") == "down":
+                    _draw_floor_crossing(page, _cxy[0], _cxy[1], up=False, label=cross_floor.get("label"))
+        except Exception:
+            pass
         # LEGENDA (L3): overlay DEASUPRA tuturor simbolurilor, DOAR daca inginerul a adaugat elementul "legenda".
         n_legend = 0
         try:
             _leg = next((e for e in (elements or [])
                          if ((e or {}).get("element_type") or "") == "legenda"), None)
             if _leg is not None:
-                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds, circuits))
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds, circuits, cross_floor=cross_floor))
                 n_legend = 1
         except Exception:
             n_legend = 0

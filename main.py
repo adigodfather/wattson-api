@@ -3502,9 +3502,73 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                 _pl_nr, _pl_titlu = _ent.get("nr"), _ent.get("nume")
         except Exception as _e3:
             print("[regenerate-plan] numerotare skip:", _e3)
+        # TRAVERSARE INTRE NIVELURI (cross-plansa, varianta A — decizia Dan): cand TEG si TES sunt pe
+        # ETAJE DIFERITE, plansa cu TEG primeste coloana TEG->proiectia TES (pe trasee) + simbol "URCA",
+        # iar plansa cu TES primeste simbolul "VINE DE JOS". Proiectia = pozitia TES transformata cu
+        # floor_offset (cascada: axe CAD -> pereti -> identitate; plansele-s suprapuse, R&D 2026-07-10).
+        # Doar pe planul de FORTA. Defensiv: ORICE esec -> fara traversare, planul ramane intact.
+        _cross = None
+        try:
+            if request.plan_type == "forta":
+                from supabase_client import supabase as _supa4
+                _pans = (_supa4.table("plan_elements").select("element_type,x,y,floor")
+                         .eq("project_id", request.project_id)
+                         .in_("element_type", ["tablou_teg", "tablou_tes"])
+                         .execute().data) or []
+                _tegr = next((r for r in _pans if r.get("element_type") == "tablou_teg"), None)
+                _tesr = next((r for r in _pans if r.get("element_type") == "tablou_tes"), None)
+                _f_teg = str((_tegr or {}).get("floor") or "parter")
+                _f_tes = str((_tesr or {}).get("floor") or "parter")
+                if _tegr and _tesr and _f_teg != _f_tes and request.floor in (_f_teg, _f_tes):
+                    try:
+                        _rdX = _rd2 if isinstance(_rd2, dict) and _rd2 else {}
+                    except NameError:
+                        _rdX = {}                      # blocurile feeds/numerotare au picat -> refetch mai jos
+                    if not _rdX:
+                        _rdX = (((_supa4.table("projects").select("result_data")
+                                  .eq("id", request.project_id).single().execute().data) or {})
+                                .get("result_data")) or {}
+                    # plansa etajului N = planuri[N] sortate pe plansa_nr (IE.1=parter, IE.2=etaj, ...)
+                    _order = ["parter", "etaj", "mansarda"]
+                    _pls = sorted((_rdX.get("planuri") or []), key=lambda p: str((p or {}).get("plansa_nr") or ""))
+                    _pdf_of = {_order[i]: (p or {}).get("pdf_base64") or "" for i, p in enumerate(_pls) if i < len(_order)}
+                    if request.floor == _f_teg:
+                        # plansa cu TEG: proiecteaza TES aici -> coloana + simbol URCA
+                        _dx, _dy, _osrc = draw_elements.floor_offset(_pdf_of.get(_f_tes, ""), _pdf_of.get(_f_teg, ""))
+                        _px, _py = float(_tesr["x"]) + _dx, float(_tesr["y"]) + _dy
+                        # clamp pe amprenta plansei curente (etaj in consola -> proiectia nu iese din cladire)
+                        try:
+                            import fitz as _fz
+                            import geometry as _geo
+                            _rawX = request.base_pdf_base64.split(",", 1)[-1]
+                            _dX = _fz.open(stream=base64.b64decode(_rawX), filetype="pdf")
+                            _hs, _vs, _ = _geo._collect(_dX[0])
+                            _dX.close()
+                            _xs = [s for (x0, x1, _y) in _hs for s in (x0, x1)] + [x for (_y0, _y1, x) in _vs]
+                            _ys = [y for (_x0, _x1, y) in _hs] + [s for (y0, y1, _x) in _vs for s in (y0, y1)]
+                            if _xs and _ys:
+                                _px = min(max(_px, min(_xs) + 6.0), max(_xs) - 6.0)
+                                _py = min(max(_py, min(_ys) + 6.0), max(_ys) - 6.0)
+                        except Exception:
+                            pass
+                        _cross = {"mode": "up", "xy": (_px, _py),
+                                  "label": "Coloana spre TES (%s)" % _f_tes, "offset_source": _osrc}
+                        print("[regenerate-plan] cross-floor UP: offset=(%.2f, %.2f) src=%s -> TES proiectat (%.1f, %.1f)"
+                              % (_dx, _dy, _osrc, _px, _py))
+                    else:
+                        # plansa cu TES: simbolul "vine de jos" LANGA tablou (24pt deasupra —
+                        # exact pe pozitia TES ar acoperi simbolul tabloului)
+                        _cross = {"mode": "down", "xy": (float(_tesr["x"]), float(_tesr["y"]) - 24.0),
+                                  "label": "Alimentare din TEG (%s)" % _f_teg}
+                    # sectiunea coloanei TES in legenda: feed-ul TES din schema; lipsa (breviarul actual
+                    # nu emite feed TES) -> fallback normativ 5x6 (ca TE-CT), semnalat in raport
+                    if not any(isinstance(f, dict) and f.get("feeds_panel") == "TES" for f in _feeds):
+                        _feeds.append({"type": "sub_tablou", "feeds_panel": "TES", "cable_type": "CYY-F 5x6mmp"})
+        except Exception as _e4:
+            print("[regenerate-plan] cross-floor skip:", _e4)
         return draw_elements.redraw_from_plan_elements(
             request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms,
-            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs)
+            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs, cross_floor=_cross)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
