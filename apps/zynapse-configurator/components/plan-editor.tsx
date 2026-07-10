@@ -966,8 +966,26 @@ export default function PlanEditor({
     }
   }
 
+  // Ordinea CONTEAZA (fix resume): (1) fundalul SE INCARCA (fetch /render-base-png in curs pe forta;
+  // la resume aterizezi direct pe forta -> fereastra de 2-3s e in fata userului) -> SPINNER zy-spin,
+  // NU mesajul sec — early-return-ul de mai jos scurtcircuita spinner-ul din caseta Stage.
+  // (2) PNG absent si NIMIC nu-l incarca -> LIPSA DEFINITIVA (plansa negenerata) -> mesaj clar, fara
+  // spinner infinit. Iluminatul nu are fetch (png-ul e deja in result_data) -> doar prezent/absent.
+  if (bgLoading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 360 }}>
+        <span aria-hidden style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid rgba(55,138,221,0.22)",
+          borderTopColor: "#378ADD", animation: "zy-spin 0.7s linear infinite" }} />
+        <span style={{ fontSize: 12.5, color: "#8B8FA8" }}>Se pregătește planul de {mode === "forta" ? "forță" : "iluminat"}…</span>
+      </div>
+    );
+  }
   if (!pngBase64) {
-    return <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Nu există imagine PNG a planului pentru editare.</p>;
+    return (
+      <p className="text-sm text-center py-8" style={{ color: "#545870" }}>
+        Această planșă nu a fost generată încă — generează planul de {mode === "forta" ? "forță" : "iluminat"} mai întâi.
+      </p>
+    );
   }
 
   // dimensiuni PNG (px) + scalare uniformă la ecran (imagine + overlay împreună -> rămân aliniate)
@@ -1556,15 +1574,8 @@ export default function PlanEditor({
           </div>
         )}
         <div style={{ width: stageW || "100%", maxWidth: "100%", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
-          {/* Forta: fundalul curat se randeaza (Render) -> SPINNER, nu caseta goala / eroare. Acelasi spinner
-              ca la generare (zy-spin, globals.css). Cu preincarcarea, de obicei e deja gata -> nu apare. */}
-          {bgLoading && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 360 }}>
-              <span aria-hidden style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid rgba(55,138,221,0.22)", borderTopColor: "#378ADD", animation: "zy-spin 0.7s linear infinite" }} />
-              <span style={{ fontSize: 12.5, color: "#6B7280" }}>Se pregătește planul de forță…</span>
-            </div>
-          )}
-          {!bgLoading && stageW > 0 && stageH > 0 && (
+          {/* bgLoading face early-return (spinner) INAINTE de acest render — aici fundalul e mereu prezent. */}
+          {stageW > 0 && stageH > 0 && (
             <Stage width={stageW} height={stageH} scaleX={displayScale} scaleY={displayScale}>
               <Layer>
                 {img && <KonvaImage image={img} width={pngW} height={pngH} listening={false} />}
