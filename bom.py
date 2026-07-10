@@ -180,6 +180,9 @@ _H_FALLBACK = 2.7    # H camera lipsa (rooms fara height_m / element fara camera
 _H_GENERIC  = 0.6    # default-ul UI nespecific al mount_height_m (nu inseamna "editat")
 _H_SWITCH   = 1.1    # intrerupator (decizia Dan; datele au 0.6 generic)
 _H_PANEL    = 1.4    # tablou (plecarile circuitelor urca la tavan de la 1.4)
+# H4 (Regula 10): inaltimea de montaj DEFAULT pt. grupatele fara mount_height_m persistat (fallback
+# defensiv; UI-ul o seteaza mereu la plasare). Radiator la parapet 0.3, VCV sus pe perete 2.2.
+_GROUPED_HEATING_DEFAULT_H = {"radiator": 0.3, "vcv": 2.2}
 
 
 def _room_heights(rooms):
@@ -228,9 +231,13 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
     # cablul circuitului elementului (id-urile per-tablou din enrich = plan_elements.circuit_id)
     cab = {str(c.get("id") or ""): _norm_cable(c.get("cable_type")) for c in (circuits or [])}
 
-    # DEDICATELE de plan (receptoare): coborarea la element, pe cablul circuitului dedicat
+    # DEDICATELE de plan (receptoare): coborarea la element, pe cablul circuitului dedicat.
+    # H4: EXCLUDE grupatele (VCV/radiatoare) -> au ramura proprie (jos), NU pot fi inghitite de fallback-ul
+    # _match_receptor al unui dedicat nepotrivit (evita dubla-numarare + mis-match). Distribuitorul zona
+    # (dedicat, kind=None) RAMANE in pool -> prins normal aici prin "Alimentare Distribuitor zona".
     pool = [el for el in (plan_elements or [])
-            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")]
+            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")
+            and not draw_elements._grouped_heating_kind(el.get("label"))]
     for c in (circuits or []):
         if c.get("type") != "dedicat":
             continue
@@ -261,6 +268,13 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
         elif et in _WALL_BULBS:
             h = hm if hm is not None else _H_GENERIC
             put(_ILUM_CABLE, max(0.0, Hc(el) - h))
+        elif et == "alimentare_receptor" and draw_elements._grouped_heating_kind(el.get("label")):
+            # Regula 10 / H4: VCV/radiatoare GRUPATE -> coborarea la element (H_camera − h_montaj), pe cablul
+            # circuitului GRUPAT (via circuit_id, NU descriere). Boilerul/cuptorul/distribuitorul (dedicate,
+            # kind=None) NU intra aici -> prinse de bucla dedicatelor de sus.
+            kind = draw_elements._grouped_heating_kind(el.get("label"))
+            h = hm if hm is not None else _GROUPED_HEATING_DEFAULT_H.get(kind, 1.0)
+            put(cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
         # aplica_tavan / lustra_led / banda_led: racord la tavan -> coborare 0
 
     # PLECARILE DIN TABLOU: fiecare circuit urca din tabloul lui la tavan (H_tablou − 1.4),
