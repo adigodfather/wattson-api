@@ -2484,6 +2484,8 @@ export function ZynapseConfigurator() {
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}
                   heatingDistribution={form.heating_distribution}
+                  heatingType={form.heating_type}
+                  enabledEquipment={Object.keys(equipment).filter(t => equipment[t]?.enabled)}
                 />
               </div>
             )}

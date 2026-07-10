@@ -13,7 +13,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
-import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors } from "@/lib/constants";   // Regula 10 + H5: receptoare termice gate-uite pe heating_distribution
+import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -341,11 +341,13 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [], heatingDistribution = null,
+  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
+  heatingDistribution = null, heatingType = null, enabledEquipment = [],
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
-     heatingDistribution?: string | null }) {   // H5: emisia din formular -> ce butoane termice apar in paleta
+     // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
+     heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[] }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1421,6 +1423,15 @@ export default function PlanEditor({
   // alimentare. Pilot = doar boilerul; restul receptoarelor se adauga identic (bucata C = gating pe bifate).
   const renderReceptorSection = () => {
     if (mode !== "forta") return null;
+    // H5/H6: butoanele apar STRICT dupa formular. Termice -> heating_distribution ; boiler -> heating_type
+    // (PDC/centrala cu boiler) ; AC/cuptor/HRV/EV/internet -> echipamentele bifate. Ascunse complet cand nu-s.
+    const eqButtons = visibleEquipmentReceptors({ heatingType, enabledEquipment });
+    const heatButtons = visibleHeatingReceptors(heatingDistribution);
+    const placedRecs = elements.filter(e => e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet");
+    const hasButtons = eqButtons.length > 0 || heatButtons.length > 0;
+    // H6: niciun buton vizibil SI niciun receptor plasat -> sectiunea nu apare deloc (fara titlu gol). Daca
+    // exista receptoare plasate (de tip acum ascuns), sectiunea RAMANE ca sa le poti edita/sterge (nu se sterg auto).
+    if (!hasButtons && placedRecs.length === 0) return null;
     return (
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
@@ -1433,48 +1444,35 @@ export default function PlanEditor({
             </div>
             <button type="button" className="zy-add-btn" onClick={() => setPlacingReceptor(null)}>Anulează</button>
           </div>
-        ) : (
+        ) : hasButtons ? (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            {/* ALIMENTARI = ACEEASI mecanica (startPlaceReceptor("alimentare_receptor", label)) + ACELASI simbol.
-                Label-urile = citibile ASCII (PDF-ul capitalizeaza prima litera; Helvetica n-are diacritice).
-                Fotovoltaice EXCLUSE (Dan le face separat). Gating pe bifate = bucata C. */}
-            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", "boiler")}>+ Alimentare boiler</button>
-            {[
-              { btn: "cuptor electric", label: "Cuptor electric" },
-              { btn: "aer condiționat", label: "Aer conditionat" },
-              { btn: "HRV",             label: "HRV" },
-              { btn: "stație încărcare", label: "Statie incarcare" },
-            ].map(r => (
-              <button key={r.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", r.label)}>+ Alimentare {r.btn}</button>
+            {/* H6: receptoare NON-termice — boiler din heating_type (PDC/centrala cu boiler); AC/cuptor/HRV/EV/
+                internet din echipamentele BIFATE. Label EXACT persistat (declanseaza logica backend). Fotovoltaice
+                excluse. Gating pe TIP: plasezi cate unitati vrei. Ascunse complet cand nu-s in formular. */}
+            {eqButtons.map(b => (
+              <button key={b.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(b.et, b.label)}>
+                {b.et === "receptor_internet" ? "+ Rețea internet" : ("+ Alimentare " + b.btnText)}
+              </button>
             ))}
-            {/* RETEA INTERNET = element_type propriu + SIMBOL propriu (turcoaz + router + WiFi), acelasi mod 1-click. */}
-            <button type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("receptor_internet", "internet")}>+ Rețea internet</button>
-            {/* Regula 10 + H5: receptoare termice — apar STRICT dupa emisia din formular (heating_distribution):
-                pardoseala -> Distribuitor zona ; VCV -> VCV + Distribuitor ; radiatoare electrice -> Radiator.
-                Irelevantele NU se randeaza (ascunse complet, nu disabled). Radiator/VCV se GRUPEAZA (plafon 2kW). */}
-            {visibleHeatingReceptors(heatingDistribution).map(h => (
+            {/* Regula 10 + H5: receptoare termice — dupa emisia (heating_distribution). Radiator/VCV se GRUPEAZA. */}
+            {heatButtons.map(h => (
               <button key={h.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", h.label)}>+ {h.label}</button>
             ))}
           </div>
+        ) : null}
+        {/* LISTA receptoarelor plasate + Sterge. RAMANE vizibila chiar daca butonul tipului e ascuns
+            (H6: elementul plasat NU se sterge automat — editabil in inspector, stergibil manual de aici). */}
+        {placedRecs.length > 0 && (
+          <div style={{ marginTop: 8, paddingLeft: 2 }}>
+            {placedRecs.map((r) => (
+              <div key={r.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: r.element_type === "receptor_internet" ? NET_EDGE : COL_PRIZA, flexShrink: 0 }} />
+                {r.element_type === "receptor_internet" ? "Rețea internet" : ("Alimentare " + (r.label || "receptor"))}
+                <button type="button" className="zy-add-btn" onClick={() => removeElement(r.id)}>Șterge</button>
+              </div>
+            ))}
+          </div>
         )}
-        {/* LISTA receptoarelor plasate + Sterge (pattern renderTraseuSection). `elements` e deja
-            filtrat pe floor (l.423) -> filtram doar pe tip. removeElement = DB delete + state + deselect;
-            circuitul dispare automat la regenerate/finalizare (enrich e stateless). */}
-        {(() => {
-          const recs = elements.filter(e => e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet");
-          if (recs.length === 0) return null;
-          return (
-            <div style={{ marginTop: 8, paddingLeft: 2 }}>
-              {recs.map((r) => (
-                <div key={r.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 2, background: r.element_type === "receptor_internet" ? NET_EDGE : COL_PRIZA, flexShrink: 0 }} />
-                  {r.element_type === "receptor_internet" ? "Rețea internet" : ("Alimentare " + (r.label || "receptor"))}
-                  <button type="button" className="zy-add-btn" onClick={() => removeElement(r.id)}>Șterge</button>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
       </div>
     );
   };

@@ -130,6 +130,45 @@ export function visibleHeatingReceptors(heatingDistribution: string | null | und
   return HEATING_RECEPTOR_TYPES.filter(t => t.visibleFor.includes(d));
 }
 
+// ─── H6: receptoare NON-termice din paleta, gate-uite pe formular ─────────────
+// Boilerul apare cu SAU-logic: din SISTEMUL de incalzire (heating_type care implica boiler ACM: PDC /
+// centrala cu boiler) SAU din bifa "Boiler ACM" din formularul de echipamente (equipment.boiler.enabled).
+// Restul (AC/cuptor/HRV/EV/internet) = din echipamentele BIFATE (equipment[type].enabled -> extra_equipment).
+// Fotovoltaicele EXCLUSE (Dan separat). Gating pe TIP; cantitatea e libera (plasezi cate unitati vrei).
+// heating_type care implica boiler ACM: PDC aer-apa / sol-apa + centrala gaz / electrica (nu termoficare/existing).
+export const BOILER_HEATING_TYPES = ["pdc_air_water", "pdc_ground_water", "gas_boiler", "electric_boiler"];
+
+export type EquipmentReceptorButton = {
+  et: "alimentare_receptor" | "receptor_internet";
+  label: string;      // label PERSISTAT pe plan_elements (declanseaza logica backend) + textul din lista
+  btnText: string;    // textul butonului: "+ Alimentare {btnText}" (internet = "+ Retea internet")
+  // equipment: vizibil daca equipType e bifat. heatingType (boiler): vizibil daca heating_type implica
+  // boiler ACM SAU equipType ("boiler") e bifat (SAU-logic).
+  gate: { kind: "equipment"; equipType: string } | { kind: "heatingType"; equipType: string };
+};
+// Ordinea = ordinea afisata in paleta (boiler, cuptor, AC, HRV, EV, internet).
+export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
+  { et: "alimentare_receptor", label: "boiler",           btnText: "boiler",           gate: { kind: "heatingType", equipType: "boiler" } },
+  { et: "alimentare_receptor", label: "Cuptor electric",  btnText: "cuptor electric",  gate: { kind: "equipment", equipType: "cuptor_electric" } },
+  { et: "alimentare_receptor", label: "Aer conditionat",  btnText: "aer condiționat",  gate: { kind: "equipment", equipType: "ac" } },
+  { et: "alimentare_receptor", label: "HRV",              btnText: "HRV",              gate: { kind: "equipment", equipType: "hrv" } },
+  { et: "alimentare_receptor", label: "Statie incarcare", btnText: "stație încărcare", gate: { kind: "equipment", equipType: "ev_charger" } },
+  { et: "receptor_internet",   label: "internet",         btnText: "rețea internet",   gate: { kind: "equipment", equipType: "internet" } },
+];
+
+// H6: butoanele NON-termice vizibile pt. gate-ul curent. Boiler -> heating_type; restul -> echipamente bifate.
+export function visibleEquipmentReceptors(
+  gate: { heatingType?: string | null; enabledEquipment?: string[] }
+): EquipmentReceptorButton[] {
+  const ht = (gate.heatingType || "").trim();
+  const enabled = new Set(gate.enabledEquipment || []);
+  return EQUIPMENT_RECEPTOR_BUTTONS.filter(b => {
+    const byEquip = enabled.has(b.gate.equipType);   // bifat in formularul de echipamente
+    // H6: boilerul = SAU-logic (heating_type implica boiler ACM SAU bifa "Boiler ACM" activa); restul = doar bifa.
+    return b.gate.kind === "heatingType" ? (BOILER_HEATING_TYPES.includes(ht) || byEquip) : byEquip;
+  });
+}
+
 // ─── Motor (industrial) ───────────────────────────────────────────────────────
 
 export interface Motor {
