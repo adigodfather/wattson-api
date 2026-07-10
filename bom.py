@@ -139,12 +139,26 @@ def _match_receptor(desc, pool):
     return None
 
 
+_TES_FEED_FALLBACK = "CYY-F 5x6"   # sectiunea coloanei TEG->TES cand feed-ul lipseste din breviar
+                                   # (CONSISTENT cu fallback-ul legendei din /regenerate-plan)
+
+
 def _extra_meters_by_type(plan_elements, circuits, scale):
     """Metri pt. cablurile care NU sunt in compute_cables: DEDICATE (receptor->tablou) + COLOANA
-    (TEG->TE-CT). Lungime = L-path element->tablou (ca celelalte cabluri). Bucket pe cable_type."""
+    (TEG->TE-CT) + COLOANA TEG->TES (cross-plansa, P0-4; o data, scara parterului).
+    Lungime = L-path element->tablou (ca celelalte cabluri). Bucket pe cable_type."""
     panels = _panel_xy(plan_elements)
     teg  = panels.get("tablou_teg") or panels.get("tablou_tes")
     tect = panels.get("tablou_te_ct")
+    tes  = panels.get("tablou_tes")
+    # coloana TEG->TES exista DOAR cross-floor (TEG si TES pe etaje diferite) — ca desenul de pe plan
+    _fl = {}
+    for el in (plan_elements or []):
+        et = (el or {}).get("element_type") or ""
+        if et in ("tablou_teg", "tablou_tes") and et not in _fl:
+            _fl[et] = str(el.get("floor") or "parter")
+    tes_cross = ("tablou_teg" in _fl and "tablou_tes" in _fl and _fl["tablou_teg"] != _fl["tablou_tes"])
+    tes_counted = False
     out = {}
     pool = [el for el in (plan_elements or [])
             if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")]
@@ -172,7 +186,52 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
         elif ctype == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
             if teg and tect:
                 out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tect, teg)) * scale
+        elif ctype == "sub_tablou" and str(c.get("feeds_panel") or "").startswith("TES"):
+            # P0-4: feed-ul TEG->TES (coloana cross-plansa) — numarat O DATA, pe pozitiile de plan
+            # (proiectia TES pe parter ≈ pozitia TES bruta; plansele-s suprapuse, eroare ~3pt = ~5cm).
+            if teg and tes and tes_cross:
+                out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
+                tes_counted = True
+    # feed TES ABSENT din circuits (breviarul actual nu-l emite — follow-up cunoscut) dar tablourile-s
+    # cross-floor -> coloana desenata pe plan exista; numaram cu fallback-ul CONSISTENT cu legenda (5x6).
+    if teg and tes and tes_cross and not tes_counted:
+        ct = _norm_cable(_TES_FEED_FALLBACK)
+        out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
     return out
+
+
+# ── P0-4: ORIZONTALE PER-ETAJ (multi-etaj) ───────────────────────────────────
+# /bom rula compute_cables pe TOATE elementele amestecate (fara rooms, scara fixa) -> +75% pe P+M
+# (masurat pe 9926: 320m vs 182m) + 8 cabluri fizic imposibile (intrerupatoarele parterului "coborau"
+# spre TES-ul etajului). Fix: fiecare etaj se calculeaza IZOLAT (elementele+camerele+scara plansei lui),
+# ca la desen (/regenerate-plan) — sursa unica. Mono-etaj: identic cu totalul (un singur etaj).
+_FLOOR_IDX = {"parter": 0, "etaj": 1, "mansarda": 2}
+
+
+def per_floor_horizontals(plan_elements, rooms, floor_wh):
+    """Metrii ORIZONTALI per cable_type, calculati PER ETAJ (floor filter + rooms filtrate pe
+    rooms[].floor + W/H + scara plansei etajului) si insumati. `floor_wh` = {floor_name: (W, H)}
+    (din png_meta per plansa; lipsa/0 -> derive_scale cade pe scara fixa pt. acel etaj).
+    Returneaza (m_by_type, cables_all, per_floor_info) — per_floor_info[fl] = {scale, scale_source,
+    n_elements, n_rooms} pt. raportare/teste."""
+    out, cables_all, info = {}, [], {}
+    els = plan_elements or []
+    floors = sorted({str((r or {}).get("floor") or "parter") for r in els},
+                    key=lambda f: _FLOOR_IDX.get(f, 9))
+    for fl in floors:
+        rows_fl = [r for r in els if str((r or {}).get("floor") or "parter") == fl]
+        rooms_fl = [r for r in (rooms or []) if int((r or {}).get("floor") or 0) == _FLOOR_IDX.get(fl, 0)]
+        W, H = (floor_wh or {}).get(fl) or (0.0, 0.0)
+        cen = draw_elements._room_centroids(rows_fl)
+        cab_fl, _st = draw_elements.compute_cables(rows_fl, rooms=rooms_fl, W=(W or None), H=(H or None),
+                                                   room_centroids=cen)
+        sc_fl, ssrc_fl = derive_scale(rooms_fl, W, H)
+        for ct, m in _cable_meters_by_type(cab_fl, sc_fl).items():
+            out[ct] = out.get(ct, 0.0) + m
+        cables_all += cab_fl
+        info[fl] = {"scale": sc_fl, "scale_source": ssrc_fl,
+                    "n_elements": len(rows_fl), "n_rooms": len(rooms_fl)}
+    return out, cables_all, info
 
 
 # ── COBORARI VERTICALE (H camera − h montaj) — metri REALI, nu px ───────────
@@ -180,6 +239,56 @@ _H_FALLBACK = 2.7    # H camera lipsa (rooms fara height_m / element fara camera
 _H_GENERIC  = 0.6    # default-ul UI nespecific al mount_height_m (nu inseamna "editat")
 _H_SWITCH   = 1.1    # intrerupator (decizia Dan; datele au 0.6 generic)
 _H_PANEL    = 1.4    # tablou (plecarile circuitelor urca la tavan de la 1.4)
+# Coloana TEG->TES (cross-floor, corectii Dan): verticala REALA intre etaje. NOTA: 1.5 (capetele
+# coloanei la tablouri) e distinct de _H_PANEL=1.4 (plecarile circuitelor spre tavan) — reguli separate.
+_PLANSEU_M = 0.5          # grosimea planseului traversat per nivel
+_TABLOU_HEIGHT_M = 1.5    # inaltimea de montaj a tablourilor (capetele coloanei TEG/TES)
+_PDC_MIN_M = 10.0         # cablul PDC (unitate exterioara, nu pe plan): minim 10 m FIX
+
+
+def _floor_heights(rooms):
+    """{floor_idx: H reprezentativ (mediana height_m a camerelor nivelului)}; lipsa -> 2.7."""
+    by_fl = {}
+    for r in (rooms or []):
+        try:
+            h = float((r or {}).get("height_m") or 0)
+        except (TypeError, ValueError):
+            h = 0.0
+        if h > 0:
+            by_fl.setdefault(int((r or {}).get("floor") or 0), []).append(h)
+    out = {}
+    for fl, hs in by_fl.items():
+        hs.sort()
+        out[fl] = hs[len(hs) // 2]
+    return out
+
+
+def _tes_feed_ct(circuits):
+    """cable_type-ul coloanei TEG->TES: feed-ul sub_tablou TES din breviar; absent -> fallback 5x6
+    (CONSISTENT cu legenda + orizontala din _extra_meters)."""
+    for c in (circuits or []):
+        if isinstance(c, dict) and c.get("type") == "sub_tablou" and str(c.get("feeds_panel") or "").startswith("TES"):
+            return _norm_cable(c.get("cable_type"))
+    return _norm_cable(_TES_FEED_FALLBACK)
+
+
+def _tes_column_vertical(plan_elements, rooms):
+    """VERTICALA coloanei TEG->TES (Dan): per nivel traversat H_nivel + 0.5 (planseu), + 1.5 la
+    fiecare capat (tablourile-s montate la 1.5, nu in podea). P+E: (H_parter+0.5)+1.5+1.5 ≈ 6.2 m.
+    0 daca tablourile nu-s cross-floor."""
+    fl = {}
+    for el in (plan_elements or []):
+        et = (el or {}).get("element_type") or ""
+        if et in ("tablou_teg", "tablou_tes") and et not in fl:
+            fl[et] = _FLOOR_IDX.get(str(el.get("floor") or "parter"), 0)
+    if "tablou_teg" not in fl or "tablou_tes" not in fl or fl["tablou_teg"] == fl["tablou_tes"]:
+        return 0.0
+    lo, hi = min(fl["tablou_teg"], fl["tablou_tes"]), max(fl["tablou_teg"], fl["tablou_tes"])
+    hs = _floor_heights(rooms)
+    v = 2.0 * _TABLOU_HEIGHT_M                                  # capetele (TEG + TES)
+    for lvl in range(lo, hi):                                   # fiecare nivel dintre ele
+        v += hs.get(lvl, _H_FALLBACK) + _PLANSEU_M
+    return v
 # H4 (Regula 10): inaltimea de montaj DEFAULT pt. grupatele fara mount_height_m persistat (fallback
 # defensiv; UI-ul o seteaza mereu la plasare). Radiator la parapet 0.3, VCV sus pe perete 2.2.
 _GROUPED_HEATING_DEFAULT_H = {"radiator": 0.3, "vcv": 2.2}
@@ -286,6 +395,8 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
     for c in (circuits or []):
         if _section_of(c.get("cable_type")) <= 0:
             continue                                     # fara sectiune parsabila (ex. rezerva "—")
+        if c.get("type") == "sub_tablou" and str(c.get("feeds_panel") or "").startswith("TES"):
+            continue                                     # coloana TEG->TES: verticala ei COMPLETA mai jos (nu +1.3 dublat)
         panel = str(c.get("panel") or "TEG")
         key = ("tablou_te_ct" if panel == "TE-CT" else
                ("tablou_tes" if panel.startswith("TES") else "tablou_teg"))
@@ -293,6 +404,61 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
         if el is None:
             continue
         put(_norm_cable(c.get("cable_type")), max(0.0, Hc(el) - _H_PANEL))
+    # COLOANA TEG->TES (cross-floor): verticala REALA intre etaje (Dan) = per nivel traversat
+    # H_nivel + 0.5 planseu, + 1.5 la fiecare capat. Pe cablul feed-ului TES (fallback 5x6).
+    put(_tes_feed_ct(circuits), _tes_column_vertical(plan_elements, rooms))
+    return out
+
+
+# ── [2] PDC minim 10 m (unitate exterioara — cablul real e mereu mai lung decat planul) ──
+def _pdc_min_topup(plan_elements, circuits, rooms, scale, W=None, H=None):
+    """Pentru fiecare circuit dedicat PDC (_equip_key == 'pdc'): lungimea CALCULABILA din plan =
+    plecarea din tablou (H_tablou − 1.4) + orizontala (doar daca exista element pe plan cu label
+    pdc/aer-apa — de regula NU exista, unitatea e exterioara) -> max(calculat, 10 m) => top-up-ul
+    diferentei pe cable_type-ul circuitului. PRE-waste (aliniat cu restul orizontale+verticale;
+    doar bransamentul 20 m ramane explicit fara waste)."""
+    try:
+        from enrich_circuits import _equip_key
+    except Exception:
+        return {}
+    pdcs = [c for c in (circuits or [])
+            if isinstance(c, dict) and c.get("type") == "dedicat" and _equip_key(c.get("description")) == "pdc"]
+    if not pdcs:
+        return {}
+    hs = _room_heights(rooms)
+    panels = {}
+    for el in (plan_elements or []):
+        et = (el.get("element_type") or "")
+        if et in _PANEL_TYPES and et not in panels:
+            panels[et] = el
+
+    def _panel_H(el):
+        r = ((el or {}).get("room") or "").strip()
+        if not r and W and H and rooms:
+            try:
+                r = (draw_elements._room_of_point(float(el["x"]), float(el["y"]), rooms, W, H) or "").strip()
+            except (TypeError, ValueError, KeyError):
+                r = ""
+        return hs.get(r, _H_FALLBACK)
+
+    out = {}
+    for c in pdcs:
+        key = "tablou_te_ct" if str(c.get("panel") or "") == "TE-CT" else "tablou_teg"
+        pel = panels.get(key) or panels.get("tablou_teg")
+        calc = max(0.0, (_panel_H(pel) if pel is not None else _H_FALLBACK) - _H_PANEL)   # plecarea din tablou
+        pdc_el = next((el for el in (plan_elements or [])
+                       if (el.get("element_type") or "") == "alimentare_receptor"
+                       and any(k in (el.get("label") or "").lower() for k in ("pdc", "aer-apa", "sol-apa"))), None)
+        if pdc_el is not None and pel is not None:
+            try:
+                a = (float(pdc_el["x"]), float(pdc_el["y"]))
+                b = (float(pel["x"]), float(pel["y"]))
+                calc += _path_len(_cable_l_path(a, b)) * scale
+            except (TypeError, ValueError, KeyError):
+                pass
+        if calc < _PDC_MIN_M:
+            ct = _norm_cable(c.get("cable_type"))
+            out[ct] = out.get(ct, 0.0) + (_PDC_MIN_M - calc)
     return out
 
 
@@ -326,13 +492,16 @@ def _row(cat, den, spec, qty, um):
 
 
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
-              W=None, H=None):
+              W=None, H=None, horizontal_m=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
     compute_cables(plan_elements)[0] (cu length/kind). `scale` = m/px (derive_scale). `waste` =
     adaos aplicat LA FINAL pe orizontale+verticale (default 1.1 = +10%, decizia Dan; acopera si
     mustatile). `rooms` (height_m) -> COBORARILE VERTICALE per element + plecarile din tablou.
     `power_summary` -> randul de BRANSAMENT TEG (tip din monofilara, 20 m FIX, fara waste).
-    W/H (px pagina) optionale -> H-ul camerei tabloului determinat geometric."""
+    W/H (px pagina) optionale -> H-ul camerei tabloului determinat geometric.
+    P0-4: `horizontal_m` (dict cable_type->metri, din per_floor_horizontals) dat -> orizontalele
+    PRE-AGREGATE per etaj (scara fiecarei planse) inlocuiesc _cable_meters_by_type(cables, scale);
+    `scale` ramane folosit la dedicate/coloane (_extra_meters, pozitii pe parter)."""
     plan_elements = plan_elements or []
     circuits = circuits or []
     rows = []
@@ -340,11 +509,14 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     # 2+7 metri cablu (per cable_type normalizat): iluminat/prize (desenate) + dedicate/coloana
     # (ORIZONTALE, px*scale) + COBORARILE VERTICALE (H camera − h montaj + plecarile din tablou,
     # metri reali). Waste-ul se aplica LA FINAL pe suma.
-    m_by_type = _cable_meters_by_type(cables, scale)
+    m_by_type = dict(horizontal_m) if horizontal_m is not None else _cable_meters_by_type(cables, scale)
     for ct, m in _extra_meters_by_type(plan_elements, circuits, scale).items():
         m_by_type[ct] = m_by_type.get(ct, 0.0) + m
     vertical_m = _vertical_drops(plan_elements, circuits, rooms, W=W, H=H)
     for ct, m in vertical_m.items():
+        m_by_type[ct] = m_by_type.get(ct, 0.0) + m
+    # [2] PDC minim 10 m: top-up-ul pana la 10 m pe cablul PDC-ului (PRE-waste, ca restul)
+    for ct, m in _pdc_min_topup(plan_elements, circuits, rooms, scale, W=W, H=H).items():
         m_by_type[ct] = m_by_type.get(ct, 0.0) + m
     m_by_type = {ct: v * waste for ct, v in m_by_type.items()}
 

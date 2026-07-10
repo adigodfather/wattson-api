@@ -3343,7 +3343,7 @@ def bom_endpoint(request: BomRequest):
         rd = (proj.get("result_data") or {})
         _rooms = rd.get("rooms") or []
         base_circuits = rd.get("circuits") or []
-        # W/H din base_pdf (scala per-proiect exacta); lipsa -> derive_scale cade pe scala fixa.
+        # W/H din base_pdf (fallback); lipsa -> png_meta per plansa (mai jos) -> scala fixa.
         _W = _H = 0.0
         if request.base_pdf_base64:
             try:
@@ -3354,16 +3354,44 @@ def bom_endpoint(request: BomRequest):
                 _doc.close()
             except Exception:
                 _W = _H = 0.0
-        # ACELEASI circuite ca schema/memoriu (enrich) + cablurile desenate (compute_cables).
+        # P0-4: W/H PER ETAJ din png_meta-ul plansei lui (planse_iluminat sortate pe source_plansa_nr =
+        # ordinea etajelor: IE.1=parter, IE.2=etaj, ...). Self-contained (fara base_pdf param). Fallback:
+        # W/H din base_pdf (toate etajele) -> altfel (0,0) -> derive_scale cade pe scala fixa.
+        _floor_wh = {}
+        try:
+            _order = ["parter", "etaj", "mansarda"]
+            _pls = sorted((rd.get("planse_iluminat") or []),
+                          key=lambda p: str((p or {}).get("source_plansa_nr") or ""))
+            for _i, _p in enumerate(_pls):
+                if _i >= len(_order):
+                    break
+                _pm = (_p or {}).get("png_meta") or {}
+                _pw, _ph = float(_pm.get("pdf_width_pt") or 0), float(_pm.get("pdf_height_pt") or 0)
+                if _pw > 0 and _ph > 0:
+                    _floor_wh[_order[_i]] = (_pw, _ph)
+        except Exception:
+            _floor_wh = {}
+        if _W and _H:
+            for _fl in ("parter", "etaj", "mansarda"):
+                _floor_wh.setdefault(_fl, (_W, _H))
+        # ACELEASI circuite ca schema/memoriu (enrich; pe TOATE elementele — per proiect, nu per etaj).
         circuits = _ec.enrich_circuits(rows, request.form or {}, base_circuits=base_circuits)
-        cables, _cstats = draw_elements.compute_cables(rows)
-        scale, ssrc = _bom.derive_scale(_rooms, _W, _H)
+        # P0-4: orizontalele PER ETAJ (floor filter + rooms filtrate + scara plansei etajului) —
+        # inainte: compute_cables pe elementele AMESTECATE (+75% pe P+M + cabluri fizic imposibile).
+        horiz_m, cables, _flinfo = _bom.per_floor_horizontals(rows, _rooms, _floor_wh)
+        # scara "principala" (parter) — pt. dedicate/coloane (_extra_meters, pozitii parter) + verticale
+        _p_wh = _floor_wh.get("parter") or (_W, _H)
+        _rooms_p = [r for r in _rooms if int((r or {}).get("floor") or 0) == 0]
+        scale, ssrc = _bom.derive_scale(_rooms_p or _rooms, _p_wh[0], _p_wh[1])
         # rooms (height_m) -> COBORARILE VERTICALE; power_summary -> randul de BRANSAMENT TEG;
         # W/H -> H-ul camerei tabloului (geometric, tablourile au room null).
         out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.1),
                              rooms=_rooms, power_summary=rd.get("power_summary") or {},
-                             W=(_W or None), H=(_H or None))
+                             W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m)
         return {"success": True, "scale_m_per_px": round(scale, 6), "scale_source": ssrc,
+                "floors": {k: {"scale": round(v["scale"], 6), "scale_source": v["scale_source"],
+                               "n_elements": v["n_elements"], "n_rooms": v["n_rooms"]}
+                           for k, v in _flinfo.items()},
                 "rows": out["rows"], "summary": out["summary"]}
     except Exception as e:
         return {"success": False, "error": str(e), "rows": []}

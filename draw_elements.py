@@ -386,9 +386,9 @@ def _draw_priza_label(page, cx, cy, el, inward=None):
 _LEGEND_BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
                      "banda_led": "Banda", "aplica_senzor": "Aplica"}
 _PANEL_LEGEND_NAME = {
-    "tablou_teg":    "TEG: Tablou electric general",
-    "tablou_te_ct":  "TE-CT: Tablou electric camera-tehnica",
-    "tablou_tes":    "TES: Tablou electric secundar",
+    "tablou_teg":    "TEG: Tablou electric general (montaj h=1.5m)",
+    "tablou_te_ct":  "TE-CT: Tablou electric camera-tehnica (montaj h=1.5m)",
+    "tablou_tes":    "TES: Tablou electric secundar (montaj h=1.5m)",
     "transformator": "Transformator",
 }
 _SWITCH_LEGEND_TEXT = {
