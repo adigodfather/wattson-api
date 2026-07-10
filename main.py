@@ -3589,9 +3589,12 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         _cross = {"mode": "down", "xy": (float(_tesr["x"]), float(_tesr["y"]) - 24.0),
                                   "label": "Alimentare din TEG (%s)" % _f_teg}
                     # sectiunea coloanei TES in legenda: feed-ul TES REAL din schema (enrich il genereaza
-                    # acum: feeds_panel="TES1"/"TES2"); fallback normativ 5x6 DOAR daca lipseste cu totul
+                    # acum: feeds_panel="TES1"/"TES2"); fallback normativ DOAR daca lipseste cu totul
+                    # (proiecte nefinalizate pre-enrich) — cu prefixul FAZEI bransamentului (mono: 3 fire)
                     if not any(isinstance(f, dict) and str(f.get("feeds_panel") or "").startswith("TES") for f in _feeds):
-                        _feeds.append({"type": "sub_tablou", "feeds_panel": "TES", "cable_type": "CYY-F 5x6mmp"})
+                        _conn = str(((_rdX.get("power_summary") or {}).get("connection")) or "").lower()
+                        _pref = "3x" if "monofazat" in _conn else "5x"
+                        _feeds.append({"type": "sub_tablou", "feeds_panel": "TES", "cable_type": "CYY-F %s6mmp" % _pref})
         except Exception as _e4:
             print("[regenerate-plan] cross-floor skip:", _e4)
         return draw_elements.redraw_from_plan_elements(

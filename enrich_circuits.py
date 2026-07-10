@@ -200,15 +200,16 @@ def _enrich_group(c, els, panel, floor_idx):
         "name": c["id"],
     }
 
-def _enrich_receptor(el, cid, panel, floor_idx, form):
+def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False):
     """alimentare_receptor / receptor_internet -> circuit DEDICAT (compute_circuits nu-l grupeaza).
     Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
-    -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea."""
+    -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
+    is_mono (bransament MONOFAZAT): forteaza mono — nu exista receptor trifazat pe o singura faza."""
     is_net = (el.get("element_type") or "") == "receptor_internet"
     power_w, tip, ph, src = receptor_power(el.get("label"), form)
     if is_net:                                            # alimentare router/switch/rack = 150W (decizia Dan),
         power_w, tip, src = _NET_RECEPTOR_W, "internet", "default UI"   # NU 0 (era 'date low-voltage')
-    tri = str(ph).lower() in ("tri", "trifazat", "3")
+    tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     room = el.get("room")
@@ -226,14 +227,16 @@ def _enrich_receptor(el, cid, panel, floor_idx, form):
         "name": cid, "_receptor_src": src,
     }
 
-def _enrich_heating_group(c, panel, floor_idx):
+def _enrich_heating_group(c, panel, floor_idx, is_mono=False):
     """REGULA 10: circuit de INCALZIRE ELECTRICA grupat (VCV + radiatoare). SURSA UNICA — gruparea +
     puterea REALA insumata vin din compute_circuits (c['power_w'], c['tri']); enrich NU regrupeaza,
     doar dimensioneaza: breaker MINIM 16A (peste = Ia*1.25), cablu scaleaza cu breaker (regula 4),
     mono '3x' / tri '5x'. Panel = general (TEG/TES), NU TE-CT. Faza: None (assign_phases o pune —
     mono round-robin, tri 'RST')."""
     power_w = int(c.get("power_w") or 0)
-    tri = bool(c.get("tri"))
+    # is_mono: bransament monofazat -> elementele marcate 'tri' se dimensioneaza MONO (regula fizica;
+    # binuirea din compute_circuits ramane pe el.phase — 2 elem 'tri' pe mono = 2 circuite mono, corect)
+    tri = bool(c.get("tri")) and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     _FLOOR_NAME = {0: "parter", 1: "etaj", 2: "mansarda"}
@@ -249,7 +252,14 @@ def _enrich_heating_group(c, panel, floor_idx):
     }
 
 # ── Regula 5: faza round-robin ciclic PER TABLOU ─────────────────────────────
-def assign_phases(circuits):
+def assign_phases(circuits, is_mono=False):
+    # BRANSAMENT MONOFAZAT: exista O SINGURA faza reala -> TOATE circuitele "R" (round-robin-ul R/S/T
+    # ar documenta faze inexistente — bug vizibil pe proiectele mono din productie). Suprascrie si
+    # fazele preservate (RST-ul din base nu are sens fizic pe mono).
+    if is_mono:
+        for c in circuits:
+            c["fasa"] = "R"
+        return
     seq = ["R", "S", "T"]
     counters = {}
     for c in circuits:
@@ -294,11 +304,13 @@ def _detect_tech_room_name(elements):
 
 _KS_COLUMN = 0.8   # simultaneitate coloana de sub-tablou (TE-CT + TES, ca n8n) — la re-suma din circuite
 
-def _resize_column_feed(feed, tect_circuits, force_resum=False):
+def _resize_column_feed(feed, tect_circuits, force_resum=False, force_mono=False):
     """FIX coloana: n8n lasa breaker=16 PLACEHOLDER (nu se re-deriva din putere) -> recalculam
     breaker+cablu din puterea ABSORBITA. Pi_total = feed.power_w (deja = suma × ks); fallback (sau
     force_resum cand planul a MODIFICAT TE-CT): resumam din TE-CT MERGED × ks -> coloana reflecta
-    adaugarile din plan. Coloana trifazata (5x). Suprascrie DOAR feed-ul (nu circuitele TE-CT)."""
+    adaugarile din plan. Suprascrie DOAR feed-ul (nu circuitele TE-CT).
+    force_mono (bransament MONOFAZAT): guard defensiv — chiar daca breviarul a emis feed trifazat
+    (phases=3/5x), coloana se redimensioneaza MONO (Ia=P/230, 3 fire, MCB-1P)."""
     try:
         pw = int(feed.get("power_w"))
     except (TypeError, ValueError):
@@ -306,7 +318,11 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False):
     if force_resum or not pw:                           # re-suma din TE-CT MERGED × ks (plan a atins TE-CT)
         pw = int(round(sum((c.get("power_w") or 0) for c in (tect_circuits or [])) * _KS_COLUMN))
         feed["power_w"] = pw
-    tri = str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")
+    tri = (str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")) and not force_mono
+    if force_mono:
+        feed["phases"] = 1
+        feed["breaker_type"] = "MCB-1P-C"
+        feed["fasa"] = None                             # assign_phases (mono) o pune "R"
     breaker, ia = breaker_and_ia(pw, tri=tri, minimum=16)   # min 16A (coloana principala)
     # SELECTIVITATE + podea normativa (decizia Dan): coloana unui tablou NU poate fi mai mica decat
     # circuitele lui. breaker feed >= o TREAPTA peste max breaker intern; sectiune >= max sectiune
@@ -332,6 +348,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     plan_elements.circuit_id). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
     form = form or {}
     plan_elements = plan_elements or []
+    # COERENTA MONOFAZATA (regula fizica): bransament mono -> TOT mono (feed-uri, receptoare, grupate,
+    # faze). Sursa: form.power_phase — finalize il deriva din power_summary.connection (route.ts:85).
+    # UN punct de decizie; absent -> "tri" (conservator, identic cu comportamentul de azi).
+    is_mono = str(form.get("power_phase") or "tri").strip().lower() != "tri"
 
     # PRESERVARE din base_circuits (parsat INTAI): circuitele TE-CT (heating) + feed-ul coloanei.
     # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
@@ -372,7 +392,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
             if c.get("kind") == "incalzire":                               # Regula 10: VCV/radiatoare grupate
-                plan_out.append(_enrich_heating_group(c, panel, fidx))
+                plan_out.append(_enrich_heating_group(c, panel, fidx, is_mono=is_mono))
             else:
                 plan_out.append(_enrich_group(c, els, panel, fidx))
         nextn = cc["n_circuits"] + 1
@@ -400,7 +420,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             # (skip-ul vechi 'net in afara camerei tehnice -> ignorat' e ELIMINAT).
             rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
             rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
-            plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form))
+            plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono))
             nextn += 1
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
@@ -429,7 +449,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # fara dubla-numarare: genericele inlocuite NU mai sunt in merged_tect).
     plan_touched_tect = bool(plan_tect)
     for f in feed_circuits:
-        _resize_column_feed(f, merged_tect, force_resum=plan_touched_tect)
+        _resize_column_feed(f, merged_tect, force_resum=plan_touched_tect, force_mono=is_mono)
 
     # ordine finala: TEG(plan, EXCL. tech) + feed(TEG->TE-CT) + TES(plan) + TE-CT(incalzire + tech plan)
     teg = [c for c in plan_out if c.get("panel") == "TEG"]
@@ -446,8 +466,11 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
         if any(str(f.get("feeds_panel") or "") == _pn for f in feed_circuits):
             continue                                   # breviarul l-a emis deja (viitor) -> preservat, nu dublam
         _tes_grp = [c for c in tes if str(c.get("panel") or "") == _pn]
-        _fd = {"id": None, "name": None, "fasa": "RST", "type": "sub_tablou", "panel": "TEG",
-               "feeds_panel": _pn, "phases": 3, "breaker_type": "MCB-3P-C", "is_sub_tablou": True,
+        # faza coloanei = faza BRANSAMENTULUI (pe mono nu exista coloana trifazata): phases/breaker/fasa
+        # conditionate -> _resize_column_feed dimensioneaza corect (mono: Ia=P/230, 3 fire).
+        _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
+               "panel": "TEG", "feeds_panel": _pn, "phases": (1 if is_mono else 3),
+               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
                "description": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
                "usage": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
                # culorile simbolului de sub-tablou in schema monofilara (alb/albastru = simbolul TES din editor)
@@ -471,5 +494,6 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     _renumber_panel(tes, "-TES")                   # etaj -> C1-TES..CN-TES (ca planul; nu -TES1, nu flat)
     _renumber_panel(merged_tect, "-TECT")          # TE-CT -> C1-TECT..CN-TECT (tech plan intai = ca planul)
 
-    assign_phases(out)                                 # doar circuitele PLANULUI (TE-CT/feed pastreaza faza)
+    # tri: doar circuitele planului (TE-CT/feed pastreaza faza normativa); MONO: TOATE "R" (o faza reala)
+    assign_phases(out, is_mono=is_mono)
     return out
