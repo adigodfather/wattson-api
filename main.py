@@ -3588,9 +3588,9 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         # exact pe pozitia TES ar acoperi simbolul tabloului)
                         _cross = {"mode": "down", "xy": (float(_tesr["x"]), float(_tesr["y"]) - 24.0),
                                   "label": "Alimentare din TEG (%s)" % _f_teg}
-                    # sectiunea coloanei TES in legenda: feed-ul TES din schema; lipsa (breviarul actual
-                    # nu emite feed TES) -> fallback normativ 5x6 (ca TE-CT), semnalat in raport
-                    if not any(isinstance(f, dict) and f.get("feeds_panel") == "TES" for f in _feeds):
+                    # sectiunea coloanei TES in legenda: feed-ul TES REAL din schema (enrich il genereaza
+                    # acum: feeds_panel="TES1"/"TES2"); fallback normativ 5x6 DOAR daca lipseste cu totul
+                    if not any(isinstance(f, dict) and str(f.get("feeds_panel") or "").startswith("TES") for f in _feeds):
                         _feeds.append({"type": "sub_tablou", "feeds_panel": "TES", "cable_type": "CYY-F 5x6mmp"})
         except Exception as _e4:
             print("[regenerate-plan] cross-floor skip:", _e4)

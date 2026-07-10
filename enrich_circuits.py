@@ -292,7 +292,7 @@ def _detect_tech_room_name(elements):
     return None
 
 
-_KS_TECT = 0.8   # simultaneitate coloana TE-CT (ca n8n) — cand resumam din circuitele TE-CT
+_KS_COLUMN = 0.8   # simultaneitate coloana de sub-tablou (TE-CT + TES, ca n8n) — la re-suma din circuite
 
 def _resize_column_feed(feed, tect_circuits, force_resum=False):
     """FIX coloana: n8n lasa breaker=16 PLACEHOLDER (nu se re-deriva din putere) -> recalculam
@@ -304,7 +304,7 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False):
     except (TypeError, ValueError):
         pw = 0
     if force_resum or not pw:                           # re-suma din TE-CT MERGED × ks (plan a atins TE-CT)
-        pw = int(round(sum((c.get("power_w") or 0) for c in (tect_circuits or [])) * _KS_TECT))
+        pw = int(round(sum((c.get("power_w") or 0) for c in (tect_circuits or [])) * _KS_COLUMN))
         feed["power_w"] = pw
     tri = str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")
     breaker, ia = breaker_and_ia(pw, tri=tri, minimum=16)   # min 16A (coloana principala)
@@ -434,6 +434,28 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # ordine finala: TEG(plan, EXCL. tech) + feed(TEG->TE-CT) + TES(plan) + TE-CT(incalzire + tech plan)
     teg = [c for c in plan_out if c.get("panel") == "TEG"]
     tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
+
+    # FEED TES (coloana TEG->TES) — mecanism GENERAL pt. ORICE tablou secundar (TES1, TES2/mansarda...):
+    # breviarul n8n NU emite feed TES, iar filtrul de preservare pastreaza doar TE-CT -> il cream AICI,
+    # dimensionat cu ACEEASI regula ca TE-CT (_resize_column_feed: re-suma x ks 0.8 + SELECTIVITATE
+    # breaker = treapta peste max intern + sectiune >= max interna, trifazat 5 fire). Coloana desenata
+    # (cross-floor) + BOM (_tes_feed_ct/_extra_meters) + legenda citesc feed-ul REAL din circuits ->
+    # fallback-ul 5x6 nu se mai activeaza. 9926: TES1 (240W ilum + 6x2000W prize) -> 20A / CYY-F 5x4.
+    _TES_FLOOR_DESC = {"TES1": "etaj", "TES2": "mansarda"}
+    for _pn in sorted({str(c.get("panel") or "") for c in tes}):
+        if any(str(f.get("feeds_panel") or "") == _pn for f in feed_circuits):
+            continue                                   # breviarul l-a emis deja (viitor) -> preservat, nu dublam
+        _tes_grp = [c for c in tes if str(c.get("panel") or "") == _pn]
+        _fd = {"id": None, "name": None, "fasa": "RST", "type": "sub_tablou", "panel": "TEG",
+               "feeds_panel": _pn, "phases": 3, "breaker_type": "MCB-3P-C", "is_sub_tablou": True,
+               "description": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
+               "usage": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
+               # culorile simbolului de sub-tablou in schema monofilara (alb/albastru = simbolul TES din editor)
+               "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#1565C0"}
+        _resize_column_feed(_fd, _tes_grp, force_resum=True)
+        _fd["cable"] = _fd.get("cable_type")           # alias-ul legacy `cable` (schema il afiseaza la feed-uri)
+        feed_circuits.append(_fd)
+
     out = teg + feed_circuits + tes + merged_tect
 
     # renumerotare PER TABLOU = sistemul PLANULUI (id+name; panel/feeds_panel/dimensionarea raman).
