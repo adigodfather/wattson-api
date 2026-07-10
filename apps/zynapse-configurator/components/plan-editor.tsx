@@ -1362,7 +1362,10 @@ export default function PlanEditor({
         {fc === "parter" ? (
           <>
             {renderPanelBlock("Tablou general (TEG)", "tablou_teg", false)}
-            {renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
+            {/* T4 (Faza 2 TE-CT): tabloul camerei tehnice apare DOAR daca "am camera tehnica" e bifat
+                (hasTechRoom; absent -> true = non-regresie proiecte existente). Nebifat -> ASCUNS complet
+                (coerent cu T2: echipamentele merg pe TEG) — un TE-CT deja plasat ramane pe plan (neatins). */}
+            {hasTechRoom && renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
           </>
         ) : (
           renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false)
