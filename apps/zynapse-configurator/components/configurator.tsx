@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow,
+  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -987,6 +987,7 @@ export function ZynapseConfigurator() {
   // Fundal editor FORTA = baza CURATA (randata prin /api/render-base-png), NU PNG-ul iluminat (becuri invechite).
   const [fortaBg, setFortaBg] = useState<{ png_base64: string; png_meta: { dpi?: number; scale?: number;
     pdf_width_pt?: number; pdf_height_pt?: number; png_width_px?: number; png_height_px?: number } } | null>(null);
+  const [fortaBgErr, setFortaBgErr] = useState(false);   // /render-base-png a esuat definitiv -> fallback pe fundalul iluminat (fara eroare in UI)
   // M2b: etajul SELECTAT în editor (index în planse_iluminat = index etaj). Selectabil prin selector multi-etaj.
   const [editorPlansaIdx, setEditorPlansaIdx] = useState(0);
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);  // uuid proiect salvat -> editor citește plan_elements
@@ -1031,19 +1032,29 @@ export function ZynapseConfigurator() {
   const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
   // Mod FORȚĂ: cere PNG-ul bazei CURATE (o dată per planșă/bază) -> fundal fără iluminatul învechit.
   // Iluminat / lipsă bază -> fără fetch. Cleanup pe schimbare mod/planșă (evită fundal stale).
+  // PREINCARCA fundalul curat de forta de indata ce avem baza (independent de mod) -> cand utilizatorul
+  // trece pe forta, PNG-ul e deja gata (timp mort ~ZERO). Bulletproof: r.ok + success verificate; esec ->
+  // NICIODATA dump JSON in UI (doar console.error) + fallback pe fundalul iluminat (calculat mai jos).
   useEffect(() => {
-    if (modeEditor !== "forta" || !fortaCleanBase) { setFortaBg(null); return; }
+    if (!fortaCleanBase) { setFortaBg(null); setFortaBgErr(false); return; }
     let cancelled = false;
-    setFortaBg(null);
+    setFortaBg(null); setFortaBgErr(false);
     fetch("/api/render-base-png", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pdf_base64: fortaCleanBase }),
     })
-      .then(r => r.json())
-      .then(d => { if (!cancelled && d?.success && d.png_base64) setFortaBg({ png_base64: d.png_base64, png_meta: d.png_meta || {} }); })
-      .catch(() => { /* fundal ramane null -> editorul arata starea de incarcare */ });
+      .then(async r => {
+        if (!r.ok) throw new Error(`render-base-png HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(d => {
+        if (cancelled) return;
+        if (d?.success && d.png_base64) setFortaBg({ png_base64: d.png_base64, png_meta: d.png_meta || {} });
+        else throw new Error(d?.error || "render-base-png: raspuns fara png");
+      })
+      .catch(err => { if (!cancelled) { console.error("[render-base-png]", err); setFortaBgErr(true); } });
     return () => { cancelled = true; };
-  }, [modeEditor, fortaCleanBase, editorPlansaIdx]);
+  }, [fortaCleanBase, editorPlansaIdx]);
   // Etajele EDITABILE (cu PNG) = opțiunile selectorului de etaj. >1 -> multi-etaj (selector vizibil).
   const editablePlanse = planseIluminat
     .map((p, idx) => ({ idx, p }))
@@ -2477,8 +2488,12 @@ export function ZynapseConfigurator() {
                 <PlanEditor
                   projectId={savedProjectId}
                   mode={modeEditor}
-                  pngBase64={modeEditor === "forta" ? (fortaBg?.png_base64 ?? null) : editorPlansa.png_base64}
-                  pngMeta={modeEditor === "forta" ? (fortaBg?.png_meta ?? null) : editorPlansa.png_meta}
+                  // Forta: fundalul CURAT (fortaBg); daca a esuat definitiv SAU lipseste baza -> fallback pe
+                  // PNG-ul iluminat (valid, scale corect) ca sa nu ramana gol/eroare; cat se incarca efectiv
+                  // (baza exista, fetch in curs) -> null + spinner (bgLoading). Spinner DOAR cand chiar se incarca.
+                  pngBase64={modeEditor === "forta" ? (fortaBg?.png_base64 ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_base64 : null)) : editorPlansa.png_base64}
+                  pngMeta={modeEditor === "forta" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
+                  bgLoading={modeEditor === "forta" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}
                   floor={floorCanonic(editorPlansaIdx)}
                   onRegenerated={handleRegenerated}
@@ -2486,6 +2501,7 @@ export function ZynapseConfigurator() {
                   heatingDistribution={form.heating_distribution}
                   heatingType={form.heating_type}
                   enabledEquipment={Object.keys(equipment).filter(t => equipment[t]?.enabled)}
+                  isAdmin={user?.id === ADMIN_USER_ID}
                 />
               </div>
             )}

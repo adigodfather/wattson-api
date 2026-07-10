@@ -342,12 +342,14 @@ const panelStyle: CSSProperties = {
 
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
-  heatingDistribution = null, heatingType = null, enabledEquipment = [],
+  heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
-     heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[] }) {
+     heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[];
+     bgLoading?: boolean;   // forta: fundalul curat se randeaza -> spinner in loc de gol/eroare
+     isAdmin?: boolean }) {  // Dan: unelte de debug (overlay pereti) vizibile doar admin-ului
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1542,16 +1544,27 @@ export default function PlanEditor({
 
       {/* ── DREAPTA: planul (Stage), umple spațiul rămas ── */}
       <div ref={planWrapRef} style={{ flex: 1, minWidth: 280 }}>
-        {/* DEBUG P1: toggle overlay pereti (verde) — confirma alinierea coordonatelor */}
-        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-          <label style={{ fontSize: 11, color: "#8B8FA8", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={showWalls} onChange={(e) => setShowWalls(e.target.checked)} />
-            Arată pereți (debug)
-          </label>
-          {showWalls && <span style={{ fontSize: 11, color: "#16A34A" }}>{walls.length} segmente</span>}
-        </div>
+        {/* DEBUG P1: toggle overlay pereti (verde) — DOAR admin (Dan). Ascuns inginerului-client in productie;
+            codul de randare ramane (jos), showWalls ramane false fara toggle -> conturul nu se deseneaza. */}
+        {isAdmin && (
+          <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ fontSize: 11, color: "#8B8FA8", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={showWalls} onChange={(e) => setShowWalls(e.target.checked)} />
+              Arată pereți (debug)
+            </label>
+            {showWalls && <span style={{ fontSize: 11, color: "#16A34A" }}>{walls.length} segmente</span>}
+          </div>
+        )}
         <div style={{ width: stageW || "100%", maxWidth: "100%", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
-          {stageW > 0 && stageH > 0 && (
+          {/* Forta: fundalul curat se randeaza (Render) -> SPINNER, nu caseta goala / eroare. Acelasi spinner
+              ca la generare (zy-spin, globals.css). Cu preincarcarea, de obicei e deja gata -> nu apare. */}
+          {bgLoading && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 360 }}>
+              <span aria-hidden style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid rgba(55,138,221,0.22)", borderTopColor: "#378ADD", animation: "zy-spin 0.7s linear infinite" }} />
+              <span style={{ fontSize: 12.5, color: "#6B7280" }}>Se pregătește planul de forță…</span>
+            </div>
+          )}
+          {!bgLoading && stageW > 0 && stageH > 0 && (
             <Stage width={stageW} height={stageH} scaleX={displayScale} scaleY={displayScale}>
               <Layer>
                 {img && <KonvaImage image={img} width={pngW} height={pngH} listening={false} />}

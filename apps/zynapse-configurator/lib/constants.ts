@@ -49,6 +49,10 @@ export function isPhasePT(faza: string | null | undefined): boolean {
   return (faza || "").toLowerCase().replace(/[^a-z]/g, "").includes("pt");
 }
 
+// Admin gate: user_id-ul inginerului (Dan). Uneltele de debug (ex. overlay "pereti" din editor) sunt
+// vizibile DOAR lui in productie, dar codul lor ramane functional (nu-l stergem).
+export const ADMIN_USER_ID = "1ff11302-b070-43b2-95bc-9f880388e87b";
+
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [
