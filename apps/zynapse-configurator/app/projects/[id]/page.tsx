@@ -18,6 +18,7 @@ interface ProjectRow {
   result_data: ProjectResult;
   memoriu_text: string;
   created_at: string;
+  finalized: boolean | null;   // R1/R2: false = nefinalizat -> badge rosu + buton "Continua proiectul"
 }
 
 function formatDate(iso: string): string {
@@ -37,7 +38,7 @@ export default function ProjectDetailPage() {
     const supabase = createClient();
     supabase
       .from("projects")
-      .select("id, project_id, building_type, levels, status, result_data, memoriu_text, created_at")
+      .select("id, project_id, building_type, levels, status, result_data, memoriu_text, created_at, finalized")
       .eq("id", id)
       .eq("user_id", user.id)
       .single()
@@ -83,12 +84,13 @@ export default function ProjectDetailPage() {
                   <h1 className="text-2xl font-bold tracking-tight m-0" style={{ color: "#E2E4E9" }}>
                     {project.project_id}
                   </h1>
+                  {/* R1: starea REALA din `finalized` (status="completed" e hardcodat la creare) */}
                   <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
                     style={{
-                      background: project.status === "completed" ? "rgba(29,158,117,0.15)" : "rgba(226,75,74,0.15)",
-                      color: project.status === "completed" ? "#3ECFA0" : "#F09595",
+                      background: project.finalized ? "rgba(29,158,117,0.15)" : "rgba(226,75,74,0.15)",
+                      color: project.finalized ? "#3ECFA0" : "#F09595",
                     }}>
-                    {project.status === "completed" ? "Finalizat" : "Eroare"}
+                    {project.finalized ? "Finalizat" : "Nefinalizat"}
                   </span>
                 </div>
                 <p className="text-sm m-0" style={{ color: "#545870" }}>
@@ -96,6 +98,15 @@ export default function ProjectDetailPage() {
                 </p>
               </div>
               <div className="flex gap-2 flex-wrap">
+                {/* R2: proiect NEfinalizat -> reluare in configurator (?resume= rehidrateaza form+result+editor
+                    si intra pe etapa corecta: iluminat incomplet -> iluminat; altfel -> forta). */}
+                {project.finalized === false && (
+                  <Link href={`/configurator?resume=${project.id}`}
+                    className="px-4 py-2 rounded-lg text-[13px] font-semibold"
+                    style={{ background: "linear-gradient(135deg, #378ADD, #1D9E75)", color: "#fff", textDecoration: "none" }}>
+                    Continuă proiectul →
+                  </Link>
+                )}
                 <Link href="/projects"
                   className="px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors"
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8", textDecoration: "none" }}

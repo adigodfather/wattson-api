@@ -17,6 +17,7 @@ interface ProjectRow {
   status: string;
   created_at: string;
   phase: string | null;   // result_data->>phase (DTAC / DTAC+PT)
+  finalized: boolean | null;   // R1: true DOAR dupa finalizare; false = nefinalizat (resume)
 }
 
 const BUILDING_LABEL: Record<string, string> = {
@@ -55,7 +56,7 @@ export default function ProjectsPage() {
     // intreg result_data (~4.8MB/rand). Toate coloanele de aici sunt scalare mici (zero result_data).
     const pProjects = supabase
       .from("projects")
-      .select("id, project_id, building_type, levels, heating_type, status, created_at, phase")
+      .select("id, project_id, building_type, levels, heating_type, status, created_at, phase, finalized")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     // costul de generare: legatura curata pe project_id (coloana noua)
@@ -169,12 +170,14 @@ export default function ProjectsPage() {
                   <h3 className="text-sm font-bold m-0 leading-tight" style={{ color: "#E2E4E9", maxWidth: "75%" }}>
                     {p.project_id}
                   </h3>
+                  {/* R1: starea REALA din `finalized` (status era "completed" hardcodat la creare -> mereu verde).
+                      Nefinalizat (rosu) = proiect reluabil: click -> pagina proiectului -> "Continua proiectul". */}
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0"
                     style={{
-                      background: p.status === "completed" ? "rgba(29,158,117,0.15)" : "rgba(226,75,74,0.15)",
-                      color: p.status === "completed" ? "#3ECFA0" : "#F09595",
+                      background: p.finalized ? "rgba(29,158,117,0.15)" : "rgba(226,75,74,0.15)",
+                      color: p.finalized ? "#3ECFA0" : "#F09595",
                     }}>
-                    {p.status === "completed" ? "Finalizat" : "Eroare"}
+                    {p.finalized ? "Finalizat" : "Nefinalizat"}
                   </span>
                 </div>
                 <div className="text-[12px] mb-3" style={{ color: "#8B8FA8" }}>

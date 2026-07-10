@@ -1075,10 +1075,70 @@ export function ZynapseConfigurator() {
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
 
+  // ── R2 (resume): /configurator?resume=<uuid> -> REHIDRATEAZA proiectul salvat (form + echipamente +
+  // result + editor) si intra DIRECT pe etapa corecta, fara re-generare. Datele exista integral in DB:
+  // input_data = formularul complet, result_data = planse (PNG editor + PDF) + documente, plan_elements
+  // = elementele editorului (PlanEditor le citeste pe savedProjectId). Ruleaza O DATA, dupa login. ──
+  const resumeTriedRef = useRef(false);
+  const resumeModeRef = useRef<"iluminat" | "forta" | null>(null);
+  useEffect(() => {
+    if (!user || resumeTriedRef.current) return;
+    const rid = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("resume") : null;
+    if (!rid) return;
+    resumeTriedRef.current = true;
+    const supabase = createClient();
+    supabase.from("projects").select("id, input_data, result_data")
+      .eq("id", rid).eq("user_id", user.id).single()
+      .then(({ data, error }) => {
+        if (error || !data?.result_data) {
+          console.error("[resume] proiect negasit / fara result_data:", error?.message);
+          return;                                        // ramane formularul gol (comportamentul normal)
+        }
+        const inp = (data.input_data || {}) as Record<string, unknown>;
+        const rd = data.result_data as ProjectResult;
+        // formularul: DOAR cheile FormData (input_data contine si extra: planuri base64, user_id, climate...)
+        const patch: Partial<FormData> = {};
+        for (const k of Object.keys(INITIAL_FORM) as (keyof FormData)[]) {
+          if (k in inp) (patch as Record<string, unknown>)[k] = inp[k];
+        }
+        setForm(prev => ({ ...prev, ...patch }));
+        // echipamentele BIFATE la generare (gating-ul H5/H6 al paletei functioneaza pe starea rehidratata)
+        const extra = Array.isArray(inp.extra_equipment) ? (inp.extra_equipment as ExtraEquipment[]) : [];
+        setEquipment(prev => {
+          const next = { ...prev };
+          for (const e of extra) {
+            if (e?.type && e.type !== "custom" && next[e.type]) {
+              next[e.type] = { enabled: true, power_kw: Number(e.power_kw) || next[e.type].power_kw,
+                               phase: String(e.phase || next[e.type].phase) };
+            }
+          }
+          return next;
+        });
+        setCustomEquipment(extra.filter(e => e?.type === "custom").map(e => ({
+          name: String(e.name || ""), room: String((e as { room?: string }).room || ""),
+          power_kw: Number(e.power_kw) || 0, phase: String(e.phase || "mono"),
+        })));
+        const mf = parseInt(String(inp.floors_above_ground ?? ""), 10);
+        if (Number.isFinite(mf)) setManualFloors(mf);
+        // ETAPA: vreo plansa de iluminat (editabila, cu PNG) fara "Obtine plan iluminat" -> ILUMINAT;
+        // iluminat complet + proiect PT -> FORTA (gating-ul existent fazaFlux ramane autoritar la randare).
+        const il = (rd.planse_iluminat || []).filter(p => (p as { png_base64?: string })?.png_base64);
+        const ilDone = il.length > 0 && il.every(p => (p as { regenerated?: boolean })?.regenerated === true);
+        resumeModeRef.current = (ilDone && isPhasePT((rd as { phase?: string }).phase)) ? "forta" : "iluminat";
+        setResult(rd);
+        setSavedProjectId(String(data.id));               // PlanEditor citeste plan_elements pe acest uuid
+        setStatus("success");                             // UI-ul post-generare (tab-uri + documente)
+        setActiveTab("editor");                           // direct pe editor (etapa din resumeModeRef)
+      });
+  }, [user]);
+
   // M2b: la schimbarea proiectului -> resetează etajul selectat (parter) + tracking forță + mod iluminat.
+  // R2: la RESUME, modul vine din resumeModeRef (etapa detectata) — altfel reset pe iluminat, ca inainte.
   useEffect(() => {
     setEditorPlansaIdx(0);
-    setModeEditor("iluminat");
+    setModeEditor(resumeModeRef.current || "iluminat");
+    resumeModeRef.current = null;
   }, [savedProjectId]);
 
   // ── FLUX FORTA (S1): starea fazei din semnale EXISTENTE (zero migratie). ──
