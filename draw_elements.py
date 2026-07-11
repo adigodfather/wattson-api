@@ -623,6 +623,16 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
                    "la inaltimea h=1.5m fata de pardoseala" % (short, fel, loc))
         fv_rows.append({"kind": "panel", "element_type": et, "text": txt,
                         "lines": _wrap_label_25(txt, 72)})   # 72: ambele randuri incap FARA trunchiere
+    # FV-P3: randul lantului FV in legenda (doar pe FORTA si doar daca exista cel putin 2 tablouri
+    # consecutive din lant -> exista segmente desenate pe plan)
+    if plan_type == "forta" and fv_rows:
+        _fvp = [et for et in ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg") if et in present]
+        _has_seg = any(a in present and b in present for a, b in
+                       zip(("tablou_tcc", "tablou_inv", "tablou_tca"), ("tablou_inv", "tablou_tca", "tablou_teg")))
+        if _has_seg and _fvp:
+            fv_rows.append({"kind": "fv_link",
+                            "text": "Legatura sistem fotovoltaic (%s)" % " - ".join(
+                                _PANEL_INFO.get(et, (None, None, et))[2] for et in _fvp)})
 
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
     cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
@@ -1650,6 +1660,9 @@ def _is_heating_receptor(label):
 
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
+# FV-P3: lantul fotovoltaic T.CC->INV->T.CA->TEG — PORTOCALIU INCHIS #E65100 (decizia Dan; mai
+# roscat decat _GROUND_COLOR-ul prizei de pamant, context diferit: lant intre tablouri vs contur).
+_FV_LINK_COLOR = (0.902, 0.318, 0.0)
 # Coloana TEG->TES (cross-plansa) + simbolurile ei de traversare: VERDE INCHIS #1B5E20 (decizia Dan) —
 # DISTINCTA de teal-ul coloanei TE-CT, vizibila pe planul gri/negru + fundal alb. SURSA UNICA.
 _TES_COLUMN_COLOR = (0.106, 0.369, 0.125)
@@ -1839,6 +1852,10 @@ def _draw_legend(page, x, y, rows):
             _ccol = _TES_COLUMN_COLOR if (r.get("feeds_panel") or "").startswith("TES") else _COLUMN_COLOR
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_ccol, width=2.2)
+        elif kind == "fv_link":
+            # FV-P3: lantul fotovoltaic — linie intrerupta PORTOCALIE (ca pe plan)
+            _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)],
+                        color=_FV_LINK_COLOR, width=1.2)
         elif kind == "crossing":
             # TRAVERSARE NIVEL: cercul cu sageata (sus/jos), micsorat pt. celula legendei
             _draw_floor_crossing(page, cx, cy, up=bool(r.get("up", True)), label=None)
@@ -2339,6 +2356,18 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 via_stripe=True, count=1)                 # linie proprie (nu daisy-chain), grosime proprie
             stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
 
+    # FV-P3: lantul sistemului fotovoltaic T.CC -> INV -> T.CA -> TEG (fluxul electric real:
+    # DC panouri -> tablou CC -> invertor -> tablou CA -> general). Segmente L directe intre
+    # tablourile PREZENTE; CONSERVATOR la lipsuri: un segment se deseneaza doar daca AMBELE
+    # capete sunt plasate (fara punti peste tabloul lipsa — topologia nu se inventeaza).
+    # kind=fv_link: EXCLUS din BOM (whitelist-ul _ILUM_KINDS/_PRIZA_KINDS nu-l contine, ca EV)
+    # si desenat DOAR pe planul de forta (gate in redraw — tablourile au plan_type="ambele").
+    _fv_chain = ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg")
+    for _fa, _fb in zip(_fv_chain, _fv_chain[1:]):
+        if panels.get(_fa) and panels.get(_fb):
+            add(_fa, panels[_fa], _fb, panels[_fb], "fv_link", None, count=1)
+            stats["fv_link"] = stats.get("fv_link", 0) + 1
+
     # MANUNCHI PER DUNGA (BUG 4): cablurile care converg pe ACEEASI dunga se deseneaza PARALEL (offset
     # lateral simetric, alocare geografica dupa latura de intrare), NU cumulate intr-o linie groasa.
     # Non-stripe (lant intra-camera, iluminat) raman neatinse. Capacitate 5 sloturi + surplus cumulat.
@@ -2827,9 +2856,14 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             for _c in _cables:
                 # C2: forța (prize + receptoare -> tablou) = ALBASTRU (_PRIZA_COLOR); iluminat = roșu (default).
                 _kind = _c.get("kind") or ""
+                # FV-P3: lantul FV DOAR pe planul de forta (tablourile au plan_type="ambele" ->
+                # compute_cables il genereaza si la iluminat; acolo il sarim).
+                if _kind == "fv_link" and draw_plan_type != "forta":
+                    continue
                 # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
                 _draw_cable(page, _c.get("path"),
-                            color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
+                            color=_FV_LINK_COLOR if _kind == "fv_link"
+                            else _PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
                             width=_cable_width_for(_c.get("count", 1)))
                 n_cable += 1
         except Exception:
