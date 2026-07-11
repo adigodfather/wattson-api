@@ -491,6 +491,7 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
     circuits lipsa (proiect vechi) -> FALLBACK la re-derivarea din puteri default (comportamentul vechi)."""
     if plan_type != "forta":
+        # iluminat: cablurile pe plan sunt ROSII (default _draw_cable) -> legenda la fel
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
     texts = []
     if present & _PRIZA_TYPES:
@@ -529,7 +530,9 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     for t in texts:
         if t not in seen:
             seen.add(t)
-            out.append({"kind": "cable", "text": t})
+            # FORTA: pe plan cablurile prize/receptoare sunt ALBASTRE (_PRIZA_COLOR) -> legenda
+            # cu ACEEASI culoare (era rosu-default = mismatch legenda vs plan, fix Dan)
+            out.append({"kind": "cable", "text": t, "color": _PRIZA_COLOR})
     # COLOANE (feed sub_tablou TEG->TE-CT/TES): un rand TEAL per feed, cu sectiunea din schema
     for f in (feeds or []):
         if not isinstance(f, dict) or f.get("type") != "sub_tablou":
@@ -1255,21 +1258,28 @@ def _draw_panel(page, x, y, element_type, scale=1.0, with_label=True):
     def P(dx, dy):
         return fitz.Point(x + dx * s, y + dy * s)
 
-    if element_type == "tablou_inv":
-        # FV-P2: INVERTORUL — patrat ALB cu contur ROSU + diagonala + "~" (AC, sus-stanga) si
-        # "=" (DC, jos-dreapta). IDENTIC cu simbolul Konva din editor (lectia O1: editor = PDF).
-        page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s),
-                       color=_INV_RED, fill=(1, 1, 1), width=1.4)
-        page.draw_line(P(-12, 8), P(12, -8), color=_INV_RED, width=1.2)
-        page.insert_text(P(-10, 1.5), "~", fontsize=10 * s, fontname="hebo", color=_PANEL_DARK)
-        page.insert_text(P(3.5, 7), "=", fontsize=9 * s, fontname="hebo", color=_PANEL_DARK)
-    else:
-        # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
-        page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
-        page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
-        # contur dreptunghi
-        page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
-    # conector vertical deasupra (comun)
+    if element_type in ("tablou_tcc", "tablou_inv", "tablou_tca"):
+        # FV (corectura Dan, din modelul IE.5): patrate MICI (14x14) SIMPLE, FARA conector —
+        # nu-s tablouri electrice clasice. T.CC = "=", T.CA = "~", INV = ROSU cu diagonala + ~/=.
+        # IDENTICE cu simbolurile Konva din editor (lectia O1: editor = PDF).
+        rect = fitz.Rect(x - 7 * s, y - 7 * s, x + 7 * s, y + 7 * s)
+        if element_type == "tablou_inv":
+            page.draw_rect(rect, color=_INV_RED, fill=(1, 1, 1), width=1.3)
+            page.draw_line(P(-7, 7), P(7, -7), color=_INV_RED, width=1.1)
+            page.insert_text(P(-6, 0.5), "~", fontsize=7 * s, fontname="hebo", color=_PANEL_DARK)
+            page.insert_text(P(1.5, 6), "=", fontsize=6.5 * s, fontname="hebo", color=_PANEL_DARK)
+        else:
+            page.draw_rect(rect, color=_PANEL_DARK, fill=(1, 1, 1), width=1.1)
+            sym = "=" if element_type == "tablou_tcc" else "~"
+            page.insert_text(P(-3, 3), sym, fontsize=9 * s, fontname="hebo", color=_PANEL_DARK)
+        if with_label:
+            page.insert_text(P(-7, 15), short, fontsize=8, fontname="hebo", color=_PANEL_DARK)
+        return
+    # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
+    page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
+    page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
+    # contur dreptunghi + conector vertical deasupra
+    page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
     page.draw_line(P(0, -8), P(0, -16), color=_PANEL_DARK, width=1.4)
     # eticheta scurta sub dreptunghi (omisa in legenda)
     if with_label:
@@ -1845,9 +1855,11 @@ def _draw_legend(page, x, y, rows):
         elif kind == "internet":
             _draw_internet(page, cx, cy, scale=0.5)                     # caseta violet mica
         elif kind == "cable":
-            # MANUNCHI: 3 linii paralele scurte (ilustreaza manunchiul de cabluri)
+            # MANUNCHI: 3 linii paralele scurte (ilustreaza manunchiul de cabluri).
+            # Culoarea din rand (forta = albastru, ca pe plan); lipsa -> rosu default (iluminat).
             for _dy in (-2.3, 0.0, 2.3):
-                _draw_cable(page, [(x + PAD + 3.0, cy + _dy), (x + PAD + SYM_W - 3.0, cy + _dy)], width=0.7)
+                _draw_cable(page, [(x + PAD + 3.0, cy + _dy), (x + PAD + SYM_W - 3.0, cy + _dy)],
+                            color=r.get("color"), width=0.7)
         elif kind == "column":
             # COLOANA: linie SOLIDA groasa — TEAL pt. TE-CT, VERDE INCHIS pt. TES (cross-plansa)
             _ccol = _TES_COLUMN_COLOR if (r.get("feeds_panel") or "").startswith("TES") else _COLUMN_COLOR

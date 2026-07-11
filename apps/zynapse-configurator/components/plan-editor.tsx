@@ -578,9 +578,11 @@ export default function PlanEditor({
     const floorVal = floorCanonic(floor);   // floor-ul ETAJULUI CURENT (prop), nu al primului element (elements nefiltrat pe etaj)
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
-    // separă tablourile plasate simultan în centru (TE-CT sub TEG; cele 3 FV în cascadă mai jos)
-    const off = panelType === "tablou_te_ct" ? 44
-              : isFvPanelType(panelType) ? 88 + FV_PANEL_TYPES.indexOf(panelType) * 44 : 0;
+    // separă tablourile plasate simultan în centru (TE-CT sub TEG); cele 3 FV = BLOC COMPACT
+    // orizontal (T.CC | INV | T.CA la 34pt una de alta), sub TEG
+    const isFv = isFvPanelType(panelType);
+    const off = panelType === "tablou_te_ct" ? 44 : isFv ? 80 : 0;
+    const offX = isFv ? (FV_PANEL_TYPES.indexOf(panelType) - 1) * 34 : 0;
     const row = {
       project_id: projectId,
       floor: floorVal,
@@ -589,7 +591,7 @@ export default function PlanEditor({
       // FV-P1: montajul tablourilor FV sta in label ("fatada" default / "spatiu tehnic"), editabil in inspector
       label: (isFvPanelType(panelType) ? "fatada" : null) as string | null,
       room: null as string | null,   // tabloul e global, nu per cameră
-      x: cx,
+      x: cx + offX,
       y: cy + off,
       wall_mounted: true,
       rotation: 0,
@@ -961,6 +963,28 @@ export default function PlanEditor({
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
     let xPdf = e.target.x() / scale;
     let yPdf = e.target.y() / scale;
+    // FV: tablourile FV se muta ca BLOC (mut unul -> toate 3 cu acelasi delta) + SNAP la perete
+    // ca prizele (fara rotatie — simbol patrat). walls gol (iluminat) -> doar mutarea libera.
+    if (isFvPanelType(el.element_type)) {
+      if (walls.length) {
+        const s = snapToWall(xPdf, yPdf, walls);
+        if (s.snapped) {
+          xPdf = s.x; yPdf = s.y;
+          e.target.position({ x: xPdf * scale, y: yPdf * scale });
+        }
+      }
+      const dx = xPdf - el.x, dy = yPdf - el.y;
+      setLocalField(el.id, { x: xPdf, y: yPdf });
+      persist(el.id, { x: xPdf, y: yPdf });
+      for (const other of elements) {
+        if (other.id !== el.id && isFvPanelType(other.element_type)
+            && floorIndex(other.floor) === floorIndex(el.floor)) {
+          setLocalField(other.id, { x: other.x + dx, y: other.y + dy });
+          persist(other.id, { x: other.x + dx, y: other.y + dy });
+        }
+      }
+      return;
+    }
     // SNAP P3: DOAR prize, DOAR daca avem pereti -> lipeste pe cel mai apropiat perete sub prag (~40pt).
     // Peste prag SAU walls gol -> ramane unde a fost pus (plasare libera, ex. hol fara pereti).
     if (isPrizaType(el.element_type) && walls.length) {
@@ -1749,7 +1773,7 @@ export default function PlanEditor({
                       key={el.id}
                       x={px}
                       y={py}
-                      draggable={!(isPanel && mode === "forta")}   // F2: tablouri READ-ONLY in forta (mostenite din iluminat)
+                      draggable={!(isPanel && mode === "forta" && !isFvPanelType(el.element_type))}   // F2: tablouri READ-ONLY in forta — EXCEPTIE FV (aranjate la forta, unde-s peretii + lantul)
                       onClick={() => selectElement(el.id)}
                       onTap={() => selectElement(el.id)}
                       onDragStart={(e) => e.target.moveToTop()}
@@ -1771,14 +1795,25 @@ export default function PlanEditor({
                                 : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
-                          {el.element_type === "tablou_inv" ? (
+                          {isFvPanelType(el.element_type) ? (
                             <>
-                              {/* FV-P1: INVERTORUL — pătrat ROȘU cu diagonală + "~" (AC, sus-stânga) și
-                                  "=" (DC, jos-dreapta), simbolul standard. Rect-ul PLIN alb = zona de hit. */}
-                              <Rect x={-12} y={-8} width={24} height={16} fill="#FFFFFF" stroke="#DC2626" strokeWidth={1.6} />
-                              <Line points={[-12, 8, 12, -8]} stroke="#DC2626" strokeWidth={1.4} listening={false} />
-                              <Text x={-10.5} y={-7.5} text="~" fontSize={11} fontStyle="bold" fill="#1F2433" listening={false} />
-                              <Text x={4} y={-1} text="=" fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} />
+                              {/* FV (corectura Dan): patrate MICI (14x14) SIMPLE, FARA conector —
+                                  T.CC "=", T.CA "~", INV rosu cu diagonala + ~/=. Rect PLIN = hit. */}
+                              {el.element_type === "tablou_inv" ? (
+                                <>
+                                  <Rect x={-7} y={-7} width={14} height={14} fill="#FFFFFF" stroke="#DC2626" strokeWidth={1.4} />
+                                  <Line points={[-7, 7, 7, -7]} stroke="#DC2626" strokeWidth={1.1} listening={false} />
+                                  <Text x={-6.5} y={-7} text="~" fontSize={8} fontStyle="bold" fill="#1F2433" listening={false} />
+                                  <Text x={1} y={-0.5} text="=" fontSize={7.5} fontStyle="bold" fill="#1F2433" listening={false} />
+                                </>
+                              ) : (
+                                <>
+                                  <Rect x={-7} y={-7} width={14} height={14} fill="#FFFFFF" stroke="#1F2433" strokeWidth={1.2} />
+                                  <Text x={-7} y={-7} width={14} height={14} align="center" verticalAlign="middle"
+                                    text={el.element_type === "tablou_tcc" ? "=" : "~"} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} />
+                                </>
+                              )}
+                              {panel.short ? <Text x={-11} y={9} text={panel.short} fontSize={9} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                             </>
                           ) : (
                             <>
@@ -1788,11 +1823,11 @@ export default function PlanEditor({
                               <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} />
                               <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} />
                               <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
+                              {/* conector vertical scurt deasupra */}
+                              <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
+                              {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                             </>
                           )}
-                          {/* conector vertical scurt deasupra */}
-                          <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
-                          {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                         </>
                       ) : isBulb ? (
                         <>
