@@ -1660,9 +1660,10 @@ def _is_heating_receptor(label):
 
 # ── COLOANE de legatura intre tablouri (feed sub-tablou): TEG<->TE-CT/TES. Culoare TEAL distincta. ──
 _COLUMN_COLOR = (0.0, 0.514, 0.561)   # #00838F TEAL (distinct de rosu cabluri / violet retea / albastru prize)
-# FV-P3: lantul fotovoltaic T.CC->INV->T.CA->TEG — PORTOCALIU INCHIS #E65100 (decizia Dan; mai
-# roscat decat _GROUND_COLOR-ul prizei de pamant, context diferit: lant intre tablouri vs contur).
-_FV_LINK_COLOR = (0.902, 0.318, 0.0)
+# FV-P3: lantul fotovoltaic T.CC->INV->T.CA->TEG — GALBEN AURIU #F9A825 (decizia Dan: se vede
+# clar pe alb si se distinge COMPLET de priza de pamant portocalie). Constanta e folosita si de
+# linia de pe plan, si de randul legendei -> consistent automat.
+_FV_LINK_COLOR = (0.976, 0.659, 0.145)
 # Coloana TEG->TES (cross-plansa) + simbolurile ei de traversare: VERDE INCHIS #1B5E20 (decizia Dan) —
 # DISTINCTA de teal-ul coloanei TE-CT, vizibila pe planul gri/negru + fundal alb. SURSA UNICA.
 _TES_COLUMN_COLOR = (0.106, 0.369, 0.125)
