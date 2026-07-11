@@ -71,7 +71,14 @@ const PANEL_TYPES = [
   { value: "tablou_te_ct",  label: "Tablou TE-CT",  short: "TE-CT", colA: "#EF4444", colB: "#3B82F6" },
   { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#F0F0F0", colB: "#1565C0" },
   { value: "transformator", label: "Transformator", short: "TR",    colA: "#D1D5DB", colB: "#6B7280" },
+  // FV-P1: tablourile sistemului fotovoltaic (gated pe solar.enabled, DOAR parter, montaj în label).
+  // INV are simbol propriu (pătrat roșu ~/=) — colA/colB nefolosite acolo.
+  { value: "tablou_tcc",    label: "Tablou T.CC (FV)",   short: "T.CC", colA: "#F0F0F0", colB: "#1a1a1a" },
+  { value: "tablou_inv",    label: "Invertor solar (FV)", short: "INV",  colA: "#FFFFFF", colB: "#DC2626" },
+  { value: "tablou_tca",    label: "Tablou T.CA (FV)",   short: "T.CA", colA: "#F0F0F0", colB: "#1a1a1a" },
 ];
+const FV_PANEL_TYPES = ["tablou_tcc", "tablou_inv", "tablou_tca"];
+const isFvPanelType = (t: string) => FV_PANEL_TYPES.includes(t);
 // Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
 const PRIZA_TYPES = [
   { value: "priza_simpla",        label: "Priză simplă" },
@@ -344,7 +351,7 @@ const panelStyle: CSSProperties = {
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
-  heatingEquipment = [], hasTechRoom = true,
+  heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
@@ -354,7 +361,10 @@ export default function PlanEditor({
      isAdmin?: boolean;     // Dan: unelte de debug (overlay pereti) vizibile doar admin-ului
      // T3: echipamentele de incalzire (din circuitele reale, pre-filtrate in configurator) + checkbox-ul
      // "am camera tehnica" -> tabloul DESTINATIE al auto-plasarii (TE-CT bifat / TEG nebifat)
-     heatingEquipment?: HeatingEquipment[]; hasTechRoom?: boolean }) {
+     heatingEquipment?: HeatingEquipment[]; hasTechRoom?: boolean;
+     // FV-P1: tablourile FV (T.CC/INV/T.CA) in sectiunea Tablouri — doar cu sistem FV selectat;
+     // fvKw = pachetul (5/10/15/20) -> power_w pe INV la plasare
+     hasFv?: boolean; fvKw?: number }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -568,19 +578,24 @@ export default function PlanEditor({
     const floorVal = floorCanonic(floor);   // floor-ul ETAJULUI CURENT (prop), nu al primului element (elements nefiltrat pe etaj)
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
-    const off = panelType === "tablou_te_ct" ? 44 : 0;   // separă TEG vs TE-CT dacă ambele sunt în centru
+    // separă tablourile plasate simultan în centru (TE-CT sub TEG; cele 3 FV în cascadă mai jos)
+    const off = panelType === "tablou_te_ct" ? 44
+              : isFvPanelType(panelType) ? 88 + FV_PANEL_TYPES.indexOf(panelType) * 44 : 0;
     const row = {
       project_id: projectId,
       floor: floorVal,
       element_type: panelType,
       plan_type: "ambele",            // tablourile apar in AMBELE planuri (iluminat + forta)
-      label: null as string | null,
+      // FV-P1: montajul tablourilor FV sta in label ("fatada" default / "spatiu tehnic"), editabil in inspector
+      label: (isFvPanelType(panelType) ? "fatada" : null) as string | null,
       room: null as string | null,   // tabloul e global, nu per cameră
       x: cx,
       y: cy + off,
       wall_mounted: true,
       rotation: 0,
       status,
+      // FV-P1: puterea invertorului = pachetul FV la plasare (static v1 — re-plasezi la schimbarea pachetului)
+      power_w: (panelType === "tablou_inv" && fvKw ? Math.round(fvKw * 1000) : null) as number | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT tablou esuat", error?.message); return; }
@@ -1207,6 +1222,26 @@ export default function PlanEditor({
           </>
         )}
 
+        {/* FV-P1: MONTAJUL tablourilor FV (fatada default / spatiu tehnic), persistat in label —
+            legenda planului il va citi de acolo (FV-P2). Doar pe T.CC/INV/T.CA. */}
+        {isFvPanelType(selected.element_type) && (
+          <>
+            <label style={fieldLabel}>Montaj</label>
+            <select
+              className="zy-ed-field"
+              value={selected.label === "spatiu tehnic" ? "spatiu tehnic" : "fatada"}
+              onChange={e => {
+                setLocalField(selected.id, { label: e.target.value });
+                persist(selected.id, { label: e.target.value });
+              }}
+              style={{ ...inputStyle, marginBottom: 6 }}
+            >
+              <option value="fatada">Pe fațadă (h=1.5m)</option>
+              <option value="spatiu tehnic">În spațiul tehnic (h=1.5m)</option>
+            </select>
+          </>
+        )}
+
         {selected.room && (
           <div style={{ fontSize: 11, color: "#8B8FA8", marginTop: 2 }}>Cameră: <span style={{ color: "#C5C8D6" }}>{selected.room}</span></div>
         )}
@@ -1366,6 +1401,15 @@ export default function PlanEditor({
                 (hasTechRoom; absent -> true = non-regresie proiecte existente). Nebifat -> ASCUNS complet
                 (coerent cu T2: echipamentele merg pe TEG) — un TE-CT deja plasat ramane pe plan (neatins). */}
             {hasTechRoom && renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
+            {/* FV-P1: tablourile sistemului fotovoltaic (T.CC -> INV -> T.CA, lantul spre TEG in FV-P3),
+                DOAR pe parter si DOAR cu FV selectat in formular (gating ca TE-CT pe hasTechRoom). */}
+            {hasFv && (
+              <>
+                {renderPanelBlock("Tablou T.CC — FV curent continuu", "tablou_tcc", false)}
+                {renderPanelBlock("Invertor solar (INV)", "tablou_inv", false)}
+                {renderPanelBlock("Tablou T.CA — FV curent alternativ", "tablou_tca", false)}
+              </>
+            )}
           </>
         ) : (
           renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false)
@@ -1727,12 +1771,25 @@ export default function PlanEditor({
                                 : <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)}
                       {panel ? (
                         <>
-                          {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
-                              Triunghiurile PLINE rămân "listening" (default) -> zona de hit a Group-ului
-                              draggable (analog cercului becului). Restul (contur/conector/etichetă) listening=false. */}
-                          <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} />
-                          <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} />
-                          <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
+                          {el.element_type === "tablou_inv" ? (
+                            <>
+                              {/* FV-P1: INVERTORUL — pătrat ROȘU cu diagonală + "~" (AC, sus-stânga) și
+                                  "=" (DC, jos-dreapta), simbolul standard. Rect-ul PLIN alb = zona de hit. */}
+                              <Rect x={-12} y={-8} width={24} height={16} fill="#FFFFFF" stroke="#DC2626" strokeWidth={1.6} />
+                              <Line points={[-12, 8, 12, -8]} stroke="#DC2626" strokeWidth={1.4} listening={false} />
+                              <Text x={-10.5} y={-7.5} text="~" fontSize={11} fontStyle="bold" fill="#1F2433" listening={false} />
+                              <Text x={4} y={-1} text="=" fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} />
+                            </>
+                          ) : (
+                            <>
+                              {/* dreptunghi 24x16 împărțit diagonal: triunghi sus-dreapta (colA) + jos-stânga (colB).
+                                  Triunghiurile PLINE rămân "listening" (default) -> zona de hit a Group-ului
+                                  draggable (analog cercului becului). Restul (contur/conector/etichetă) listening=false. */}
+                              <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} />
+                              <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} />
+                              <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
+                            </>
+                          )}
                           {/* conector vertical scurt deasupra */}
                           <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
                           {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}

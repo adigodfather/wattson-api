@@ -2617,6 +2617,8 @@ export function ZynapseConfigurator() {
                   isAdmin={user?.id === ADMIN_USER_ID}
                   heatingEquipment={heatingEquipmentFromCircuits(result?.circuits as never[] | undefined)}
                   hasTechRoom={form.has_tech_room}
+                  hasFv={!!equipment.solar?.enabled}
+                  fvKw={snapFvPackage(equipment.solar?.power_kw)}
                 />
               </div>
             )}
