@@ -602,10 +602,32 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
 
+    # f2) TABLOURILE FV (FV-P2, DINAMICE): descrierea Dan + montajul din LABEL ("fatada"/"spatiu
+    # tehnic") + kW-ul invertorului din POWER_W. Texte ~100 caractere -> wrap pe 2 randuri (`lines`,
+    # mecanismul O2 cu latimea legendei). Ordinea = lantul T.CC -> INV -> T.CA.
+    fv_rows = []
+    for et in _FV_PANEL_ORDER:
+        el = next((e for e in elements if ((e or {}).get("element_type") or "") == et), None)
+        if el is None:
+            continue
+        loc = ("in spatiul tehnic" if (el.get("label") or "").strip().lower() == "spatiu tehnic"
+               else "pe fatada")
+        if et == "tablou_inv":
+            kw = _fmt_height((el.get("power_w") or 0) / 1000.0) or "0"
+            txt = ("INV: Invertor solar trifazat cu puterea de %s kW, montat %s, "
+                   "la inaltimea h=1.5m fata de cota terenului" % (kw, loc))
+        else:
+            fel = "alternativ" if et == "tablou_tca" else "continuu"
+            short = "T.CA" if et == "tablou_tca" else "T.CC"
+            txt = ("%s: Tablou electric de interfata si protectie in curent %s, montat %s, "
+                   "la inaltimea h=1.5m fata de pardoseala" % (short, fel, loc))
+        fv_rows.append({"kind": "panel", "element_type": et, "text": txt,
+                        "lines": _wrap_label_25(txt, 72)})   # 72: ambele randuri incap FARA trunchiere
+
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
     cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
 
-    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + cable_rows
+    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -1188,7 +1210,9 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 # Seturi de tip (categorisire la redraw din plan_elements editat) — aceleasi valori ca CHECK + frontend.
 _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "banda_led"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
-_PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator"}
+_PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator",
+                "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2: tablourile FV si pe PDF
+_FV_PANEL_ORDER = ("tablou_tcc", "tablou_inv", "tablou_tca")   # ordinea lantului (T.CC -> INV -> T.CA)
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
 _RECEPTOR_TYPES = {"alimentare_receptor", "receptor_internet"}   # NIVEL 2: receptoare -> room geometric (pt. detectie tech in enrich)
 
@@ -1200,7 +1224,13 @@ _PANEL_INFO = {
     "tablou_te_ct":  ((0.937, 0.267, 0.267), (0.231, 0.510, 0.965), "TE-CT"),  # rosu + albastru
     "tablou_tes":    ((0.941, 0.941, 0.941), (0.082, 0.396, 0.753), "TES"),    # alb + albastru #1565C0 (ca TEG, triunghi verde->albastru)
     "transformator": ((0.820, 0.835, 0.859), (0.420, 0.447, 0.502), "TR"),     # gri
+    # FV-P2 (portate din Konva): T.CC/T.CA = tablou diagonal alb+negru; INV are branch propriu in
+    # _draw_panel (patrat contur ROSU + diagonala + ~/=), colA/colB nefolosite acolo.
+    "tablou_tcc":    ((0.941, 0.941, 0.941), (0.102, 0.102, 0.102), "T.CC"),
+    "tablou_inv":    ((1.0, 1.0, 1.0),       (0.863, 0.149, 0.149), "INV"),
+    "tablou_tca":    ((0.941, 0.941, 0.941), (0.102, 0.102, 0.102), "T.CA"),
 }
+_INV_RED = (0.863, 0.149, 0.149)   # #DC2626 — conturul/diagonala invertorului (= Konva)
 
 
 def _draw_panel(page, x, y, element_type, scale=1.0, with_label=True):
@@ -1215,11 +1245,21 @@ def _draw_panel(page, x, y, element_type, scale=1.0, with_label=True):
     def P(dx, dy):
         return fitz.Point(x + dx * s, y + dy * s)
 
-    # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
-    page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
-    page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
-    # contur dreptunghi + conector vertical deasupra
-    page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
+    if element_type == "tablou_inv":
+        # FV-P2: INVERTORUL — patrat ALB cu contur ROSU + diagonala + "~" (AC, sus-stanga) si
+        # "=" (DC, jos-dreapta). IDENTIC cu simbolul Konva din editor (lectia O1: editor = PDF).
+        page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s),
+                       color=_INV_RED, fill=(1, 1, 1), width=1.4)
+        page.draw_line(P(-12, 8), P(12, -8), color=_INV_RED, width=1.2)
+        page.insert_text(P(-10, 1.5), "~", fontsize=10 * s, fontname="hebo", color=_PANEL_DARK)
+        page.insert_text(P(3.5, 7), "=", fontsize=9 * s, fontname="hebo", color=_PANEL_DARK)
+    else:
+        # 2 triunghiuri pline (diagonala stanga-sus -> dreapta-jos): A sus-dreapta, B jos-stanga
+        page.draw_polyline([P(-12, -8), P(12, -8), P(12, 8)], color=colA, fill=colA, width=0.3, closePath=True)
+        page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
+        # contur dreptunghi
+        page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
+    # conector vertical deasupra (comun)
     page.draw_line(P(0, -8), P(0, -16), color=_PANEL_DARK, width=1.4)
     # eticheta scurta sub dreptunghi (omisa in legenda)
     if with_label:
@@ -1743,12 +1783,19 @@ def _draw_legend(page, x, y, rows):
     GAP = 5.0             # spatiu simbol -> text
     WHITE = (1, 1, 1)
 
-    # dimensiuni casetei: latime = celula simbol + cel mai lat text + padding.
+    # dimensiuni casetei: latime = celula simbol + cea mai lata LINIE + padding (randurile FV au
+    # `lines` — wrap pe 2 randuri, O2 — ca sa nu lateasca toata caseta cu texte de ~100 caractere).
     # latimea textului EXACTA via fitz.get_text_length (nu estimare) -> textul lung NU e taiat/depasit.
-    txt_w = max([fitz.get_text_length(r.get("text") or "", fontname="helv", fontsize=ROW_FS) for r in rows] + [0.0])
+    LINE_H = 9.5   # inaltimea unei linii suplimentare intr-un rand multi-line
+    def _row_lines(r):
+        return r.get("lines") or [r.get("text") or ""]
+    def _row_h(r):
+        return ROW_H + (len(_row_lines(r)) - 1) * LINE_H
+    txt_w = max([fitz.get_text_length(ln, fontname="helv", fontsize=ROW_FS)
+                 for r in rows for ln in _row_lines(r)] + [0.0])
     title_w = fitz.get_text_length("LEGENDA", fontname="hebo", fontsize=TITLE_FS)
     box_w = max(PAD + SYM_W + GAP + txt_w + PAD, PAD + title_w + PAD)
-    box_h = PAD + TITLE_H + len(rows) * ROW_H + PAD
+    box_h = PAD + TITLE_H + sum(_row_h(r) for r in rows) + PAD
 
     # 1) chenar + fundal alb opac (acopera planul dedesubt)
     page.draw_rect(fitz.Rect(x, y, x + box_w, y + box_h), color=_LEGEND_BORDER, fill=WHITE, width=1.0)
@@ -1758,11 +1805,12 @@ def _draw_legend(page, x, y, rows):
     ty = y + PAD + TITLE_H - 2.0
     page.draw_line(fitz.Point(x + PAD, ty), fitz.Point(x + box_w - PAD, ty), color=_LEGEND_BORDER, width=0.6)
 
-    # 3) randuri: simbol mic (stanga) + text (dreapta)
+    # 3) randuri: simbol mic (stanga) + text (dreapta); inaltimi CUMULATE (randurile FV au 2 linii)
     text_x = x + PAD + SYM_W + GAP
+    row_top = y + PAD + TITLE_H
     for i, r in enumerate(rows):
-        row_top = y + PAD + TITLE_H + i * ROW_H
-        cy = row_top + ROW_H / 2.0
+        rh = _row_h(r)
+        cy = row_top + rh / 2.0
         cx = x + PAD + SYM_W / 2.0
         kind = r.get("kind")
         if kind == "bulb":
@@ -1794,9 +1842,14 @@ def _draw_legend(page, x, y, rows):
         elif kind == "crossing":
             # TRAVERSARE NIVEL: cercul cu sageata (sus/jos), micsorat pt. celula legendei
             _draw_floor_crossing(page, cx, cy, up=bool(r.get("up", True)), label=None)
-        # text randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox)
-        page.insert_text(fitz.Point(text_x, cy + ROW_FS * 0.35), r.get("text") or "",
-                         fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
+        # textul randului (baseline ~ cy + fs*0.35 -> centrat vertical aprox); multi-line (FV):
+        # liniile centrate ca bloc pe cy, la LINE_H una sub alta
+        _lines = _row_lines(r)
+        ty0 = cy + ROW_FS * 0.35 - (len(_lines) - 1) * LINE_H / 2.0
+        for j, ln in enumerate(_lines):
+            page.insert_text(fitz.Point(text_x, ty0 + j * LINE_H), ln,
+                             fontsize=ROW_FS, fontname="helv", color=(0, 0, 0))
+        row_top += rh
 
 
 # ── FAZA 2a: rutare prize pe PERIMETRUL bbox (nu L direct prin interior). ──
