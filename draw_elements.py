@@ -2238,7 +2238,43 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
 
     if dedicated and (general_xy or tect):
         tech_l = (tech_room_from_elements(elements) or "").strip().lower()
+        # O3: cablurile ECHIPAMENTELOR DE INCALZIRE din CAMERA TEHNICA merg PE LANGA PERETE (nu prin
+        # mijloc): perpendicular la peretele apropiat -> pe margine (prin colturi) -> TE-CT. Refoloseste
+        # EXACT geometria prizelor din Faza 2a (_project_to_rect + _perimeter_path + _inset_rect), cu
+        # inset CONCENTRIC per echipament (m = 4 + idx*2.5) -> paralele pe acelasi perete, nu suprapuse.
+        # DOAR subsetul: clasa 1 + tinta TE-CT + echipamentul si TE-CT in bbox-ul camerei tehnice
+        # (toleranta 25pt — bbox-ul Vision poate fi mai mic decat camera reala). Restul: ca inainte.
+        _tech_R = None
+        if tech_l and tect is not None:
+            for _nm, _R in room_px.items():
+                if _nm.strip().lower() == tech_l:
+                    _tech_R = _R
+                    break
+
+        def _in_tech(px, py, tol=25.0):
+            return (_tech_R is not None
+                    and _tech_R[0] - tol <= px <= _tech_R[2] + tol
+                    and _tech_R[1] - tol <= py <= _tech_R[3] + tol)
+
+        def _on_wall_route(rc):
+            return (_tech_R is not None and _is_heating_receptor(rc.get("label"))
+                    and _in_tech(rc["x"], rc["y"]) and _in_tech(tect[0], tect[1]))
+
+        heat_wall = sorted((rc for rc in dedicated if _on_wall_route(rc)),
+                           key=lambda rc: (rc["y"], rc["x"]))          # idx determinist (y,x)
+        _wall_ids = {id(rc) for rc in heat_wall}
+        for _idx, rc in enumerate(heat_wall):
+            _Ri = _inset_rect(_tech_R, 4.0 + _idx * 2.5)               # contur concentric per echipament
+            _bp1, _t1 = _project_to_rect(rc["x"], rc["y"], _Ri)        # perpendicular pe peretele apropiat
+            _bp2, _t2 = _project_to_rect(tect[0], tect[1], _Ri)        # in dreptul TE-CT
+            _wpath = [(rc["x"], rc["y"])] + _perimeter_path(_t1, _t2, _Ri) + [(tect[0], tect[1])]
+            add(rc["et"], (rc["x"], rc["y"]), "tablou_te_ct", tect, "receptor_dedicat", rc.get("room"),
+                count=1, path=_wpath)                                  # ruta explicita pe margine
+            stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
+
         for rc in dedicated:
+            if id(rc) in _wall_ids:
+                continue                                   # rutat pe perete mai sus
             rroom = (rc.get("room") or "").strip().lower()
             to_tect = (tect is not None) and (_is_heating_receptor(rc.get("label"))
                                               or (bool(tech_l) and rroom == tech_l))
