@@ -23,7 +23,7 @@ la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare servest
 """
 
 # tipurile de plansa, in ORDINEA fixa de prioritate
-TIPURI = ("plan_iluminat", "plan_forta", "schema_teg", "schema_tes", "schema_tect")
+TIPURI = ("plan_iluminat", "plan_forta", "schema_teg", "schema_tes", "schema_tect", "schema_fv")
 
 # eticheta de afisare per nivel (folosita in numele planselor)
 _NIVEL_LABEL = {
@@ -53,17 +53,23 @@ def plansa_nume(tip, nivel=None):
         return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC SECUNDAR {}".format(nl)
     if tip == "schema_tect":
         return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC CENTRALĂ TERMICĂ"
+    if tip == "schema_fv":
+        # = titlul mare desenat pe plansa (schema_fv.py); cartusul ei zice "... - SISTEM FOTOVOLTAIC"
+        # (formatul comun draw_cartouche, aceeasi relatie ca TEG/TES/TE-CT cu numele lor canonice)
+        return "SCHEMA ELECTRICĂ MONOFILARĂ SISTEM FOTOVOLTAIC"
     return "PLANȘĂ"
 
 
-def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None):
+def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
                   Gol/None => casa doar parter.
     has_tect:     exista tablou centrala termica (echipament termic: boiler/pdc/pompe/ventilatie
-                  SAU circuite panel=TE-CT). TE-CT e mereu ULTIMA.
+                  SAU circuite panel=TE-CT).
     has_tes:      override; implicit = exista cel putin un nivel peste parter (o schema TES per nivel).
+    has_fv:       sistem fotovoltaic selectat (extra_equipment.solar.enabled) -> schema FV = ULTIMA
+                  plansa IE. Absent/False = nicio plansa FV (non-regresie proiecte fara FV).
 
     Return: [{"nr": "IE.N", "tip": ..., "nivel": ..., "nume": ...}, ...]
     """
@@ -84,9 +90,12 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None):
     if tes_on:
         for fl in extra:
             sheets.append(("schema_tes", fl))
-    # 7: TE-CT (ultima, daca exista)
+    # 7: TE-CT (daca exista)
     if has_tect:
         sheets.append(("schema_tect", None))
+    # 8: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
+    if has_fv:
+        sheets.append(("schema_fv", None))
 
     out = []
     for i, (tip, nivel) in enumerate(sheets, start=1):

@@ -3439,8 +3439,9 @@ def bom_endpoint(request: BomRequest):
 
 class PlansaNumberingRequest(BaseModel):
     extra_floors: List[str] = []   # niveluri peste parter, in ordine (ex. ["etaj"] / ["etaj","mansarda"])
-    has_tect: bool = False         # exista tablou centrala termica -> schema TE-CT (ultima)
+    has_tect: bool = False         # exista tablou centrala termica -> schema TE-CT
     has_tes: Optional[bool] = None # override; implicit = exista cel putin un nivel peste parter
+    has_fv: bool = False           # sistem fotovoltaic selectat (solar.enabled) -> schema FV = ULTIMA IE
 
 
 @app.post("/plansa-numbering")
@@ -3448,7 +3449,8 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
     """Lista ORDONATA a planselor EXISTENTE, IE.1..IE.N fara goluri. Erori status 200 (n8n)."""
     try:
         from plansa_numbering import compute_plansa_numbering
-        planse = compute_plansa_numbering(request.extra_floors or [], bool(request.has_tect), request.has_tes)
+        planse = compute_plansa_numbering(request.extra_floors or [], bool(request.has_tect),
+                                          request.has_tes, bool(request.has_fv))
         return {"success": True, "planse": planse, "count": len(planse)}
     except Exception as e:
         return {"success": False, "error": str(e), "planse": []}
