@@ -1874,6 +1874,29 @@ def _orient_axial(px, py, cen):
     return inw, (-inw[1], inw[0])
 
 
+def _priza_inward(rotation, px, py, cen):
+    """O1: orientarea prizei (inward, along) — SURSA = EDITORUL. `rotation` persistat de editor vine
+    din SNAP-ul pe peretii REALI (/extract-geometry): auto-generare (plan-editor:663) + drag (:956),
+    conventia comuna '0=deschidere SUS (interior sus), pi=jos, +pi/2=dreapta, -pi/2=stanga' (aceeasi
+    ca _draw_priza doc) -> inward = (sin r, -cos r), cvantizat axial (peretii-s ortogonali).
+    VERIFICAT pe toate 4 cazurile editorului: 0->(0,-1), pi->(0,1), +pi/2->(1,0), -pi/2->(-1,0).
+    rotation LIPSA (null — prize vechi/pre-editor) -> fallback CENTROID (_orient_axial, comportamentul
+    de azi; conservator — bbox-ul a fost sursa istorica de regresii, ramane doar fallback-ul lui).
+    Centroid-ul NU mai decide cand rotation exista -> prizele excentrice pe perete nu se mai intorc."""
+    if rotation is not None:
+        try:
+            r = float(rotation)
+            ix, iy = math.sin(r), -math.cos(r)
+            if abs(ix) >= abs(iy):
+                inw = (1.0 if ix > 0 else -1.0, 0.0)
+            else:
+                inw = (0.0, 1.0 if iy > 0 else -1.0)
+            return inw, (-inw[1], inw[0])
+        except (TypeError, ValueError):
+            pass                                         # rotation neparsabil -> fallback centroid
+    return _orient_axial(px, py, cen)
+
+
 def _inset_rect(R, m):
     """R micsorat cu marja m pe toate laturile (contur INTERIOR, in camera) -> cablul ruleaza in
     fata peretilor, nu pe ei. Camera prea mica -> R neschimbat (fara inversare)."""
@@ -1951,7 +1974,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
         elif et in _PANEL_TYPES:
             panels[et] = (x, y)            # de obicei 1 per tip
         elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
-            prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id")})
+            prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id"),
+                           "rot": el.get("rotation")})   # O1: orientarea barei = rotation persistat (ca desenul)
         elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> linie proprie (dedicat) SAU daisy-chain (grupate, Regula 10)
             receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label"), "cid": el.get("circuit_id")})
     teg = panels.get("tablou_teg")
@@ -2085,7 +2109,9 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
         cen_room = cen_map.get((room or "").strip())
 
         def _bar_ends(p):                                  # capetele barei de montaj (orientarea = glyph)
-            o = _orient_axial(p["x"], p["y"], cen_room)    # centroid REAL; fallback bbox doar daca degenerat
+            # O1: ACEEASI sursa ca desenul prizei (_priza_inward: rotation persistat -> centroid fallback)
+            # -> bara + cablul lantului raman rotite IMPREUNA cu simbolul.
+            o = _priza_inward(p.get("rot"), p["x"], p["y"], cen_room)
             if o is None and R is not None:
                 _bp, _inw, _alo = _wall_orient(p["x"], p["y"], R)
                 o = (_inw, _alo)
@@ -2724,13 +2750,13 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
             elif et in _PRIZA_TYPES:
-                # PUNCTUL 3: bara de montaj pe perete + semicerc spre interior. POZITIA = (x,y) PUSA
-                # de inginer (autoritara). ORIENTAREA din GEOMETRIA REALA: inward = spre centroidul
-                # elementelor camerei (cvantizat axial — bara paralela cu peretii ortogonali); bbox-ul
-                # Vision DOAR fallback (centroid degenerat). Fara nimic -> desenul vechi (rotation).
+                # O1: ORIENTAREA = rotation-ul PERSISTAT de editor (snap pe peretii REALI — aceeasi
+                # sursa pe care o vede inginerul in editor => PDF = editor prin constructie; prizele
+                # excentrice pe perete nu se mai intorc). rotation lipsa (vechi) -> centroid (ca
+                # inainte); centroid degenerat -> bbox fallback. POZITIA = (x,y) pusa de inginer.
                 _wi = _wa = None
                 _room_nm = (el.get("room") or "").strip()
-                _o = _orient_axial(x, y, _cen_map.get(_room_nm))
+                _o = _priza_inward(el.get("rotation"), x, y, _cen_map.get(_room_nm))
                 if _o is None and _room_px_map and _room_px_map.get(_room_nm):
                     _, _wi, _wa = _wall_orient(x, y, _room_px_map[_room_nm])   # fallback bbox
                 elif _o:
