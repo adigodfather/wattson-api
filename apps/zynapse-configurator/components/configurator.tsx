@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
+  EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
   defaultTechRoom,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
@@ -435,7 +435,31 @@ function EquipmentCards({
                   style={{ left: st.enabled ? 14 : 2, width: 14, height: 14 }} />
               </div>
             </div>
-            {st.enabled && eq.default_kw > 0 && (
+            {st.enabled && eq.fvPackage && (
+              // FV: PACHETE discrete (5/10/15/20 kW), FĂRĂ putere liberă și FĂRĂ mono/tri (mereu trifazat).
+              <div className="px-3 pb-3" onClick={e => e.stopPropagation()}>
+                <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>PACHET (kW)</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {FV_PACKAGE_OPTIONS.map(kw => {
+                    const sel = snapFvPackage(st.power_kw) === kw;
+                    return (
+                      <button key={kw} type="button"
+                        onClick={() => setEquipment(prev => ({ ...prev, [eq.type]: { ...prev[eq.type], power_kw: kw, phase: "tri" } }))}
+                        className="px-2 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150"
+                        style={{
+                          background: sel ? "rgba(55,138,221,0.18)" : "rgba(255,255,255,0.04)",
+                          border: sel ? "1.5px solid rgba(55,138,221,0.55)" : "1px solid rgba(255,255,255,0.08)",
+                          color: sel ? "#5BB8F5" : "#8B8FA8",
+                        }}>
+                        {kw} kW
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: "#545870" }}>Sistem trifazat 400V (pachet standard)</div>
+              </div>
+            )}
+            {st.enabled && !eq.fvPackage && eq.default_kw > 0 && (
               <div className="px-3 pb-3 grid grid-cols-2 gap-2" onClick={e => e.stopPropagation()}>
                 <div>
                   <label className="block text-[11px] font-semibold mb-1" style={{ color: "#545870" }}>PUTERE (kW)</label>
@@ -1111,8 +1135,13 @@ export function ZynapseConfigurator() {
           const next = { ...prev };
           for (const e of extra) {
             if (e?.type && e.type !== "custom" && next[e.type]) {
-              next[e.type] = { enabled: true, power_kw: Number(e.power_kw) || next[e.type].power_kw,
-                               phase: String(e.phase || next[e.type].phase) };
+              if (e.type === "solar") {
+                // FV backward-compat: proiecte vechi cu power_kw liber (10.3) -> snap la pachet + tri
+                next[e.type] = { enabled: true, power_kw: snapFvPackage(e.package_kw ?? e.power_kw), phase: "tri" };
+              } else {
+                next[e.type] = { enabled: true, power_kw: Number(e.power_kw) || next[e.type].power_kw,
+                                 phase: String(e.phase || next[e.type].phase) };
+              }
             }
           }
           return next;
@@ -1400,14 +1429,22 @@ export function ZynapseConfigurator() {
       const extra_equipment: ExtraEquipment[] = [
         ...EXTRA_EQUIPMENT_DEFAULTS
           .filter(e => equipment[e.type]?.enabled)
-          .map(e => ({
+          .map(e => e.fvPackage ? {
+            // FV: pachet discret + mereu trifazat (power_kw = pachetul, compat n8n; package_kw = sursa schemei FV)
+            type: e.type,
+            name: e.label,
+            power_kw: snapFvPackage(equipment[e.type].power_kw),
+            package_kw: snapFvPackage(equipment[e.type].power_kw),
+            phase: "tri",
+            phases: 3,
+          } : {
             type: e.type,
             name: e.label,
             power_kw: equipment[e.type].power_kw,
             phase: equipment[e.type].phase,
             // numeric phases pentru backend (mono/none → 1, tri → 3)
             phases: equipment[e.type].phase === "tri" ? 3 : 1,
-          })),
+          }),
         ...customEquipment
           .filter(e => e.name.trim())
           .map(e => ({ type: "custom", ...e, phases: e.phase === "tri" ? 3 : 1 })),
