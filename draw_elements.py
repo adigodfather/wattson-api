@@ -158,10 +158,36 @@ def _bulb_label_spec(cx, cy, element_type, power_w, circuit_id=None):
             "font": "hebo", "color": RED}         # hebo = Helvetica BOLD
 
 
+_LBL_LINE_H = 10.0   # inaltimea unui rand suplimentar de eticheta (O2: wrap pe 2 randuri)
+
+
+def _wrap_label_25(text, width=25):
+    """O2: rupe textul PE CUVINTE la <=width caractere per rand, MAX 2 randuri; ce depaseste randul 2
+    se trunchiaza cu '...'. Un cuvant mai lung decat width ramane singur pe rand (nu se sparge)."""
+    words = str(text or "").split()
+    l1, rest = "", None
+    for i, w in enumerate(words):
+        cand = (l1 + " " + w).strip()
+        if len(cand) <= width or not l1:
+            l1 = cand
+        else:
+            rest = words[i:]
+            break
+    if not rest:
+        return [l1] if l1 else []
+    l2 = " ".join(rest)
+    if len(l2) > width:
+        l2 = l2[:width - 3].rstrip() + "..."
+    return [l1, l2]
+
+
 def _draw_label_spec(page, sp):
-    """Deseneaza un spec de eticheta (x0 = stanga, y = baseline)."""
-    page.insert_text(fitz.Point(sp["x0"], sp["y"]), sp["text"],
-                     fontsize=sp["fs"], fontname=sp["font"], color=sp["color"])
+    """Deseneaza un spec de eticheta (x0 = stanga, y = baseline). O2: spec-ul poate avea `lines`
+    (max 2 randuri, echipamente de incalzire) -> fiecare rand la +_LBL_LINE_H sub precedentul."""
+    lines = sp.get("lines") or [sp["text"]]
+    for i, ln in enumerate(lines):
+        page.insert_text(fitz.Point(sp["x0"], sp["y"] + i * _LBL_LINE_H), ln,
+                         fontsize=sp["fs"], fontname=sp["font"], color=sp["color"])
 
 
 def _resolve_label_overlaps(specs, pad=1.0, max_steps=40):
@@ -169,9 +195,12 @@ def _resolve_label_overlaps(specs, pad=1.0, max_steps=40):
     IN SUS (in sus = departe de simbol, care e mereu SUB eticheta lui — in jos ar intra peste simbol).
     Ordine determinista (y, x0): cea mai de sus/stanga ramane PE LOC, urmatoarea urca cate un rand
     (fs+2) pana nu mai atinge nimic. Etichetele fara suprapunere NU se misca deloc (pozitia de baza
-    ramane identica cu desenul vechi). Muta DOAR pozitia etichetelor — simboluri/text neatinse."""
+    ramane identica cu desenul vechi). Muta DOAR pozitia etichetelor — simboluri/text neatinse.
+    O2: spec-urile cu `lines` (2 randuri) au UN SINGUR dreptunghi cu inaltime dubla (nu 2 spec-uri —
+    resolverul le-ar stivui separat si randurile s-ar desparti)."""
     def bb(sp):
-        return (sp["x0"] - pad, sp["y"] - sp["fs"] - pad, sp["x0"] + sp["w"] + pad, sp["y"] + pad)
+        extra = (len(sp.get("lines") or [1]) - 1) * _LBL_LINE_H
+        return (sp["x0"] - pad, sp["y"] - sp["fs"] - pad, sp["x0"] + sp["w"] + pad, sp["y"] + extra + pad)
 
     def hit(a, b):
         return a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
@@ -2780,14 +2809,22 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _rl = (el.get("label") or "").strip()
                 _rh = _fmt_height(el.get("mount_height_m"))
                 _rt = (_rl[:1].upper() + _rl[1:]) if _rl else ""
-                if _rh:
-                    _rt = ("%s  h=%sm" % (_rt, _rh)).strip()
                 if _rt:
                     # acelasi stil ca etichetele prizelor (bold + 9.0, lizibil); receptorul sta LIBER
-                    # in camera (nu pe perete) -> eticheta ramane SUB simbol (y+24, aer pt. cercul marit)
+                    # in camera (nu pe perete) -> eticheta ramane SUB simbol (y+24, aer pt. cercul marit).
+                    # O2: echipamentele de INCALZIRE (clasa 1) au descrieri lungi -> WRAP pe cuvinte
+                    # la ~25 caractere, max 2 randuri; h=X.Xm pe ULTIMUL rand. Restul (boiler din alta
+                    # camera / cuptor / AC / EV): single-line ca inainte.
                     _rfs = 9.0
-                    _rw = len(_rt) * _rfs * 0.50
-                    _labels.append({"text": _rt, "x0": x - _rw / 2.0, "y": y + 24.0, "w": _rw,
+                    if _is_heating_receptor(_rl) and len(_rt) > 25:
+                        _rlines = _wrap_label_25(_rt, 25)
+                    else:
+                        _rlines = [_rt]
+                    if _rh:
+                        _rlines[-1] = ("%s  h=%sm" % (_rlines[-1], _rh)).strip()
+                    _rw = max(len(ln) for ln in _rlines) * _rfs * 0.50
+                    _labels.append({"text": " ".join(_rlines), "lines": _rlines,
+                                    "x0": x - _rw / 2.0, "y": y + 24.0, "w": _rw,
                                     "fs": _rfs, "font": "hebo", "color": _PRIZA_COLOR})
                 n_receptor += 1
             elif et == "receptor_internet":
