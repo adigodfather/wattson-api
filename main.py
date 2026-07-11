@@ -3048,6 +3048,39 @@ def generate_schema(request: SchemaRequestV2):
         return {"success": False, "error": str(e)}
 
 
+# -------------------------------------------------
+#  SCHEMA FV (POST /generate-schema-fv-b64) — planșa IE finală, șablon fix pe pachete 5/10/15/20 kW
+# -------------------------------------------------
+
+class FvSchemaRequest(BaseModel):
+    package_kw: Optional[float] = None   # pachetul explicit (5/10/15/20)
+    power_kw: Optional[float] = None     # SAU puterea liberă din formular -> snap la pachet
+    cartus_firma: Optional[dict] = None
+    cartus_proiect: Optional[dict] = None
+
+
+@app.post("/generate-schema-fv-b64")
+def generate_schema_fv_b64(request: FvSchemaRequest):
+    """Schema monofilară a sistemului fotovoltaic (base64, pentru n8n). Pachetul = package_kw
+    sau snap-ul lui power_kw pe 5/10/15/20; cartus_firma/proiect ca la /generate-schema-b64."""
+    try:
+        from schema_fv import build_fv_schema, snap_fv_package
+        from schema_generator import CartusFirma, CartusProiect
+        kw = snap_fv_package(request.package_kw or request.power_kw or 5)
+        firma = CartusFirma(**(request.cartus_firma or {}))
+        proiect = CartusProiect(**(request.cartus_proiect or {}))
+        pdf_bytes = build_fv_schema(kw, firma, proiect)
+        return {
+            "success": True,
+            "package_kw": kw,
+            "pdf_base64": base64.b64encode(pdf_bytes).decode('utf-8'),
+            "filename": f"schema_fv_{kw}kw.pdf",
+            "size_bytes": len(pdf_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/generate-schema/test")
 def generate_schema_test():
     """
