@@ -268,6 +268,10 @@ class ExtraEquipment(BaseModel):
     name: str
     power_kw: float = 0.0
     phase: str = "mono"  # mono / tri / none
+    # FV (G2): pachetul discret + solul prizei de pamant — pydantic ar TAIA campurile nedeclarate,
+    # deci le declaram explicit (optional, backward-compat: payload-urile vechi merg neschimbate)
+    package_kw: Optional[float] = None
+    soil_type: Optional[str] = None
 
 
 class Building(BaseModel):
@@ -1311,6 +1315,73 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
 # -------------------------------------------------
 
 
+def _memoriu_fv_sections(extra_equipment):
+    """G2: capitolele FV pentru memoriul text — [9] descrierea sistemului + [10] breviarul prizei
+    de pamant DEDICATE (ipoteze + formule + rezultat, per pachet x sol). [] daca FV nu e selectat.
+    Functie PURA (testabila izolat); accepta obiecte pydantic SAU dict-uri. Fail-safe: orice
+    eroare -> [] (memoriul nu crapa din cauza capitolelor FV)."""
+    def _get(e, k, default=None):
+        return e.get(k, default) if isinstance(e, dict) else getattr(e, k, default)
+    try:
+        solar = next((e for e in (extra_equipment or []) if _get(e, "type") == "solar"), None)
+        if solar is None:
+            return []
+        import math as _m
+        from schema_fv import FV_PACKAGES, FV_FIXED, snap_fv_package, fv_grounding
+        kw = snap_fv_package(_get(solar, "package_kw") or _get(solar, "power_kw"))
+        pkg = FV_PACKAGES[kw]
+        g = fv_grounding(kw, _get(solar, "soil_type"))
+        soil_lbl = {"mlastinos": "sol mlastinos", "argila": "argila umeda", "agricol": "sol agricol",
+                    "nisip_umed": "nisip umed", "nisip_uscat": "nisip uscat", "pietris": "pietris"}[g["soil_type"]]
+        lines = []
+
+        # [B] 9. descrierea sistemului (montajul invertorului nu e mentionat specific: memoriul se
+        # genereaza INAINTE de plasarea tablourilor FV in editor -> "conform planului")
+        lines.append("9. SISTEM FOTOVOLTAIC")
+        nstr = "%d string-uri" % pkg["nr_stringuri"] if pkg["nr_stringuri"] != 1 else "1 string"
+        lines.append(
+            "Obiectivul este echipat cu un sistem fotovoltaic format din %d panouri fotovoltaice "
+            "monocristaline de %d Wp fiecare, cu o putere instalata totala de %.2f kWp, dispuse in %s. "
+            "Conversia se realizeaza printr-un invertor solar trifazat de %d kW, montat pe fatada sau "
+            "in spatiul tehnic, conform planului de forta. Sistemul se racordeaza la tabloul electric "
+            "general (TEG) prin tablourile de interfata si protectie T.CC (curent continuu) si T.CA "
+            "(curent alternativ). Productia este contorizata separat prin contor de productie 400V."
+            % (pkg["nr_panouri"], FV_FIXED["wp"], pkg["pi_kw"], nstr, pkg["invertor_ca_kw"]))
+        lines.append("")
+
+        # [C] 10. breviarul prizei de pamant dedicate (ipoteze + formule + rezultat per pachet x sol)
+        lines.append("10. PRIZA DE PAMANT A SISTEMULUI FOTOVOLTAIC")
+        lines.append("Sistemul fotovoltaic se leaga la o priza de pamant DEDICATA, separata de priza "
+                     "de pamant a instalatiei generale.")
+        lines.append("Ipoteze de calcul:")
+        lines.append("  - Rezistivitatea solului: ro = %d ohm*m (%s)." % (g["rho"], soil_lbl))
+        lines.append("  - Rezistenta tinta: Rp <= 4 ohm (I7-2011).")
+        lines.append("  - Tarusi OL-Zn Ø18 mm, L = 1.5 m, distanta intre tarusi a = 3 m (a/L = 2).")
+        lines.append("  - Priza de contur: tarusi legati cu platbanda OL-Zn 40x4 mm, ingropata la 0.8 m.")
+        r1 = g["rho"] / (2 * _m.pi * 1.5) * (_m.log(4 * 1.5 / 0.018) - 1.0)
+        lines.append("Rezistenta de dispersie a unui tarus: R1 = ro/(2*pi*L)*[ln(4L/d)-1] = %.1f ohm." % r1)
+        lines.append("Rezistenta grupului de n tarusi: Rn = R1/(n*eta), cu eta ~ 0.7 (coeficientul de "
+                     "utilizare la a/L = 2), in paralel cu platbanda de contur.")
+        lines.append("Dimensionare pentru %s, sistem de %d kW: %d tarusi de 1.5 m + %d m platbanda "
+                     "OL-Zn 40x4." % (soil_lbl, kw, g["tarusi"], g["platbanda_m"]))
+        if g["soil_type"] == "pietris":
+            # nota SPECIALA pietris: inlocuieste linia de Rp (tarusii de 1.5 m nu ating tinta)
+            lines.append("NOTA: In sol pietros (ro = 500 ohm*m), tarusii de 1.5 m nu asigura Rp <= 4 ohm. "
+                         "Se recomanda tarusi de 2-3 m, electrozi forati sau tratarea solului (bentonita). "
+                         "Rp se masoara la receptie.")
+        else:
+            rp = float(g["rp"])
+            lines.append("Rezistenta de dispersie estimata: Rp = %s ohm%s." % (g["rp"], " <= 4 ohm" if rp <= 4.0 else ""))
+            if rp > 4.0:
+                lines.append("NOTA: Rp estimat depaseste 4 ohm; se vor adauga tarusi suplimentari sau se "
+                             "prelungeste conturul pana la atingerea valorii <= 4 ohm. Rp se masoara la receptie.")
+        lines.append("Rezistenta se masoara la receptie (metoda Wenner). Valorile sunt estimate de calcul.")
+        lines.append("")
+        return lines
+    except Exception:
+        return []
+
+
 def build_memoriu(
     data: ProjectData,
     climate_zone: str,
@@ -1524,6 +1595,9 @@ def build_memoriu(
                 else:
                     lines.append(f"  - {eq.name}: circuit dedicat.")
             lines.append("")
+
+    # ── 9+10. SISTEM FOTOVOLTAIC + PRIZA DE PAMANT FV (G2) — doar cu FV selectat ──
+    lines.extend(_memoriu_fv_sections(data.extra_equipment))
 
     lines.append("Toate circuitele vor fi verificate si dimensionate definitiv conform normativelor in vigoare.")
     if pi.get("sef_proiect"):

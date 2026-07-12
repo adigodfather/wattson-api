@@ -74,9 +74,17 @@ FV_GROUNDING_TARUSI = {
     "pietris":     {5: 50, 10: 55, 15: 60, 20: 70},
 }
 FV_MYF = {5: 20, 10: 25, 15: 30, 20: 40}   # MYF 1x16 galben-verde (m) per sistem
-# Rp estimat (Ω) — pentru breviarul din memoriu (G2/G3). Deocamdată solul default (agricol);
-# restul solurilor le completează Dan când dă valorile.
-FV_GROUNDING_RP = {"agricol": {5: "3.7", 10: "3.5", 15: "3.3", 20: "2.9"}}
+# Rp estimat (Ω) per sol x sistem — pentru breviarul din memoriu (G2/G3). Matricea completă Dan.
+# Celulele > 4 Ω (nisip/pietriș pe sistemele mici) primesc în breviar nota de recepție/țăruși
+# suplimentari; pietrișul are notă specială (soluție alternativă) în loc de linia Rp.
+FV_GROUNDING_RP = {
+    "mlastinos":   {5: "2.9", 10: "2.1", 15: "2.1", 20: "2.1"},
+    "argila":      {5: "3.4", 10: "2.9", 15: "2.9", 20: "2.5"},
+    "agricol":     {5: "3.7", 10: "3.5", 15: "3.3", 20: "2.9"},
+    "nisip_umed":  {5: "4.1", 10: "3.8", 15: "3.5", 20: "3.1"},
+    "nisip_uscat": {5: "4.4", 10: "4.0", 15: "3.7", 20: "3.2"},
+    "pietris":     {5: "4.6", 10: "4.3", 15: "3.9", 20: "3.4"},
+}
 
 
 def fv_grounding(package_kw, soil_type=None):
