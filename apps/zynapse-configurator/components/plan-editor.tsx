@@ -615,6 +615,7 @@ export default function PlanEditor({
     const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
     const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
     const stagger = list.filter(e => (e.element_type || "").startsWith("priza")).length;   // evita suprapunerea
+    const rule = prizeRuleForRoom(roomKey === NO_ROOM ? null : roomKey);   // FIX-P: h per camera (baie 1.2 / terasa+balcon 0.4)
     const row = {
       project_id: projectId,
       floor,
@@ -625,7 +626,7 @@ export default function PlanEditor({
       x: baseX + 40 + stagger * 6,
       y: baseY + stagger * 6,
       wall_mounted: true,
-      mount_height_m: 0.6,            // inaltime precompletata (editabila in panou)
+      mount_height_m: rule?.heightM ?? 0.6,   // inaltime precompletata pe regula camerei (editabila in panou)
       rotation: 0,
       status: null as string | null,
     };
@@ -689,7 +690,7 @@ export default function PlanEditor({
           rows.push({
             project_id: projectId, floor: fl, element_type: rule.type, plan_type: "forta",
             label: null, room: room.name ?? null, x: p.x, y: p.y,
-            wall_mounted: true, mount_height_m: 0.6, rotation: rot, status: null,   // circuit_id null -> R3
+            wall_mounted: true, mount_height_m: rule.heightM ?? 0.6, rotation: rot, status: null,   // circuit_id null -> R3; h per regula (FIX-P: baie 1.2 / terasa+balcon 0.4)
           });
         }
       }

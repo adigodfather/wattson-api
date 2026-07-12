@@ -37,7 +37,13 @@ export function prizeCountPerRoom(circuits: Circuit[] | null | undefined): Recor
 // terasa acces!=acoperita). null = SKIP (camera tehnica TE-CT, gestionata de T1). circuitGroup: "BAIE"/"HOL"/
 // "KITCHEN" (comun/special, pt. R3) sau numele camerei (circuit propriu). PURA, determinista.
 export type PrizaType = "priza_simpla" | "priza_dubla" | "priza_16a" | "priza_exterior_ip44";
-export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string };
+export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; heightM: number };
+
+// FIX-P: familiile de camere cu prize IP44 — SINCRON cu enrich_circuits.py (_BATH_KW / _TERRACE_KW):
+// acolo dau RCCB 10mA pe circuit, aici tipul + inaltimea prizei. Modifici una -> modifici AMBELE
+// (altfel: simbol/cablu normal pe un circuit protejat 10mA). "teras" acopera terasa/terasă din enrich.
+const BATH_KW = ["baie", "bath", "wc", "g.s", "grup sanitar", "gs"];
+const BALCONY_KW = ["balcon", "loggia", "logie"];
 
 export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | null {
   const n = (name ?? "").toLowerCase().trim();
@@ -45,29 +51,35 @@ export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | n
   const S: PrizaType = "priza_simpla";
   const IP44: PrizaType = "priza_exterior_ip44"; // si pt. IP65 (terasa) — nu exista tip IP65 v1
 
-  // 1-2. TERASA: "acces" -> 0 (manual) INAINTE de terasa generica (acoperita -> 2 IP65->IP44)
+  // 0. BAIE/G.S./WC (prima, ca in enrich.rccb_zone) -> 1 IP44 la h=1.2, grup comun BAIE
+  if (BATH_KW.some((k) => n.includes(k)))
+    return { count: 1, type: IP44, circuitGroup: "BAIE", heightM: 1.2 };
+  // 1-2. TERASA: "acces" -> 0 (manual) INAINTE de terasa generica (acoperita -> 2 IP65->IP44, h=0.4)
   if (n.includes("teras"))
     return n.includes("acces")
-      ? { count: 0, type: S, circuitGroup: own }
-      : { count: 2, type: IP44, circuitGroup: own };
+      ? { count: 0, type: S, circuitGroup: own, heightM: 0.4 }
+      : { count: 2, type: IP44, circuitGroup: own, heightM: 0.4 };
+  // 2b. BALCON/LOGGIA -> 1 IP44 la h=0.4 (decizia Dan: 1, nu 2 ca terasa)
+  if (BALCONY_KW.some((k) => n.includes(k)))
+    return { count: 1, type: IP44, circuitGroup: own, heightM: 0.4 };
   // 3. SPATIU TEHNIC -> SKIP (camera TE-CT, gestionata de schema/T1, nu auto-repartizata)
   if (n.includes("spatiu tehnic") || n.includes("tehnic")) return null;
   // 4. DEPOZIT/CAMARA/DRESSING -> 2 (ATENTIE: "camara" NU prinde "camera" -> inainte de living)
   if (n.includes("depozit") || n.includes("camara") || n.includes("dressing"))
-    return { count: 2, type: S, circuitGroup: own };
+    return { count: 2, type: S, circuitGroup: own, heightM: 0.6 };
   // 5. LIVING / CAMERA DE ZI / "zi" -> 4
   if (n.includes("living") || n.includes("camera de zi") || n.includes(" zi") || n === "zi")
-    return { count: 4, type: S, circuitGroup: own };
-  // 6. restul (specific): garaj, baie(COMUN), bucatarie(KITCHEN), dormitor, birou, spalator, hol(COMUN)
-  if (n.includes("garaj")) return { count: 3, type: IP44, circuitGroup: own };
-  if (n.includes("baie")) return { count: 1, type: IP44, circuitGroup: "BAIE" };
-  if (n.includes("bucatar")) return { count: 6, type: S, circuitGroup: "KITCHEN" };
-  if (n.includes("dormitor")) return { count: 3, type: S, circuitGroup: own };
-  if (n.includes("birou")) return { count: 4, type: S, circuitGroup: own };
-  if (n.includes("spalator")) return { count: 2, type: S, circuitGroup: own };
-  if (n.includes("hol")) return { count: 2, type: S, circuitGroup: "HOL" };
+    return { count: 4, type: S, circuitGroup: own, heightM: 0.6 };
+  // 6. restul (specific): garaj, bucatarie(KITCHEN), dormitor, birou, spalator, hol(COMUN)
+  //    (baie a urcat la punctul 0 — familia BATH_KW acopera si "baie")
+  if (n.includes("garaj")) return { count: 3, type: IP44, circuitGroup: own, heightM: 0.6 };
+  if (n.includes("bucatar")) return { count: 6, type: S, circuitGroup: "KITCHEN", heightM: 0.6 };
+  if (n.includes("dormitor")) return { count: 3, type: S, circuitGroup: own, heightM: 0.6 };
+  if (n.includes("birou")) return { count: 4, type: S, circuitGroup: own, heightM: 0.6 };
+  if (n.includes("spalator")) return { count: 2, type: S, circuitGroup: own, heightM: 0.6 };
+  if (n.includes("hol")) return { count: 2, type: S, circuitGroup: "HOL", heightM: 0.6 };
   // 7. DEFAULT (nume necunoscut) -> 2 simpla, circuit propriu
-  return { count: 2, type: S, circuitGroup: own };
+  return { count: 2, type: S, circuitGroup: own, heightM: 0.6 };
 }
 
 // ── Geometrie pura (proiectie punct-pe-segment CLAMPAT) — IDENTICA cu P3 din plan-editor.tsx ──
