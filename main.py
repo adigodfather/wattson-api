@@ -3310,6 +3310,9 @@ class GenerateMemoriuRequest(BaseModel):
     # cererile vechi/fara aceste campuri merg normal; brevierul B le foloseste cand exista).
     circuits: List[dict] = []        # circuite (type/power_w/cable_type) -> putere iluminat reala
     power_summary: dict = {}         # current_a (Ic TEG), main_breaker_a, installed_kw, ...
+    # G3: pachetul FV + solul prizei de pamant ({package_kw, soil_type} din extra_equipment.solar;
+    # n8n il completeaza in body — partea n8n, separat). Gol -> memoriul FARA capitolele FV.
+    solar: dict = {}
 
 
 @app.post("/generate-memoriu")

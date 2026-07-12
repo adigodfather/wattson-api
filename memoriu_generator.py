@@ -475,7 +475,74 @@ _MEMORIU_BLOCKS = [
 ]
 
 
-def _page_memoriu(doc, cp, cf):
+def _memoriu_docx_fv_sections(doc, solar):
+    """G3: capitolele FV în memoriul DOCX — [B] descrierea sistemului + [C] breviarul prizei de
+    pământ DEDICATE, cu formulele pe pattern-ul M5 (_brevier_du_block: 'X = descriere = valoare').
+    Aceleași date și cazuri speciale ca memoriul text (G2, main._memoriu_fv_sections): FV_PACKAGES
+    + fv_grounding + FV_GROUNDING_RP din schema_fv. `solar` gol/absent -> nimic (backward-compat);
+    fail-safe: orice eroare -> memoriul iese fără capitolele FV (nu crapă)."""
+    if not isinstance(solar, dict) or not (solar.get("package_kw") or solar.get("power_kw")):
+        return
+    try:
+        import math as _m
+        from schema_fv import FV_PACKAGES, FV_FIXED, snap_fv_package, fv_grounding
+        kw = snap_fv_package(solar.get("package_kw") or solar.get("power_kw"))
+        pkg = FV_PACKAGES[kw]
+        g = fv_grounding(kw, solar.get("soil_type"))
+        soil_lbl = {"mlastinos": "sol mlăștinos", "argila": "argilă umedă", "agricol": "sol agricol",
+                    "nisip_umed": "nisip umed", "nisip_uscat": "nisip uscat", "pietris": "pietriș"}[g["soil_type"]]
+
+        # [B] descrierea sistemului (montajul = "conform planului": memoriul se generează înaintea plasării)
+        _add_heading(doc, "SISTEM FOTOVOLTAIC", level=2)
+        nstr = "{} string-uri".format(pkg["nr_stringuri"]) if pkg["nr_stringuri"] != 1 else "1 string"
+        _add_para(doc,
+                  "Obiectivul este echipat cu un sistem fotovoltaic format din {} panouri fotovoltaice "
+                  "monocristaline de {} Wp fiecare, cu o putere instalată totală de {:.2f} kWp, dispuse "
+                  "în {}. Conversia se realizează printr-un invertor solar trifazat de {} kW, montat pe "
+                  "fațadă sau în spațiul tehnic, conform planului de forță. Sistemul se racordează la "
+                  "tabloul electric general (TEG) prin tablourile de interfață și protecție T.CC (curent "
+                  "continuu) și T.CA (curent alternativ). Producția este contorizată separat prin contor "
+                  "de producție 400V.".format(pkg["nr_panouri"], FV_FIXED["wp"], pkg["pi_kw"], nstr,
+                                              pkg["invertor_ca_kw"]))
+        _blank(doc, 1)
+
+        # [C] breviarul prizei de pământ dedicate (pattern M5: rânduri 'X = descriere = valoare')
+        _add_heading(doc, "PRIZA DE PĂMÂNT A SISTEMULUI FOTOVOLTAIC", level=2)
+        _add_para(doc, "Sistemul fotovoltaic se leagă la o priză de pământ DEDICATĂ, separată de "
+                       "priza de pământ a instalației generale.")
+        _add_para(doc, "Ipoteze de calcul:", bold=True)
+        _add_para(doc, "ρ = rezistivitatea solului = {} Ω·m ({})".format(g["rho"], soil_lbl))
+        _add_para(doc, "Rp = rezistența țintă ≤ 4 Ω (I7-2011)")
+        _add_para(doc, "Țăruși OL-Zn Ø18 mm, L = 1,5 m, distanța între țăruși a = 3 m (a/L = 2)")
+        _add_para(doc, "Priză de contur: țăruși legați cu platbandă OL-Zn 40x4 mm, îngropată la 0,8 m")
+        r1 = g["rho"] / (2 * _m.pi * 1.5) * (_m.log(4 * 1.5 / 0.018) - 1.0)
+        _add_para(doc, "Rezistența de dispersie a unui țăruș:", bold=True)
+        _add_para(doc, "R1 = ρ/(2·π·L)·[ln(4L/d) − 1] = {:.1f} Ω".format(r1))
+        _add_para(doc, "Rezistența grupului de n țăruși:", bold=True)
+        _add_para(doc, "Rn = R1/(n·η), cu η ≈ 0,7 (coeficientul de utilizare la a/L = 2), "
+                       "în paralel cu platbanda de contur")
+        _add_para(doc, "Dimensionare ({}, sistem de {} kW): {} țăruși de 1,5 m + {} m platbandă "
+                       "OL-Zn 40x4".format(soil_lbl, kw, g["tarusi"], g["platbanda_m"]), bold=True)
+        if g["soil_type"] == "pietris":
+            # nota SPECIALĂ pietriș: înlocuiește linia de Rp (țărușii de 1,5 m nu ating ținta)
+            _add_para(doc, "NOTĂ: În sol pietros (ρ = 500 Ω·m), țărușii de 1,5 m nu asigură Rp ≤ 4 Ω. "
+                           "Se recomandă țăruși de 2-3 m, electrozi forați sau tratarea solului "
+                           "(bentonită). Rp se măsoară la recepție.")
+        else:
+            rp = float(g["rp"])
+            _add_para(doc, "Rp = rezistența de dispersie estimată = {} Ω{}".format(
+                g["rp"], " ≤ 4 Ω" if rp <= 4.0 else ""))
+            if rp > 4.0:
+                _add_para(doc, "NOTĂ: Rp estimat depășește 4 Ω; se vor adăuga țăruși suplimentari sau "
+                               "se prelungește conturul până la atingerea valorii ≤ 4 Ω. Rp se măsoară "
+                               "la recepție.")
+        _add_para(doc, "Rezistența se măsoară la recepție (metoda Wenner). Valorile sunt estimate de calcul.")
+        _blank(doc, 1)
+    except Exception:
+        pass
+
+
+def _page_memoriu(doc, cp, cf, solar=None):
     _add_heading(doc, "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE", level=1)
     _add_heading(doc, "1. DATE GENERALE", level=2)
 
@@ -500,6 +567,10 @@ def _page_memoriu(doc, cp, cf):
             _add_para(doc, "- " + text)
         else:
             _add_para(doc, text)
+
+    # G3: capitolele FV (descriere + breviarul prizei de pamant dedicate) — la finalul
+    # capitolelor tehnice, inainte de semnatura; solar gol/absent -> nimic (backward-compat)
+    _memoriu_docx_fv_sections(doc, solar)
 
     # Semnatura finala in tabel cu chenar (dinamic din cartus_firma), centrat
     doc.add_paragraph()
@@ -846,6 +917,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     planse = data.get("planse") or []
     circuits = data.get("circuits") or []          # M5-A: circuite (type/power_w) -> brevier
     power_summary = data.get("power_summary") or {} # M5-A: current_a (Ic TEG), main_breaker_a
+    solar = data.get("solar") or {}                # G3: pachetul FV + solul (n8n; gol -> fara capitole FV)
     is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
 
     # PT: lista REALĂ de planșe (planuri per nivel + scheme monofilare care EXISTĂ), numerotată
@@ -862,7 +934,9 @@ def build_memoriu_docx(data: dict) -> bytes:
             _extra = data.get("extra_floors")
             if _extra is None:
                 _extra = derive_extra_floors(circuits)
-            _real = compute_plansa_numbering(_extra, bool(_has_tect))
+            # G3: cu FV selectat (solar prezent), borderoul include si plansa FV (ultima IE)
+            _real = compute_plansa_numbering(_extra, bool(_has_tect),
+                                             has_fv=bool(solar.get("package_kw") or solar.get("power_kw")))
             if _real:
                 planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in _real]
         except Exception:
@@ -872,7 +946,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_coperta(doc, cp, cf)
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse, is_pt=is_pt)
-    _page_memoriu(doc, cp, cf)
+    _page_memoriu(doc, cp, cf, solar=solar)
     if is_pt:
         # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
         _page_brevier(doc, cp, cf, circuits, power_summary)
