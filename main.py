@@ -8,7 +8,7 @@ from schema_generator import (
     generate_schema_pdf,
     build_sample_request,
 )
-from memoriu_generator import build_memoriu_docx
+from memoriu_generator import build_memoriu_docx, _is_pt
 from cartus_swap import swap_cartus_plan
 import draw_elements
 from pydantic import BaseModel
@@ -1315,11 +1315,12 @@ def calc_comercial_circuits(data: ProjectData) -> List[dict]:
 # -------------------------------------------------
 
 
-def _memoriu_fv_sections(extra_equipment):
-    """G2: capitolele FV pentru memoriul text — [9] descrierea sistemului + [10] breviarul prizei
-    de pamant DEDICATE (ipoteze + formule + rezultat, per pachet x sol). [] daca FV nu e selectat.
-    Functie PURA (testabila izolat); accepta obiecte pydantic SAU dict-uri. Fail-safe: orice
-    eroare -> [] (memoriul nu crapa din cauza capitolelor FV)."""
+def _memoriu_fv_sections(extra_equipment, faza=None):
+    """G2: capitolele FV pentru memoriul text — [9] descrierea sistemului (identica pe faze) +
+    [10] priza de pamant DEDICATA, RAMIFICATA pe faza (fix Dan): PT -> breviarul complet (ipoteze
+    + formule + rezultat per pachet x sol); DTAC / faza absenta -> DOAR fraza de propunere (fara
+    cifre de dimensionare). [] daca FV nu e selectat. Functie PURA (testabila izolat); accepta
+    obiecte pydantic SAU dict-uri. Fail-safe: orice eroare -> [] (memoriul nu crapa)."""
     def _get(e, k, default=None):
         return e.get(k, default) if isinstance(e, dict) else getattr(e, k, default)
     try:
@@ -1335,9 +1336,11 @@ def _memoriu_fv_sections(extra_equipment):
                     "nisip_umed": "nisip umed", "nisip_uscat": "nisip uscat", "pietris": "pietris"}[g["soil_type"]]
         lines = []
 
-        # [B] 9. descrierea sistemului (montajul invertorului nu e mentionat specific: memoriul se
-        # genereaza INAINTE de plasarea tablourilor FV in editor -> "conform planului")
+        # [B] 9. + 9.1 descrierea sistemului (montajul invertorului nu e mentionat specific:
+        # memoriul se genereaza INAINTE de plasarea tablourilor FV -> "conform planului").
+        # Structura-oglinda cu DOCX-ul (2.8 + 2.8.1/2.8.2): capitol UNIC cu subsectiuni.
         lines.append("9. SISTEM FOTOVOLTAIC")
+        lines.append("9.1. Descrierea sistemului")
         nstr = "%d string-uri" % pkg["nr_stringuri"] if pkg["nr_stringuri"] != 1 else "1 string"
         lines.append(
             "Obiectivul este echipat cu un sistem fotovoltaic format din %d panouri fotovoltaice "
@@ -1349,10 +1352,16 @@ def _memoriu_fv_sections(extra_equipment):
             % (pkg["nr_panouri"], FV_FIXED["wp"], pkg["pi_kw"], nstr, pkg["invertor_ca_kw"]))
         lines.append("")
 
-        # [C] 10. breviarul prizei de pamant dedicate (ipoteze + formule + rezultat per pachet x sol)
-        lines.append("10. PRIZA DE PAMANT A SISTEMULUI FOTOVOLTAIC")
+        # [C] 9.2. priza de pamant dedicata — RAMURA PE FAZA: DTAC = fraza de propunere;
+        # PT = breviarul complet (ipoteze + formule + rezultat per pachet x sol)
+        lines.append("9.2. Priza de pamant a sistemului fotovoltaic")
         lines.append("Sistemul fotovoltaic se leaga la o priza de pamant DEDICATA, separata de priza "
                      "de pamant a instalatiei generale.")
+        if not _is_pt(faza):
+            lines.append("Pentru sistemul fotovoltaic se va propune o priza de pamant dedicata, "
+                         "dimensionata la faza PT (Rp <= 4 ohm).")
+            lines.append("")
+            return lines
         lines.append("Ipoteze de calcul:")
         lines.append("  - Rezistivitatea solului: ro = %d ohm*m (%s)." % (g["rho"], soil_lbl))
         lines.append("  - Rezistenta tinta: Rp <= 4 ohm (I7-2011).")
@@ -1596,8 +1605,9 @@ def build_memoriu(
                     lines.append(f"  - {eq.name}: circuit dedicat.")
             lines.append("")
 
-    # ── 9+10. SISTEM FOTOVOLTAIC + PRIZA DE PAMANT FV (G2) — doar cu FV selectat ──
-    lines.extend(_memoriu_fv_sections(data.extra_equipment))
+    # ── 9+10. SISTEM FOTOVOLTAIC + PRIZA DE PAMANT FV (G2) — doar cu FV selectat;
+    #    cap.10 ramificat pe faza (PT = breviar, DTAC = fraza de propunere) ──
+    lines.extend(_memoriu_fv_sections(data.extra_equipment, pi.get("faza")))
 
     lines.append("Toate circuitele vor fi verificate si dimensionate definitiv conform normativelor in vigoare.")
     if pi.get("sef_proiect"):

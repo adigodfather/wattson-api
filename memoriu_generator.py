@@ -475,12 +475,12 @@ _MEMORIU_BLOCKS = [
 ]
 
 
-def _memoriu_docx_fv_sections(doc, solar):
-    """G3: capitolele FV în memoriul DOCX — [B] descrierea sistemului + [C] breviarul prizei de
-    pământ DEDICATE, cu formulele pe pattern-ul M5 (_brevier_du_block: 'X = descriere = valoare').
-    Aceleași date și cazuri speciale ca memoriul text (G2, main._memoriu_fv_sections): FV_PACKAGES
-    + fv_grounding + FV_GROUNDING_RP din schema_fv. `solar` gol/absent -> nimic (backward-compat);
-    fail-safe: orice eroare -> memoriul iese fără capitolele FV (nu crapă)."""
+def _memoriu_docx_fv_sections(doc, solar, is_pt=False):
+    """G3: capitolele FV în memoriul DOCX — [B] descrierea sistemului (identică pe faze) + [C]
+    priza de pământ DEDICATĂ, RAMIFICATĂ pe fază (fix Dan): PT -> breviarul complet pe pattern-ul
+    M5 (_brevier_du_block: 'X = descriere = valoare'); DTAC -> DOAR fraza de propunere (fără
+    cifre). Aceleași date și cazuri speciale ca memoriul text (G2, main._memoriu_fv_sections).
+    `solar` gol/absent -> nimic (backward-compat); fail-safe: orice eroare -> fără capitolele FV."""
     if not isinstance(solar, dict) or not (solar.get("package_kw") or solar.get("power_kw")):
         return
     try:
@@ -492,8 +492,10 @@ def _memoriu_docx_fv_sections(doc, solar):
         soil_lbl = {"mlastinos": "sol mlăștinos", "argila": "argilă umedă", "agricol": "sol agricol",
                     "nisip_umed": "nisip umed", "nisip_uscat": "nisip uscat", "pietris": "pietriș"}[g["soil_type"]]
 
-        # [B] descrierea sistemului (montajul = "conform planului": memoriul se generează înaintea plasării)
-        _add_heading(doc, "SISTEM FOTOVOLTAIC", level=2)
+        # [B] 2.8 + 2.8.1 descrierea sistemului (montajul = "conform planului": memoriul se
+        # generează înaintea plasării tablourilor). Subsecțiunile ca paragrafe bold (deciziile Dan).
+        _add_heading(doc, "2.8. SISTEM FOTOVOLTAIC", level=2)
+        _add_para(doc, "2.8.1. Descrierea sistemului", bold=True)
         nstr = "{} string-uri".format(pkg["nr_stringuri"]) if pkg["nr_stringuri"] != 1 else "1 string"
         _add_para(doc,
                   "Obiectivul este echipat cu un sistem fotovoltaic format din {} panouri fotovoltaice "
@@ -506,10 +508,16 @@ def _memoriu_docx_fv_sections(doc, solar):
                                               pkg["invertor_ca_kw"]))
         _blank(doc, 1)
 
-        # [C] breviarul prizei de pământ dedicate (pattern M5: rânduri 'X = descriere = valoare')
-        _add_heading(doc, "PRIZA DE PĂMÂNT A SISTEMULUI FOTOVOLTAIC", level=2)
+        # [C] 2.8.2 priza de pământ dedicată — RAMURA PE FAZĂ: DTAC = fraza de propunere;
+        # PT = breviarul complet (pattern M5: rânduri 'X = descriere = valoare')
+        _add_para(doc, "2.8.2. Priza de pământ a sistemului fotovoltaic", bold=True)
         _add_para(doc, "Sistemul fotovoltaic se leagă la o priză de pământ DEDICATĂ, separată de "
                        "priza de pământ a instalației generale.")
+        if not is_pt:
+            _add_para(doc, "Pentru sistemul fotovoltaic se va propune o priză de pământ dedicată, "
+                           "dimensionată la faza PT (Rp ≤ 4 Ω).")
+            _blank(doc, 1)
+            return
         _add_para(doc, "Ipoteze de calcul:", bold=True)
         _add_para(doc, "ρ = rezistivitatea solului = {} Ω·m ({})".format(g["rho"], soil_lbl))
         _add_para(doc, "Rp = rezistența țintă ≤ 4 Ω (I7-2011)")
@@ -557,8 +565,18 @@ def _page_memoriu(doc, cp, cf, solar=None):
         "mai sus.",
     )
 
-    # Text fix sectiuni tehnice — kind in {"h1","h2","p","li"}
+    # Text fix sectiuni tehnice — kind in {"h1","h2","p","li"}.
+    # G3 (repozitionare Dan): cu FV selectat, sectiunea FV intra la 2.8 (dupa 2.7 Iluminat),
+    # iar "2.8. PROTECTIA..." devine "2.9. ..." + referinta incrucisata "paragrafului 2.8." -> 2.9.
+    # Match pe STRINGURI COMPLETE (nu "2.8" izolat — "art. 4.2.2.8 din I7-2011" ramane NEATINS).
+    # Fara FV: blocurile ies exact ca inainte (non-regresie).
+    _has_fv = isinstance(solar, dict) and bool(solar.get("package_kw") or solar.get("power_kw"))
     for kind, text in _MEMORIU_BLOCKS:
+        if _has_fv and kind == "h2" and text.startswith("2.8. PROTEC"):
+            _memoriu_docx_fv_sections(doc, solar, is_pt=_is_pt(cp.get("faza")))   # 2.8 = FV
+            text = "2.9. " + text[len("2.8. "):]                                  # PROTECTIA -> 2.9
+        elif _has_fv and kind == "li" and "paragrafului 2.8." in text:
+            text = text.replace("paragrafului 2.8.", "paragrafului 2.9.")
         if kind == "h1":
             _add_heading(doc, text, level=1)
         elif kind == "h2":
@@ -567,10 +585,6 @@ def _page_memoriu(doc, cp, cf, solar=None):
             _add_para(doc, "- " + text)
         else:
             _add_para(doc, text)
-
-    # G3: capitolele FV (descriere + breviarul prizei de pamant dedicate) — la finalul
-    # capitolelor tehnice, inainte de semnatura; solar gol/absent -> nimic (backward-compat)
-    _memoriu_docx_fv_sections(doc, solar)
 
     # Semnatura finala in tabel cu chenar (dinamic din cartus_firma), centrat
     doc.add_paragraph()
