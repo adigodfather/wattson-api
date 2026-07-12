@@ -492,7 +492,7 @@ def _row(cat, den, spec, qty, um):
 
 
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
-              W=None, H=None, horizontal_m=None):
+              W=None, H=None, horizontal_m=None, fv_grounding=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
     compute_cables(plan_elements)[0] (cu length/kind). `scale` = m/px (derive_scale). `waste` =
     adaos aplicat LA FINAL pe orizontale+verticale (default 1.1 = +10%, decizia Dan; acopera si
@@ -610,6 +610,25 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         tub[_pozare(_section_of(ct))] += m
     for d, m in sorted(tub.items()):
         rows.append(_row("Tuburi", d, "", round(m, 1), "m"))
+
+    # ── 8. PRIZA DE PAMANT FV (G1): materiale per pachet x sol — `fv_grounding` = dict-ul din
+    #     schema_fv.fv_grounding (calculat in /bom din extra_equipment.solar); None = FV neselectat
+    #     -> categoria LIPSESTE complet (non-regresie). Metrii de MYF/platbanda NU intra in
+    #     metri_cablu_total (materiale de impamantare, nu cablu de circuit). ──
+    if fv_grounding:
+        g = fv_grounding
+        cat = "Priza de pamant FV"
+        spec_sol = "sol %s" % str(g.get("soil_type") or "agricol").replace("_", " ")
+        rows.append(_row(cat, "Tarus OL-Zn 1.5m", "Ø18, %s" % spec_sol, g["tarusi"], "buc"))
+        rows.append(_row(cat, "Platbanda OL-Zn 40x4", spec_sol, g["platbanda_m"], "m"))
+        rows.append(_row(cat, "Clema QM", "tarus-platbanda", g["cleme"], "buc"))
+        rows.append(_row(cat, "Banda avertizare", "", g["banda_m"], "m"))
+        rows.append(_row(cat, "MYF 1x16 galben-verde", "legatura invertor/T.CA - priza", g["myf_m"], "m"))
+        rows.append(_row(cat, "Cutie vizitare cu borna de masura", "", 1, "buc"))
+        rows.append(_row(cat, "Vopsea anticoroziva", "imbinari", 1, "set"))
+        rows.append(_row(cat, "Coliere fixare", "", 1, "set"))
+        rows.append(_row(cat, "Papuci cablu 16mmp", "", 5, "buc"))
+        rows.append(_row(cat, "Suruburi inox M8/M10", "", 1, "set"))
 
     total_m = round(sum(m_by_type.values()) + bransament_m, 1)
     summary = {"circuite": len(circuits), "metri_cablu_total": total_m,

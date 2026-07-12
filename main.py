@@ -3371,11 +3371,25 @@ def bom_endpoint(request: BomRequest):
         from supabase_client import supabase as _supa
         rows = (_supa.table("plan_elements").select("*")
                 .eq("project_id", request.project_id).execute().data) or []
-        proj = (_supa.table("projects").select("result_data")
+        proj = (_supa.table("projects").select("result_data, input_data")
                 .eq("id", request.project_id).single().execute().data) or {}
         rd = (proj.get("result_data") or {})
         _rooms = rd.get("rooms") or []
         base_circuits = rd.get("circuits") or []
+        # G1: priza de pamant FV — pachetul + solul din extra_equipment.solar (input_data contine
+        # DOAR echipamentele BIFATE -> prezenta solar = FV selectat). Sol absent -> agricol (default
+        # pana la selectorul UI). Esec parsare -> fara categoria FV (fail-safe).
+        _fvg = None
+        try:
+            _inp = (proj.get("input_data") or {})
+            _solar = next((e for e in (_inp.get("extra_equipment") or [])
+                           if isinstance(e, dict) and e.get("type") == "solar"), None)
+            if _solar:
+                from schema_fv import fv_grounding as _fv_grounding
+                _fvg = _fv_grounding(_solar.get("package_kw") or _solar.get("power_kw"),
+                                     _solar.get("soil_type"))
+        except Exception:
+            _fvg = None
         # W/H din base_pdf (fallback); lipsa -> png_meta per plansa (mai jos) -> scala fixa.
         _W = _H = 0.0
         if request.base_pdf_base64:
@@ -3420,7 +3434,8 @@ def bom_endpoint(request: BomRequest):
         # W/H -> H-ul camerei tabloului (geometric, tablourile au room null).
         out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.1),
                              rooms=_rooms, power_summary=rd.get("power_summary") or {},
-                             W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m)
+                             W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m,
+                             fv_grounding=_fvg)
         return {"success": True, "scale_m_per_px": round(scale, 6), "scale_source": ssrc,
                 "floors": {k: {"scale": round(v["scale"], 6), "scale_source": v["scale_source"],
                                "n_elements": v["n_elements"], "n_rooms": v["n_rooms"]}

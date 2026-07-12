@@ -60,6 +60,44 @@ def snap_fv_package(power_kw):
 
 
 # =============================================================================
+# PRIZA DE PĂMÂNT DEDICATĂ FV (G1) — materiale per SOL × SISTEM (tabelul Dan).
+# Țăruși OL-Zn 1.5m la 3m distanță + platbandă OL-Zn 40x4; derivate din nr. de țăruși.
+# =============================================================================
+FV_SOIL_RHO = {"mlastinos": 20, "argila": 50, "agricol": 100,
+               "nisip_umed": 200, "nisip_uscat": 300, "pietris": 500}   # rezistivitate (Ω·m)
+FV_GROUNDING_TARUSI = {
+    "mlastinos":   {5: 2,  10: 3,  15: 3,  20: 3},
+    "argila":      {5: 5,  10: 6,  15: 6,  20: 7},
+    "agricol":     {5: 10, 10: 11, 15: 12, 20: 14},
+    "nisip_umed":  {5: 20, 10: 22, 15: 24, 20: 28},
+    "nisip_uscat": {5: 30, 10: 33, 15: 36, 20: 42},
+    "pietris":     {5: 50, 10: 55, 15: 60, 20: 70},
+}
+FV_MYF = {5: 20, 10: 25, 15: 30, 20: 40}   # MYF 1x16 galben-verde (m) per sistem
+# Rp estimat (Ω) — pentru breviarul din memoriu (G2/G3). Deocamdată solul default (agricol);
+# restul solurilor le completează Dan când dă valorile.
+FV_GROUNDING_RP = {"agricol": {5: "3.7", 10: "3.5", 15: "3.3", 20: "2.9"}}
+
+
+def fv_grounding(package_kw, soil_type=None):
+    """Materialele prizei de pământ FV pentru pachet + sol -> dict cu cantități.
+    soil_type absent/necunoscut -> 'agricol' (100 Ω·m, default până la selectorul UI de sol).
+    DERIVATE din nr. de țăruși (regulile Dan): platbandă = țăruși×3 (m); cleme QM = țăruși+3;
+    bandă avertizare = țăruși×3 (m, = lungimea platbandei). MYF per sistem (FV_MYF)."""
+    kw = snap_fv_package(package_kw)
+    soil = str(soil_type or "").strip().lower()
+    if soil not in FV_GROUNDING_TARUSI:
+        soil = "agricol"
+    n = FV_GROUNDING_TARUSI[soil][kw]
+    return {
+        "package_kw": kw, "soil_type": soil, "rho": FV_SOIL_RHO[soil],
+        "tarusi": n, "platbanda_m": n * 3, "cleme": n + 3, "banda_m": n * 3,
+        "myf_m": FV_MYF[kw],
+        "rp": (FV_GROUNDING_RP.get(soil) or {}).get(kw),
+    }
+
+
+# =============================================================================
 # LAYOUT (pagină A3 landscape 420x297, ca modelul IE.5) — poziții FIXE în mm.
 # =============================================================================
 _W = 420          # lățimea paginii (mm)
