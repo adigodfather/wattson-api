@@ -2101,6 +2101,12 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
         elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> linie proprie (dedicat) SAU daisy-chain (grupate, Regula 10)
             receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label"), "cid": el.get("circuit_id")})
     teg = panels.get("tablou_teg")
+    # FIX etaj iluminat: tabloul GENERAL al plansei pentru ILUMINAT, cu fallback-ul fortei
+    # (gen_type): parter -> TEG; etaj (TEG absent, TES prezent) -> TES; niciunul -> None (skip).
+    # Inainte, intrerupator->tablou + senzor->tablou erau hardcodate pe TEG -> pe plansa de ETAJ
+    # (unde tabloul e TES) cadeau TOATE pe skip_tablou_lipsa si cablurile spre tablou lipseau.
+    lum_panel_type = "tablou_teg" if teg else ("tablou_tes" if panels.get("tablou_tes") else None)
+    lum_panel_xy = panels.get(lum_panel_type) if lum_panel_type else None
     tect = panels.get("tablou_te_ct")
 
     # FAZA 2a: bbox px per camera (nume -> (x0,y0,x1,y1)) pt. rutarea prizelor pe perimetru.
@@ -2155,9 +2161,9 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
     for room, rb in bulbs_by_room.items():
         senzori = [b for b in rb if b["et"] == "aplica_senzor"]
         normale = [b for b in rb if b["et"] != "aplica_senzor"]
-        for b in senzori:                  # senzor -> TEG (prin dunga daca exista)
-            if teg:
-                add("aplica_senzor", (b["x"], b["y"]), "tablou_teg", teg, "senzor_teg", room, via_stripe=True)
+        for b in senzori:                  # senzor -> tabloul general al plansei (TEG / TES pe etaj)
+            if lum_panel_xy:
+                add("aplica_senzor", (b["x"], b["y"]), lum_panel_type, lum_panel_xy, "senzor_teg", room, via_stripe=True)
                 stats["senzor_teg"] += 1
             else:
                 stats["skip_tablou_lipsa"] += 1
@@ -2205,14 +2211,14 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 add(b["et"], (b["x"], b["y"]), sw["et"], swxy, "bec_paralel", room)
                 stats["bec_sw"] += 1
 
-    # INTRERUPATOR -> TABLOU (TEG; TE-CT daca room contine 'tehnic')
+    # INTRERUPATOR -> TABLOU (tabloul general al plansei: TEG / TES pe etaj; TE-CT daca room 'tehnic')
     for s in switches:
         is_tech = "tehnic" in (s["room"] or "").lower()
         if is_tech and tect:
             add(s["et"], (s["x"], s["y"]), "tablou_te_ct", tect, "sw_tablou", s["room"], via_stripe=True)
             stats["sw_tablou"] += 1
-        elif teg:
-            add(s["et"], (s["x"], s["y"]), "tablou_teg", teg, "sw_tablou", s["room"], via_stripe=True)
+        elif lum_panel_xy:
+            add(s["et"], (s["x"], s["y"]), lum_panel_type, lum_panel_xy, "sw_tablou", s["room"], via_stripe=True)
             stats["sw_tablou"] += 1
         else:
             stats["skip_tablou_lipsa"] += 1
