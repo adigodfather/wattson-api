@@ -446,6 +446,15 @@ def draw_subtablou_symbol(c, cx_mm, cy_top_mm, w_mm=8, h_mm=5,
     c.line(x_l, y_b, x_r, y_t)
 
 
+def _is_internet_dest(text):
+    """FIX 1+5: circuitul e de retea/date? Match LARGIT (sursa unica pt. simbolul din schema si
+    randul din legenda): enrich emite 'Alimentare retea/date' (SLASH), n8n 'Retea date / Internet'
+    (spatiu) — vechiul match doar pe 'retea date' rata varianta cu slash -> simbol generic."""
+    t = (text or "").lower()
+    return (("retea" in t and "date" in t) or "internet" in t or "router" in t
+            or "wifi" in t or "rj45" in t)
+
+
 def draw_load_symbol(c, cx_mm, cy_top_mm, circuit):
     """Dispatch pe tip_consumator. Accepta circuit intreg pentru culori."""
     tip = (circuit.tip_consumator or "").lower()
@@ -460,11 +469,8 @@ def draw_load_symbol(c, cx_mm, cy_top_mm, circuit):
         draw_subtablou_symbol(c, cx_mm, cy_top_mm, w_mm=8, h_mm=5,
                               color1=c1, color2=c2)
     else:
-        # Circuit Internet / Retea date → simbol WiFi dedicat
-        dest_lower = (circuit.destinatie or "").lower()
-        is_internet = ("retea date" in dest_lower or "internet" in dest_lower
-                       or "router" in dest_lower or "wifi" in dest_lower)
-        if is_internet:
+        # Circuit Internet / Retea date → simbol WiFi dedicat (FIX 1: helper comun cu legenda)
+        if _is_internet_dest(circuit.destinatie):
             draw_wifi_symbol(c, cx_mm, cy_top_mm, size_mm=3)
         else:
             draw_dedicated_symbol(c, cx_mm, cy_top_mm, size_mm=2.5)
@@ -1011,8 +1017,12 @@ def draw_table_stub(c, width_mm: float, circuits: List[Circuit]):
 
 
 def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
-                           x_override=None, w_override=None):
-    """Legenda (stanga) + Note (dreapta) in zona stanga-jos a paginii."""
+                           x_override=None, w_override=None, circuits=None):
+    """Legenda (stanga) + Note (dreapta) in zona stanga-jos a paginii.
+    FIX 4+5: cu `circuits` dat, legenda e DINAMICA — listeaza DOAR ce exista in ACEASTA schema
+    (fara 'Sub-tablou (TE-CT...)' fantoma pe TEG fara TE-CT, fara 'retea date' pe TES-ul de etaj
+    fara net); sub-tabloul afiseaza numele reale (TES/TE-CT) din destinatiile circuitelor.
+    circuits=None -> cele 7 randuri statice de dinainte (backward-compat, byte-identic)."""
     h = y_end - y_start
     x_start  = x_override if x_override is not None else SCHEMA_X_PADDING
     total_w  = w_override  if w_override  is not None else (width_mm - 2 * SCHEMA_X_PADDING)
@@ -1022,6 +1032,31 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
     leg_x   = x_start
     notes_x = leg_x + leg_w + 4
     notes_w = total_w - leg_w - 4
+
+    # ce randuri apar: din circuitele schemei (None -> toate, comportamentul vechi)
+    if circuits is None:
+        has_light = has_priza = has_sub = has_dedicat = has_net = has_rccb = True
+        sub_label = "Sub-tablou (TE-CT, anexe, etc.)"
+    else:
+        tips = [(getattr(cc, "tip_consumator", "") or "").lower() for cc in circuits]
+        dests = [(getattr(cc, "destinatie", "") or "") for cc in circuits]
+        has_light = "iluminat" in tips
+        has_priza = "priza" in tips
+        subs = [d for t, d in zip(tips, dests) if t == "sub_tablou"]
+        has_sub = bool(subs)
+        nets = [d for t, d in zip(tips, dests) if t == "dedicat" and _is_internet_dest(d)]
+        has_net = bool(nets)
+        has_dedicat = any(t == "dedicat" and not _is_internet_dest(d) for t, d in zip(tips, dests))
+        has_rccb = any(bool(getattr(cc, "has_rccb_individual", False)) or getattr(cc, "rccb_group", None)
+                       for cc in circuits)
+        # numele reale ale sub-tablourilor (TES/TE-CT), derivate din destinatii
+        names = []
+        for d in subs:
+            dl = d.lower()
+            nm = "TE-CT" if ("ct" in dl and "te" in dl) else ("TES" if "tes" in dl else None)
+            if nm and nm not in names:
+                names.append(nm)
+        sub_label = "Sub-tablou (%s)" % ", ".join(names) if names else "Sub-tablou"
 
     # ----- LEGENDA -----
     draw_rect(c, leg_x, y_start, leg_w, h, stroke_width=0.5)
@@ -1037,29 +1072,35 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
     draw_text(c, leg_x + 18, ly + 1, "MCB — disjunctor termo-magnetic", size=7)
     ly += row_spacing
 
-    draw_rccb_box(c, leg_x + 8, ly - 1.5, w_mm=10, h_mm=6, label="")
-    draw_text(c, leg_x + 18, ly + 1, "RCCB — protectie diferentiala 30mA", size=7)
-    ly += row_spacing
+    if has_rccb:
+        draw_rccb_box(c, leg_x + 8, ly - 1.5, w_mm=10, h_mm=6, label="")
+        draw_text(c, leg_x + 18, ly + 1, "RCCB — protectie diferentiala 30mA", size=7)
+        ly += row_spacing
 
-    draw_lamp_symbol(c, leg_x + 8, ly, r_mm=2.2, color=HexColor('#c0392b'))
-    draw_text(c, leg_x + 18, ly + 1, "LL — corp de iluminat 230V", size=7)
-    ly += row_spacing
+    if has_light:
+        draw_lamp_symbol(c, leg_x + 8, ly, r_mm=2.2, color=HexColor('#c0392b'))
+        draw_text(c, leg_x + 18, ly + 1, "LL — corp de iluminat 230V", size=7)
+        ly += row_spacing
 
-    draw_socket_symbol(c, leg_x + 8, ly, w_mm=4.5, h_mm=2.8)
-    draw_text(c, leg_x + 18, ly + 1, "LP — priza 2P+E 230V", size=7)
-    ly += row_spacing
+    if has_priza:
+        draw_socket_symbol(c, leg_x + 8, ly, w_mm=4.5, h_mm=2.8)
+        draw_text(c, leg_x + 18, ly + 1, "LP — priza 2P+E 230V", size=7)
+        ly += row_spacing
 
-    draw_subtablou_symbol(c, leg_x + 8, ly, w_mm=6, h_mm=3.5,
-                          color1="#00bfff", color2="#ff69b4")
-    draw_text(c, leg_x + 18, ly + 1, "Sub-tablou (TE-CT, anexe, etc.)", size=7)
-    ly += row_spacing
+    if has_sub:
+        draw_subtablou_symbol(c, leg_x + 8, ly, w_mm=6, h_mm=3.5,
+                              color1="#00bfff", color2="#ff69b4")
+        draw_text(c, leg_x + 18, ly + 1, sub_label, size=7)
+        ly += row_spacing
 
-    draw_dedicated_symbol(c, leg_x + 8, ly, size_mm=2.2)
-    draw_text(c, leg_x + 18, ly + 1, "Receptor dedicat (boiler, AC, EV, etc.)", size=7)
-    ly += row_spacing
+    if has_dedicat:
+        draw_dedicated_symbol(c, leg_x + 8, ly, size_mm=2.2)
+        draw_text(c, leg_x + 18, ly + 1, "Receptor dedicat (boiler, AC, EV, etc.)", size=7)
+        ly += row_spacing
 
-    draw_wifi_symbol(c, leg_x + 8, ly, size_mm=2.2)
-    draw_text(c, leg_x + 18, ly + 1, "Receptor retea date (WiFi/Internet)", size=7)
+    if has_net:
+        draw_wifi_symbol(c, leg_x + 8, ly, size_mm=2.2)
+        draw_text(c, leg_x + 18, ly + 1, "Receptor retea date (WiFi/Internet)", size=7)
 
     # ----- NOTE -----
     draw_rect(c, notes_x, y_start, notes_w, h, stroke_width=0.5)
@@ -1293,7 +1334,8 @@ def generate_schema_pdf(request: SchemaRequest) -> bytes:
     draw_legend_notes_full(c, layout["width_mm"],
                            zones["footer_top"], zones["footer_bottom"],
                            x_override=legend_notes_x,
-                           w_override=legend_notes_w)
+                           w_override=legend_notes_w,
+                           circuits=request.circuits or [])   # FIX 4+5: legenda = DOAR ce e in schema
     c.showPage()
 
     c.save()
@@ -1352,7 +1394,8 @@ def generate_schema_pdf(request: SchemaRequest) -> bytes:
         draw_legend_notes_full(c2, layout["width_mm"],
                                zones["footer_top"], zones["footer_bottom"],
                                x_override=legend_notes_x,
-                               w_override=legend_notes_w)
+                               w_override=legend_notes_w,
+                               circuits=request.circuits or [])   # FIX 4+5
         draw_cartouche(c2, layout["width_mm"], request,
                        zones["footer_top"], zones["footer_bottom"],
                        x_override=cartouche_x,

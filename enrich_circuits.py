@@ -89,14 +89,19 @@ def rccb_zone(room):
 # ── Regula 2: putere receptor din formular (join pe label) ───────────────────
 # Puteri default (W) — oglinda EXTRA_EQUIPMENT_DEFAULTS (constants.ts); fallback daca lipseste din formular.
 _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv": 200,
-                       "ev_charger": 7400, "internet": 0, "solar": 5000, "distribuitor_zona": 300}
+                       "ev_charger": 7400, "internet": 0, "solar": 5000, "distribuitor_zona": 300,
+                       # FIX 3: centrala plasata pe plan = 2 kW FIX (pompa/automatizare/aprindere) —
+                       # era nemapata -> 0W "tip necunoscut". Centrala ELECTRICA e neatinsa:
+                       # puterea ei vine din base/formular (dedup-ul base_covered castiga).
+                       "centrala": 2000}
 # label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular. Regula 10:
 # "distribuitor" (zona/nivel) INAINTE de "aer"/etc. — distribuitorul de zona = receptor dedicat 300W.
 _RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
                        ("distribuitor", "distribuitor_zona"), ("aer", "ac"),
                        ("condi", "ac"), (" ac", "ac"), ("hrv", "hrv"), ("recuper", "hrv"),
                        ("incarcare", "ev_charger"), ("statie", "ev_charger"), ("masina", "ev_charger"),
-                       ("ev_charger", "ev_charger"), ("internet", "internet"), ("retea", "internet")]
+                       ("ev_charger", "ev_charger"), ("internet", "internet"), ("retea", "internet"),
+                       ("centrala", "centrala")]   # FIX 3: "Centrala pe gaz" -> default 2 kW
 
 def receptor_type_of(label):
     l = " " + (label or "").strip().lower()
@@ -343,11 +348,13 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False, force_mono=False
     feed["pozare"] = pozare_for(sec)
 
 
-def _synth_gas_tect(form, is_mono):
+def _synth_gas_tect(form, is_mono, has_distributor_on_plan=True):
     """FAZA 2 TE-CT / GAZ: breviarul n8n nu emite circuite TE-CT pe gas_boiler. Setul minim (Dan):
-    DISTRIBUITOR principal incalzire (mereu — dimensionat ca C21 din breviarul PDC: 200W/10A/3x1.5,
-    RCCB 30mA) + BOILER ACM (OPTIONAL: doar daca bifat in echipamente — centrala pe gaz face si ACM;
-    puterea/faza din formular, default 2kW mono). Panel TE-CT; redirectul (nebifat) le muta pe TEG."""
+    DISTRIBUITOR principal incalzire (FIX 2: DOAR daca e PLASAT pe plan — casele mici fara
+    distribuitor nu-l mai primesc "fantoma" in schema; dimensionat ca C21 din breviarul PDC:
+    200W/10A/3x1.5, RCCB 30mA) + BOILER ACM (OPTIONAL: doar daca bifat in echipamente — centrala
+    pe gaz face si ACM; puterea/faza din formular, default 2kW mono). Panel TE-CT; redirectul
+    (nebifat) le muta pe TEG."""
     out = [{
         "id": None, "name": None, "fasa": None, "room": None, "type": "dedicat", "panel": "TE-CT",
         "usage": "Distribuitor principal incalzire", "description": "Distribuitor principal incalzire",
@@ -356,6 +363,8 @@ def _synth_gas_tect(form, is_mono):
         "has_rccb_individual": True, "is_main_distributor": True, "phases": 1, "outlets": 0,
         "notes": "Distribuitor incalzire (pompe/actuatoare) — centrala pe gaz",
     }]
+    if not has_distributor_on_plan:
+        out = []                       # FIX 2: fara distribuitor plasat -> fara circuit (boilerul ramane pe bifa lui)
     for eq in (form or {}).get("extra_equipment") or []:
         if (eq.get("type") or "") != "boiler":
             continue
@@ -408,10 +417,16 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
 
     # SINTEZA GAZ (functionalitate NOUA, ca feed-ul TES — "daca base nu emite, enrich creeaza"):
     # breviarul n8n NU emite TE-CT pe gas_boiler (doar circuit dedicat centrala pe TEG). Setul minim
-    # (decizia Dan): DISTRIBUITOR principal (mereu) + BOILER ACM (optional, daca bifat in echipamente —
-    # gazul face si ACM). Sintetizat pe TE-CT; redirectul de mai jos il muta pe TEG daca nebifat.
+    # (decizia Dan): DISTRIBUITOR principal (FIX 2: DOAR daca e plasat pe plan) + BOILER ACM
+    # (optional, daca bifat in echipamente — gazul face si ACM). Sintetizat pe TE-CT; redirectul
+    # de mai jos il muta pe TEG daca nebifat.
     if str(form.get("heating_type") or "") == "gas_boiler" and not tect_circuits:
-        tect_circuits.extend(_synth_gas_tect(form, is_mono))
+        # distribuitorul PRINCIPAL plasat pe plan? (cheia "distribuitor"; distribuitor_zona = Regula 10,
+        # cheie DISTINCTA -> neatins de gate)
+        _has_dist = any((el.get("element_type") or "") == "alimentare_receptor"
+                        and _equip_key(el.get("label")) == "distribuitor"
+                        for el in (plan_elements or []))
+        tect_circuits.extend(_synth_gas_tect(form, is_mono, has_distributor_on_plan=_has_dist))
 
     # REDIRECT TE-CT -> TEG (nebifat): dedicatele (echipamentele sursei, ORICARE set — mutam circuitele
     # existente, nu re-derivam) -> panel TEG (numerotare/faza/schema/BOM TEG natural); genericele legate
