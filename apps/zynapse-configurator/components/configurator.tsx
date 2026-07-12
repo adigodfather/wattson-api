@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
+  EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
   defaultTechRoom,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
@@ -400,7 +400,7 @@ function PowerPhaseSelector({ value, onChange, suggestTri }: {
 }
 
 /* ─── Equipment toggle cards ─── */
-interface EquipState { enabled: boolean; power_kw: number; phase: string; }
+interface EquipState { enabled: boolean; power_kw: number; phase: string; soil_type?: string; }
 
 function EquipmentCards({
   equipment, setEquipment, customEquipment, setCustomEquipment,
@@ -457,6 +457,15 @@ function EquipmentCards({
                   })}
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: "#545870" }}>Sistem trifazat 400V (pachet standard)</div>
+                {/* G-UI: tipul de sol (priza de pamant FV) — dropdown sub pachet, conform studiului geo */}
+                <label className="block text-[11px] font-semibold mb-1 mt-2.5" style={{ color: "#545870" }}>
+                  TIP DE SOL (PENTRU PRIZA DE PĂMÂNT)
+                </label>
+                <select value={st.soil_type || FV_SOIL_DEFAULT}
+                  onChange={e => setEquipment(prev => ({ ...prev, [eq.type]: { ...prev[eq.type], soil_type: e.target.value } }))}
+                  className="w-full px-2.5 py-2" style={{ ...inputStyle, paddingRight: 8 }}>
+                  {FV_SOIL_OPTIONS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                </select>
               </div>
             )}
             {st.enabled && !eq.fvPackage && eq.default_kw > 0 && (
@@ -1136,8 +1145,10 @@ export function ZynapseConfigurator() {
           for (const e of extra) {
             if (e?.type && e.type !== "custom" && next[e.type]) {
               if (e.type === "solar") {
-                // FV backward-compat: proiecte vechi cu power_kw liber (10.3) -> snap la pachet + tri
-                next[e.type] = { enabled: true, power_kw: snapFvPackage(e.package_kw ?? e.power_kw), phase: "tri" };
+                // FV backward-compat: proiecte vechi cu power_kw liber (10.3) -> snap la pachet + tri;
+                // soil_type absent (pre-G-UI) -> agricol
+                next[e.type] = { enabled: true, power_kw: snapFvPackage(e.package_kw ?? e.power_kw),
+                                 phase: "tri", soil_type: String(e.soil_type || FV_SOIL_DEFAULT) };
               } else {
                 next[e.type] = { enabled: true, power_kw: Number(e.power_kw) || next[e.type].power_kw,
                                  phase: String(e.phase || next[e.type].phase) };
@@ -1437,6 +1448,8 @@ export function ZynapseConfigurator() {
             package_kw: snapFvPackage(equipment[e.type].power_kw),
             phase: "tri",
             phases: 3,
+            // G-UI: solul prizei de pamant FV (BOM + breviar); absent -> agricol (fallback backend)
+            soil_type: equipment[e.type].soil_type || FV_SOIL_DEFAULT,
           } : {
             type: e.type,
             name: e.label,

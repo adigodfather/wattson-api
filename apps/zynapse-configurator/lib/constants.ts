@@ -100,10 +100,24 @@ export interface ExtraEquipment {
   phases?: number; // 1 | 3 — derivat din `phase` pentru backend (auto-select PDC / cuptor)
   room?: string;   // încăperea unde se montează (doar pt. echipamente custom)
   package_kw?: number; // FV: pachetul discret (5/10/15/20) — sursa schemei FV (power_kw rămâne = pachet, compat n8n)
+  soil_type?: string;  // FV: tipul de sol (priza de pământ dedicată) — chei din FV_SOIL_OPTIONS, default "agricol"
 }
 
 // FV se livrează în PACHETE fixe (schema monofilară FV = șablon per pachet) — fără putere liberă.
 export const FV_PACKAGE_OPTIONS = [5, 10, 15, 20] as const;
+
+// G-UI: tipurile de sol pentru priza de pământ FV (dropdown pe cardul FV, conform studiului geo).
+// CHEILE IDENTICE cu FV_GROUNDING_TARUSI din schema_fv.py — ține-le SINCRON (o cheie diferită
+// cade silențios pe default-ul agricol în backend). Etichete simple (rezistivitatea = în breviar).
+export const FV_SOIL_OPTIONS = [
+  { key: "mlastinos",   label: "Mlăștinos" },
+  { key: "argila",      label: "Argilă umedă" },
+  { key: "agricol",     label: "Agricol" },        // DEFAULT (100 Ω·m, = fallback-ul backend)
+  { key: "nisip_umed",  label: "Nisip umed" },
+  { key: "nisip_uscat", label: "Nisip uscat" },
+  { key: "pietris",     label: "Pietriș" },
+] as const;
+export const FV_SOIL_DEFAULT = "agricol";
 
 // Backward-compat: proiecte vechi cu power_kw liber (ex. 10.3) -> pachetul cel mai apropiat
 // (egalitate -> în sus). OGLINDA lui snap_fv_package din schema_fv.py — ține-le sincron.
