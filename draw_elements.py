@@ -640,7 +640,13 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
     cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
 
-    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows
+    # h) PLATBANDA prizei de pamant (fix Dan): randul LIPSEA desi platbanda se deseneaza pe plan
+    # (portocaliu gros continuu) — de-aia parea ca liniutele galbene FV ii poarta textul. DOAR cand
+    # plansa are priza de pamant; doar platbanda principala 40x4 (legatura 20x2 acoperita, v1).
+    ground_rows = ([{"kind": "ground", "text": "Platbanda 40 x 4 OL-ZN"}]
+                   if "ground_electrode_path" in present else [])
+
+    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows + ground_rows
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -1866,9 +1872,13 @@ def _draw_legend(page, x, y, rows):
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_ccol, width=2.2)
         elif kind == "fv_link":
-            # FV-P3: lantul fotovoltaic — linie intrerupta PORTOCALIE (ca pe plan)
+            # FV-P3: lantul fotovoltaic — liniute subtiri INTRERUPTE galbene (ca pe plan)
             _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)],
                         color=_FV_LINK_COLOR, width=1.2)
+        elif kind == "ground":
+            # PLATBANDA prizei de pamant — linie GROASA CONTINUA portocalie (exact stilul de pe plan)
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_GROUND_COLOR, width=2.0)
         elif kind == "crossing":
             # TRAVERSARE NIVEL: cercul cu sageata (sus/jos), micsorat pt. celula legendei
             _draw_floor_crossing(page, cx, cy, up=bool(r.get("up", True)), label=None)
