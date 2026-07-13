@@ -2043,15 +2043,20 @@ def _rooms_to_px(rooms, W, H):
     return out
 
 _PRIZA_INSET = 14.0   # marja (pt) a conturului interior pt. rutarea cablului prizelor in fata peretilor
+_CHAIN_GATE_PX = 36.0   # FIX-C1: gate GEOMETRIC — lantul merge pe margine doar daca TOATE prizele
+                        # stau la <= atat de conturul geom_bbox (prize pe pereti reali); altfel L-urile de azi
 
-def _perimeter_path(t1, t2, R):
-    """Puncte pe LATURILE lui R intre t1 si t2, pe directia MAI SCURTA (prin colturile intermediare)."""
+def _perimeter_path(t1, t2, R, direction=None):
+    """Puncte pe LATURILE lui R intre t1 si t2, prin colturile intermediare. direction=None ->
+    directia MAI SCURTA (comportamentul istoric); "fwd"/"back" -> sens FORTAT (FIX-C1 v2: pe o
+    ramura a adunarii, arcul curge spre punctul de adunare, nu pe scurtatura prin partea opusa)."""
     w, h, P = _rect_perim(R)
     out = [_point_at_t(t1, R)]
     if P > 0:
         corners = [0.0, w, w + h, 2 * w + h]
         fwd = (t2 - t1) % P
-        if fwd <= P - fwd:                                  # inainte (t creste)
+        go_fwd = fwd <= P - fwd if direction is None else (direction == "fwd")
+        if go_fwd:                                          # inainte (t creste)
             seq = sorted((c for c in corners if 1e-6 < (c - t1) % P < fwd - 1e-6), key=lambda c: (c - t1) % P)
         else:                                               # inapoi (t scade)
             back = (t1 - t2) % P
@@ -2067,7 +2072,7 @@ def _perim_dist(t1, t2, P):
     return min(d, P - d)
 
 
-def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
+def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, room_geoms=None):
     """PAS 3 (LOGICA pura, FARA desen): asociaza becuri->intrerupatoare (pe room + tip) si
     intrerupatoare->tablou, cu trasee L. PRIZE (regula de aur, ca in realitate): DAISY-CHAIN —
     prizele aceluiasi circuit se leaga IN LANT (capat de bara -> capat de bara), apoi O SINGURA
@@ -2228,11 +2233,18 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
     # un circuit = o singura plecare din tablou (capul lantului, priza cea mai apropiata de tablou).
     gen_type = "tablou_teg" if panels.get("tablou_teg") else ("tablou_tes" if panels.get("tablou_tes") else None)
     general_xy = panels.get(gen_type) if gen_type else None
-    def _route_chain(prz, room, n, R=None):
+    def _route_chain(prz, room, n, R=None, G_cands=None):
         """REGULA DE AUR (Dan): DAISY-CHAIN — prizele circuitului in LANT (capat de bara -> capat de
         bara, nearest-neighbor pornind de la priza cea mai apropiata de IESIRE), apoi O SINGURA iesire
         din capul lantului spre TRASEUL desenat de inginer (autoritar, via_stripe) sau spre tablou.
-        NU mai ruteaza pe conturul bbox-ului Vision (mai mic decat camera reala -> cabluri prin mijloc).
+        FIX-C1 v2 (desenul Dan): G_cands = contururi CANDIDATE (geom_bbox din pereti, apoi bbox
+        Vision — doar cand pipeline-ul de geometrie a rulat). Primul contur pe care TOATE prizele
+        stau (gate GEOMETRIC _CHAIN_GATE_PX, nu pe tip camera; UNIFORM, si la 1 priza) -> fiecare
+        priza coboara PERPENDICULAR pe peretele apropiat, arcele se aduna pe conturul interior
+        (_PRIZA_INSET, masinaria O3) pe 2 ramuri spre PUNCTUL DE ADUNARE (cel mai apropiat de
+        traseu), manunchi cumulat 1->2->3, si O IESIRE din adunare spre traseu. Gate-ul valideaza
+        si Vision-ul: obiectia istorica (bbox mai mic decat camera) dispare cand prizele CHIAR
+        stau pe el. Niciun candidat nu trece -> L-urile de azi, identice.
         Grosime: segmentul k alimenteaza prizele din aval -> count cumulativ spre iesire (trepte)."""
         cen_room = cen_map.get((room or "").strip())
 
@@ -2262,7 +2274,53 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
             target = _project_point_on_polyline(gcen, stripes[si])[0] if si is not None else general_xy
         else:
             target = general_xy
-        # LANT nearest-neighbor de la priza cea mai apropiata de iesire
+        # FIX-C1 v2 (desenul Dan): gate-ul geometric (cascada geom_bbox -> Vision; TOATE prizele
+        # pe contur, UNIFORM inclusiv camerele cu 1 priza). Trece -> fiecare priza coboara
+        # PERPENDICULAR pe peretele cel mai apropiat, se aduna pe conturul interior pe 2 ramuri
+        # spre PUNCTUL DE ADUNARE (cel mai apropiat de traseu), manunchi cumulat (1->2->3...),
+        # apoi O IESIRE din punctul de adunare spre traseu. Pica -> lantul de PRODUCTIE, identic.
+        Ri = None
+        if G_cands and prz:
+            def _edge_dist(p, G):
+                bp, _t = _project_to_rect(p["x"], p["y"], G)
+                return math.hypot(p["x"] - bp[0], p["y"] - bp[1])
+            for _G in G_cands:
+                if _G is not None and all(_edge_dist(p, _G) <= _CHAIN_GATE_PX for p in prz):
+                    Ri = _inset_rect(_G, _PRIZA_INSET)
+                    break
+        if Ri is not None:
+            _w2, _h2, P = _rect_perim(Ri)
+            exit_pt, t_exit = _project_to_rect(target[0], target[1], Ri)   # punctul de ADUNARE
+            recs = []
+            for p in prz:
+                bp_c, _tc = _project_to_rect(p["x"], p["y"], Ri)
+                a = _end_toward(p, bp_c)                   # capatul barei spre perete
+                bp, t = _project_to_rect(a[0], a[1], Ri)
+                recs.append((p, a, bp, t))
+            branches = {"fwd": [], "back": []}             # sensul arcului mai scurt spre adunare
+            for r in recs:
+                branches["fwd" if (t_exit - r[3]) % P <= (r[3] - t_exit) % P else "back"].append(r)
+            for side, lst in branches.items():
+                if not lst:
+                    continue
+                _d = (lambda t: (t_exit - t) % P) if side == "fwd" else (lambda t: (t - t_exit) % P)
+                lst.sort(key=lambda r: _d(r[3]), reverse=True)             # cea mai departata prima
+                for k, (p, a, bp, t) in enumerate(lst):
+                    add(p["et"], a, p["et"], bp, "priza_lant", room, count=1, path=[a, bp])  # stub perpendicular
+                    stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+                    t_next = lst[k + 1][3] if k + 1 < len(lst) else t_exit
+                    if _d(t) - _d(t_next) > 0.5:           # arcul spre adunare, sens FIXAT al ramurii
+                        arc = _perimeter_path(t, t_next, Ri, direction=side)
+                        et2 = lst[k + 1][0]["et"] if k + 1 < len(lst) else gen_type
+                        add(p["et"], arc[0], et2, arc[-1], "priza_lant", room,
+                            count=k + 1, path=arc)         # manunchi cumulat: 1 -> 2 -> 3 ...
+                        stats["priza_lant"] = stats.get("priza_lant", 0) + 1
+            # O IESIRE: punctul de adunare -> dunga (autoritara, cumsum existent) -> tablou
+            add(prz[0]["et"], exit_pt, gen_type, general_xy, "priza_tablou", room,
+                via_stripe=True, count=n)
+            stats["priza_tablou"] = stats.get("priza_tablou", 0) + 1
+            return
+        # LANT nearest-neighbor de la priza cea mai apropiata de iesire (PRODUCTIA, byte-identic)
         rem = list(prz)
         start = min(rem, key=lambda p: (p["x"] - target[0]) ** 2 + (p["y"] - target[1]) ** 2)
         chain = [start]; rem.remove(start)
@@ -2273,7 +2331,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
         for i in range(len(chain) - 1):                    # segmente capat-bara -> capat-bara (L simplu)
             a = _end_toward(chain[i], (chain[i + 1]["x"], chain[i + 1]["y"]))
             b = _end_toward(chain[i + 1], (chain[i]["x"], chain[i]["y"]))
-            add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", room, count=len(chain) - 1 - i)
+            add(chain[i]["et"], a, chain[i + 1]["et"], b, "priza_lant", room,
+                count=len(chain) - 1 - i)
             stats["priza_lant"] = stats.get("priza_lant", 0) + 1
         # O SINGURA IESIRE: capatul barei capului de lant -> dunga (autoritara) -> tablou
         add(start["et"], _end_toward(start, target), gen_type, general_xy, "priza_tablou", room,
@@ -2290,7 +2349,14 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 by_room.setdefault(pz.get("room") or "", []).append(pz)
             for _room, prz in by_room.items():
                 _n = len(prz)                              # GROSIME: mananchi de N prize -> count=N
-                _route_chain(prz, _room, _n, R=room_px.get((_room or "").strip()))
+                _rk = (_room or "").strip()
+                # FIX-C1: candidatii DOAR cand pipeline-ul de geometrie a rulat (room_geoms nenul) —
+                # altfel None -> comportamentul de azi, byte-identic. Vision e al 2-lea candidat,
+                # validat de acelasi gate (prizele chiar pe conturul lui).
+                _gc = None
+                if room_geoms is not None:
+                    _gc = [g for g in (room_geoms.get(_rk), room_px.get(_rk)) if g] or None
+                _route_chain(prz, _room, _n, R=room_px.get(_rk), G_cands=_gc)
 
     # RECEPTOARE (FORTA): 2 clase de rutare.
     #  (1) GRUPATE (Regula 10 / H3: VCV+radiatoare cu circuit_id PARTAJAT) -> DAISY-CHAIN pe circuit_id,
@@ -2371,6 +2437,14 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
                 count=1, path=_wpath)                                  # ruta explicita pe margine
             stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
 
+        # FIX-C1 v3: ordinal determinist (y,x) per camera -> stagger concentric al conturului
+        # (inelul prizelor e la _PRIZA_INSET=14; receptoarele la 14 + (ord+1)*2.5, ca O3).
+        _ded_ord, _seen_rooms = {}, {}
+        for _rc2 in sorted(dedicated, key=lambda r: (r["y"], r["x"])):
+            _rk3 = (_rc2.get("room") or "").strip()
+            _ded_ord[id(_rc2)] = _seen_rooms.get(_rk3, 0)
+            _seen_rooms[_rk3] = _seen_rooms.get(_rk3, 0) + 1
+
         for rc in dedicated:
             if id(rc) in _wall_ids:
                 continue                                   # rutat pe perete mai sus
@@ -2380,6 +2454,35 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None):
             tgt_xy = tect if to_tect else general_xy
             tgt_ty = "tablou_te_ct" if to_tect else gen_type
             if tgt_xy is None:
+                continue
+            # FIX-C1 v3: alimentarea merge PE PERETELE camerei ei (mecanica v2: gate cascada
+            # geom->Vision per RECEPTOR, stub perpendicular, arc pe contur pana la punctul cel
+            # mai apropiat de dunga), apoi pe dunga spre tabloul ei — DESTINATIA neschimbata
+            # (distribuitor principal/camera tehnica -> TE-CT; cuptor/AC/net/EV -> TEG/TES).
+            # Gate-fail / fara geometrie / fara dunga / receptor in mijloc -> add-ul de azi.
+            _rk2 = (rc.get("room") or "").strip()
+            _G2 = None
+            if room_geoms is not None and stripes and _rk2:
+                for _g2 in (room_geoms.get(_rk2), room_px.get(_rk2)):
+                    if _g2 is None:
+                        continue
+                    _bp2, _tb2 = _project_to_rect(rc["x"], rc["y"], _g2)
+                    if math.hypot(rc["x"] - _bp2[0], rc["y"] - _bp2[1]) <= _CHAIN_GATE_PX:
+                        _G2 = _g2
+                        break
+            _si2 = _nearest_stripe_idx((rc["x"], rc["y"]), stripes) if _G2 is not None else None
+            if _si2 is not None:
+                _Ri2 = _inset_rect(_G2, _PRIZA_INSET + (_ded_ord.get(id(rc), 0) + 1) * 2.5)
+                _tgt2 = _project_point_on_polyline((rc["x"], rc["y"]), stripes[_si2])[0]
+                _p1, _tt1 = _project_to_rect(rc["x"], rc["y"], _Ri2)     # stub perpendicular pe perete
+                _ex2, _tt2 = _project_to_rect(_tgt2[0], _tgt2[1], _Ri2)  # punctul cel mai apropiat de dunga
+                _pref = [(rc["x"], rc["y"])] + _perimeter_path(_tt1, _tt2, _Ri2)
+                add(rc["et"], (rc["x"], rc["y"]), rc["et"], _ex2, "receptor_dedicat", rc.get("room"),
+                    count=1, path=_pref)                   # segmentul pe perete (explicit)
+                stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
+                add(rc["et"], _ex2, tgt_ty, tgt_xy, "receptor_dedicat", rc.get("room"),
+                    via_stripe=True, count=1)              # continuarea pe dunga (manunchi paralel existent)
+                stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
                 continue
             add(rc["et"], (rc["x"], rc["y"]), tgt_ty, tgt_xy, "receptor_dedicat", rc.get("room"),
                 via_stripe=True, count=1)                 # linie proprie (nu daisy-chain), grosime proprie
@@ -2878,10 +2981,30 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
         _cables = []   # traseele cablurilor (path = puncte PDF) -> expuse in raspuns pt. overlay-ul editorului
+        # FIX-C1: geometria REALA a camerelor (geom_bbox din pereti, V2/V4) -> lantul prizelor pe
+        # marginea peretilor (gate geometric in _route_chain). Defensiv: ORICE eroare -> None ->
+        # rutarea de azi, byte-identica. Doar pe forta (lanturile de prize exista doar acolo).
+        _room_geoms = None
+        if draw_plan_type == "forta" and rooms:
+            try:
+                import geometry
+                _geos = geometry.extract_room_geometry(pdf_bytes, rooms, page.rect.width, page.rect.height)
+                _room_geoms = {}
+                for _g in (_geos or []):
+                    _gb = (_g or {}).get("geom_bbox")
+                    _nm = str((_g or {}).get("name") or "").strip()
+                    if _gb and _nm:
+                        _room_geoms[_nm] = (float(_gb["x"]) * page.rect.width,
+                                            float(_gb["y"]) * page.rect.height,
+                                            (float(_gb["x"]) + float(_gb["w"])) * page.rect.width,
+                                            (float(_gb["y"]) + float(_gb["h"])) * page.rect.height)
+                _room_geoms = _room_geoms or None
+            except Exception:
+                _room_geoms = None
         try:
             # FAZA 2a: rooms(bbox) + W,H din pagina -> prizele se ruteaza pe PERIMETRU (nu prin interior).
             _cables, _cstats = compute_cables(elements, rooms=rooms, W=page.rect.width, H=page.rect.height,
-                                              room_centroids=_cen_map)
+                                              room_centroids=_cen_map, room_geoms=_room_geoms)
             for _c in _cables:
                 # C2: forța (prize + receptoare -> tablou) = ALBASTRU (_PRIZA_COLOR); iluminat = roșu (default).
                 _kind = _c.get("kind") or ""
