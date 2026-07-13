@@ -626,16 +626,15 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
                    "la inaltimea h=1.5m fata de pardoseala" % (short, fel, loc))
         fv_rows.append({"kind": "panel", "element_type": et, "text": txt,
                         "lines": _wrap_label_25(txt, 72)})   # 72: ambele randuri incap FARA trunchiere
-    # FV-P3: randul lantului FV in legenda (doar pe FORTA si doar daca exista cel putin 2 tablouri
-    # consecutive din lant -> exista segmente desenate pe plan)
-    if plan_type == "forta" and fv_rows:
+    # Randul lantului FV in legenda: DOAR pe forta si DOAR daca inginerul a DESENAT lantul
+    # (fv_chain_path) — tablourile singure nu mai garanteaza segmente pe plan (lantul automat
+    # a fost eliminat; strict manual, decizia Dan).
+    if plan_type == "forta" and "fv_chain_path" in present:
         _fvp = [et for et in ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg") if et in present]
-        _has_seg = any(a in present and b in present for a, b in
-                       zip(("tablou_tcc", "tablou_inv", "tablou_tca"), ("tablou_inv", "tablou_tca", "tablou_teg")))
-        if _has_seg and _fvp:
-            fv_rows.append({"kind": "fv_link",
-                            "text": "Legatura sistem fotovoltaic (%s)" % " - ".join(
-                                _PANEL_INFO.get(et, (None, None, et))[2] for et in _fvp)})
+        _names = (" - ".join(_PANEL_INFO.get(et, (None, None, et))[2] for et in _fvp)
+                  if _fvp else "T.CC - INV - T.CA - TEG")
+        fv_rows.append({"kind": "fv_link",
+                        "text": "Legatura sistem fotovoltaic (%s)" % _names})
 
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
     cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
@@ -2488,17 +2487,25 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                 via_stripe=True, count=1)                 # linie proprie (nu daisy-chain), grosime proprie
             stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
 
-    # FV-P3: lantul sistemului fotovoltaic T.CC -> INV -> T.CA -> TEG (fluxul electric real:
-    # DC panouri -> tablou CC -> invertor -> tablou CA -> general). Segmente L directe intre
-    # tablourile PREZENTE; CONSERVATOR la lipsuri: un segment se deseneaza doar daca AMBELE
-    # capete sunt plasate (fara punti peste tabloul lipsa — topologia nu se inventeaza).
-    # kind=fv_link: EXCLUS din BOM (whitelist-ul _ILUM_KINDS/_PRIZA_KINDS nu-l contine, ca EV)
-    # si desenat DOAR pe planul de forta (gate in redraw — tablourile au plan_type="ambele").
-    _fv_chain = ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg")
-    for _fa, _fb in zip(_fv_chain, _fv_chain[1:]):
-        if panels.get(_fa) and panels.get(_fb):
-            add(_fa, panels[_fa], _fb, panels[_fb], "fv_link", None, count=1)
-            stats["fv_link"] = stats.get("fv_link", 0) + 1
+    # FV (MANUAL, decizia Dan): lantul T.CC -> INV -> T.CA -> TEG e DESENAT de inginer —
+    # element fv_chain_path (polilinie ca priza de pamant, dar GALBENA), emis ca un cablu
+    # kind=fv_link -> mosteneste GRATIS culoarea #F9A825, gate-ul "doar forta" din redraw,
+    # excluderea din BOM (whitelist-ul nu-l contine) si glyph-ul legendei. FARA element
+    # desenat -> FARA lant (rutarea automata veche, linii drepte intre tablouri, ELIMINATA
+    # — taia drept prin camere; inginerul decide traseul: fatada exterior / prin TE-CT).
+    for _el in (elements or []):
+        if ((_el or {}).get("element_type") or "") != "fv_chain_path":
+            continue
+        _cp = _el.get("cable_path")
+        if not isinstance(_cp, (list, tuple)) or len(_cp) < 2:
+            continue
+        try:
+            _pts = [(float(p[0]), float(p[1])) for p in _cp]
+        except (TypeError, ValueError, IndexError):
+            continue
+        add("fv_chain_path", _pts[0], "fv_chain_path", _pts[-1], "fv_link", None,
+            count=1, path=_pts)
+        stats["fv_link"] = stats.get("fv_link", 0) + 1
 
     # MANUNCHI PER DUNGA (BUG 4): cablurile care converg pe ACEEASI dunga se deseneaza PARALEL (offset
     # lateral simetric, alocare geografica dupa latura de intrare), NU cumulate intr-o linie groasa.

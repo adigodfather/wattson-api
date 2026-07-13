@@ -99,6 +99,7 @@ const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
 const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
+const isFvChainType = (t: string) => t === "fv_chain_path";          // lantul FV desenat MANUAL (polilinie deschisa galbena)
 const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoare bucata A: 1 tip + `label` (boiler/cuptor/...)
 const isInternetType = (t: string) => t === "receptor_internet";     // Retea internet (RJ45): simbol propriu (turcoaz + router + WiFi)
 // Inaltime de montaj DEFAULT pe tip la receptoare (metri), ca la prize; modificabila in editor.
@@ -119,6 +120,7 @@ function receptorDefaultHeight(et: string, label: string): number {
 }
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
+const COL_FV_CHAIN = "#F9A825";  // GALBEN/GOLD — lantul FV desenat manual, coerent cu backend _FV_LINK_COLOR
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -404,6 +406,12 @@ export default function PlanEditor({
   // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
   // fara re-render intre ele, deci finishDrawGround trebuie sa vada colturile adaugate in acelasi gest.
   const groundPtsRef = useRef<number[][]>([]);
+  // Lantul FV (manual): mod desenare polilinie DESCHISA galbena — mecanismul prizei de pamant
+  // (click succesiv + rubber-band + dublu-click/Enter), dar min 2 puncte si fara inchidere.
+  const [drawingFvChain, setDrawingFvChain] = useState(false);
+  const [fvChainPts, setFvChainPts] = useState<number[][]>([]);          // puncte fixate (puncte PDF)
+  const [fvChainHover, setFvChainHover] = useState<[number, number] | null>(null);
+  const fvChainPtsRef = useRef<number[][]>([]);   // sursa SINCRONA (vezi nota groundPtsRef)
   // Receptoare (bucata A): mod de plasare "1 click" — { et: element_type, label } activ sau null.
   // Primul click pe plan plaseaza si iese din mod (analog drawingGround, dar 1 punct, nu poligon).
   // et generalizat: alimentari = "alimentare_receptor", retea = "receptor_internet" (doar tip+simbol difera).
@@ -420,6 +428,18 @@ export default function PlanEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawingGround]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Escape/Enter pt. lantul FV (identic cu priza de pamant).
+  useEffect(() => {
+    if (!drawingFvChain) return;
+    const onKey = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (ev.key === "Escape") { ev.preventDefault(); cancelDrawFvChain(); }
+      else if (ev.key === "Enter") { ev.preventDefault(); void finishDrawFvChain(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawingFvChain]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Escape anuleaza plasarea receptorului.
   useEffect(() => {
     if (!placingReceptor) return;
@@ -941,6 +961,7 @@ export default function PlanEditor({
   // ── Faza 3: priza de pamant — desenare manuala prin click succesiv pe colturile fundatiei. ──
   function startDrawGround() {
     setSelectedId(null);            // fara selectie activa cat desenam
+    cancelDrawFvChain();            // un singur mod de desenare activ (straturile de captura nu se suprapun)
     groundPtsRef.current = [];
     setGroundPts([]);
     setGroundHover(null);
@@ -999,6 +1020,67 @@ export default function PlanEditor({
     groundPtsRef.current = [];
     setGroundPts([]);
     setGroundHover(null);
+  }
+
+  // ── Lantul FV (manual): acelasi mecanism ca priza de pamant, dar polilinie DESCHISA (min 2
+  // puncte, fara inchidere) si GALBENA. Inginerul decide traseul (fatada exterior / prin TE-CT). ──
+  function startDrawFvChain() {
+    setSelectedId(null);
+    cancelDrawGround();             // un singur mod de desenare activ
+    fvChainPtsRef.current = [];
+    setFvChainPts([]);
+    setFvChainHover(null);
+    setDrawingFvChain(true);
+  }
+  function cancelDrawFvChain() {
+    setDrawingFvChain(false);
+    fvChainPtsRef.current = [];
+    setFvChainPts([]);
+    setFvChainHover(null);
+  }
+  function addFvChainPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const next = [...fvChainPtsRef.current, [pos.x / scale, pos.y / scale]];
+    fvChainPtsRef.current = next;
+    setFvChainPts(next);
+  }
+  function moveFvChainHover(e: KonvaEventObject<MouseEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    setFvChainHover([pos.x / scale, pos.y / scale]);
+  }
+  // finalizeaza: INSERT fv_chain_path (min 2 puncte — polilinie deschisa, nu contur).
+  async function finishDrawFvChain() {
+    const raw = fvChainPtsRef.current || [];
+    const pts: number[][] = [];
+    for (const p of raw) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.5) pts.push([p[0], p[1]]);
+    }
+    if (pts.length < 2) return;     // un traseu are nevoie de minim 2 puncte
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),   // PROP curent (etajul plansei pe care desenezi)
+      element_type: "fv_chain_path",
+      plan_type: "forta",
+      label: null as string | null,
+      room: null as string | null,
+      x: pts[0][0],
+      y: pts[0][1],                 // ancora = punctul 0 (sincron cu NOT NULL x,y)
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,
+      cable_path: pts,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT lant FV esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+    setDrawingFvChain(false);
+    fvChainPtsRef.current = [];
+    setFvChainPts([]);
+    setFvChainHover(null);
   }
 
   // ── Receptoare (bucata A): plasare "1 click" a unei alimentari (boiler/cuptor/...). ──
@@ -1721,6 +1803,33 @@ export default function PlanEditor({
             : placedCount > 0 ? `○ ${placedCount}/3 plasate — apasă butonul pentru restul.`
             : "○ Neplasate — butonul pune blocul lângă TEG."}
         </div>
+        {/* Lantul FV (manual): polilinie DESCHISA galbena, desenata de inginer (traseul real —
+            fatada exterior / prin TE-CT). Mecanismul prizei de pamant; fara lant automat. */}
+        {(() => {
+          const chain = elements.find(e => isFvChainType(e.element_type)) || null;
+          return (
+            <div style={{ marginTop: 10, paddingLeft: 2 }}>
+              {chain ? (
+                <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8 }}>
+                  Traseu FV desenat — șterge-l ca să-l redesenezi.
+                  <button type="button" className="zy-add-btn" onClick={() => removeElement(chain.id)}>Șterge</button>
+                </div>
+              ) : drawingFvChain ? (
+                <div>
+                  <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+                    Click pe punctele traseului (T.CC → INV → T.CA → TEG) · <b>{fvChainPts.length}</b> punct{fvChainPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+                  </div>
+                  <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+                    <button type="button" className="zy-add-btn" onClick={() => void finishDrawFvChain()} disabled={fvChainPts.length < 2}>Finalizează</button>
+                    <button type="button" className="zy-add-btn" onClick={cancelDrawFvChain}>Anulează</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="zy-add-btn" onClick={startDrawFvChain}>+ Desenează traseul FV (galben)</button>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -1865,7 +1974,7 @@ export default function PlanEditor({
                   />
                 ))}
                 {ordered.map((el) => {
-                  if (isTraseuType(el.element_type) || isGroundType(el.element_type)) return null;   // traseu + priza de pamant randate separat
+                  if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)) return null;   // traseu + priza de pamant + lantul FV randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -2014,6 +2123,37 @@ export default function PlanEditor({
                           lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
                   );
                 })}
+                {/* Lantul FV EXISTENT — polilinie DESCHISA galbena, read-only (redesenare = sterge + deseneaza). */}
+                {elements.filter(e => isFvChainType(e.element_type)).map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <Line key={el.id} points={flat} stroke={COL_FV_CHAIN} strokeWidth={2.5}
+                          lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
+                  );
+                })}
+                {/* Lantul FV: MOD DESENARE — strat de captura + rubber-band (ca priza de pamant, deschis). */}
+                {drawingFvChain && (() => {
+                  const previewPts = fvChainHover ? [...fvChainPts, fvChainHover] : fvChainPts;
+                  const flat = previewPts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <>
+                      <Rect x={0} y={0} width={pngW} height={pngH} fill="transparent" listening
+                            onClick={addFvChainPoint} onTap={addFvChainPoint}
+                            onMouseMove={moveFvChainHover}
+                            onDblClick={() => void finishDrawFvChain()} onDblTap={() => void finishDrawFvChain()}
+                            onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      {previewPts.length >= 2 && (
+                        <Line points={flat} stroke={COL_FV_CHAIN} strokeWidth={2} dash={[6, 4]}
+                              lineCap="round" lineJoin="round" opacity={0.9} listening={false} />
+                      )}
+                      {fvChainPts.map((p, i) => (
+                        <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={4}
+                                fill="#fff" stroke={COL_FV_CHAIN} strokeWidth={2} listening={false} />
+                      ))}
+                    </>
+                  );
+                })()}
                 {/* Faza 3: MOD DESENARE — strat de captura (blocheaza elementele existente) + preview rubber-band. */}
                 {drawingGround && (() => {
                   const previewPts = groundHover ? [...groundPts, groundHover] : groundPts;
