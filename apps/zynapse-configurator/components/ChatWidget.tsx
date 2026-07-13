@@ -180,7 +180,7 @@ export default function ChatWidget() {
                 background: mode === "bug" ? "rgba(226,75,74,0.18)" : "rgba(255,255,255,0.05)",
                 border: mode === "bug" ? "1px solid rgba(226,75,74,0.45)" : "1px solid rgba(255,255,255,0.12)",
                 color: mode === "bug" ? "#F09595" : "#C8CAD6" }}>
-              🐞 Bug
+              ⚠️ Bug
             </button>
           </div>
 
