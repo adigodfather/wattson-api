@@ -79,6 +79,7 @@ const PANEL_TYPES = [
 ];
 const FV_PANEL_TYPES = ["tablou_tcc", "tablou_inv", "tablou_tca"];
 const isFvPanelType = (t: string) => FV_PANEL_TYPES.includes(t);
+const FV_SPACING = 16;   // FV-B2: pasul blocului T.CC|INV|T.CA (pt; simbol 14x14 -> 2pt aer) — buton + drag
 // Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
 const PRIZA_TYPES = [
   { value: "priza_simpla",        label: "Priză simplă" },
@@ -351,7 +352,7 @@ const panelStyle: CSSProperties = {
 export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
-  heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0,
+  heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
@@ -364,7 +365,10 @@ export default function PlanEditor({
      heatingEquipment?: HeatingEquipment[]; hasTechRoom?: boolean;
      // FV-P1: tablourile FV (T.CC/INV/T.CA) in sectiunea Tablouri — doar cu sistem FV selectat;
      // fvKw = pachetul (5/10/15/20) -> power_w pe INV la plasare
-     hasFv?: boolean; fvKw?: number }) {
+     hasFv?: boolean; fvKw?: number;
+     // FIX 4 (prize automat): gardul "nefinalizat" — pe proiecte finalizate re-deschise (resume)
+     // NU se auto-genereaza prize (zero scrieri automate in DB pe proiecte inchise)
+     finalized?: boolean }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -389,6 +393,7 @@ export default function PlanEditor({
   const [roomGeoms, setRoomGeoms] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({});
   const roomsRef = useRef(rooms);
   roomsRef.current = rooms;   // fetch-ul de geometrie citeste rooms-ul curent fara sa fie dependency (evita re-fetch pe fiecare render)
+  const loadedForRef = useRef<string>("");   // FIX 4: "mode|etaj" pentru care s-au incarcat elementele (anti-cursa auto-prize)
   // R2: auto-generare prize (mode forta) — stare buton + feedback inline.
   const [genLoading, setGenLoading] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
@@ -469,11 +474,21 @@ export default function PlanEditor({
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) { setErr(error.message); setElements([]); }
-        else setElements((data as PlanElement[]) || []);
+        else {
+          // FIX 4: marcheaza PENTRU CE (mode|etaj) sunt elementele din state — auto-gen-ul de
+          // prize verifica ref-ul, altfel la comutarea pe forta ar vedea elementele VECHI de
+          // iluminat (fara prize forta) si ar genera duplicate cat timp fetch-ul e in zbor.
+          loadedForRef.current = `${mode}|${floorCanonic(floor)}`;
+          setElements((data as PlanElement[]) || []);
+        }
         setLoading(false);
       });
     return () => { cancelled = true; };
   }, [projectId, supabase, mode, floor]);   // floor in deps: schimbarea plansei reincarca etajul corect
+
+  // FIX 1 (overlay): snapshot-ul cablurilor ("Obtine plan") apartine modului/etajului la care s-a
+  // generat — la schimbare se GOLESTE (altfel cablurile de ILUMINAT ramaneau desenate peste FORTA).
+  useEffect(() => { setOverlayCables([]); }, [mode, floor]);
 
   // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
   // V4: trimite si camerele -> primeste room_geoms (geom_bbox per camera, wall/label_anchor).
@@ -578,26 +593,21 @@ export default function PlanEditor({
     const floorVal = floorCanonic(floor);   // floor-ul ETAJULUI CURENT (prop), nu al primului element (elements nefiltrat pe etaj)
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
-    // separă tablourile plasate simultan în centru (TE-CT sub TEG); cele 3 FV = BLOC COMPACT
-    // orizontal (T.CC | INV | T.CA la 34pt una de alta), sub TEG
-    const isFv = isFvPanelType(panelType);
-    const off = panelType === "tablou_te_ct" ? 44 : isFv ? 80 : 0;
-    const offX = isFv ? (FV_PANEL_TYPES.indexOf(panelType) - 1) * 34 : 0;
+    // separă tablourile plasate simultan în centru (TE-CT sub TEG). Tablourile FV NU mai trec
+    // pe aici (FV-B1: butonul "Pozitioneaza T.CC + INV + T.CA" din forta, positionFvPanelsAuto).
+    const off = panelType === "tablou_te_ct" ? 44 : 0;
     const row = {
       project_id: projectId,
       floor: floorVal,
       element_type: panelType,
       plan_type: "ambele",            // tablourile apar in AMBELE planuri (iluminat + forta)
-      // FV-P1: montajul tablourilor FV sta in label ("fatada" default / "spatiu tehnic"), editabil in inspector
-      label: (isFvPanelType(panelType) ? "fatada" : null) as string | null,
+      label: null as string | null,
       room: null as string | null,   // tabloul e global, nu per cameră
-      x: cx + offX,
+      x: cx,
       y: cy + off,
       wall_mounted: true,
       rotation: 0,
       status,
-      // FV-P1: puterea invertorului = pachetul FV la plasare (static v1 — re-plasezi la schimbarea pachetului)
-      power_w: (panelType === "tablou_inv" && fvKw ? Math.round(fvKw * 1000) : null) as number | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT tablou esuat", error?.message); return; }
@@ -704,6 +714,31 @@ export default function PlanEditor({
     }
   }
 
+  // FIX 4: PRIZELE DE FORTA apar AUTOMAT la prima intrare pe forta (fara buton), per ETAJ.
+  // 3 garduri anti-surpriza: (a) exista deja prize forta pe etaj -> nu regenereaza (stergerea
+  // PARTIALA e respectata; flag-ul se marcheaza ca sa nu mai verifice); (b) flag localStorage
+  // per proiect+etaj -> stergerea TOTALA nu regenereaza (alt browser = cel mult o regenerare,
+  // limitare acceptata v1); (c) doar proiecte NEFINALIZATE (resume pe finalizat nu scrie in DB).
+  // Butonul manual "Genereaza prize" ramane pentru regenerare intentionata (cu confirm).
+  useEffect(() => {
+    if (mode !== "forta" || loading || genLoading || finalized || !projectId) return;
+    if (loadedForRef.current !== `${mode}|${floorCanonic(floor)}`) return;   // elements = alt mode/etaj (fetch in zbor)
+    if (bgLoading || !img) return;                     // fundalul fortei inca se incarca -> re-ruleaza la img
+    if (typeof window === "undefined") return;
+    const flagKey = `zy_auto_prize_${projectId}_${floorIndex(floor)}`;
+    let seen: string | null = null;
+    try { seen = window.localStorage.getItem(flagKey); } catch { seen = "1"; }   // storage blocat -> nu auto-genera
+    if (seen) return;
+    const hasForta = elements.some(e => e.plan_type === "forta" && (e.element_type || "").startsWith("priza"));
+    if (hasForta) {
+      try { window.localStorage.setItem(flagKey, "1"); } catch { /* best effort */ }
+      return;
+    }
+    if (!Array.isArray(rooms) || rooms.length === 0) return;   // camerele inca nu-s -> efectul re-ruleaza
+    try { window.localStorage.setItem(flagKey, "1"); } catch { /* best effort */ }
+    void generatePrizasAuto();
+  }, [mode, loading, genLoading, finalized, projectId, floor, elements, rooms, bgLoading, img]);
+
   // ── T3: GENEREAZA ECHIPAMENTE INCALZIRE (mode forta) — echipamentele din CIRCUITELE reale
   // (heatingEquipment, pre-filtrat) plasate GRID compact langa tabloul DESTINATIE (TE-CT daca
   // hasTechRoom + plasat; TEG daca nebifat). Tabloul e FIX (plasat la iluminat) — zero urmarire.
@@ -712,6 +747,49 @@ export default function PlanEditor({
   // desenul B1 ruteaza dupa label (clasa 1 -> TE-CT daca tabloul exista, altfel TEG). ──
   const [heqLoading, setHeqLoading] = useState(false);
   const [heqMsg, setHeqMsg] = useState<string | null>(null);
+
+  // ── FV-B1: "Pozitioneaza T.CC + INV + T.CA" — cele 3 tablouri FV ca BLOC ADIACENT la FORTA
+  // (plan_type="forta" -> NU apar pe iluminat), parter, langa TEG (fallback centru), pas 20pt
+  // (etichetele raman curate). Idempotent: plaseaza doar lipsurile. Gruparea + snap-ul de perete
+  // exista deja (drag pe oricare -> toate 3 cu delta + lipire pe perete, 461aae2). ──
+  const [fvpLoading, setFvpLoading] = useState(false);
+  const [fvpMsg, setFvpMsg] = useState<string | null>(null);
+  async function positionFvPanelsAuto() {
+    if (mode !== "forta" || fvpLoading || !hasFv) return;
+    setFvpMsg(null);
+    const present = new Set(elements.filter(e => isFvPanelType(e.element_type)).map(e => e.element_type));
+    const missing = FV_PANEL_TYPES.filter(t => !present.has(t));
+    if (!missing.length) { setFvpMsg("Tablourile FV sunt deja poziționate."); return; }
+    setFvpLoading(true);
+    try {
+      const teg = elements.find(e => e.element_type === "tablou_teg");
+      const bx = teg ? teg.x - 20 : (pngW > 0 ? (pngW / scale) / 2 - 20 : 200);
+      const by = teg ? teg.y + 40 : (pngH > 0 ? (pngH / scale) / 2 : 200);
+      const rows = missing.map(t => ({
+        project_id: projectId,
+        floor: "parter",
+        element_type: t,
+        plan_type: "forta",
+        label: "fatada" as string | null,   // montajul default (editabil in inspector)
+        room: null as string | null,
+        x: bx + FV_PANEL_TYPES.indexOf(t) * FV_SPACING,
+        y: by,
+        wall_mounted: true,
+        rotation: 0,
+        status: "nou",
+        power_w: (t === "tablou_inv" && fvKw ? Math.round(fvKw * 1000) : null) as number | null,
+      }));
+      const { data, error } = await supabase.from("plan_elements").insert(rows).select(SELECT_COLS);
+      if (error || !data) { setFvpMsg("Eroare la poziționare: " + (error?.message || "necunoscută")); return; }
+      setElements(prev => [...prev, ...(data as PlanElement[])]);
+      setFvpMsg(missing.length === 3
+        ? (teg ? "Bloc poziționat lângă TEG — trage-l pe perete (se mută toate 3 împreună)."
+               : "Bloc poziționat în centru — trage-l pe perete (se mută toate 3 împreună).")
+        : `Adăugate ${missing.length} tablouri lipsă (restul erau plasate).`);
+    } finally {
+      setFvpLoading(false);
+    }
+  }
   async function generateHeatingEquipAuto() {
     if (mode !== "forta" || heqLoading || heatingEquipment.length === 0) return;
     const destType = hasTechRoom ? "tablou_te_ct" : "tablou_teg";
@@ -964,14 +1042,26 @@ export default function PlanEditor({
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
     let xPdf = e.target.x() / scale;
     let yPdf = e.target.y() / scale;
-    // FV: tablourile FV se muta ca BLOC (mut unul -> toate 3 cu acelasi delta) + SNAP la perete
-    // ca prizele (fara rotatie — simbol patrat). walls gol (iluminat) -> doar mutarea libera.
+    // FV: tablourile FV se muta ca BLOC (mut unul -> toate 3) + SNAP la perete. FV-B2: la snap,
+    // blocul se REORIENTEAZA PARALEL cu peretele (perete orizontal -> cele 3 in linie pe x cu
+    // y=perete; vertical -> stiva pe y cu x=perete), ordinea T.CC|INV|T.CA pastrata (pas
+    // FV_SPACING), taratul ramane pe pozitia LUI din ordine. Fara perete sub prag / walls gol
+    // (iluminat) -> mutare libera ca bloc (delta rigid, ca inainte).
     if (isFvPanelType(el.element_type)) {
       if (walls.length) {
         const s = snapToWall(xPdf, yPdf, walls);
-        if (s.snapped) {
-          xPdf = s.x; yPdf = s.y;
-          e.target.position({ x: xPdf * scale, y: yPdf * scale });
+        if (s.snapped && s.wall) {
+          const di = FV_PANEL_TYPES.indexOf(el.element_type);
+          for (const other of elements) {
+            if (!isFvPanelType(other.element_type) || floorIndex(other.floor) !== floorIndex(el.floor)) continue;
+            const off = (FV_PANEL_TYPES.indexOf(other.element_type) - di) * FV_SPACING;
+            const nx = s.wall === "h" ? s.x + off : s.x;
+            const ny = s.wall === "h" ? s.y : s.y + off;
+            if (other.id === el.id) e.target.position({ x: nx * scale, y: ny * scale });
+            setLocalField(other.id, { x: nx, y: ny });
+            persist(other.id, { x: nx, y: ny });
+          }
+          return;
         }
       }
       const dx = xPdf - el.x, dy = yPdf - el.y;
@@ -1426,15 +1516,8 @@ export default function PlanEditor({
                 (hasTechRoom; absent -> true = non-regresie proiecte existente). Nebifat -> ASCUNS complet
                 (coerent cu T2: echipamentele merg pe TEG) — un TE-CT deja plasat ramane pe plan (neatins). */}
             {hasTechRoom && renderPanelBlock("Tablou cameră tehnică (TE-CT)", "tablou_te_ct", true)}
-            {/* FV-P1: tablourile sistemului fotovoltaic (T.CC -> INV -> T.CA, lantul spre TEG in FV-P3),
-                DOAR pe parter si DOAR cu FV selectat in formular (gating ca TE-CT pe hasTechRoom). */}
-            {hasFv && (
-              <>
-                {renderPanelBlock("Tablou T.CC — FV curent continuu", "tablou_tcc", false)}
-                {renderPanelBlock("Invertor solar (INV)", "tablou_inv", false)}
-                {renderPanelBlock("Tablou T.CA — FV curent alternativ", "tablou_tca", false)}
-              </>
-            )}
+            {/* FV-B1: tablourile FV NU mai stau aici (iluminat) — se pozitioneaza cu butonul
+                "Pozitioneaza T.CC + INV + T.CA" din editorul de FORTA (bloc adiacent, plan_type=forta). */}
           </>
         ) : (
           renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false)
@@ -1616,6 +1699,32 @@ export default function PlanEditor({
   // T3: sectiunea "Echipamente incalzire" — buton de auto-plasare + LISTA STATUS (informativa v1):
   // ✓ plasat / ○ neplasat per echipament (match element_type+label cu elementele planului).
   // Ascunsa cand proiectul n-are echipamente de incalzire dedicate (fara PDC/centrala).
+  // FV-B1: sectiunea tablourilor FV la FORTA — butonul de pozitionare ca bloc + statusul.
+  const renderFvPanelsSection = () => {
+    if (mode !== "forta" || !hasFv) return null;
+    const placedCount = FV_PANEL_TYPES.filter(t => elements.some(e => e.element_type === t)).length;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Tablouri fotovoltaice
+        </div>
+        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2, marginBottom: 8 }}>
+          <button type="button" className="zy-add-btn" onClick={positionFvPanelsAuto} disabled={fvpLoading}>
+            {fvpLoading ? "Se poziționează…" : "⚡ Poziționează T.CC + INV + T.CA"}
+          </button>
+        </div>
+        {fvpMsg && (
+          <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2, marginBottom: 6, lineHeight: 1.5 }}>{fvpMsg}</div>
+        )}
+        <div style={{ fontSize: 11, color: placedCount === 3 ? "#3ECFA0" : "#545870", paddingLeft: 2, lineHeight: 1.5 }}>
+          {placedCount === 3 ? "✓ Bloc plasat — trage oricare tablou: se mută toate 3 și se lipesc de perete."
+            : placedCount > 0 ? `○ ${placedCount}/3 plasate — apasă butonul pentru restul.`
+            : "○ Neplasate — butonul pune blocul lângă TEG."}
+        </div>
+      </div>
+    );
+  };
+
   const renderHeatingEquipSection = () => {
     if (mode !== "forta" || heatingEquipment.length === 0) return null;
     const placed = new Set(elements.filter(e => e.element_type === "alimentare_receptor")
@@ -1688,6 +1797,7 @@ export default function PlanEditor({
           {renderGroundingSection()}
           {renderReceptorSection()}
           {renderHeatingEquipSection()}
+          {renderFvPanelsSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}

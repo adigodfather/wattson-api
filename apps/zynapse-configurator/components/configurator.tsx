@@ -1116,6 +1116,10 @@ export function ZynapseConfigurator() {
   // = elementele editorului (PlanEditor le citeste pe savedProjectId). Ruleaza O DATA, dupa login. ──
   const resumeTriedRef = useRef(false);
   const resumeModeRef = useRef<"iluminat" | "forta" | null>(null);
+  // FIX 4 (prize automat): proiect FINALIZAT re-deschis (resume) -> editorul NU auto-genereaza
+  // prize (zero scrieri automate pe proiecte inchise). Sesiunile noi raman false (finalized se
+  // seteaza abia la "Finalizeaza", care navigheaza afara din configurator).
+  const [resumedFinalized, setResumedFinalized] = useState(false);
   useEffect(() => {
     if (!user || resumeTriedRef.current) return;
     const rid = typeof window !== "undefined"
@@ -1123,13 +1127,14 @@ export function ZynapseConfigurator() {
     if (!rid) return;
     resumeTriedRef.current = true;
     const supabase = createClient();
-    supabase.from("projects").select("id, input_data, result_data")
+    supabase.from("projects").select("id, input_data, result_data, finalized")
       .eq("id", rid).eq("user_id", user.id).single()
       .then(({ data, error }) => {
         if (error || !data?.result_data) {
           console.error("[resume] proiect negasit / fara result_data:", error?.message);
           return;                                        // ramane formularul gol (comportamentul normal)
         }
+        setResumedFinalized(!!(data as { finalized?: boolean | null }).finalized);
         const inp = (data.input_data || {}) as Record<string, unknown>;
         const rd = data.result_data as ProjectResult;
         // formularul: DOAR cheile FormData (input_data contine si extra: planuri base64, user_id, climate...)
@@ -2632,6 +2637,7 @@ export function ZynapseConfigurator() {
                   hasTechRoom={form.has_tech_room}
                   hasFv={!!equipment.solar?.enabled}
                   fvKw={snapFvPackage(equipment.solar?.power_kw)}
+                  finalized={resumedFinalized}
                 />
               </div>
             )}
