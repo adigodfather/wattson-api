@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
+import ChatWidget from "@/components/ChatWidget";
 
 export const metadata: Metadata = {
   title: "Zynapse — Proiectare Electrică Automată",
@@ -16,7 +17,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ro" suppressHydrationWarning>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          {/* Chat AI (V1): flotant global, se randeaza DOAR pentru useri logati (gard in componenta) */}
+          <ChatWidget />
+        </AuthProvider>
       </body>
     </html>
   );
