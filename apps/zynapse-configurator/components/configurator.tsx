@@ -175,14 +175,14 @@ function Toggle({ label, checked, onChange, description }: {
 /* ─── Drop zone ─── (înlocuit de MultiFileDropZone în Epic 3.11) */
 
 /* ─── Building category cards (PAS 1) ─── */
-/* Epic 3.11: "rezidential" activ pentru toți; PUBLIC deblocat DOAR pentru admin (Dan explorează
-   sub-tipurile — nu e lansat userilor); Industrial ramane "Curând" pentru toți. */
-function CategoryCards({ value, onChange, isAdmin = false }: { value: string; onChange: (v: string) => void; isAdmin?: boolean }) {
+/* Epic 3.11: doar "rezidential" e activ; Public + Industrial disabled cu badge "Curând" pentru
+   TOȚI (decizia Dan 2026-07-13: Public se testează separat și se deschide când e gata). */
+function CategoryCards({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3">
       {BUILDING_CATEGORIES_3.map(c => {
         const selected = value === c.value;
-        const enabled = c.value === "rezidential" || (isAdmin && c.value === "public");
+        const enabled = c.value === "rezidential";
         return (
           <button key={c.value} type="button" disabled={!enabled}
             onClick={() => enabled && onChange(c.value)}
@@ -2085,7 +2085,7 @@ export function ZynapseConfigurator() {
 
           {/* 3. Tip clădire PAS1 + PAS2 */}
           <SectionLabel>Tip clădire</SectionLabel>
-          <CategoryCards value={form.building_category} onChange={handleCategoryChange} isAdmin={isAdmin} />
+          <CategoryCards value={form.building_category} onChange={handleCategoryChange} />
           {form.building_category && (
             <SubtypeList category={form.building_category} value={form.building_type}
               onChange={v => update("building_type", v)} />
