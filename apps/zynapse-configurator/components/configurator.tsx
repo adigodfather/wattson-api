@@ -1042,7 +1042,7 @@ export function ZynapseConfigurator() {
     amplasament: '',
     titlu_proiect: '',
     numar_proiect: '',
-    faza: 'DTAC+PT',
+    faza: 'DTAC',       // default ieftin (1/mp); DTAC+PT = opt-in constient (3/mp, cost in preview)
     sef_proiect: '',
     data_proiect: '',
   });
@@ -1060,13 +1060,9 @@ export function ZynapseConfigurator() {
 
   const isAdmin = profile?.is_admin === true;
 
-  // Poarta DTAC+PT (temporar, la lansare): non-admin -> faza fortata la DTAC.
-  // UI ascunde optiunea; aici garantam si starea (default-ul e DTAC+PT).
-  useEffect(() => {
-    if (!isAdmin && isPhasePT(cartusProiectInput.faza)) {
-      setCartusProiectInput(p => ({ ...p, faza: "DTAC" }));
-    }
-  }, [isAdmin, cartusProiectInput.faza]);
+  // LANSARE (Dan, 2026-07-13): plasa de siguranta care reseta faza PT la DTAC pentru non-admin
+  // (al 3-lea gate) a fost STEARSA — DTAC+PT e live pentru toti; default-ul fazei e 'DTAC'
+  // (ieftin, 1/mp), PT-ul e opt-in constient (costul 3x e afisat in preview inainte de generare).
 
   // Tab-urile Planșă + Materiale apar DOAR pe faza PT (DTAC+PT). isPhasePT robust la format.
   const showPlanBom = isPhasePT(result?.output_phase ?? result?.project_info?.faza ?? "");
@@ -1779,7 +1775,7 @@ export function ZynapseConfigurator() {
     setAutoDetected(null);
     setActiveTab("circuits");
     setPageFormat("");
-    setCartusProiectInput({ beneficiar: "", amplasament: "", titlu_proiect: "", numar_proiect: "", faza: "DTAC+PT", sef_proiect: "", data_proiect: "" });
+    setCartusProiectInput({ beneficiar: "", amplasament: "", titlu_proiect: "", numar_proiect: "", faza: "DTAC", sef_proiect: "", data_proiect: "" });
     setVisionSurfaces(null);
     setShowCartusModal(false);
     setCartusConfirmed(false);
