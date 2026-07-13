@@ -2319,13 +2319,17 @@ export function ZynapseConfigurator() {
                   {result!.output_phase && ` · ${result!.output_phase}`}
                 </p>
               </div>
-              <button onClick={exportJSON}
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
-                Export JSON
-              </button>
+              {/* Export JSON = dump-ul brut result_data (debug) — DOAR admin (Dan), ca toggle-ul
+                  de pereți din editor; clienții nu au ce face cu el (structura interna + base64). */}
+              {user?.id === ADMIN_USER_ID && (
+                <button onClick={exportJSON}
+                  className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
+                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                  onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+                  Export JSON
+                </button>
+              )}
             </div>
 
             {/* Metric cards — use power_summary (n8n) with fallback to heating_circuits (FastAPI) */}
