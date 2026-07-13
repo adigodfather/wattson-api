@@ -9,6 +9,7 @@ import { createServerClient } from "@/lib/supabase";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 import { isPhasePT } from "@/lib/constants";
 import AppHeader from "@/components/AppHeader";
+import BugsSection, { type BugRow } from "./BugsSection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";   // mereu proaspat, niciodata cache static
@@ -31,15 +32,19 @@ export default async function AdminPage() {
 
   // ── DATE (service role, server-only; doar adminul a ajuns aici) ──────────────
   const admin = createAdminClient();
-  const [profilesRes, paymentsRes, projectsRes] = await Promise.all([
+  const [profilesRes, paymentsRes, projectsRes, bugsRes] = await Promise.all([
     admin.from("profiles").select("id, email, credits_balance"),
     admin.from("payments").select("user_id, credits, amount_ron, status, credited"),
     admin.from("projects").select("user_id, faza"),
+    // Faza 1.5: rapoartele de bug din chat (cele mai noi primele; 100 = suficient pt. V1)
+    admin.from("bug_reports").select("id, user_id, content, status, z_coins_awarded, created_at")
+      .order("created_at", { ascending: false }).limit(100),
   ]);
 
   const profiles = profilesRes.data ?? [];
   const payments = paymentsRes.data ?? [];
   const projects = projectsRes.data ?? [];
+  const bugsRaw = bugsRes.data ?? [];
 
   // ZONA 1 — agregate globale (zero date personale)
   const totalUsers = profiles.length;
@@ -68,6 +73,15 @@ export default async function AdminPage() {
     byUser.set(p.user_id, cur);
   }
   const emailById = new Map(profiles.map((p) => [p.id, p.email as string]));
+  // Faza 1.5: bug-urile cu emailul userului (randat server-side, doar pe pagina de admin)
+  const bugs: BugRow[] = bugsRaw.map((b) => ({
+    id: b.id as string,
+    email: emailById.get(b.user_id as string) ?? "(necunoscut)",
+    content: (b.content as string) ?? "",
+    status: (b.status as string) ?? "nou",
+    z_coins_awarded: (b.z_coins_awarded as number) ?? 0,
+    created_at: (b.created_at as string) ?? "",
+  }));
   const top10: TopRow[] = [...byUser.entries()]
     .sort((a, b) => b[1].credits - a[1].credits || b[1].ron - a[1].ron)
     .slice(0, 10)
@@ -137,6 +151,9 @@ export default async function AdminPage() {
             </table>
           )}
         </section>
+
+        {/* ZONA 3 — rapoartele de bug din chat + acordarea Z-coins (Faza 1.5) */}
+        <BugsSection bugs={bugs} />
         </div>
       </main>
     </>
