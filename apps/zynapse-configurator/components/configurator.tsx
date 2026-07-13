@@ -175,13 +175,14 @@ function Toggle({ label, checked, onChange, description }: {
 /* ─── Drop zone ─── (înlocuit de MultiFileDropZone în Epic 3.11) */
 
 /* ─── Building category cards (PAS 1) ─── */
-/* Epic 3.11: doar "rezidential" e activ; restul disabled cu badge "Curând". */
-function CategoryCards({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/* Epic 3.11: "rezidential" activ pentru toți; PUBLIC deblocat DOAR pentru admin (Dan explorează
+   sub-tipurile — nu e lansat userilor); Industrial ramane "Curând" pentru toți. */
+function CategoryCards({ value, onChange, isAdmin = false }: { value: string; onChange: (v: string) => void; isAdmin?: boolean }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3">
       {BUILDING_CATEGORIES_3.map(c => {
         const selected = value === c.value;
-        const enabled = c.value === "rezidential";
+        const enabled = c.value === "rezidential" || (isAdmin && c.value === "public");
         return (
           <button key={c.value} type="button" disabled={!enabled}
             onClick={() => enabled && onChange(c.value)}
@@ -269,13 +270,13 @@ async function downloadSchemaEl(
   }
 }
 
-/* ─── Faza proiect chips (Epic 3.11) — DTAC+PT temporar DOAR pentru admin ─── */
-function FazaProiectChips({ value, onChange, isAdmin }: { value: string; onChange: (v: string) => void; isAdmin: boolean }) {
+/* ─── Faza proiect chips (Epic 3.11) — DTAC + DTAC+PT live pentru TOȚI (lansare 2026-07-13);
+       PT-only rămâne "Curând" (enabled: false în FAZA_PROIECT_OPTIONS). ─── */
+function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3.5">
       {FAZA_PROIECT_OPTIONS.map(opt => {
-        // DTAC+PT activ doar pentru admin (la lansare); restul vad doar DTAC.
-        const enabled = opt.enabled && (opt.value !== "DTAC+PT" || isAdmin);
+        const enabled = opt.enabled;
         const isSel = value === opt.value;
         return (
           <button key={opt.value} type="button" disabled={!enabled}
@@ -310,15 +311,23 @@ function SubtypeList({ category, value, onChange }: { category: string; value: s
       <div className="flex flex-col gap-1">
         {subtypes.map(s => {
           const sel = value === s.value;
+          // "Curând" per sub-tip (pattern-ul categoriilor): blocat DOAR daca nu-i deja selectat —
+          // un proiect vechi resumed cu sub-tipul Soon ramane vizibil selectat (click nou blocat).
+          const blocked = !!s.soon && !sel;
           return (
-            <button key={s.value} type="button" onClick={() => onChange(s.value)}
-              className="text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-all duration-100 font-[inherit]"
+            <button key={s.value} type="button" disabled={blocked}
+              onClick={() => !blocked && onChange(s.value)}
+              title={blocked ? "Disponibil curând" : undefined}
+              className={`text-left px-3 py-2 rounded-lg text-sm transition-all duration-100 font-[inherit]${blocked ? "" : " cursor-pointer"}`}
               style={{
                 background: sel ? "rgba(55,138,221,0.1)" : "rgba(255,255,255,0.02)",
                 border: sel ? "1px solid rgba(55,138,221,0.35)" : "1px solid rgba(255,255,255,0.06)",
                 color: sel ? "#5BB8F5" : "#C8CAD6",
+                cursor: blocked ? "not-allowed" : "pointer",
+                opacity: blocked ? 0.4 : 1,
               }}>
               {s.label}
+              {blocked && <span className="text-[10px] font-semibold" style={{ color: "#C9A227", marginLeft: 8 }}>Curând</span>}
             </button>
           );
         })}
@@ -2013,7 +2022,7 @@ export function ZynapseConfigurator() {
 
           {/* Faza proiect (Epic 3.11) — bound la cartusProiectInput.faza */}
           <SectionLabel>Faza proiect</SectionLabel>
-          <FazaProiectChips value={cartusProiectInput.faza} isAdmin={isAdmin}
+          <FazaProiectChips value={cartusProiectInput.faza}
             onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))} />
 
           {/* Suprafață construită + cost estimat Z-Coins — DOAR afișare (consumul real: task A5) */}
@@ -2076,7 +2085,7 @@ export function ZynapseConfigurator() {
 
           {/* 3. Tip clădire PAS1 + PAS2 */}
           <SectionLabel>Tip clădire</SectionLabel>
-          <CategoryCards value={form.building_category} onChange={handleCategoryChange} />
+          <CategoryCards value={form.building_category} onChange={handleCategoryChange} isAdmin={isAdmin} />
           {form.building_category && (
             <SubtypeList category={form.building_category} value={form.building_type}
               onChange={v => update("building_type", v)} />

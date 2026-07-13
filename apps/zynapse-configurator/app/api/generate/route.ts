@@ -85,18 +85,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
   }
 
-  // ── POARTĂ DTAC+PT + SOLD-CHECK (server-side, pe MANUAL) — pornim DOAR dacă e permis + acoperit ──
+  // ── SOLD-CHECK (server-side, pe MANUAL) — pornim DOAR dacă e acoperit ──
   // Verificarea client (holdCost) e informativă și poate fi sărită apelând ruta direct; aici o IMPUNEM.
   // Debitarea REALĂ (pe desfășurata reală) se face pe SUCCES, mai jos.
+  // LANSARE (Dan, 2026-07-13): poarta "DTAC+PT doar admin" a fost SCOASĂ — faza PT e live pentru
+  // toți; costul diferă oricum pe fază (3/mp vs 1/mp) prin isPhasePT, aici și în consume_credits.
   try {
     const { data: prof } = await supa
       .from("profiles").select("is_admin, credits_balance").eq("id", userId).single();
-    if (isPhasePT(faza) && prof?.is_admin !== true) {
-      return NextResponse.json(
-        { error: "DTAC+PT este disponibil momentan doar pentru administratori. Selectează DTAC." },
-        { status: 403 }
-      );
-    }
     const surface = Number(parsed?.surface_mp) || 0;
     // FIX billing (P0-1): suprafata declarata TREBUIE sa fie > 0. Fara ea, cost=0 -> poarta trecea
     // SI consume_credits(p_surface_mp<=0) intorcea EARLY "Suprafata invalida" cu 0 debit / fara tranzactie

@@ -8,13 +8,15 @@ export const BUILDING_CATEGORIES_3 = [
 
 // ─── Subtypes per category (PAS 2) ───────────────────────────────────────────
 
-export const BUILDING_SUBTYPES: Record<string, { value: string; label: string }[]> = {
+// `soon: true` = sub-tip vizibil dar NE-selectabil (badge "Curând") — fluxul generic genereaza,
+// dar fara logica dedicata (apartamente multiple / coloane de bloc / spatii comune) nu-i lansabil.
+export const BUILDING_SUBTYPES: Record<string, { value: string; label: string; soon?: boolean }[]> = {
   rezidential: [
     { value: "casa_unifamiliala",    label: "Casă unifamilială" },
     { value: "duplex",               label: "Duplex / Vilă" },
-    { value: "bloc_locuinte",        label: "Bloc de locuințe" },
-    { value: "spatiu_comercial_bloc",label: "Spațiu comercial în bloc" },
-    { value: "hotel_pensiune",       label: "Hotel / Pensiune" },
+    { value: "bloc_locuinte",        label: "Bloc de locuințe",         soon: true },
+    { value: "spatiu_comercial_bloc",label: "Spațiu comercial în bloc", soon: true },
+    { value: "hotel_pensiune",       label: "Hotel / Pensiune",         soon: true },
   ],
   public: [
     { value: "camin_cultural",  label: "Cămin cultural / Sală eveniment" },

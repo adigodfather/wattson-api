@@ -8,8 +8,7 @@ import { createClient } from "@/lib/supabase";
 export interface Profile {
   id: string;
   full_name: string | null;
-  projects_used: number;
-  projects_limit: number;
+  projects_used: number;   // contor informativ (admin) — limita de proiecte NU mai exista (s-a trecut pe credite)
   credits_balance: number;
   is_admin: boolean;
 }
@@ -40,7 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, projects_used, projects_limit, credits_balance, is_admin")
+      .select("id, full_name, projects_used, credits_balance, is_admin")
       .eq("id", userId)
       .single();
     if (error) {
@@ -51,7 +50,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: data.id,
         full_name: data.full_name ?? null,
         projects_used: data.projects_used ?? 0,
-        projects_limit: data.projects_limit ?? 3,
         credits_balance: data.credits_balance ?? 0,
         is_admin: data.is_admin ?? false,
       });
