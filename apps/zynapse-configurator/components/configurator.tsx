@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,6 +8,7 @@ import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
+  plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName,
   defaultTechRoom,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
@@ -1065,6 +1066,14 @@ export function ZynapseConfigurator() {
   const editorPlansa = planseIluminat[editorPlansaIdx] || null;
   // Baza CURATĂ a planșei curente (arhitectural + cartuș, FĂRĂ becuri) = sursă pt. fundalul forței + prop backend.
   const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
+  // CONSECVENȚĂ nume (Dan): numerotarea REALĂ din mirror (compute_plansa_numbering) — schemele din
+  // result_data au plansa_nr STALE (numerotate în universul lor: prima schemă = IE.1, coliziune cu
+  // planurile). Afișajul + numele fișierului se derivă local, universal (și pe proiectele vechi).
+  const plansaNum = useMemo(() => (result ? plansaNumberingFromResult(result) : []), [result]);
+  const schemasMapped = useMemo(
+    () => (result?.schemas?.length ? mapSchemasToNumbering(result.schemas, plansaNum) : []),
+    [result, plansaNum]
+  );
   // Mod FORȚĂ: cere PNG-ul bazei CURATE (o dată per planșă/bază) -> fundal fără iluminatul învechit.
   // Iluminat / lipsă bază -> fără fetch. Cleanup pe schimbare mod/planșă (evită fundal stale).
   // PREINCARCA fundalul curat de forta de indata ce avem baza (independent de mod) -> cand utilizatorul
@@ -2506,12 +2515,17 @@ export function ZynapseConfigurator() {
                         <div className="px-5 py-3 flex items-center justify-between border-b"
                           style={{ borderColor: "rgba(255,255,255,0.04)" }}>
                           <span className="text-sm font-semibold" style={{ color: "#C8CAD6" }}>
-                            {s.name}{s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}{s.page_format ? ` (${s.page_format})` : ""}
+                            {/* numele = LITERAL titlul din cartus (mirror numerotare); fallback = metadata veche */}
+                            {schemasMapped[i]
+                              ? `${schemasMapped[i]!.nr} ${schemasMapped[i]!.titlu}`
+                              : `${s.name}${s.plansa_nr ? ` — Planșa ${s.plansa_nr}` : ""}`}{s.page_format ? ` (${s.page_format})` : ""}
                           </span>
                           <button
                             onClick={() => downloadSchemaEl(
                               s,
-                              `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`,
+                              schemasMapped[i]
+                                ? `${sanitizePdfName(`${schemasMapped[i]!.nr} ${schemasMapped[i]!.titlu}`)}.pdf`
+                                : `Schema-${s.name}-${result!.project_info?.proiect_nr || result!.project_id || "zynapse"}.pdf`,
                               downloadPDF
                             )}
                             className="px-3 py-1.5 rounded-lg text-[12px] font-semibold font-[inherit] cursor-pointer"

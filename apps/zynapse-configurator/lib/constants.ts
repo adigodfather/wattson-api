@@ -327,7 +327,9 @@ export interface ProjectResult {
   schema_monofilara_path?: string | null;
   // Etapa 3 Storage: pdf_base64 devine optional — proiectele NOI au pdf_path (bucket privat,
   // <uid>/<pid>/schema_tablou_<i>.pdf); cele vechi raman pe base64. Cititorii verifica base64 INTAI.
-  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64?: string | null; pdf_path?: string | null; page_format?: string }> | null;
+  schemas?: Array<{ name: string; plansa_nr: string; pdf_base64?: string | null; pdf_path?: string | null; page_format?: string;
+    description?: string | null; filename?: string | null }> | null;
+  has_tect?: boolean;   // emis de n8n in result_data (folosit de numerotarea-mirror)
   // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
   planuri?: Array<{
     name: string; plansa_nr: string; pdf_base64: string;
@@ -412,19 +414,111 @@ export interface ProjectResult {
 // Planșa de iluminat REGENERATĂ (după "Obține plan": cabluri + editări) ÎNLOCUIEȘTE tot ce se afișează;
 // draftul Vision (neregenerat) se ASCUNDE (e doar ciornă). DTAC (fără planse_iluminat) -> planuri ca înainte.
 type ShownPlansa = { name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string; ie_label?: string };
-// M3: planșele FINALE de afișat în istoric/livrabile = iluminat (regenerate) APOI forță (regenerate),
-// numerotate IE.1->IE.N în ordinea: TOATE iluminatele (pe etaje), apoi TOATE forțele (pe etaje).
-// Single-floor: IE.1 iluminat parter, IE.2 forță parter. Numărul se recalculează când se adaugă planșe.
+
+// ── NUMEROTAREA PLANSELOR — OGLINDA compute_plansa_numbering (plansa_numbering.py): modifici una
+// -> modifici AMBELE. Ordinea: iluminat (toate nivelurile) -> forta (toate) -> TEG -> TES/nivel ->
+// TE-CT (daca) -> FV (MEREU ultima). Titlurile = varianta FARA diacritice: Python emite cu
+// diacritice, dar cartusul le transpune la ASCII la stampare (cartus_swap._txt) -> mirror-ul
+// reproduce LITERAL ce se vede pe plansa (cerinta Dan: cartus == download == fisier).
+// Etichetele de nivel oglindesc _FLOOR_INT_LABEL {1:etaj, 2:mansarda} (conventia circuitelor).
+export type PlansaNumEntry = { nr: string; tip: string; nivel: string | null; titlu: string };
+export function plansaTitlu(tip: string, nivel?: string | null): string {
+  const nl = (nivel || "").trim().toUpperCase();
+  if (tip === "plan_iluminat") return `PLAN ${nl} INSTALATII ELECTRICE DE ILUMINAT`;
+  if (tip === "plan_forta") return `PLAN ${nl} INSTALATII ELECTRICE DE FORTA`;
+  if (tip === "schema_teg") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC GENERAL";
+  if (tip === "schema_tes") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC SECUNDAR ${nl}`;
+  if (tip === "schema_tect") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC CENTRALA TERMICA";
+  if (tip === "schema_fv") return "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC";
+  return "PLANSA";
+}
+export function computePlansaNumbering(opts: {
+  extraFloors?: string[]; hasTect?: boolean; hasTes?: boolean | null; hasFv?: boolean;
+}): PlansaNumEntry[] {
+  const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
+  const floors = ["parter", ...extra];
+  const tesOn = opts.hasTes == null ? extra.length > 0 : !!opts.hasTes;
+  const sheets: Array<[string, string | null]> = [];
+  for (const fl of floors) sheets.push(["plan_iluminat", fl]);
+  for (const fl of floors) sheets.push(["plan_forta", fl]);
+  sheets.push(["schema_teg", null]);
+  if (tesOn) for (const fl of extra) sheets.push(["schema_tes", fl]);
+  if (opts.hasTect) sheets.push(["schema_tect", null]);
+  if (opts.hasFv) sheets.push(["schema_fv", null]);   // FV = MEREU ultima plansa IE
+  return sheets.map(([tip, nivel], i) => ({
+    nr: `IE.${i + 1}`, tip, nivel, titlu: plansaTitlu(tip, nivel),
+  }));
+}
+// nume de fisier sigur: fara caractere ilegale; spatiile raman (ex. "IE.1 PLAN PARTER ....pdf")
+export const sanitizePdfName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
+
+// tipul unei intrari schemas[] (name/description/filename, insensibil la diacritice/majuscule)
+export function schemaTipFor(s: { name?: string | null; description?: string | null; filename?: string | null }):
+  "schema_teg" | "schema_tes" | "schema_tect" | "schema_fv" | null {
+  const t = `${s?.name || ""} ${s?.description || ""} ${s?.filename || ""}`.toLowerCase()
+    .replace(/[ăâ]/g, "a").replace(/î/g, "i").replace(/[șş]/g, "s").replace(/[țţ]/g, "t")
+    .replace(/[_\-.]/g, " ");
+  if (t.includes("fotovoltaic") || /(^|\s)fv(\s|$)/.test(t)) return "schema_fv";
+  if (t.includes("te ct") || t.includes("tect") || t.includes("centrala termica")) return "schema_tect";
+  if (t.includes("tes")) return "schema_tes";
+  if (t.includes("teg") || t.includes("general")) return "schema_teg";
+  return null;
+}
+// numerotarea derivata din result (universal, inclusiv proiecte vechi cu metadata stale):
+// nivelurile din planse_iluminat (la DTAC: din nr. schemelor TES), TE-CT/FV din has_tect + schemas.
+export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry[] {
+  const il = result.planse_iluminat || [];
+  const tipuri = (result.schemas || []).map(schemaTipFor);
+  const nTes = tipuri.filter(t => t === "schema_tes").length;
+  const nExtra = il.length > 1 ? il.length - 1 : nTes;
+  const extraFloors = Array.from({ length: nExtra }, (_, i) => ["etaj", "mansarda"][i] || `nivel ${i + 2}`);
+  return computePlansaNumbering({
+    extraFloors,
+    hasTect: !!result.has_tect || tipuri.includes("schema_tect"),
+    hasFv: tipuri.includes("schema_fv"),
+  });
+}
+// schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)
+export function mapSchemasToNumbering(
+  schemas: Array<{ name?: string | null; description?: string | null; filename?: string | null }>,
+  entries: PlansaNumEntry[]
+): (PlansaNumEntry | null)[] {
+  const tes = entries.filter(e => e.tip === "schema_tes");
+  let tesIdx = 0;
+  return (schemas || []).map(s => {
+    const tip = schemaTipFor(s);
+    if (!tip) return null;
+    if (tip === "schema_tes") { const e = tes[tesIdx] || null; tesIdx += 1; return e; }
+    return entries.find(e => e.tip === tip) || null;
+  });
+}
+
+// M3: planșele FINALE de afișat în istoric/livrabile = iluminat (regenerate) APOI forță (regenerate).
+// CONSECVENȚĂ (Dan): numele afișat + fișierul descărcat = LITERAL titlul din cartuș ("IE.N TITLU",
+// din mirror) — nu sufixele vechi ("— Iluminat") și nu numerotarea secvențială peste subsetul
+// regenerat. source_plansa_nr (numărul FINAL ștampilat la redraw) are prioritate la mapare;
+// fallback = poziția etajului în listă.
 export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlansa[]; draftPending: boolean } {
   const il = result.planse_iluminat || [];
   if (il.length) {
     const regenIl = il.filter(p => p.regenerated);
     if (!regenIl.length) return { planse: [], draftPending: true };   // doar ciornă Vision -> ascunde + placeholder
-    const regenFo = (result.planse_forta || []).filter(p => p.regenerated);
+    const fo = result.planse_forta || [];
+    const regenFo = fo.filter(p => p.regenerated);
+    const num = plansaNumberingFromResult(result);
+    const ilE = num.filter(e => e.tip === "plan_iluminat");
+    const foE = num.filter(e => e.tip === "plan_forta");
     const out: ShownPlansa[] = [];
-    let n = 0;
-    for (const p of regenIl) { n += 1; out.push({ ...p, ie_label: `IE.${n}`, name: `${p.name} — Iluminat` }); }
-    for (const p of regenFo) { n += 1; out.push({ ...p, ie_label: `IE.${n}`, name: `${p.name} — Forță` }); }
+    const push = (p: ShownPlansa, e: PlansaNumEntry | undefined) => {
+      const disp = e ? `${e.nr} ${e.titlu}` : p.name;
+      out.push({
+        ...p, name: disp, ie_label: "",              // numele conține deja IE.N -> fără prefix dublu
+        plansa_nr: undefined, source_plansa_nr: undefined,
+        filename: e ? `${sanitizePdfName(disp)}.pdf` : p.filename,
+      });
+    };
+    for (const p of regenIl) push(p, ilE.find(x => x.nr === p.source_plansa_nr) || ilE[il.indexOf(p)]);
+    for (const p of regenFo) push(p, foE.find(x => x.nr === p.source_plansa_nr) || foE[fo.indexOf(p)]);
     return { planse: out, draftPending: false };
   }
   return { planse: result.planuri || [], draftPending: false };   // DTAC: planuri ca înainte
