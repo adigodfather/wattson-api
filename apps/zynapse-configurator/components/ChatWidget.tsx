@@ -1,8 +1,80 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase";
+
+// ── Renderer Markdown MINIMAL pentru raspunsurile assistant (Claude raspunde in Markdown).
+// XSS-SAFE prin CONSTRUCTIE: construieste noduri React din text, NU injecteaza HTML (fara
+// dangerouslySetInnerHTML). Acopera subsetul real: titluri (#..######), bold (**/__),
+// italic (*/_), cod inline (`), liste (- * + / 1.), separator (---), paragrafe. Restul = text.
+const mdStrong: CSSProperties = { fontWeight: 700, color: "#FFFFFF" };
+const mdCode: CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12,
+  background: "rgba(255,255,255,0.09)", padding: "1px 5px", borderRadius: 4 };
+const mdHr: CSSProperties = { border: "none", borderTop: "1px solid rgba(255,255,255,0.14)", margin: "9px 0" };
+const mdHeading = (lvl: number): CSSProperties => ({
+  fontWeight: 700, color: "#FFFFFF", margin: "8px 0 4px",
+  fontSize: lvl <= 1 ? 15 : lvl === 2 ? 13.5 : 12.5, lineHeight: 1.35,
+});
+const mdList: CSSProperties = { margin: "4px 0", paddingLeft: 18 };
+const mdLi: CSSProperties = { margin: "2px 0", lineHeight: 1.5 };
+const mdP: CSSProperties = { margin: "4px 0", lineHeight: 1.55 };
+
+function renderInline(text: string, kp: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)/g;
+  let last = 0, m: RegExpExecArray | null, i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const t = m[0];
+    if (t.startsWith("`")) out.push(<code key={`${kp}-${i}`} style={mdCode}>{t.slice(1, -1)}</code>);
+    else if (t.startsWith("**") || t.startsWith("__")) out.push(<strong key={`${kp}-${i}`} style={mdStrong}>{t.slice(2, -2)}</strong>);
+    else out.push(<em key={`${kp}-${i}`}>{t.slice(1, -1)}</em>);
+    last = m.index + t.length; i++;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+const RE_HR = /^\s*([-*_])\1{2,}\s*$/;
+const RE_H = /^(#{1,6})\s+(.*)$/;
+const RE_UL = /^\s*[-*+]\s+/;
+const RE_OL = /^\s*\d+\.\s+/;
+
+function MarkdownContent({ text }: { text: string }): ReactNode {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0, k = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (RE_HR.test(line)) { blocks.push(<hr key={k++} style={mdHr} />); i++; continue; }
+    const h = line.match(RE_H);
+    if (h) { const lvl = h[1].length; blocks.push(<div key={k++} style={mdHeading(lvl)}>{renderInline(h[2], `h${k}`)}</div>); i++; continue; }
+    if (RE_UL.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && RE_UL.test(lines[i])) { items.push(lines[i].replace(RE_UL, "")); i++; }
+      blocks.push(<ul key={k++} style={mdList}>{items.map((it, j) => <li key={j} style={mdLi}>{renderInline(it, `ul${k}-${j}`)}</li>)}</ul>);
+      continue;
+    }
+    if (RE_OL.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && RE_OL.test(lines[i])) { items.push(lines[i].replace(RE_OL, "")); i++; }
+      blocks.push(<ol key={k++} style={mdList}>{items.map((it, j) => <li key={j} style={mdLi}>{renderInline(it, `ol${k}-${j}`)}</li>)}</ol>);
+      continue;
+    }
+    if (line.trim() === "") { i++; continue; }
+    const para: string[] = [];
+    while (i < lines.length && lines[i].trim() !== "" && !RE_HR.test(lines[i]) && !RE_H.test(lines[i]) && !RE_UL.test(lines[i]) && !RE_OL.test(lines[i])) {
+      para.push(lines[i]); i++;
+    }
+    blocks.push(
+      <p key={k++} style={mdP}>
+        {para.flatMap((pl, j) => (j > 0 ? [<br key={`br${j}`} />, ...renderInline(pl, `p${k}-${j}`)] : renderInline(pl, `p${k}-${j}`)))}
+      </p>
+    );
+  }
+  return <>{blocks}</>;
+}
 
 // Chat AI V1.5 — widget custom (tema Zynapse), DOAR pentru useri logati.
 // UX (Faza 1.5): panou TRANSPARENT (doar bulele plutesc; header + input raman carduri solide),
@@ -191,8 +263,11 @@ export default function ChatWidget() {
                 display: "flex", flexDirection: "column", gap: 10 }}>
                 {/* bun-venit: PRIMA bula assistant (sintetica, doar vizuala) */}
                 {messages.length === 0 && <div style={bubbleStyle("assistant")}>{WELCOME}</div>}
+                {/* assistant: randare Markdown (bold/titluri/liste); user: text simplu (nu scrie Markdown) */}
                 {messages.map((m, i) => (
-                  <div key={i} style={bubbleStyle(m.role)}>{m.content}</div>
+                  m.role === "assistant"
+                    ? <div key={i} style={{ ...bubbleStyle("assistant"), whiteSpace: "normal" }}><MarkdownContent text={m.content} /></div>
+                    : <div key={i} style={bubbleStyle(m.role)}>{m.content}</div>
                 ))}
                 {loading && (
                   <div style={{ ...bubbleStyle("assistant"), color: "#8B8FA8" }}>Asistentul scrie…</div>
