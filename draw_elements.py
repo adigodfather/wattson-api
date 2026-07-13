@@ -628,13 +628,30 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
                         "lines": _wrap_label_25(txt, 72)})   # 72: ambele randuri incap FARA trunchiere
     # Randul lantului FV in legenda: DOAR pe forta si DOAR daca inginerul a DESENAT lantul
     # (fv_chain_path) — tablourile singure nu mai garanteaza segmente pe plan (lantul automat
-    # a fost eliminat; strict manual, decizia Dan).
+    # a fost eliminat; strict manual, decizia Dan). Textul = SECTIUNEA reala a cablului dupa
+    # pachet (ca la celelalte cabluri): pachetul din tablou_inv.power_w (pachet x 1000, setat
+    # la plasare) -> FV_PACKAGES[pkg]["cyaby"] (SURSA UNICA, aceeasi ca schema FV). Fara INV /
+    # putere invalida -> textul generic (fail-safe, proiecte vechi).
     if plan_type == "forta" and "fv_chain_path" in present:
-        _fvp = [et for et in ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg") if et in present]
-        _names = (" - ".join(_PANEL_INFO.get(et, (None, None, et))[2] for et in _fvp)
-                  if _fvp else "T.CC - INV - T.CA - TEG")
-        fv_rows.append({"kind": "fv_link",
-                        "text": "Legatura sistem fotovoltaic (%s)" % _names})
+        _txt = None
+        try:
+            import schema_fv as _sfv                       # lazy (schema_fv nu importa draw_elements)
+            _inv = next((el for el in (elements or [])
+                         if ((el or {}).get("element_type") or "") == "tablou_inv"), None)
+            _pw = float((_inv or {}).get("power_w") or 0)
+            if _pw > 0:
+                _cy = (_sfv.FV_PACKAGES.get(_sfv.snap_fv_package(_pw / 1000.0)) or {}).get("cyaby")
+                if _cy:
+                    # separator ASCII: em dash-ul nu exista in fontul legendei (iesea "·")
+                    _txt = "%s mmp - legatura sistem fotovoltaic" % _cy.replace("x ", "x")
+        except Exception:
+            _txt = None
+        if _txt is None:
+            _fvp = [et for et in ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg") if et in present]
+            _txt = "Legatura sistem fotovoltaic (%s)" % (
+                " - ".join(_PANEL_INFO.get(et, (None, None, et))[2] for et in _fvp)
+                if _fvp else "T.CC - INV - T.CA - TEG")
+        fv_rows.append({"kind": "fv_link", "text": _txt})
 
     # g) CABLU pe plan_type (din circuits reale + COLOANE feed sub_tablou)
     cable_rows = _legend_cable_rows(elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
