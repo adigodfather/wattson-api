@@ -3510,9 +3510,49 @@ def bom_endpoint(request: BomRequest):
                 _floor_wh.setdefault(_fl, (_W, _H))
         # ACELEASI circuite ca schema/memoriu (enrich; pe TOATE elementele — per proiect, nu per etaj).
         circuits = _ec.enrich_circuits(rows, request.form or {}, base_circuits=base_circuits)
+        # FOLLOW-UP FIX-C1: geometria camerelor (pereti reali) PER ETAJ din bazele curate
+        # (rd.planuri[i].pdf_base64, aceeasi sursa ca redraw; ordinea = parter/etaj/mansarda) ->
+        # compute_cables din BOM ruteaza EXACT ca desenul (gate geom_bbox->Vision) -> metrii =
+        # traseul de pe plan (pe pereti), nu L-urile scurte. Defensiv: ORICE esec / etaj fara
+        # geometrie -> etajul lipseste din dict -> rutarea veche pt. el, byte-identica.
+        _floor_geoms = {}
+        try:
+            import fitz
+            import geometry as _geo2
+            _order2 = ["parter", "etaj", "mansarda"]
+            for _i, _p in enumerate(rd.get("planuri") or []):
+                if _i >= len(_order2):
+                    break
+                try:
+                    _b64 = (_p or {}).get("pdf_base64") or ""
+                    if not _b64:
+                        continue
+                    _raw2 = _b64.split(",", 1)[1] if "," in _b64 else _b64
+                    _pdf2 = base64.b64decode(_raw2)
+                    _doc2 = fitz.open(stream=_pdf2, filetype="pdf")
+                    _w2, _h2 = _doc2[0].rect.width, _doc2[0].rect.height
+                    _doc2.close()
+                    _fi = _bom._FLOOR_IDX.get(_order2[_i], 0)
+                    _rooms_fl2 = [r for r in _rooms if int((r or {}).get("floor") or 0) == _fi]
+                    _geos2 = _geo2.extract_room_geometry(_pdf2, _rooms_fl2, _w2, _h2)
+                    _gm2 = {}
+                    for _g in (_geos2 or []):
+                        _gb = (_g or {}).get("geom_bbox")
+                        _nm = str((_g or {}).get("name") or "").strip()
+                        if _gb and _nm:
+                            _gm2[_nm] = (float(_gb["x"]) * _w2, float(_gb["y"]) * _h2,
+                                         (float(_gb["x"]) + float(_gb["w"])) * _w2,
+                                         (float(_gb["y"]) + float(_gb["h"])) * _h2)
+                    if _gm2:   # ca la redraw: doar cu geometrie reala gasita (gol -> rutarea veche)
+                        _floor_geoms[_order2[_i]] = _gm2
+                except Exception:
+                    continue
+        except Exception:
+            _floor_geoms = {}
         # P0-4: orizontalele PER ETAJ (floor filter + rooms filtrate + scara plansei etajului) —
         # inainte: compute_cables pe elementele AMESTECATE (+75% pe P+M + cabluri fizic imposibile).
-        horiz_m, cables, _flinfo = _bom.per_floor_horizontals(rows, _rooms, _floor_wh)
+        horiz_m, cables, _flinfo = _bom.per_floor_horizontals(rows, _rooms, _floor_wh,
+                                                              floor_geoms=_floor_geoms or None)
         # scara "principala" (parter) — pt. dedicate/coloane (_extra_meters, pozitii parter) + verticale
         _p_wh = _floor_wh.get("parter") or (_W, _H)
         _rooms_p = [r for r in _rooms if int((r or {}).get("floor") or 0) == 0]

@@ -208,10 +208,14 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
 _FLOOR_IDX = {"parter": 0, "etaj": 1, "mansarda": 2}
 
 
-def per_floor_horizontals(plan_elements, rooms, floor_wh):
+def per_floor_horizontals(plan_elements, rooms, floor_wh, floor_geoms=None):
     """Metrii ORIZONTALI per cable_type, calculati PER ETAJ (floor filter + rooms filtrate pe
     rooms[].floor + W/H + scara plansei etajului) si insumati. `floor_wh` = {floor_name: (W, H)}
     (din png_meta per plansa; lipsa/0 -> derive_scale cade pe scara fixa pt. acel etaj).
+    FOLLOW-UP FIX-C1: `floor_geoms` = {floor_name: {nume_camera: (x0,y0,x1,y1) px}} — geometria
+    camerelor (pereti reali) per etaj -> compute_cables ruteaza EXACT ca desenul (gate geom_bbox->
+    Vision) -> metrii = traseul de pe plan (pe pereti), nu L-urile scurte prin mijloc. None /
+    etaj lipsa -> rutarea veche, byte-identica (consistent cu redraw-ul fara geometrie).
     Returneaza (m_by_type, cables_all, per_floor_info) — per_floor_info[fl] = {scale, scale_source,
     n_elements, n_rooms} pt. raportare/teste."""
     out, cables_all, info = {}, [], {}
@@ -224,7 +228,8 @@ def per_floor_horizontals(plan_elements, rooms, floor_wh):
         W, H = (floor_wh or {}).get(fl) or (0.0, 0.0)
         cen = draw_elements._room_centroids(rows_fl)
         cab_fl, _st = draw_elements.compute_cables(rows_fl, rooms=rooms_fl, W=(W or None), H=(H or None),
-                                                   room_centroids=cen)
+                                                   room_centroids=cen,
+                                                   room_geoms=(floor_geoms or {}).get(fl) or None)
         sc_fl, ssrc_fl = derive_scale(rooms_fl, W, H)
         for ct, m in _cable_meters_by_type(cab_fl, sc_fl).items():
             out[ct] = out.get(ct, 0.0) + m
