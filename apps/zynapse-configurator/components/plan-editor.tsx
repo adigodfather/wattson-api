@@ -1821,7 +1821,10 @@ export default function PlanEditor({
   // Ascunsa cand proiectul n-are echipamente de incalzire dedicate (fara PDC/centrala).
   // FV-B1: sectiunea tablourilor FV la FORTA — butonul de pozitionare ca bloc + statusul.
   const renderFvPanelsSection = () => {
-    if (mode !== "forta" || !hasFv) return null;
+    // FV DOAR PARTER: sistemul FV se conecteaza la TEG (radacina, parter) -> tablourile (hardcodate
+    // floor:"parter" in positionFvPanelsAuto) + lantul galben se pun la parter. Acelasi gate ca priza
+    // de pamant (renderGroundingSection) -> ascuns pe etaj/mansarda (unde n-are ce cauta).
+    if (mode !== "forta" || !hasFv || floorCanonic(floor) !== "parter") return null;
     const placedCount = FV_PANEL_TYPES.filter(t => elements.some(e => e.element_type === t)).length;
     return (
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
