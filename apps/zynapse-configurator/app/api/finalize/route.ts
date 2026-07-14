@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
+import { snapFvPackage } from "@/lib/constants";
 
 // Faza 2b — "Finalizeaza": proxy server-side catre webhook-ul n8n "zynapse-finalize".
 // Optiunea (b): n8n NU primeste credentiale Supabase. Aici (autentificat, ownership check)
@@ -124,6 +125,50 @@ export async function POST(req: NextRequest) {
   // has_tect din circuitele EFECTIV trimise (nu din rd.has_tect Vision): plan-circuite n-au TE-CT
   // (ramane goala in Faza 2) -> hasTect=false -> Finalize nu genereaza schema TE-CT goala/sparta.
   const hasTect = circuits.some((c) => (c as { panel?: string })?.panel === "TE-CT");
+
+  // ── F1 (2026-07-14): extra_floors pt. numerotarea din clona finalize (nodul "Numerotare Planse").
+  // Sursa PREFERATA = tipurile planurilor STAMPILATE (etichete REALE: P+M da 'mansarda', nu 'etaj' ca
+  // derivarea din floor — conteaza pt. borderoul memoriului). Fallback: floor-urile INTREGI din circuite.
+  // [0] = parter (se sare). Oglinda _PLAN_TYPE_LABEL + derive_extra_floors din plansa_numbering.py.
+  const PLAN_TYPE_LABEL: Record<string, string> = {
+    plan_etaj: "etaj", plan_etaj1: "etaj", plan_etaj2: "etaj 2",
+    plan_mansarda: "mansarda", plan_demisol: "demisol", plan_subsol: "subsol",
+  };
+  const planuri = Array.isArray(rd.planuri) ? (rd.planuri as Array<{ type?: string }>) : [];
+  let extraFloors: string[] = planuri.slice(1).map(
+    (p) => PLAN_TYPE_LABEL[String(p?.type || "").toLowerCase()] || "etaj",
+  );
+  if (extraFloors.length === 0) {
+    const FLOOR_LABEL: Record<number, string> = { 1: "etaj", 2: "mansarda" };
+    const fset = new Set<number>();
+    for (const c of circuits as Array<{ floor?: unknown }>) {
+      const fi = parseInt(String(c?.floor), 10);
+      if (Number.isFinite(fi) && fi > 0) fset.add(fi);
+    }
+    extraFloors = [...fset].sort((a, b) => a - b).map((f) => FLOOR_LABEL[f] || `nivel ${f}`);
+  }
+
+  // ── F2-v2 + memoriu (2026-07-14): semnalul FV pt. clona finalize -> REGENEREAZA schema FV cu kW-ul
+  // EDITORULUI (nodul Compune, gated pe has_fv===true) + CAPITOLUL FV in memoriu (solar). Sursa kW, in
+  // ordine: circuitul fotovoltaic din enrich (consistent cu schema/plan) -> invertorul din plan
+  // (tablou_inv, power_w=kW*1000) -> solarul din formular (input_data). Normalizat la pachet (snapFvPackage).
+  const fvCirc = (circuits as Array<{ description?: string; power_w?: number }>).find(
+    (c) => /fotovoltaic/i.test(String(c?.description || "")),
+  );
+  const invEl = (planElements as Array<{ element_type?: string; power_w?: number | null }>).find(
+    (e) => e?.element_type === "tablou_inv",
+  );
+  const solarEq = (Array.isArray(inputData.extra_equipment) ? inputData.extra_equipment : []).find(
+    (e) => !!e && (e as { type?: string }).type === "solar",
+  ) as { package_kw?: number; power_kw?: number; soil_type?: string } | undefined;
+  const hasFv = !!fvCirc || !!invEl || !!solarEq;
+  const fvKwRaw =
+    fvCirc && typeof fvCirc.power_w === "number" && fvCirc.power_w > 0 ? fvCirc.power_w / 1000
+    : invEl && typeof invEl.power_w === "number" && invEl.power_w > 0 ? invEl.power_w / 1000
+    : Number(solarEq?.package_kw ?? solarEq?.power_kw ?? 5);
+  const fvKw = snapFvPackage(fvKwRaw);
+  const fvSoilType = String(solarEq?.soil_type || "agricol");
+
   const webhookBody = {
     project_id: projectId,
     circuits,
@@ -134,6 +179,12 @@ export async function POST(req: NextRequest) {
     project_info: rd.project_info || {},
     annotated_plan_base64: rd.annotated_plan_base64 ? "1" : null,
     has_tect: hasTect,
+    // F1/F2-v2/memoriu: sursa EXPLICITA pt. clona finalize (numerotare corecta + FV regenerat + capitol memoriu).
+    // Fara acestea, clona cade pe fallback-urile in-nod (numerotarea merge; FV regen + memoriu FV stau pe has_fv).
+    extra_floors: extraFloors,
+    has_fv: hasFv,
+    fv_kw: fvKw,
+    fv_soil_type: fvSoilType,
     faza,
     phase,
     cartus_firma: firma,
