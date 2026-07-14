@@ -7,7 +7,7 @@
 // Add = INSERT cu ACELAȘI tipar ca popularea (configurator.tsx); id e gen_random_uuid() în DB.
 // Remove = DELETE manual (cu confirm inline), fără paritate automată.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
@@ -309,6 +309,26 @@ const inputStyle: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px", fontSize: 12.5,
   color: "#E6E8F0", borderRadius: 7, outline: "none", fontFamily: "inherit",
 };
+
+// ── RUBRICĂ: container de grupare pentru sidebar-ul de forța (register PRODUS, impeccable). ──
+// „Al doilea strat neutru" (panou distinct: tint subtil + border), heading SENTENCE-CASE 13.5px/600 —
+// NU alt titlu uppercase, ca sa NU fie „eyebrow peste eyebrow" fata de sub-titlurile 11px din interior.
+// Spacing mai mare INTRE rubrici (marginTop 16) decat intre sub-sectiuni (12). Reutilizabil pt. toate rubricile.
+// DOAR aspect: infasoara continutul (functiile render existente), fara sa atinga handler-ele.
+function Rubrica({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section style={{
+      marginTop: 16, padding: "13px 13px 12px", borderRadius: 10,
+      background: "rgba(255,255,255,0.022)", border: "1px solid rgba(255,255,255,0.06)",
+    }}>
+      <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 600, letterSpacing: "-0.01em", color: "#E6E8F0", lineHeight: 1.3 }}>
+        {title}
+      </h3>
+      {hint ? <p style={{ margin: "4px 0 0", fontSize: 10.5, color: "#6B7086", lineHeight: 1.45 }}>{hint}</p> : null}
+      <div style={{ marginTop: 10 }}>{children}</div>
+    </section>
+  );
+}
 
 // Stări de interacțiune injectate o dată (focus/hover/placeholder + accordion + butoane add/remove).
 // border+background pe câmpuri trăiesc aici (nu inline) ca focus-ul accent să suprascrie fără !important.
@@ -1730,10 +1750,7 @@ export default function PlanEditor({
     if (mode !== "forta" || floorCanonic(floor) !== "parter") return null;
     const existing = elements.find(e => isGroundType(e.element_type)) || null;
     return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Priză de pământ (fundație)
-        </div>
+      <Rubrica title="Priza de pământ" hint="Priza de pământ de fundație este obligatorie (I7-2011).">
         {existing ? (
           <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
             Priză adăugată — șterge-o ca s-o redesenezi.
@@ -1754,7 +1771,7 @@ export default function PlanEditor({
             <button type="button" className="zy-add-btn" onClick={startDrawGround}>+ Desenează priza de pământ</button>
           </div>
         )}
-      </div>
+      </Rubrica>
     );
   };
 
