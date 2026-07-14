@@ -2570,6 +2570,16 @@ def _room_of_point(px, py, rooms, W, H):
     return nearest[1] if nearest else None              # fallback: cea mai apropiata camera
 
 
+def _floor_idx(floor):
+    """Index de nivel (0=parter, 1=etaj, 2=mansarda) din eticheta SAU numarul de floor.
+    OGLINDA _floor_panel (enrich_circuits.py): accepta int (0/1/2), string numeric ("1"/"2")
+    si eticheta ("parter"/"etaj"/"mansarda"). Element.floor = string; room.floor = int -> ambele OK."""
+    f = str(floor if floor is not None else "parter").strip().lower()
+    if "mansard" in f or f == "2": return 2
+    if "etaj" in f or f == "1":    return 1
+    return 0
+
+
 def assign_rooms_to_prizas(elements, rooms, W, H):
     """Pentru fiecare PRIZA/RECEPTOR cu room null/gol -> seteaza el['room'] = camera ei (in-memory, pt. C3b).
     NIVEL 2: include si receptoarele (alimentare_receptor + receptor_internet) -> primesc room geometric
@@ -2588,7 +2598,13 @@ def assign_rooms_to_prizas(elements, rooms, W, H):
         if (el.get("room") or ""):
             out.append((px, py, el.get("room")))   # are deja camera -> pastreaza
             continue
-        room = _room_of_point(px, py, rooms, W, H)
+        # FIX room-per-floor: cauta camera DOAR in NIVELUL elementului. Bbox-urile Vision sunt
+        # normalizate 0..1 PER-NIVEL (fiecare plansa in propriul spatiu) -> o camera de pe alt etaj
+        # se poate suprapune spatial cu punctul (ex. centrala pe parter prinsa de "Hol...(etaj)").
+        # Fallback (niciun room pe nivelul lui) -> toate camerele = comportamentul vechi (nu mai rau ca azi).
+        _efi = _floor_idx(el.get("floor"))
+        _rooms_fl = [r for r in (rooms or []) if _floor_idx((r or {}).get("floor")) == _efi]
+        room = _room_of_point(px, py, _rooms_fl or rooms, W, H)
         el["room"] = room                          # in-memory (pt. C3b)
         out.append((px, py, room))
     return out
