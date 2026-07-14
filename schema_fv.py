@@ -142,26 +142,29 @@ def _draw_ground_symbol(c, x_mm, y_mm, color=COLOR_PE):
         draw_line(c, x_mm - half, y_mm + i * 1.6, x_mm + half, y_mm + i * 1.6, width=0.8, color=color)
 
 
-def _draw_pv_string(c, y_top, label):
-    """Un rând de panouri (serie): dreptunghiuri verticale + bus-ul de jos + 2 conductoare (+/−)
-    care ies spre STÂNGA. Întoarce (y_plus, y_minus) = y-urile celor 2 conductoare la ieșire."""
-    n = _PV_N_VIS
-    total_w = n * _PV_PANEL_W + (n - 1) * _PV_GAP
+def _draw_pv_string(c, y_top, label, n=_PV_N_VIS):
+    """Un rând de panouri (serie) cu n panouri: dreptunghiuri verticale + bus-ul de jos + 2 conductoare
+    (+/−) care ies spre STÂNGA. Întoarce (y_plus, y_minus) = y-urile celor 2 conductoare la ieșire.
+    BUG2: n vine din pachet (nr_panouri // nr_stringuri); lățimea panoului se AUTO-AJUSTEAZĂ ca cele n
+    să încapă în zona orizontală (18/string la 11mm ar depăși -> se micșorează), aliniate tot la dreapta."""
+    zone_w = _PV_X1 - _PV_X0
+    pw = min(_PV_PANEL_W, (zone_w - (n - 1) * _PV_GAP) / n)   # auto-fit: <=14 raman 11mm; 18 se micsoreaza
+    total_w = n * pw + (n - 1) * _PV_GAP
     x0 = _PV_X1 - total_w                          # aliniate la dreapta, ca modelul
     draw_text(c, x0, y_top - 2.5, label, font=FONT_BOLD, size=8)
 
     bus_y = y_top + _PV_PANEL_H + 2.5              # bus-ul de serie sub panouri
     for i in range(n):
-        px = x0 + i * (_PV_PANEL_W + _PV_GAP)
+        px = x0 + i * (pw + _PV_GAP)
         # panou ALBASTRU cu grila de celule (3x3) — rama neagra, fill albastru, linii deschise
-        draw_rect(c, px, y_top, _PV_PANEL_W, _PV_PANEL_H, stroke_width=0.5, fill=_PANEL_FILL)
+        draw_rect(c, px, y_top, pw, _PV_PANEL_H, stroke_width=0.5, fill=_PANEL_FILL)
         for fx in (1.0 / 3.0, 2.0 / 3.0):
-            draw_line(c, px + _PV_PANEL_W * fx, y_top + 0.4, px + _PV_PANEL_W * fx,
+            draw_line(c, px + pw * fx, y_top + 0.4, px + pw * fx,
                       y_top + _PV_PANEL_H - 0.4, width=0.3, color=_PANEL_CELL)
         for fy in (1.0 / 3.0, 2.0 / 3.0):
-            draw_line(c, px + 0.4, y_top + _PV_PANEL_H * fy, px + _PV_PANEL_W - 0.4,
+            draw_line(c, px + 0.4, y_top + _PV_PANEL_H * fy, px + pw - 0.4,
                       y_top + _PV_PANEL_H * fy, width=0.3, color=_PANEL_CELL)
-        draw_line(c, px + _PV_PANEL_W / 2, y_top + _PV_PANEL_H, px + _PV_PANEL_W / 2, bus_y,
+        draw_line(c, px + pw / 2, y_top + _PV_PANEL_H, px + pw / 2, bus_y,
                   width=0.5, color=_BLACK)
     draw_line(c, x0, bus_y, x0 + total_w, bus_y, width=0.5, color=_BLACK)
 
@@ -176,10 +179,15 @@ def _draw_pv_string(c, y_top, label):
 
 
 def _draw_pv_field(c, pkg):
-    """Câmpul PV complet: 2 string-uri (MEREU 2 desenate), chenarul PE al ramelor, coborârea la
-    priza de pământ a câmpului (MYF + Rp<3Ω), eticheta cablului solar + blocul de text al pachetului."""
-    _draw_pv_string(c, _PV_S2_Y, "String 2")
-    _draw_pv_string(c, _PV_S1_Y, "String 1")
+    """Câmpul PV complet: 2 string-uri desenate, chenarul PE al ramelor, coborârea la priza de pământ
+    a câmpului (MYF + Rp<3Ω), eticheta cablului solar + blocul de text al pachetului.
+    BUG2 (2026-07-15): panouri per string = nr_panouri // nr_stringuri (10→9, 15→14, 20→18), nu mereu 14.
+    5 kW (nr_stringuri=1) e DEFERAT (cascadă T.CC + invertor -> pas separat): rămâne 2×14=28 ca să nu creăm
+    conexiuni „fantomă" în F2; textul pachetului zice deja „9 buc / 1 string"."""
+    ns = int(pkg.get("nr_stringuri") or 2)
+    per = int(pkg["nr_panouri"]) // ns if ns >= 2 else _PV_N_VIS   # 5 kW (ns=1): 14, neschimbat (deferat)
+    _draw_pv_string(c, _PV_S2_Y, "String 2", per)
+    _draw_pv_string(c, _PV_S1_Y, "String 1", per)
 
     # chenarul PE (verde) în jurul întregului câmp — ramele legate la pământ, ca modelul
     fx0, fy0 = _PV_X0 - 3.0, _PV_S2_Y - 7.0
