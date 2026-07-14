@@ -14,7 +14,7 @@ import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
-import type { HeatingEquipment } from "@/lib/heating-equipment";   // T3: echipamentele de incalzire auto-plasabile
+import { equipKey, isTechReceptorLabel, type HeatingEquipment } from "@/lib/heating-equipment";   // T3 + clasificare tech/extra pt. rubrici
 
 type PngMeta = {
   dpi?: number; scale?: number;
@@ -107,6 +107,16 @@ const isInternetType = (t: string) => t === "receptor_internet";     // Retea in
 // Regula 10: metadata receptorului termic din LABEL exact (radiator/VCV/distribuitor zona) sau null.
 function heatingReceptorDef(label: string | null | undefined) {
   return HEATING_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
+}
+// Clasificare receptor plasat -> rubrica „Camera tehnica" (tech) vs „Echipamente extra". DOAR pentru RANDARE
+// (sub ce rubrica apare in lista); zero efect pe handler-e/enrich. Radiator/VCV -> heatingReceptorDef;
+// boiler/pdc/pompa/bms/distribuitor/centrala -> isTechReceptorLabel; cuptor/AC/HRV/EV/internet -> extra;
+// custom/necunoscut -> Camera tehnica (default, coerent cu locul formularului „Adauga alimentare proprie").
+function isTechReceptor(el: PlanElement): boolean {
+  if (el.element_type === "receptor_internet") return false;
+  if (heatingReceptorDef(el.label)) return true;
+  if (equipKey(el.label)) return isTechReceptorLabel(el.label);
+  return true;
 }
 function receptorDefaultHeight(et: string, label: string): number {
   const h = heatingReceptorDef(label);
@@ -789,7 +799,7 @@ export default function PlanEditor({
   const [heqMsg, setHeqMsg] = useState<string | null>(null);
   // Bucata 3: "+ Adauga alimentare proprie" (custom) — receptor cu nume+putere+faza LIBERE, auto-plasat
   // langa TE-CT (ca echipamentele) -> room=camera tehnica (geometric) -> TE-CT; power_w onorat de enrich
-  // (_enrich_receptor). Stergerea = removeElement (existent); apare in lista receptoarelor (renderReceptorSection).
+  // (_enrich_receptor). Stergerea = removeElement (existent); apare in lista tech (renderCameraTehnicaSection).
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customW, setCustomW] = useState("");
@@ -1777,50 +1787,118 @@ export default function PlanEditor({
 
   // Receptoare (bucata A, PILOT): butoane de "alimentare" — 1 click pe plan plaseaza simbolul de
   // alimentare. Pilot = doar boilerul; restul receptoarelor se adauga identic (bucata C = gating pe bifate).
-  const renderReceptorSection = () => {
+  // ── RUBRICA „Camera tehnica" — echipamente incalzire (generare) + butoane tech (radiator/VCV/distribuitor/
+  // boiler) + lista receptoarelor tech + „Adauga alimentare proprie". Butoanele/lista = din renderReceptorSection
+  // vechi, filtrate tech; handler-ele (startPlaceReceptor/removeElement/generateHeatingEquipAuto/addCustomSupply)
+  // NEATINSE. Mereu vizibila in forta (formul custom e mereu disponibil). ──
+  const renderCameraTehnicaSection = () => {
     if (mode !== "forta") return null;
-    // H5/H6: butoanele apar STRICT dupa formular. Termice -> heating_distribution ; boiler -> heating_type
-    // (PDC/centrala cu boiler) ; AC/cuptor/HRV/EV/internet -> echipamentele bifate. Ascunse complet cand nu-s.
-    const eqButtons = visibleEquipmentReceptors({ heatingType, enabledEquipment });
-    const heatButtons = visibleHeatingReceptors(heatingDistribution);
-    const placedRecs = elements.filter(e => e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet");
-    const hasButtons = eqButtons.length > 0 || heatButtons.length > 0;
-    // H6: niciun buton vizibil SI niciun receptor plasat -> sectiunea nu apare deloc (fara titlu gol). Daca
-    // exista receptoare plasate (de tip acum ascuns), sectiunea RAMANE ca sa le poti edita/sterge (nu se sterg auto).
-    if (!hasButtons && placedRecs.length === 0) return null;
+    const heatButtons = visibleHeatingReceptors(heatingDistribution);   // Radiator/VCV/Distribuitor -> tech
+    const eqTech = visibleEquipmentReceptors({ heatingType, enabledEquipment }).filter(b => isTechReceptorLabel(b.label));   // boiler
+    const techRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && isTechReceptor(e));
+    const hasHeatEq = heatingEquipment.length > 0;
+    const placedH = new Set(elements.filter(e => e.element_type === "alimentare_receptor").map(e => (e.label || "").trim()));
     return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Alimentări receptoare
-        </div>
-        {placingReceptor ? (
-          <div style={{ paddingLeft: 2 }}>
+      <Rubrica title="Camera tehnică" hint="Echipamente de încălzire + alimentări proprii — intră în TE-CT (camera tehnică).">
+        {placingReceptor && (
+          <div style={{ paddingLeft: 2, marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
               Click pe plan unde plasezi <b>{placingReceptor.label}</b> · Esc anulează
             </div>
             <button type="button" className="zy-add-btn" onClick={() => setPlacingReceptor(null)}>Anulează</button>
           </div>
-        ) : hasButtons ? (
-          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            {/* H6: receptoare NON-termice — boiler din heating_type (PDC/centrala cu boiler); AC/cuptor/HRV/EV/
-                internet din echipamentele BIFATE. Label EXACT persistat (declanseaza logica backend). Fotovoltaice
-                excluse. Gating pe TIP: plasezi cate unitati vrei. Ascunse complet cand nu-s in formular. */}
-            {eqButtons.map(b => (
-              <button key={b.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(b.et, b.label)}>
-                {b.et === "receptor_internet" ? "+ Rețea internet" : ("+ Alimentare " + b.btnText)}
+        )}
+        {hasHeatEq && (
+          <div style={{ marginBottom: 10 }}>
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2, marginBottom: 8 }}>
+              <button type="button" className="zy-add-btn" onClick={generateHeatingEquipAuto} disabled={heqLoading}>
+                {heqLoading ? "Se plasează…" : "⚡ Generează echipamente încălzire"}
               </button>
+            </div>
+            {heqMsg && <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2, marginBottom: 6, lineHeight: 1.5 }}>{heqMsg}</div>}
+            <div style={{ paddingLeft: 2 }}>
+              {heatingEquipment.map(h => {
+                const okp = placedH.has(h.label);
+                return (
+                  <div key={h.label} style={{ fontSize: 11, color: okp ? "#3ECFA0" : "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ width: 12, textAlign: "center", flexShrink: 0 }}>{okp ? "✓" : "○"}</span>
+                    {h.label}
+                    <span style={{ color: "#3A3D50" }}>· h={h.mountHeight}m</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {(heatButtons.length > 0 || eqTech.length > 0) && (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            {eqTech.map(b => (
+              <button key={b.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(b.et, b.label)}>+ Alimentare {b.btnText}</button>
             ))}
-            {/* Regula 10 + H5: receptoare termice — dupa emisia (heating_distribution). Radiator/VCV se GRUPEAZA. */}
             {heatButtons.map(h => (
               <button key={h.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor("alimentare_receptor", h.label)}>+ {h.label}</button>
             ))}
           </div>
-        ) : null}
-        {/* LISTA receptoarelor plasate + Sterge. RAMANE vizibila chiar daca butonul tipului e ascuns
-            (H6: elementul plasat NU se sterge automat — editabil in inspector, stergibil manual de aici). */}
-        {placedRecs.length > 0 && (
+        )}
+        {techRecs.length > 0 && (
           <div style={{ marginTop: 8, paddingLeft: 2 }}>
-            {placedRecs.map((r) => (
+            {techRecs.map(r => (
+              <div key={r.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: COL_PRIZA, flexShrink: 0 }} />
+                {"Alimentare " + (r.label || "receptor")}
+                <button type="button" className="zy-add-btn" onClick={() => removeElement(r.id)}>Șterge</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ marginTop: 10, paddingLeft: 2 }}>
+          {!customOpen ? (
+            <button type="button" className="zy-add-btn" onClick={() => { setCustomMsg(null); setCustomOpen(true); }}>+ Adaugă alimentare proprie</button>
+          ) : (
+            <div>
+              <label style={fieldLabel}>Denumire</label>
+              <input type="text" className="zy-ed-field" style={inputStyle} placeholder="ex. Pompă piscină" value={customName} onChange={e => setCustomName(e.target.value)} />
+              <label style={fieldLabel}>Putere (W)</label>
+              <input type="number" min={1} className="zy-ed-field" style={inputStyle} placeholder="4000" value={customW} onChange={e => setCustomW(e.target.value)} />
+              <label style={fieldLabel}>Fază</label>
+              <select className="zy-ed-field" style={inputStyle} value={customPhase} onChange={e => setCustomPhase(e.target.value === "tri" ? "tri" : "mono")}>
+                <option value="mono">Monofazat (3 fire)</option>
+                <option value="tri">Trifazat (5 fire)</option>
+              </select>
+              <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+                <button type="button" className="zy-add-btn" onClick={() => void addCustomSupply()} disabled={customLoading}>
+                  {customLoading ? "Se adaugă…" : `Adaugă lângă ${hasTechRoom ? "TE-CT" : "TEG"}`}
+                </button>
+                <button type="button" className="zy-add-btn" onClick={() => { setCustomOpen(false); setCustomMsg(null); }}>Anulează</button>
+              </div>
+            </div>
+          )}
+          {customMsg && <div style={{ fontSize: 11, color: "#F0A868", marginTop: 8, lineHeight: 1.5 }}>{customMsg}</div>}
+        </div>
+      </Rubrica>
+    );
+  };
+
+  // ── RUBRICA „Echipamente extra" — receptoarele NON-tech (AC/cuptor/HRV/EV/internet): butoane + lista. ──
+  const renderEchipamenteExtraSection = () => {
+    if (mode !== "forta") return null;
+    const eqExtra = visibleEquipmentReceptors({ heatingType, enabledEquipment }).filter(b => !isTechReceptorLabel(b.label));   // cuptor/AC/HRV/EV/internet
+    const extraRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && !isTechReceptor(e));
+    if (eqExtra.length === 0 && extraRecs.length === 0) return null;   // empty-state (nimic extra) -> nu apare
+    return (
+      <Rubrica title="Echipamente extra" hint="Aer condiționat, cuptor, ventilație, încărcare auto, internet.">
+        {eqExtra.length > 0 && (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            {eqExtra.map(b => (
+              <button key={b.label} type="button" className="zy-add-btn" onClick={() => startPlaceReceptor(b.et, b.label)}>
+                {b.et === "receptor_internet" ? "+ Rețea internet" : ("+ Alimentare " + b.btnText)}
+              </button>
+            ))}
+          </div>
+        )}
+        {extraRecs.length > 0 && (
+          <div style={{ marginTop: 8, paddingLeft: 2 }}>
+            {extraRecs.map(r => (
               <div key={r.id} style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: r.element_type === "receptor_internet" ? NET_EDGE : COL_PRIZA, flexShrink: 0 }} />
                 {r.element_type === "receptor_internet" ? "Rețea internet" : ("Alimentare " + (r.label || "receptor"))}
@@ -1829,7 +1907,7 @@ export default function PlanEditor({
             ))}
           </div>
         )}
-      </div>
+      </Rubrica>
     );
   };
 
@@ -1889,81 +1967,6 @@ export default function PlanEditor({
     );
   };
 
-  const renderHeatingEquipSection = () => {
-    if (mode !== "forta" || heatingEquipment.length === 0) return null;
-    const placed = new Set(elements.filter(e => e.element_type === "alimentare_receptor")
-                                   .map(e => (e.label || "").trim()));
-    return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Echipamente încălzire
-        </div>
-        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2, marginBottom: 8 }}>
-          <button type="button" className="zy-add-btn" onClick={generateHeatingEquipAuto} disabled={heqLoading}>
-            {heqLoading ? "Se plasează…" : "⚡ Generează echipamente încălzire"}
-          </button>
-        </div>
-        {heqMsg && (
-          <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2, marginBottom: 6, lineHeight: 1.5 }}>{heqMsg}</div>
-        )}
-        <div style={{ paddingLeft: 2 }}>
-          {heatingEquipment.map(h => {
-            const ok = placed.has(h.label);
-            return (
-              <div key={h.label} style={{ fontSize: 11, color: ok ? "#3ECFA0" : "#545870",
-                display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <span style={{ width: 12, textAlign: "center", flexShrink: 0 }}>{ok ? "✓" : "○"}</span>
-                {h.label}
-                <span style={{ color: "#3A3D50" }}>· h={h.mountHeight}m</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // Bucata 3: form "+ Adauga alimentare proprie" — receptor custom (nume+putere+mono/tri) auto-plasat langa TE-CT.
-  const renderCustomSupplySection = () => {
-    if (mode !== "forta") return null;
-    return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Alimentare proprie
-        </div>
-        {!customOpen ? (
-          <div style={{ paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={() => { setCustomMsg(null); setCustomOpen(true); }}>
-              + Adaugă alimentare proprie
-            </button>
-          </div>
-        ) : (
-          <div style={{ paddingLeft: 2 }}>
-            <label style={fieldLabel}>Denumire</label>
-            <input type="text" className="zy-ed-field" style={inputStyle} placeholder="ex. Pompă piscină"
-              value={customName} onChange={e => setCustomName(e.target.value)} />
-            <label style={fieldLabel}>Putere (W)</label>
-            <input type="number" min={1} className="zy-ed-field" style={inputStyle} placeholder="4000"
-              value={customW} onChange={e => setCustomW(e.target.value)} />
-            <label style={fieldLabel}>Fază</label>
-            <select className="zy-ed-field" style={inputStyle} value={customPhase}
-              onChange={e => setCustomPhase(e.target.value === "tri" ? "tri" : "mono")}>
-              <option value="mono">Monofazat (3 fire)</option>
-              <option value="tri">Trifazat (5 fire)</option>
-            </select>
-            <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
-              <button type="button" className="zy-add-btn" onClick={() => void addCustomSupply()} disabled={customLoading}>
-                {customLoading ? "Se adaugă…" : `Adaugă lângă ${hasTechRoom ? "TE-CT" : "TEG"}`}
-              </button>
-              <button type="button" className="zy-add-btn" onClick={() => { setCustomOpen(false); setCustomMsg(null); }}>Anulează</button>
-            </div>
-          </div>
-        )}
-        {customMsg && <div style={{ fontSize: 11, color: "#F0A868", marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{customMsg}</div>}
-      </div>
-    );
-  };
-
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -2000,9 +2003,8 @@ export default function PlanEditor({
           {renderLegendSection()}
           {renderTraseuSection()}
           {renderGroundingSection()}
-          {renderReceptorSection()}
-          {renderHeatingEquipSection()}
-          {renderCustomSupplySection()}
+          {renderCameraTehnicaSection()}
+          {renderEchipamenteExtraSection()}
           {renderFvPanelsSection()}
         </div>
 

@@ -46,6 +46,15 @@ export function equipKey(label: string | null | undefined): string | null {
   return null;
 }
 
+// Clasificare TECH (camera tehnica) vs EXTRA pentru RANDAREA rubricilor din editorul de forta: un label e
+// "tech" daca cheia lui de echipament e o cheie de INCALZIRE (in HEATING_HEIGHTS) — boiler/pdc/pompa/bms/
+// distribuitor/centrala. Radiator/VCV au equipKey=null -> se clasifica separat in FE prin heatingReceptorDef
+// (HEATING_RECEPTOR_TYPES). PURA: doar clasificare de afisare, fara efect pe circuite/enrich/handler-e.
+export function isTechReceptorLabel(label: string | null | undefined): boolean {
+  const k = equipKey(label);
+  return !!k && k in HEATING_HEIGHTS;
+}
+
 export function heatingEquipmentFromCircuits(circuits: DedicatCircuit[] | null | undefined): HeatingEquipment[] {
   const out: HeatingEquipment[] = [];
   const seen = new Set<string>();
