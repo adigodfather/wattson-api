@@ -8,7 +8,7 @@ import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
-  plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName,
+  plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName, schemaTipFor,
   defaultTechRoom,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
@@ -1812,9 +1812,20 @@ export function ZynapseConfigurator() {
         return;
       }
       // Merge documentele proaspete in result + persista result_data + finalized=true (o singura scriere).
+      // F2: clona finalize NU produce schema FV -> pastreaz-o din generare (result.schemas); inainte,
+      // "data.schemas ?? result.schemas" o suprascria (FV pierdut din DB). Guard si pe array GOL
+      // (finalize fara scheme -> pastreaza TOT setul vechi, nu sterge documentele bune). Anti-dublare:
+      // daca finalize va produce candva FV (F2-v2), n-o adaugam a doua oara. FV ramane ULTIMA (ordinea
+      // canonica) -> pdf_path-ul ei (schema_tablou_2) nu se ciocneste cu upload-urile fresh (_0/_1).
+      const isFvSchema = (s: { name?: string | null; description?: string | null; filename?: string | null }) =>
+        schemaTipFor(s) === "schema_fv";
+      const freshSchemas: NonNullable<ProjectResult["schemas"]> | null =
+        Array.isArray(data.schemas) && data.schemas.length > 0 ? data.schemas : null;
+      const keptFv = freshSchemas && !freshSchemas.some(isFvSchema)
+        ? (result.schemas ?? []).filter(isFvSchema) : [];
       const updated: ProjectResult = {
         ...result,
-        schemas: data.schemas ?? result.schemas,
+        schemas: freshSchemas ? [...freshSchemas, ...keptFv] : result.schemas,
         schema_monofilara_pdf: data.schema_monofilara_pdf ?? result.schema_monofilara_pdf,
         memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
         bom: data.bom ?? result.bom,
@@ -1826,6 +1837,22 @@ export function ZynapseConfigurator() {
         circuits_all: data.circuits_all ?? result.circuits_all,
         circuits_source: data.circuits_source ?? result.circuits_source,
       };
+      // F2: re-stampilare JSON pe FV-ul pastrat — numarul FINAL din mirror (schema_fv = ULTIMA IE,
+      // ex. IE.7 pe P+M). Pixelii cartusului AU deja numarul corect (pn la generare); JSON-ul purta
+      // fallback-ul vechi (ex. IE.3). Elemente COPIATE (fara mutatie pe result).
+      if (keptFv.length > 0 && updated.schemas?.length) {
+        const fvNr = plansaNumberingFromResult(updated).find(e => e.tip === "schema_fv")?.nr;
+        if (fvNr) updated.schemas = updated.schemas.map(s => (isFvSchema(s) ? { ...s, plansa_nr: fvNr } : s));
+        // F2 v1: pachet FV schimbat in editor -> doar semnalam (regenerarea reala = F2-v2, cu F1).
+        try {
+          const circs = (data.circuits ?? result.circuits ?? []) as Array<{ description?: string; power_w?: number }>;
+          const fvCirc = circs.find(c => /fotovoltaic/i.test(String(c?.description || "")));
+          const kwSchema = Number((String(keptFv[0]?.description || "").match(/(\d+(?:[.,]\d+)?)\s*kW/i) || [])[1]?.replace(",", "."));
+          const kwPlan = fvCirc ? Number(fvCirc.power_w) / 1000 : NaN;
+          if (Number.isFinite(kwSchema) && Number.isFinite(kwPlan) && snapFvPackage(kwPlan) !== kwSchema)
+            console.warn(`[finalize] Pachetul FV din editor (~${snapFvPackage(kwPlan)} kW) difera de schema FV pastrata (${kwSchema} kW) — regenereaza proiectul pentru schema FV actualizata.`);
+        } catch { /* doar diagnostic */ }
+      }
       const supabase = createClient();
       // ETAPA 1 Storage (fix 03.07): memoriul PROASPAT de la finalize -> Storage pe ACELASI path
       // (upsert suprascrie versiunea de la generare), base64 STERS din result_data -> volumul nu
