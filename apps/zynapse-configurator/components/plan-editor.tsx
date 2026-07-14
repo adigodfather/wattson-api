@@ -1700,39 +1700,31 @@ export default function PlanEditor({
     </div>
   );
 
-  // secțiunea Legendă plan (sub Tablouri): un singur element "legenda" draggable, mutabil în editor.
+  // Legenda (parte din rubrica „Plan / desen"): un singur element "legenda" draggable, mutabil în editor.
   // Caseta-placeholder aici; conținutul (simboluri + text) se desenează pe PDF la "Obține plan" (L3).
+  // Titlul uppercase intern a fost scos (heading-ul rubricii îl acoperă) — conținut/handler NEATINSE.
   const renderLegendSection = () => {
     const existing = elements.find(e => e.element_type === "legenda") || null;
-    return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Legendă plan
-        </div>
-        {existing ? (
-          <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
-            Casetă adăugată — trage-o pe plan unde vrei.
-            <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
-          </div>
-        ) : (
-          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={addLegend}>+ Adaugă legendă</button>
-          </div>
-        )}
+    return existing ? (
+      <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
+        Casetă adăugată — trage-o pe plan unde vrei.
+        <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
+      </div>
+    ) : (
+      <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+        <button type="button" className="zy-add-btn" onClick={addLegend}>+ Adaugă legendă</button>
       </div>
     );
   };
 
-  // secțiunea Traseu cabluri (hol): o dungă (linie 2 capete) draggable pe care, la B2, vor merge cablurile.
-  // B1: doar dunga vizibilă/mutabilă; fără routing încă.
+  // Traseu cabluri (hol) (parte din rubrica „Plan / desen"): o dungă (linie 2 capete) draggable pe care, la B2,
+  // vor merge cablurile. B1: doar dunga vizibilă/mutabilă; fără routing încă. Titlul uppercase intern scos
+  // (heading-ul rubricii îl acoperă); marginTop dă spațiul față de legendă — conținut/handler NEATINSE.
   const renderTraseuSection = () => {
     const traseuri = elements.filter(e => e.element_type === "traseu");
     const hasPrincipal = traseuri.some(t => t.label !== "secundar");   // fara label = principal
     return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Trasee cabluri (hol)
-        </div>
+      <div style={{ marginTop: 8 }}>
         <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
           <button type="button" className="zy-add-btn" onClick={() => addTraseu("principal")} disabled={hasPrincipal}>+ Traseu principal</button>
           <button type="button" className="zy-add-btn" onClick={() => addTraseu("secundar")}>+ Traseu secundar</button>
@@ -1754,6 +1746,17 @@ export default function PlanEditor({
       </div>
     );
   };
+
+  // Rubrica „Plan / desen" (JOS, ultima) — înfășoară legenda + traseele într-un singur <Rubrica> (uneltele de
+  // desen sunt secundare, stau sub celelalte rubrici). renderLegendSection/renderTraseuSection + handler-ele
+  // (addLegend/addTraseu/removeElement) NEATINSE; se schimbă doar wrapper-ul + poziția. Fără mod-gate (ca înainte:
+  // legenda + traseele apar în ambele moduri — iluminat + forța).
+  const renderPlanDesenSection = () => (
+    <Rubrica title="Plan / desen" hint="Legendă și trasee de cabluri, desenate pe plan.">
+      {renderLegendSection()}
+      {renderTraseuSection()}
+    </Rubrica>
+  );
 
   // Faza 3: sectiunea priza de pamant (fundatie) — buton de desenare, DOAR plan forta + parter.
   const renderGroundingSection = () => {
@@ -2000,12 +2003,11 @@ export default function PlanEditor({
           {roomKeys.map(renderRoom)}
           {mode === "iluminat" && renderPanelsSection()}
           {mode === "forta" && renderPrizaSection()}
-          {renderLegendSection()}
-          {renderTraseuSection()}
           {renderGroundingSection()}
           {renderCameraTehnicaSection()}
           {renderEchipamenteExtraSection()}
           {renderFvPanelsSection()}
+          {renderPlanDesenSection()}
         </div>
 
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
