@@ -767,6 +767,15 @@ export default function PlanEditor({
   // desenul B1 ruteaza dupa label (clasa 1 -> TE-CT daca tabloul exista, altfel TEG). ──
   const [heqLoading, setHeqLoading] = useState(false);
   const [heqMsg, setHeqMsg] = useState<string | null>(null);
+  // Bucata 3: "+ Adauga alimentare proprie" (custom) — receptor cu nume+putere+faza LIBERE, auto-plasat
+  // langa TE-CT (ca echipamentele) -> room=camera tehnica (geometric) -> TE-CT; power_w onorat de enrich
+  // (_enrich_receptor). Stergerea = removeElement (existent); apare in lista receptoarelor (renderReceptorSection).
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customW, setCustomW] = useState("");
+  const [customPhase, setCustomPhase] = useState<"mono" | "tri">("mono");
+  const [customLoading, setCustomLoading] = useState(false);
+  const [customMsg, setCustomMsg] = useState<string | null>(null);
 
   // ── FV-B1: "Pozitioneaza T.CC + INV + T.CA" — cele 3 tablouri FV ca BLOC ADIACENT la FORTA
   // (plan_type="forta" -> NU apar pe iluminat), parter, langa TEG (fallback centru), pas 20pt
@@ -838,6 +847,38 @@ export default function PlanEditor({
       setHeqMsg(`S-au plasat ${data.length} echipamente lângă ${hasTechRoom ? "TE-CT" : "TEG"}.`);
     } finally {
       setHeqLoading(false);
+    }
+  }
+
+  // Bucata 3: ADAUGA ALIMENTARE PROPRIE (custom) — INSERT alimentare_receptor cu label/power_w/phase din
+  // form, auto-plasat langa tabloul TE-CT (poziționarea din generateHeatingEquipAuto). room=null -> se pune
+  // geometric la regenerare (camera tehnica) -> TE-CT. power_w onorat de _enrich_receptor (dimensionare corecta).
+  async function addCustomSupply() {
+    if (mode !== "forta" || customLoading) return;
+    const name = customName.trim();
+    const w = parseInt(customW, 10);
+    if (!name) { setCustomMsg("Completează un nume."); return; }
+    if (!(Number.isFinite(w) && w > 0)) { setCustomMsg("Completează puterea (W, mai mare ca 0)."); return; }
+    const destType = hasTechRoom ? "tablou_te_ct" : "tablou_teg";
+    const tab = elements.find(e => e.element_type === destType);
+    if (!tab) { setCustomMsg(`Plasează întâi tabloul ${hasTechRoom ? "TE-CT (camera tehnică)" : "TEG"} pe plan.`); return; }
+    setCustomLoading(true); setCustomMsg(null);
+    try {
+      const n = elements.filter(e => e.element_type === "alimentare_receptor").length;   // offset grid, ca la echipamente
+      const row = {
+        project_id: projectId, floor: floorCanonic(floor), element_type: "alimentare_receptor",
+        plan_type: "forta", label: name, room: null as string | null,
+        x: tab.x + 35 + Math.floor(n / 4) * 30, y: tab.y + (n % 4) * 28 - 42,
+        wall_mounted: false, rotation: 0, phase: customPhase, power_w: w, mount_height_m: 0.5,
+        status: null as string | null,
+      };
+      const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+      if (error || !data) { setCustomMsg("Adăugarea a eșuat: " + (error?.message || "necunoscut")); return; }
+      setElements(prev => [...prev, data as PlanElement]);
+      setCustomName(""); setCustomW(""); setCustomPhase("mono"); setCustomOpen(false);
+      setSelectedId((data as PlanElement).id);
+    } finally {
+      setCustomLoading(false);
     }
   }
 
@@ -1865,6 +1906,47 @@ export default function PlanEditor({
     );
   };
 
+  // Bucata 3: form "+ Adauga alimentare proprie" — receptor custom (nume+putere+mono/tri) auto-plasat langa TE-CT.
+  const renderCustomSupplySection = () => {
+    if (mode !== "forta") return null;
+    return (
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
+          Alimentare proprie
+        </div>
+        {!customOpen ? (
+          <div style={{ paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={() => { setCustomMsg(null); setCustomOpen(true); }}>
+              + Adaugă alimentare proprie
+            </button>
+          </div>
+        ) : (
+          <div style={{ paddingLeft: 2 }}>
+            <label style={fieldLabel}>Denumire</label>
+            <input type="text" className="zy-ed-field" style={inputStyle} placeholder="ex. Pompă piscină"
+              value={customName} onChange={e => setCustomName(e.target.value)} />
+            <label style={fieldLabel}>Putere (W)</label>
+            <input type="number" min={1} className="zy-ed-field" style={inputStyle} placeholder="4000"
+              value={customW} onChange={e => setCustomW(e.target.value)} />
+            <label style={fieldLabel}>Fază</label>
+            <select className="zy-ed-field" style={inputStyle} value={customPhase}
+              onChange={e => setCustomPhase(e.target.value === "tri" ? "tri" : "mono")}>
+              <option value="mono">Monofazat (3 fire)</option>
+              <option value="tri">Trifazat (5 fire)</option>
+            </select>
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="zy-add-btn" onClick={() => void addCustomSupply()} disabled={customLoading}>
+                {customLoading ? "Se adaugă…" : `Adaugă lângă ${hasTechRoom ? "TE-CT" : "TEG"}`}
+              </button>
+              <button type="button" className="zy-add-btn" onClick={() => { setCustomOpen(false); setCustomMsg(null); }}>Anulează</button>
+            </div>
+          </div>
+        )}
+        {customMsg && <div style={{ fontSize: 11, color: "#F0A868", marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{customMsg}</div>}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
@@ -1903,6 +1985,7 @@ export default function PlanEditor({
           {renderGroundingSection()}
           {renderReceptorSection()}
           {renderHeatingEquipSection()}
+          {renderCustomSupplySection()}
           {renderFvPanelsSection()}
         </div>
 
