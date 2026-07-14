@@ -214,7 +214,17 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False):
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
     is_mono (bransament MONOFAZAT): forteaza mono — nu exista receptor trifazat pe o singura faza."""
     is_net = (el.get("element_type") or "") == "receptor_internet"
-    power_w, tip, ph, src = receptor_power(el.get("label"), form)
+    # ALIMENTARE PROPRIE (custom): daca elementul are power_w explicit (>0) -> onoram puterea + faza LUI
+    # (nume liber -> receptor_power ar da 0W "tip necunoscut"). Altfel = comportamentul VECHI (label cunoscut
+    # -> formular/default UI). Receptoarele din catalog se plaseaza cu power_w=null -> cad pe else = IDENTIC azi.
+    try:
+        _own_w = int(el.get("power_w"))
+    except (TypeError, ValueError):
+        _own_w = 0
+    if _own_w > 0:
+        power_w, tip, ph, src = _own_w, receptor_type_of(el.get("label")), (el.get("phase") or "mono"), "element"
+    else:
+        power_w, tip, ph, src = receptor_power(el.get("label"), form)
     if is_net:                                            # alimentare router/switch/rack = 150W (decizia Dan),
         power_w, tip, src = _NET_RECEPTOR_W, "internet", "default UI"   # NU 0 (era 'date low-voltage')
     tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
@@ -230,7 +240,8 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False):
         "description": desc,
         "is_bathroom": False, "is_exterior": False, "breaker_type": bt,
         "pi_normalized": False, "ia_calculated_a": ia,
-        "normalize_reason": ("Putere din formular" if src == "formular" else
+        "normalize_reason": ("Putere din element (alimentare proprie)" if src == "element" else
+                             "Putere din formular" if src == "formular" else
                              "Putere default UI (%s)" % tip if src == "default UI" else "Tip receptor necunoscut"),
         "name": cid, "_receptor_src": src,
     }
