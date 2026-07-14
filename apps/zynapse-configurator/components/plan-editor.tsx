@@ -1618,17 +1618,14 @@ export default function PlanEditor({
           camera, mai sus) si tipul (simpla/dubla/alimentare/IP44) se schimba cu click pe priza -> dropdown
           "Tip", exact ca la iluminat. */}
       <div style={{ fontSize: 11, color: "#545870", lineHeight: 1.5, paddingLeft: 2, marginBottom: 2 }}>
-        Adaugă prize cu <span style={{ color: "#8B8FA8" }}>„+ Priză"</span> în fiecare cameră (mai sus),
-        apoi schimbă-le tipul cu click pe priză. Sau generează-le automat:
+        Prizele se generează <b style={{ color: "#8B8FA8", fontWeight: 600 }}>automat</b> la intrarea pe forță.
+        Adaugă manual cu <span style={{ color: "#8B8FA8" }}>„+ Priză"</span> în fiecare cameră (mai sus),
+        apoi schimbă-le tipul cu click pe priză.
       </div>
-      {/* R2: auto-repartizare prize pe regulile Dan (per tip camera) — idempotent.
-          CTA proeminent (zy-gen-prize, stilul zy-getplan): actiunea PRINCIPALA a fazei de forta. */}
-      <div style={{ marginTop: 10, paddingLeft: 2 }}>
-        <button type="button" className="zy-gen-prize" onClick={generatePrizasAuto} disabled={genLoading}>
-          {genLoading ? "Se generează…" : "⚡ Generează prize automat"}
-        </button>
-        {genMsg && <div style={{ fontSize: 11.5, color: "#5BB8F5", marginTop: 6 }}>{genMsg}</div>}
-      </div>
+      {/* R2: auto-repartizare prize pe regulile Dan (per tip camera) — idempotent, rulează AUTOMAT la
+          intrarea pe forța (useEffect de mai sus, generatePrizasAuto). Butonul manual a fost SCOS (prizele
+          fiind automate); genMsg rămâne = feedback-ul auto-generării. */}
+      {genMsg && <div style={{ fontSize: 11.5, color: "#5BB8F5", marginTop: 8, paddingLeft: 2 }}>{genMsg}</div>}
     </div>
   );
 
