@@ -202,6 +202,10 @@ def _enrich_group(c, els, panel, floor_idx):
     return {
         "id": c["id"], "fasa": None, "room": room, "type": ctype, "floor": floor_idx,
         "panel": panel_out, "pozare": pozare_for(sec), "outlets": outlets, "power_w": power_w,
+        # BUG1: nr. corpuri de iluminat -> "N LL" in schema. Maparea n8n (Pregatire Schema TEG/TES) citeste
+        # cantitate = ... || outlets || lighting_points || 1; iluminatul are outlets=0 -> avea nevoie de acest
+        # camp (altfel cadea pe 1). power_w ramane suma reala. Prize: 0 (numarul lor vine din outlets).
+        "lighting_points": len(idxs) if kind == "iluminat" else 0,
         "breaker_a": breaker_a, "room_type": zone, "cable_type": cbl, "description": desc,
         "is_bathroom": bool(rccb), "is_exterior": bool(is_ext), "breaker_type": bt,
         "pi_normalized": pi_norm, "ia_calculated_a": ia, "normalize_reason": reason,
