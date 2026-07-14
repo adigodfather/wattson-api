@@ -1844,10 +1844,7 @@ export default function PlanEditor({
     if (mode !== "forta" || !hasFv || floorCanonic(floor) !== "parter") return null;
     const placedCount = FV_PANEL_TYPES.filter(t => elements.some(e => e.element_type === t)).length;
     return (
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8B8FA8", marginBottom: 8, paddingLeft: 2 }}>
-          Tablouri fotovoltaice
-        </div>
+      <Rubrica title="Sistem fotovoltaic" hint="Tablourile (T.CC/INV/T.CA) + traseul se conectează la TEG — doar pe parter.">
         <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2, marginBottom: 8 }}>
           <button type="button" className="zy-add-btn" onClick={positionFvPanelsAuto} disabled={fvpLoading}>
             {fvpLoading ? "Se poziționează…" : "⚡ Poziționează T.CC + INV + T.CA"}
@@ -1888,7 +1885,7 @@ export default function PlanEditor({
             </div>
           );
         })()}
-      </div>
+      </Rubrica>
     );
   };
 
