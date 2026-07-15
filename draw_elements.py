@@ -2182,15 +2182,24 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     for room, rb in bulbs_by_room.items():
         senzori = [b for b in rb if b["et"] == "aplica_senzor"]
         normale = [b for b in rb if b["et"] != "aplica_senzor"]
-        for b in senzori:                  # senzor -> tabloul general al plansei (TEG / TES pe etaj)
-            if lum_panel_xy:
-                add("aplica_senzor", (b["x"], b["y"]), lum_panel_type, lum_panel_xy, "senzor_teg", room, via_stripe=True)
-                stats["senzor_teg"] += 1
-            else:
-                stats["skip_tablou_lipsa"] += 1
+        rsw = sw_by_room.get(room, [])
+        # R2 (Dan): senzorul intr-o camera CU intrerupator devine COMUTABIL -> se leaga la INTRERUPATOR
+        # (bec->intrerupator->tablou, faza taiata inainte de bec), tratat exact ca un bec normal mai jos.
+        # FARA intrerupator in camera -> SP direct la tablou (senzor autonom, comportamentul vechi).
+        # Eticheta "SP" ramane oricum (corpul ARE senzor fizic; intrerupatorul doar da/taie alimentarea)
+        # -> _bulb_label NEATINSA. (R4 dovedit inexistent: becurile normale nu scurtcircuiteaza la tablou;
+        #  singurul bec->tablou era senzorul necondi­tionat de aici.)
+        if rsw:
+            normale = normale + senzori    # senzorii intra in logica bec->intrerupator de mai jos
+        else:
+            for b in senzori:              # senzor autonom -> tabloul general al plansei (SP direct, ca inainte)
+                if lum_panel_xy:
+                    add("aplica_senzor", (b["x"], b["y"]), lum_panel_type, lum_panel_xy, "senzor_teg", room, via_stripe=True)
+                    stats["senzor_teg"] += 1
+                else:
+                    stats["skip_tablou_lipsa"] += 1
         if not normale:
             continue
-        rsw = sw_by_room.get(room, [])
         if not rsw:                        # bec non-senzor fara intrerupator -> skip v1
             stats["skip_bec_fara_sw"] += len(normale)
             continue
