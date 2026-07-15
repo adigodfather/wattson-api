@@ -30,7 +30,7 @@ from schema_generator import (
 # PACHETELE FV (tabelul Dan, 2026-07) — valorile VARIABILE per pachet.
 # =============================================================================
 FV_PACKAGES = {
-    5:  {"nr_panouri": 9,  "pi_kw": 4.95,  "nr_stringuri": 1, "invertor_cc_kw": 5,  "invertor_ca_kw": 5,
+    5:  {"nr_panouri": 9,  "pi_kw": 4.95,  "nr_stringuri": 2, "invertor_cc_kw": 5,  "invertor_ca_kw": 5,
          "nr_mppt": 1, "cablu_solar": "2x (1x 6)", "brk_dc_1p": "1x 1P\n1000V\n16A", "brk_dc_2p": "1x 2P\n1000V\n20A",
          "cyy_f": "CYY-F 5x 4", "comutator_ac": "C16 A", "racord_teg": "B32 A", "cyaby": "CYABY 5x 6", "tub": "PVC DN 32"},
     10: {"nr_panouri": 18, "pi_kw": 9.90,  "nr_stringuri": 2, "invertor_cc_kw": 10, "invertor_ca_kw": 10,
@@ -181,13 +181,13 @@ def _draw_pv_string(c, y_top, label, n=_PV_N_VIS):
 def _draw_pv_field(c, pkg):
     """Câmpul PV complet: 2 string-uri desenate, chenarul PE al ramelor, coborârea la priza de pământ
     a câmpului (MYF + Rp<3Ω), eticheta cablului solar + blocul de text al pachetului.
-    BUG2 (2026-07-15): panouri per string = nr_panouri // nr_stringuri (10→9, 15→14, 20→18), nu mereu 14.
-    5 kW (nr_stringuri=1) e DEFERAT (cascadă T.CC + invertor -> pas separat): rămâne 2×14=28 ca să nu creăm
-    conexiuni „fantomă" în F2; textul pachetului zice deja „9 buc / 1 string"."""
+    BUG2 (2026-07-15): panouri per string = nr_panouri // nr_stringuri, cu RESTUL pe String 1 (jos) când nu
+    se împarte exact — 5 kW: 9 = 5(S1) + 4(S2), niciun panou pierdut; 10/15/20 (rest=0): egale (9+9, 14+14,
+    18+18). Ambele string-uri REALE -> F2 (T.CC + invertor, 2 perechi DC) rămâne valid, neatins."""
     ns = int(pkg.get("nr_stringuri") or 2)
-    per = int(pkg["nr_panouri"]) // ns if ns >= 2 else _PV_N_VIS   # 5 kW (ns=1): 14, neschimbat (deferat)
-    _draw_pv_string(c, _PV_S2_Y, "String 2", per)
-    _draw_pv_string(c, _PV_S1_Y, "String 1", per)
+    per, rest = divmod(int(pkg["nr_panouri"]), ns)         # 5 kW: 4,1 ; 10/15/20: per,0
+    _draw_pv_string(c, _PV_S2_Y, "String 2", per)          # sus: baza (5 kW -> 4)
+    _draw_pv_string(c, _PV_S1_Y, "String 1", per + rest)   # jos: baza + rest (5 kW -> 5; niciun panou pierdut)
 
     # chenarul PE (verde) în jurul întregului câmp — ramele legate la pământ, ca modelul
     fx0, fy0 = _PV_X0 - 3.0, _PV_S2_Y - 7.0
