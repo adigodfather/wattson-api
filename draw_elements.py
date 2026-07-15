@@ -1646,6 +1646,28 @@ def _stripe_parallel(grp, spts, cap=_BUNDLE_CAP, gap=_BUNDLE_GAP):
     return out
 
 
+# ── FV-B2 (separare pe hol): lantul FV desenat MANUAL se separa de traseele existente ca la coloana —
+# portiunea de HOL (varfuri DEPARTE de orice tablou) se muta lateral (banda PARALELA, nu suprapusa),
+# iar varfurile ANCORATE (langa un tablou FV/TEG) raman FIXE -> conexiunile T.CC/INV/T.CA/TEG nu se rup.
+# Reutilizeaza _offset_polyline (aceeasi matematica de manunchi ca prizele/coloana). ──
+_FV_STRIPE_OFFSET = 8.0   # deplasare laterala (pt) a portiunii de hol — banda paralela cu traseele (tunabil)
+_FV_ANCHOR_R = 14.0       # raza (pt) in jurul unui tablou FV/TEG in care un varf e considerat ANCORAT (fix)
+
+
+def _fv_separate(pts, anchors, offset=_FV_STRIPE_OFFSET):
+    """Separa lantul FV de traseele holului: varfurile de pe HOL se deplaseaza lateral cu `offset`
+    (banda PARALELA), iar varfurile ANCORATE (<=_FV_ANCHOR_R de un tablou FV/TEG) raman FIXE -> lantul
+    ramane conectat la T.CC/INV/T.CA/TEG. Reutilizeaza _offset_polyline. <3 puncte / offset ~0 / fara
+    ancore -> neschimbat (fatada libera ramane exact cum a desenat-o inginerul)."""
+    n = len(pts)
+    if n < 3 or abs(offset) < 1e-6 or not anchors:
+        return list(pts)
+    def _anchored(p):
+        return any(math.hypot(p[0] - a[0], p[1] - a[1]) <= _FV_ANCHOR_R for a in anchors)
+    shifted = _offset_polyline(pts, offset)
+    return [pts[i] if _anchored(pts[i]) else shifted[i] for i in range(n)]
+
+
 _HEATING_KW = ("boiler", "pdc", "pompa", "bms", "automatizare", "distribuitor", "aer-apa", "sol-apa",
                "centrala")   # T3: "centrala electrica/pe gaz/termica" = clasa 1 (era doar "centrala termic")
 
@@ -1888,9 +1910,9 @@ def _draw_legend(page, x, y, rows):
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_ccol, width=2.2)
         elif kind == "fv_link":
-            # FV-P3: lantul fotovoltaic — liniute subtiri INTRERUPTE galbene (ca pe plan)
-            _draw_cable(page, [(x + PAD + 3.0, cy), (x + PAD + SYM_W - 3.0, cy)],
-                        color=_FV_LINK_COLOR, width=1.2)
+            # FV-B1: lantul fotovoltaic — linie SOLIDA groasa galbena (ca pe plan, stilul coloanei TE-CT)
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_FV_LINK_COLOR, width=2.2)
         elif kind == "ground":
             # PLATBANDA prizei de pamant — linie GROASA CONTINUA portocalie (exact stilul de pe plan)
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
@@ -2519,6 +2541,13 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     # excluderea din BOM (whitelist-ul nu-l contine) si glyph-ul legendei. FARA element
     # desenat -> FARA lant (rutarea automata veche, linii drepte intre tablouri, ELIMINATA
     # — taia drept prin camere; inginerul decide traseul: fatada exterior / prin TE-CT).
+    _fv_anchors = []                                  # tablourile FV + TEG: varfurile lantului langa ele NU se muta (B2)
+    for _e in (elements or []):
+        if ((_e or {}).get("element_type") or "") in ("tablou_tcc", "tablou_inv", "tablou_tca", "tablou_teg"):
+            try:
+                _fv_anchors.append((float(_e["x"]), float(_e["y"])))
+            except (TypeError, ValueError, KeyError):
+                pass
     for _el in (elements or []):
         if ((_el or {}).get("element_type") or "") != "fv_chain_path":
             continue
@@ -2529,6 +2558,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             _pts = [(float(p[0]), float(p[1])) for p in _cp]
         except (TypeError, ValueError, IndexError):
             continue
+        # B2: separa portiunea de HOL de traseele existente (banda paralela); ancorele (tablouri/TEG) raman fixe
+        _pts = _fv_separate(_pts, _fv_anchors)
         add("fv_chain_path", _pts[0], "fv_chain_path", _pts[-1], "fv_link", None,
             count=1, path=_pts)
         stats["fv_link"] = stats.get("fv_link", 0) + 1
@@ -3061,10 +3092,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # compute_cables il genereaza si la iluminat; acolo il sarim).
                 if _kind == "fv_link" and draw_plan_type != "forta":
                     continue
+                # FV-B1: lantul FV primeste GROSIMEA + stilul cablului TE-CT (linie SOLIDA groasa via
+                # _draw_column), dar culoarea ramane GALBENA (_FV_LINK_COLOR) -> vizibil ca TE-CT, distinct.
+                if _kind == "fv_link":
+                    _fp = _c.get("path")
+                    if _fp and len(_fp) >= 2:
+                        _draw_column(page, _fp[0], _fp[-1], path=_fp, color=_FV_LINK_COLOR)
+                    n_cable += 1
+                    continue
                 # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
                 _draw_cable(page, _c.get("path"),
-                            color=_FV_LINK_COLOR if _kind == "fv_link"
-                            else _PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
+                            color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
                             width=_cable_width_for(_c.get("count", 1)))
                 n_cable += 1
         except Exception:

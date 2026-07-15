@@ -79,7 +79,7 @@ const PANEL_TYPES = [
 ];
 const FV_PANEL_TYPES = ["tablou_tcc", "tablou_inv", "tablou_tca"];
 const isFvPanelType = (t: string) => FV_PANEL_TYPES.includes(t);
-const FV_SPACING = 16;   // FV-B2: pasul blocului T.CC|INV|T.CA (pt; simbol 14x14 -> 2pt aer) — buton + drag
+const FV_SPACING = 22;   // FV-B2: pasul blocului T.CC|INV|T.CA (pt; simbol 18x18 -> ~4pt aer) — buton + drag
 // Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
 const PRIZA_TYPES = [
   { value: "priza_simpla",        label: "Priză simplă" },
@@ -1939,6 +1939,16 @@ export default function PlanEditor({
             : placedCount > 0 ? `○ ${placedCount}/3 plasate — apasă butonul pentru restul.`
             : "○ Neplasate — butonul pune blocul lângă TEG."}
         </div>
+        {/* FV-A2: lista tablourilor plasate — click pe nume => se EVIDENTIAZA galben pe plan (selectElement +
+            inelul de selectie existent). Refoloseste renderElementRow (aceeasi logica ca becuri/prize). */}
+        {placedCount > 0 && (
+          <div style={{ marginTop: 8 }}>
+            {FV_PANEL_TYPES
+              .map(t => elements.find(e => e.element_type === t))
+              .filter((e): e is PlanElement => !!e)
+              .map(el => renderElementRow(el, ""))}
+          </div>
+        )}
         {/* Lantul FV (manual): polilinie DESCHISA galbena, desenata de inginer (traseul real —
             fatada exterior / prin TE-CT). Mecanismul prizei de pamant; fara lant automat. */}
         {(() => {
@@ -2106,7 +2116,10 @@ export default function PlanEditor({
                       {isSel && (isBulb
                         ? bulbSelRing(el.element_type)
                         : isPanel
-                          ? <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                          ? (isFvPanelType(el.element_type)
+                              // FV-A2: tablourile FV sunt mici (18x18) -> inel de selectie CENTRAT (nu cel de 32x32 offset al tablourilor mari)
+                              ? <Rect x={-13} y={-13} width={26} height={26} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />
+                              : <Rect x={-16} y={-20} width={32} height={32} cornerRadius={2} stroke={COL_SEL} strokeWidth={3} listening={false} />)
                           : isLegend
                             ? <Rect x={-3} y={-3} width={legW + 6} height={legH + 6} cornerRadius={4} stroke={COL_SEL} strokeWidth={3} listening={false} />
                             : isPriza
@@ -2118,23 +2131,23 @@ export default function PlanEditor({
                         <>
                           {isFvPanelType(el.element_type) ? (
                             <>
-                              {/* FV (corectura Dan): patrate MICI (14x14) SIMPLE, FARA conector —
+                              {/* FV-A1: patrate 18x18 (marite fata de 14x14 — vizibile pe plan) SIMPLE, FARA conector —
                                   T.CC "=", T.CA "~", INV rosu cu diagonala + ~/=. Rect PLIN = hit. */}
                               {el.element_type === "tablou_inv" ? (
                                 <>
-                                  <Rect x={-7} y={-7} width={14} height={14} fill="#FFFFFF" stroke="#DC2626" strokeWidth={1.4} />
-                                  <Line points={[-7, 7, 7, -7]} stroke="#DC2626" strokeWidth={1.1} listening={false} />
-                                  <Text x={-6.5} y={-7} text="~" fontSize={8} fontStyle="bold" fill="#1F2433" listening={false} />
-                                  <Text x={1} y={-0.5} text="=" fontSize={7.5} fontStyle="bold" fill="#1F2433" listening={false} />
+                                  <Rect x={-9} y={-9} width={18} height={18} fill="#FFFFFF" stroke="#DC2626" strokeWidth={1.6} />
+                                  <Line points={[-9, 9, 9, -9]} stroke="#DC2626" strokeWidth={1.3} listening={false} />
+                                  <Text x={-8} y={-9} text="~" fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} />
+                                  <Text x={1.5} y={-0.5} text="=" fontSize={9} fontStyle="bold" fill="#1F2433" listening={false} />
                                 </>
                               ) : (
                                 <>
-                                  <Rect x={-7} y={-7} width={14} height={14} fill="#FFFFFF" stroke="#1F2433" strokeWidth={1.2} />
-                                  <Text x={-7} y={-7} width={14} height={14} align="center" verticalAlign="middle"
-                                    text={el.element_type === "tablou_tcc" ? "=" : "~"} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} />
+                                  <Rect x={-9} y={-9} width={18} height={18} fill="#FFFFFF" stroke="#1F2433" strokeWidth={1.4} />
+                                  <Text x={-9} y={-9} width={18} height={18} align="center" verticalAlign="middle"
+                                    text={el.element_type === "tablou_tcc" ? "=" : "~"} fontSize={12} fontStyle="bold" fill="#1F2433" listening={false} />
                                 </>
                               )}
-                              {panel.short ? <Text x={-11} y={9} text={panel.short} fontSize={9} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
+                              {panel.short ? <Text x={-13} y={11} text={panel.short} fontSize={9} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                             </>
                           ) : (
                             <>
@@ -2229,7 +2242,7 @@ export default function PlanEditor({
                   const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
                   const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
                   return (
-                    <Line key={el.id} points={flat} stroke={COL_FV_CHAIN} strokeWidth={2.5}
+                    <Line key={el.id} points={flat} stroke={COL_FV_CHAIN} strokeWidth={3.5}
                           lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
                   );
                 })}
