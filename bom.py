@@ -534,6 +534,19 @@ def _modules_for_circuit(c):
     return 0
 
 
+def _cable_section(cable_type, column_cts):
+    """Sectiunea unui rand de cablu (BUCATA 2, partitie): iluminat 3x1.5 -> ILUMINAT; forta 3x2.5 ->
+    FORTA; coloana/feed (cable_type de sub_tablou) -> TEG (tabloul sursa); restul (dedicate/alimentari)
+    -> FORTA. Randul e ATOMIC (nu se sparg metrii) -> suma pe sectiuni = totalul global (partitie)."""
+    if cable_type == _ILUM_CABLE:
+        return "ILUMINAT"
+    if cable_type == _PRIZA_CABLE:
+        return "FORTA"
+    if cable_type in (column_cts or set()):
+        return "TEG"
+    return "FORTA"
+
+
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
               W=None, H=None, horizontal_m=None, fv_grounding=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
@@ -569,38 +582,53 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         ct = _norm_cable(c.get("cable_type"))
         circ_by_cable[ct] = circ_by_cable.get(ct, 0) + 1
 
-    # ── 1. SIGURANTE (MCB pe amperaj+poli; RCCB pe mA) ──
+    # BUCATA 2: cable_types care sunt COLOANE/FEED (sub_tablou) -> sectiunea TEG (tabloul sursa); + TES
+    # cross-floor fallback (5x6, ca in _extra_meters). Restul -> _cable_section (3x1.5/3x2.5/dedicate).
+    column_cts = set()
+    for c in circuits:
+        if c.get("type") == "sub_tablou":
+            column_cts.add(_norm_cable(c.get("cable_type")))
+    _pf = {}
+    for el in plan_elements:
+        _et = el.get("element_type") or ""
+        if _et in ("tablou_teg", "tablou_tes") and _et not in _pf:
+            _pf[_et] = str(el.get("floor") or "parter")
+    if "tablou_teg" in _pf and "tablou_tes" in _pf and _pf["tablou_teg"] != _pf["tablou_tes"]:
+        column_cts.add(_norm_cable(_TES_FEED_FALLBACK))
+
+    # ── 1. SIGURANTE (MCB pe amperaj+poli; RCCB pe mA) — BUCATA 2: grupate pe PANEL (sectiune) ──
     mcb, rccb = {}, {}
     for c in circuits:
+        sec = _panel_section(c.get("panel"))[0]
         amp = c.get("breaker_a")
         bt = str(c.get("breaker_type") or "")
         if amp:
             poles = "3P" if "3P" in bt else "1P"
-            mcb[(amp, poles)] = mcb.get((amp, poles), 0) + 1
+            mcb[(sec, amp, poles)] = mcb.get((sec, amp, poles), 0) + 1
         ma = None
         if "10mA" in bt or "10 mA" in bt:
             ma = 10
         elif c.get("rccb_ma") or c.get("has_rccb_individual"):
             ma = int(c.get("rccb_ma") or 30)
         if ma:
-            rccb[ma] = rccb.get(ma, 0) + 1
-    for (amp, poles), n in sorted(mcb.items()):
-        rows.append(_row("Sigurante", "MCB %dA %s curba C" % (amp, poles), "", n, "buc"))
-    for ma, n in sorted(rccb.items()):
-        rows.append(_row("Sigurante", "Protectie diferentiala RCCB %dmA" % ma, "", n, "buc"))
+            rccb[(sec, ma)] = rccb.get((sec, ma), 0) + 1
+    for (sec, amp, poles), n in sorted(mcb.items()):
+        rows.append(_row("Sigurante", "MCB %dA %s curba C" % (amp, poles), "", n, "buc", sectiune=sec))
+    for (sec, ma), n in sorted(rccb.items()):
+        rows.append(_row("Sigurante", "Protectie diferentiala RCCB %dmA" % ma, "", n, "buc", sectiune=sec))
 
-    # ── 2. CABLURI (tip + metri: orizontale + verticale, × waste) ──
+    # ── 2. CABLURI (tip + metri) — BUCATA 2: sectiune pe destinatie (iluminat/forta/coloana-TEG) ──
     for ct in sorted(set(list(m_by_type.keys()) + list(circ_by_cable.keys()))):
         m = m_by_type.get(ct, 0.0)
         n = circ_by_cable.get(ct, 0)
         spec = "%d circuite" % n if n else "coloana/feed"
-        rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m"))
+        rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m", sectiune=_cable_section(ct, column_cts)))
     # BRANSAMENT TEG (coloana generala): tip dimensionat ca in monofilara (power_summary),
     # 20 m FIX (marja Dan — deja acopera, NU intra sub waste; nici la tuburi: pozare separata).
     bransament_ct = _bransament_cable(power_summary)
     bransament_m = _BRANSAMENT_M if bransament_ct else 0.0
     if bransament_ct:
-        rows.append(_row("Cabluri", bransament_ct, "bransament TEG (fix)", round(bransament_m, 1), "m"))
+        rows.append(_row("Cabluri", bransament_ct, "bransament TEG (fix)", round(bransament_m, 1), "m", sectiune="TEG"))
 
     # ── 3. PRIZE (plan_elements, pe tip) ──
     prz = {}
@@ -609,7 +637,7 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         if et in _PRIZA_TYPES:
             prz[et] = prz.get(et, 0) + 1
     for et, n in sorted(prz.items()):
-        rows.append(_row("Prize", _NAMES.get(et, et), "", n, "buc"))
+        rows.append(_row("Prize", _NAMES.get(et, et), "", n, "buc", sectiune="FORTA"))
 
     # ── 4. BECURI (plan_elements, pe tip + putere) ──
     bec = {}
@@ -622,16 +650,11 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                 pw = 0
             bec[(et, pw)] = bec.get((et, pw), 0) + 1
     for (et, pw), n in sorted(bec.items()):
-        rows.append(_row("Becuri", _NAMES.get(et, et), ("%dW" % pw if pw else ""), n, "buc"))
+        rows.append(_row("Becuri", _NAMES.get(et, et), ("%dW" % pw if pw else ""), n, "buc", sectiune="ILUMINAT"))
 
-    # ── 5. TABLOURI (plan_elements) ──
-    tab = {}
-    for el in plan_elements:
-        et = (el.get("element_type") or "")
-        if et in _PANEL_TYPES:
-            tab[et] = tab.get(et, 0) + 1
-    for et, n in sorted(tab.items()):
-        rows.append(_row("Tablouri", _NAMES.get(et, et), "", n, "buc"))
+    # ── 5. TABLOURI — BUCATA 2: blocul vechi (1 buc/tablou din plan_elements) ELIMINAT, RECONCILIAT
+    #     cu randurile NOI din bucata 1 ("Tablou electric <panel>", 1 buc, N randuri pe sectiunea lui).
+    #     Un singur rand per tablou (buc + randuri) in loc de doua (buc vechi + randuri nou). ──
 
     # ── 6. RECEPTOARE (plan_elements: alimentare pe label + retea) ──
     rec = {}
@@ -644,15 +667,16 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             rec["Retea date / Internet (RJ45)"] = rec.get("Retea date / Internet (RJ45)", 0) + 1
     for lbl, n in sorted(rec.items()):
         den = lbl[:1].upper() + lbl[1:] if lbl else lbl
-        rows.append(_row("Receptoare", den, "", n, "buc"))
+        rows.append(_row("Receptoare", den, "", n, "buc", sectiune="FORTA"))
 
-    # ── 7. TUBURI (diametru din sectiune; metri = metri cablu, re-bucketat) ──
+    # ── 7. TUBURI (diametru din sectiune; metri = metri cablu) — BUCATA 2: pe SECTIUNE + diametru
+    #     (tuburile urmeaza cablul: _cable_section). Suma pe sectiuni per diametru = totalul global. ──
     tub = {}
     for ct, m in m_by_type.items():
-        tub.setdefault(_pozare(_section_of(ct)), 0.0)
-        tub[_pozare(_section_of(ct))] += m
-    for d, m in sorted(tub.items()):
-        rows.append(_row("Tuburi", d, "", round(m, 1), "m"))
+        key = (_cable_section(ct, column_cts), _pozare(_section_of(ct)))
+        tub[key] = tub.get(key, 0.0) + m
+    for (sec, d), m in sorted(tub.items()):
+        rows.append(_row("Tuburi", d, "", round(m, 1), "m", sectiune=sec))
 
     # ── 8. PRIZA DE PAMANT FV (G1): materiale per pachet x sol — `fv_grounding` = dict-ul din
     #     schema_fv.fv_grounding (calculat in /bom din extra_equipment.solar); None = FV neselectat
@@ -661,17 +685,18 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     if fv_grounding:
         g = fv_grounding
         cat = "Priza de pamant FV"
+        _sfv_sec = "PRIZA DE PAMANT - FOTOVOLTAIC"   # BUCATA 2: doar re-etichetare (continut neatins)
         spec_sol = "sol %s" % str(g.get("soil_type") or "agricol").replace("_", " ")
-        rows.append(_row(cat, "Tarus OL-Zn 1.5m", "Ø18, %s" % spec_sol, g["tarusi"], "buc"))
-        rows.append(_row(cat, "Platbanda OL-Zn 40x4", spec_sol, g["platbanda_m"], "m"))
-        rows.append(_row(cat, "Clema QM", "tarus-platbanda", g["cleme"], "buc"))
-        rows.append(_row(cat, "Banda avertizare", "", g["banda_m"], "m"))
-        rows.append(_row(cat, "MYF 1x16 galben-verde", "legatura invertor/T.CA - priza", g["myf_m"], "m"))
-        rows.append(_row(cat, "Cutie vizitare cu borna de masura", "", 1, "buc"))
-        rows.append(_row(cat, "Vopsea anticoroziva", "imbinari", 1, "set"))
-        rows.append(_row(cat, "Coliere fixare", "", 1, "set"))
-        rows.append(_row(cat, "Papuci cablu 16mmp", "", 5, "buc"))
-        rows.append(_row(cat, "Suruburi inox M8/M10", "", 1, "set"))
+        rows.append(_row(cat, "Tarus OL-Zn 1.5m", "Ø18, %s" % spec_sol, g["tarusi"], "buc", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Platbanda OL-Zn 40x4", spec_sol, g["platbanda_m"], "m", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Clema QM", "tarus-platbanda", g["cleme"], "buc", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Banda avertizare", "", g["banda_m"], "m", sectiune=_sfv_sec))
+        rows.append(_row(cat, "MYF 1x16 galben-verde", "legatura invertor/T.CA - priza", g["myf_m"], "m", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Cutie vizitare cu borna de masura", "", 1, "buc", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Vopsea anticoroziva", "imbinari", 1, "set", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Coliere fixare", "", 1, "set", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Papuci cablu 16mmp", "", 5, "buc", sectiune=_sfv_sec))
+        rows.append(_row(cat, "Suruburi inox M8/M10", "", 1, "set", sectiune=_sfv_sec))
 
     # ══ ELEMENTE NOI (BUCATA 1) — fiecare rand NOU poarta `sectiune`; randurile EXISTENTE de mai sus
     #    raman neatinse (li se atribuie sectiunea la restructurare = bucata 2). Non-regresie: doar adaugam. ══
