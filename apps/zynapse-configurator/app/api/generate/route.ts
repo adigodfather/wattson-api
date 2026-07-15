@@ -4,6 +4,31 @@ import { createServerClient } from "@/lib/supabase";
 import { isPhasePT } from "@/lib/constants";
 
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
+const FASTAPI = "https://wattson-api.onrender.com";
+
+// FIX BILLING: suprafata CONSTRUITA (amprenta) re-extrasa DETERMINIST din textul vectorial al planurilor
+// din payload, SERVER-SIDE (nu ne incredem in client). Determinist -> aceeasi valoare pe care userul o
+// vede in modal (din /validate-plan) => display == billing, fara HMAC. source=None (raster/format nou/
+// backend down/timeout) -> intoarce null => apelantul cade pe Vision (result_data) si, daca si aia
+// lipseste, fail-closed. Zero Anthropic. Dovedit: 6cc18f12 -> 80 (nu 240), ef83000c -> 245.73.
+async function extractConstruitaMp(parsed: Record<string, unknown> | null): Promise<number | null> {
+  try {
+    const key = process.env.ZYNAPSE_INTERNAL_KEY;
+    const r = await fetch(`${FASTAPI}/extract-surface`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
+      body: JSON.stringify({
+        plan_floors_base64: (parsed?.plan_floors_base64 as unknown[]) ?? [],
+        plan_base64: (parsed?.plan_base64 as string) ?? "",
+      }),
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { construita_mp?: unknown };
+    return typeof j?.construita_mp === "number" && j.construita_mp > 0 ? j.construita_mp : null;
+  } catch {
+    return null;   // backend down/timeout -> fallback Vision (nu blocam useri pe infra)
+  }
+}
 
 // Faza B.1: payload multi-etaj (până la 3 planuri base64) + N PDF-uri în răspuns.
 export const runtime = "nodejs";
@@ -85,9 +110,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
   }
 
-  // ── SOLD-CHECK (server-side, pe MANUAL) — pornim DOAR dacă e acoperit ──
+  // suprafata CONSTRUITA determinista (re-extrasa server-side) — calculata O DATA aici, refolosita la SUCCES.
+  let construitaMp: number | null = null;
+  // ── SOLD-CHECK (server-side, pe greatest(CONSTRUITA determinista, MANUAL)) — pornim DOAR dacă e acoperit ──
   // Verificarea client (holdCost) e informativă și poate fi sărită apelând ruta direct; aici o IMPUNEM.
-  // Debitarea REALĂ (pe desfășurata reală) se face pe SUCCES, mai jos.
+  // Debitarea REALĂ (pe suprafata reală) se face pe SUCCES, mai jos.
   // LANSARE (Dan, 2026-07-13): poarta "DTAC+PT doar admin" a fost SCOASĂ — faza PT e live pentru
   // toți; costul diferă oricum pe fază (3/mp vs 1/mp) prin isPhasePT, aici și în consume_credits.
   try {
@@ -104,7 +131,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const cost = Math.ceil(surface * (isPhasePT(faza) ? 3 : 1));
+    // FIX BILLING: re-extrage CONSTRUITA determinista din planuri (server-side) -> baza reala de pret.
+    // greatest(construita, declarat): declaratul ramane MINIM (anti-subdeclarare). null (text lipsa/backend
+    // down) -> cade pe declarat aici; billing-ul real + fail-closed se decid pe SUCCES (avem si Vision).
+    construitaMp = await extractConstruitaMp(parsed);
+    const billSurface = Math.max(construitaMp ?? 0, surface);
+    const cost = Math.ceil(billSurface * (isPhasePT(faza) ? 3 : 1));
     const balance = Number(prof?.credits_balance ?? 0);
     if (balance < cost) {
       return NextResponse.json(
@@ -170,6 +202,34 @@ export async function POST(req: NextRequest) {
     }
     if (data?.status === "error") {
       return NextResponse.json(data, { status: 200 });
+    }
+
+    // ── FIX BILLING: injecteaza CONSTRUITA determinista in surfaces.construita_mp INAINTE de save+consume.
+    // Migrarea consume_credits (pasul FINAL) o citeste: greatest(coalesce(construita_mp, desfasurata_mp), declarat).
+    // FAIL-CLOSED: nicio suprafata detectata (nici textul plansei, nici Vision) DAR plan procesat (rooms) ->
+    // NU salvam / NU debitam pe declarat-only (gaura de facturare exploatabila). ──
+    {
+      const pinfo = ((data.project_info && typeof data.project_info === "object")
+        ? data.project_info : {}) as Record<string, unknown>;
+      const surfaces = ((pinfo.surfaces && typeof pinfo.surfaces === "object")
+        ? pinfo.surfaces : {}) as Record<string, unknown>;
+      const visionConstr = typeof surfaces.construita_mp === "number" ? (surfaces.construita_mp as number) : null;
+      const visionDesf = typeof surfaces.desfasurata_mp === "number" ? (surfaces.desfasurata_mp as number) : null;
+      if (construitaMp != null) {
+        surfaces.construita_mp = construitaMp;        // sursa DETERMINISTA (text vectorial) — autoritara la billing
+        surfaces.surface_source = "text_vectorial";
+        pinfo.surfaces = surfaces;
+        data.project_info = pinfo;
+      }
+      const roomsArr = data.rooms as unknown[] | undefined;
+      const hasRooms = Array.isArray(roomsArr) && roomsArr.length > 0;
+      const anySurface = construitaMp != null || visionConstr != null || visionDesf != null;
+      if (!anySurface && hasRooms) {
+        return NextResponse.json({
+          error: "Suprafața nu a putut fi detectată din plan (nici din textul planșei, nici din analiză). " +
+                 "Reîncarcă exportul PDF vectorial din CAD (cu bilanțul de suprafețe vizibil) sau reîncearcă.",
+        }, { status: 422 });   // finally eliberează lock; NU salvăm, NU debităm pe declarat-only
+      }
     }
 
     // ── SUCCES: persistă + debitează SERVER-SIDE (nu depinde de client). ──

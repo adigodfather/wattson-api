@@ -28,7 +28,8 @@ interface CartusConfirmModalProps {
   initialData: CartusData;
   onConfirm: (data: CartusData) => void;
   onCancel: () => void;
-  surfaces?: VisionSurfaces | null;   // suprafețe Vision (desfasurata_mp = bază preț)
+  surfaces?: VisionSurfaces | null;   // suprafețe Vision (FALLBACK — folosit doar dacă lipsește textul vectorial)
+  detectedConstruitaMp?: number | null;  // CONSTRUITA determinista (text vectorial /validate-plan) = bază preț
   manualSurfaceMp?: number;           // suprafața tastată de user în calculator
   balance?: number;                   // sold Z-Coins curent (profile.credits_balance)
 }
@@ -39,6 +40,7 @@ export default function CartusConfirmModal({
   onConfirm,
   onCancel,
   surfaces = null,
+  detectedConstruitaMp = null,
   manualSurfaceMp = 0,
   balance = 0,
 }: CartusConfirmModalProps) {
@@ -85,14 +87,16 @@ export default function CartusConfirmModal({
     }
   };
 
-  // ── Cost real (preview) — ACEEAȘI regulă ca DB consume_credits ──
-  const desf = surfaces?.desfasurata_mp ?? null;
-  const surfaceBilled = Math.max(desf ?? 0, manualSurfaceMp || 0);
+  // ── Cost real (preview) — ACEEAȘI regulă ca DB consume_credits: greatest(CONSTRUITA, declarat) ──
+  // Baza = CONSTRUITA determinista din textul plansei (/validate-plan). Vision (surfaces) = doar fallback.
+  // Serverul (/api/generate) re-extrage ACEEASI valoare determinista -> ce vezi aici = ce se debiteaza.
+  const detected = detectedConstruitaMp ?? surfaces?.construita_mp ?? null;
+  const surfaceBilled = Math.max(detected ?? 0, manualSurfaceMp || 0);
   const perM2 = isPhasePT(data.faza)
     ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
     : CREDIT_PRICING.perM2.dtac;
   const cost = surfaceBilled > 0 ? Math.ceil(surfaceBilled * perM2) : 0;
-  const masurat = desf != null && desf >= (manualSurfaceMp || 0);   // suprafața din plan vs declarată
+  const masurat = detected != null && detected >= (manualSurfaceMp || 0);   // construita din plan vs declarată
   const insufficient = cost > 0 && balance < cost;
   const fmt = (n: number) => n.toLocaleString('ro-RO', { maximumFractionDigits: 2 });
   const fazaLabel = isPhasePT(data.faza) ? 'DTAC+PT' : 'DTAC';

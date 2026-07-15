@@ -1051,6 +1051,9 @@ export function ZynapseConfigurator() {
   const [visionCartusLoading, setVisionCartusLoading] = useState(false);
   // Suprafețe detectate de Vision din cartuș (Pas 2) — pt. rândul de cost real în modal (Pas 3)
   const [visionSurfaces, setVisionSurfaces] = useState<VisionSurfaces | null>(null);
+  // CONSTRUITA determinista (text vectorial) din /validate-plan (parter) — baza reala de pret in modal
+  // (display == billing: /api/generate re-extrage aceeasi valoare server-side). Vision ramane doar fallback.
+  const [detectedConstruitaMp, setDetectedConstruitaMp] = useState<number | null>(null);
   const [showCartusModal, setShowCartusModal] = useState(false);
   const [cartusConfirmed, setCartusConfirmed] = useState(false);
   const visionAnalyzedRef = useRef<string | null>(null);
@@ -1375,6 +1378,7 @@ export function ZynapseConfigurator() {
     // (JPG/PNG) NU trec prin poarta (comportament neschimbat). Poarta e DEFENSIVA: orice eroare
     // a ei (retea/backend) -> permite generarea (nu blocam useri pe bug-urile portii).
     setVisionCartusLoading(true);
+    let detC: number | null = null;   // CONSTRUITA determinista (parter are bilantul) — primul plan care o da
     try {
       for (const f of files) {
         if ((f.type || "") !== "application/pdf") continue;
@@ -1385,6 +1389,8 @@ export function ZynapseConfigurator() {
           body: JSON.stringify({ pdf_base64: b64 }),
         });
         const v = await vres.json().catch(() => null);
+        const c = v?.surface?.construita_mp;   // suprafata CONSTRUITA determinista din textul plansei
+        if (typeof c === "number" && c > 0 && detC == null) detC = c;
         if (v?.status === "rejected") {
           setVisionCartusLoading(false);
           setError(`„${f.name}": ${v.message || "PDF invalid."}`);
@@ -1396,6 +1402,7 @@ export function ZynapseConfigurator() {
           if (!go) { setVisionCartusLoading(false); return; }   // userul a anulat: 0 consum
         }
       }
+      setDetectedConstruitaMp(detC);   // pt. modal: max(construita, declarat) == ce debiteaza serverul
     } catch (e) {
       console.warn("[validate-plan] poarta a esuat, continuam defensiv:", e);
     }
@@ -1988,6 +1995,7 @@ export function ZynapseConfigurator() {
         isOpen={showCartusModal}
         initialData={cartusProiectInput}
         surfaces={visionSurfaces}
+        detectedConstruitaMp={detectedConstruitaMp}
         manualSurfaceMp={form.surface_mp}
         balance={profile?.credits_balance ?? 0}
         onConfirm={(data) => {
