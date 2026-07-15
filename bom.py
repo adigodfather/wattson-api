@@ -492,8 +492,46 @@ _BRANSAMENT_M = 20.0   # marja fixa Dan (deja acopera; NU se aplica waste peste)
 
 
 # ── BOM ──────────────────────────────────────────────────────────────────────
-def _row(cat, den, spec, qty, um):
-    return {"categorie": cat, "denumire": den, "specificatie": spec, "cantitate": qty, "um": um}
+def _row(cat, den, spec, qty, um, sectiune=None):
+    r = {"categorie": cat, "denumire": den, "specificatie": spec, "cantitate": qty, "um": um}
+    if sectiune is not None:
+        r["sectiune"] = sectiune   # BUCATA 1: doar randurile NOI poarta `sectiune` (existentele = neatinse)
+    return r
+
+
+# ── ELEMENTE NOI (restructurare BOM, bucata 1) — helperi puri ──────────────────
+_FV_SOLAR_CABLE_M = {5: 55, 10: 110, 15: 125, 20: 135}   # cablu solar 1x6 (m)/pachet — lookup fix Dan (marja 10% inclusa)
+
+
+def _panel_section(panel):
+    """(sectiune, denumire tablou) din campul `panel` al circuitului: TEG / TES n / TE-CT."""
+    p = str(panel or "TEG").strip()
+    if p.upper() == "TE-CT":
+        return "TE-CT", "Tablou electric TE-CT"
+    if p.upper().startswith("TES"):
+        n = p[3:].strip()
+        sec = ("TES %s" % n).strip() if n else "TES"
+        return sec, ("Tablou electric %s" % sec)
+    return "TEG", "Tablou electric TEG"
+
+
+def _modules_for_circuit(c):
+    """Module de tablou pt. un circuit (regula Dan): >20A = 3 (castiga CHIAR cu RCCB, nu se aduna);
+    RCCB fara >20A = 2; cu breaker (<=20A, ex. 16/10/20A) = 1; fara breaker si fara RCCB = 0
+    (rezerva / necablat — nu ocupa modul). RCCB derivat ca la Sigurante (breaker_type/rccb_ma)."""
+    try:
+        amp = float((c or {}).get("breaker_a") or 0)
+    except (TypeError, ValueError):
+        amp = 0.0
+    bt = str((c or {}).get("breaker_type") or "")
+    has_rccb = ("10mA" in bt or "10 mA" in bt or (c or {}).get("rccb_ma") or (c or {}).get("has_rccb_individual"))
+    if amp > 20:
+        return 3
+    if has_rccb:
+        return 2
+    if amp > 0:
+        return 1
+    return 0
 
 
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
@@ -634,6 +672,98 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         rows.append(_row(cat, "Coliere fixare", "", 1, "set"))
         rows.append(_row(cat, "Papuci cablu 16mmp", "", 5, "buc"))
         rows.append(_row(cat, "Suruburi inox M8/M10", "", 1, "set"))
+
+    # ══ ELEMENTE NOI (BUCATA 1) — fiecare rand NOU poarta `sectiune`; randurile EXISTENTE de mai sus
+    #    raman neatinse (li se atribuie sectiunea la restructurare = bucata 2). Non-regresie: doar adaugam. ══
+
+    # [c] DOZE de legatura: 1/priza + 1/alimentare -> FORTA; 1/intrerupator -> ILUMINAT.
+    #     receptor_internet (RJ45) NU primeste doza (primeste RACK, vezi [g]).
+    _SW = draw_elements._SWITCH_TYPES
+    n_doze_forta = sum(1 for el in plan_elements
+                       if (el.get("element_type") or "") in _PRIZA_TYPES
+                       or (el.get("element_type") or "") == "alimentare_receptor")
+    n_doze_ilum = sum(1 for el in plan_elements if (el.get("element_type") or "") in _SW)
+    if n_doze_forta:
+        rows.append(_row("Doze", "Doza de legatura", "1 per priza/alimentare", n_doze_forta, "buc", sectiune="FORTA"))
+    if n_doze_ilum:
+        rows.append(_row("Doze", "Doza de legatura", "1 per intrerupator", n_doze_ilum, "buc", sectiune="ILUMINAT"))
+
+    # [g] DULAP RACK: 1 buc daca exista >=1 receptor_internet (RJ45) -> FORTA.
+    if any((el.get("element_type") or "") == "receptor_internet" for el in plan_elements):
+        rows.append(_row("Retea date", "Dulap RACK", "retea date (RJ45)", 1, "buc", sectiune="FORTA"))
+
+    # [e] TABLOU — NR. RANDURI auto per tablou: grupare circuits pe `panel` -> ceil(sum(module)*1.3/12).
+    _mods, _den = {}, {}
+    for c in circuits:
+        m = _modules_for_circuit(c)
+        if m <= 0:
+            continue
+        sec, den = _panel_section(c.get("panel"))
+        _mods[sec] = _mods.get(sec, 0) + m
+        _den[sec] = den
+    for sec in sorted(_mods):
+        mods = _mods[sec]
+        randuri = int(math.ceil(mods * 1.3 / 12.0))
+        rows.append(_row("Tablouri", _den[sec], "%d randuri (%d module + 30%% rezerva)" % (randuri, mods),
+                         1, "buc", sectiune=sec))
+
+    # [f] TABLOU IP65 la TE-CT: 1 buc daca exista tablou_te_ct pe plan.
+    if any((el.get("element_type") or "") == "tablou_te_ct" for el in plan_elements):
+        rows.append(_row("Tablouri", "Carcasa/tablou IP65", "TE-CT (camera tehnica)", 1, "buc", sectiune="TE-CT"))
+
+    # [a][b][d] PRIZA DE PAMANT — LOCUINTA: platbanda 40x4 (perimetrul CONTURULUI MANUAL desenat =
+    #     ground_electrode_path) + platbanda 20x2 (TEG->cel mai apropiat perete/contur + 1.5 + 2) +
+    #     piesa de separatie. Fara contur desenat -> sectiunea lipseste (fail-safe, non-regresie).
+    _sec_pl = "PRIZA DE PAMANT - LOCUINTA"
+    _ground = None
+    for el in plan_elements:
+        if (el.get("element_type") or "") == "ground_electrode_path":
+            _cp = el.get("cable_path")
+            if isinstance(_cp, (list, tuple)) and len(_cp) >= 2:
+                try:
+                    _ground = [(float(p[0]), float(p[1])) for p in _cp]
+                except (TypeError, ValueError, IndexError):
+                    _ground = None
+            break
+    if _ground:
+        # [a] platbanda 40x4 = perimetrul poligonului INCHIS (adauga latura de inchidere daca lipseste)
+        _perim = _path_len(_ground)
+        _close = math.hypot(_ground[-1][0] - _ground[0][0], _ground[-1][1] - _ground[0][1])
+        if _close > 1e-6:
+            _perim += _close
+        rows.append(_row("Priza de pamant locuinta", "Platbanda OL-Zn 40x4", "contur fundatie",
+                         round(_perim * scale, 1), "m", sectiune=_sec_pl))
+        # [b] platbanda 20x2 = dist(TEG -> cel mai apropiat perete/contur) * scale + 1.5 (coborare) + 2 (fundatie)
+        _teg = _panel_xy(plan_elements).get("tablou_teg")
+        if _teg:
+            _ring = _ground + ([_ground[0]] if _close > 1e-6 else [])   # INCHIS: si latura de inchidere e "perete"
+            _proj, _si, _t = draw_elements._project_point_on_polyline(_teg, _ring)
+            _d20 = math.hypot(_teg[0] - _proj[0], _teg[1] - _proj[1]) * scale + 1.5 + 2.0
+            rows.append(_row("Priza de pamant locuinta", "Platbanda OL-Zn 20x2",
+                             "TEG->fundatie (+1.5 coborare +2 fundatie)", round(_d20, 1), "m", sectiune=_sec_pl))
+        # [d] piesa de separatie (1 buc)
+        rows.append(_row("Priza de pamant locuinta", "Piesa de separatie", "priza de pamant", 1, "buc", sectiune=_sec_pl))
+
+    # [h][i] SISTEM FOTOVOLTAIC: panouri (nr_panouri din pachet) + cablu solar 1x6 (lookup pachet) +
+    #     CYABY TEG->sistem FV (metri REALI din fv_link desenat * scale — fv_link e exclus din metrii
+    #     de circuit prin whitelist, deci il numaram AICI separat). Gate pe fv_grounding (FV selectat).
+    if fv_grounding and fv_grounding.get("package_kw"):
+        import schema_fv as _sfv
+        _kw = fv_grounding["package_kw"]
+        _pkg = _sfv.FV_PACKAGES.get(_kw) or {}
+        _sec_fv = "SISTEM FOTOVOLTAIC"
+        if _pkg.get("nr_panouri"):
+            rows.append(_row("Sistem fotovoltaic", "Panou fotovoltaic %dWp" % int(_sfv.FV_FIXED.get("wp", 550)),
+                             "sistem %d kW" % _kw, _pkg["nr_panouri"], "buc", sectiune=_sec_fv))
+        _solar = _FV_SOLAR_CABLE_M.get(_kw)
+        if _solar:
+            rows.append(_row("Sistem fotovoltaic", "Cablu solar 1x6", "panouri->invertor (marja 10% inclusa)",
+                             _solar, "m", sectiune=_sec_fv))
+        _cyaby_px = sum((c.get("length") if c.get("length") is not None else _path_len(c.get("path") or []))
+                        for c in (cables or []) if c.get("kind") == "fv_link")
+        if _cyaby_px > 0:
+            rows.append(_row("Sistem fotovoltaic", _pkg.get("cyaby") or "CYABY", "TEG->sistem FV (traseu desenat)",
+                             round(_cyaby_px * scale, 1), "m", sectiune=_sec_fv))
 
     total_m = round(sum(m_by_type.values()) + bransament_m, 1)
     summary = {"circuite": len(circuits), "metri_cablu_total": total_m,
