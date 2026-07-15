@@ -3925,6 +3925,160 @@ def crop_to_building_endpoint(request: CropToBuildingRequest):
 
 
 # -------------------------------------------------
+#  SUPRAFATA CONSTRUITA DETERMINISTA (text vectorial) — POST /extract-surface
+# -------------------------------------------------
+# FIX BILLING faza 1: suprafata de facturare = CONSTRUITA (amprenta la sol), extrasa DETERMINIST din
+# stratul de text vectorial al planului (zero Vision, zero flakiness). Inlocuieste citirea probabilistica
+# de catre Claude Vision (temperature 1.0, + crop-to-building care taia bilantul) care dadea NULL ->
+# billing pe declarat. Precedent: extract_room_labels (text vectorial ancorat, 16/16 + 7/7).
+# Dovedit pe planurile reale: 6cc18f12 (Vision->null) -> 80 (parter/amprenta, NU 240 desfasurata);
+# ef83000c -> 245.73 (corp principal C1, NU totalul 448.48).
+import re                    # main.py nu-l are la top (restul foloseste import re LOCAL) — necesar pt. compile-urile de mai jos
+import unicodedata as _ud
+
+def _surf_deacc(s):
+    return "".join(c for c in _ud.normalize("NFKD", s or "") if not _ud.combining(c))
+
+_SURF_LEVELS = ("demisol", "subsol", "parter", "mansarda", "etaj")
+_SURF_EXCLUDE = ("utila", "locuib", "teren", "alei", "pavat", "verzi", "vitrat", "vistrat")
+# ancora CONSTRUITA (deaccentuat/lower): "Suprafata construita" (+ constr.), "S. construita", sau abreviere
+# STRANSA "Sc="/"Ac=" DIRECT inainte de separator. NU prinde "S c a r a 1:50" (scara scrisa rasfirat).
+_SURF_ANCHOR = re.compile(
+    r"^\s*(?:supraf\w*\s+construit\w*|supraf\w*\s+constr\.?|s\.?\s*construit\w*|(?:sc|ac)\.?\s*[=:])")
+_SURF_NUM = re.compile(r"[=:]\s*([\d]+(?:[.,]\d+)?)\s*(?:mp|m2|m²|mc)?", re.I)
+
+def extract_surface(pdf_bytes):
+    """Suprafata CONSTRUITA (amprenta la sol) DETERMINIST din textul vectorial. Ancora obligatorie
+    "construita"; SARE peste "desfasurata" (suma nivelurilor -> plasa multi-etaj) si "TOTALA" (multi-corp).
+    Prioritate: parter (amprenta) -> primul corp plain (principal C1) -> nivel maxim.
+    Return {construita_mp, desfasurata_mp, levels, source, note, flag}; source=None la raster/corupt/gol
+    (-> apelantul cade pe fallback Vision)."""
+    import fitz
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None, "note": "pdf invalid", "flag": None}
+    try:
+        lines = []
+        for page in doc:
+            for b in page.get_text("dict")["blocks"]:
+                for l in b.get("lines", []):
+                    raw = "".join(s["text"] for s in l.get("spans", [])).strip()
+                    if raw:
+                        lines.append((l["bbox"][1], _surf_deacc(raw).lower()))
+    except Exception as e:
+        return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None, "note": f"citire esuata: {e}", "flag": None}
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    constr = []       # (y, val, level|None, is_plain)
+    desf_vals = []    # (y, val) — desfasurata pe corp (non-total), doar referinta/coerenta
+    levels = set()
+    for y, n in lines:
+        if not _SURF_ANCHOR.match(n):
+            continue
+        mval = _SURF_NUM.search(n)
+        if not mval:
+            continue
+        try:
+            val = float(mval.group(1).replace(",", "."))
+        except ValueError:
+            continue
+        if val <= 0:
+            continue
+        head = re.split(r"[=:]", n, 1)[0]          # calificatorul (inainte de separator)
+        is_desf = ("desfasur" in head) or bool(re.search(r"\bdesf\.?\b", head)) or ("scd" in head)
+        is_total = "total" in head
+        if is_desf:
+            if not is_total:
+                desf_vals.append((y, val))
+            continue                                # NU o luam ca CONSTRUITA (plasa multi-etaj)
+        if is_total:
+            continue                                # multi-corp: nu facturam TOTALUL
+        if any(x in head for x in _SURF_EXCLUDE):
+            continue                                # utila/teren/alei/etc.
+        lvl = next((L for L in _SURF_LEVELS if L in head), None)
+        if lvl:
+            levels.add(lvl)
+        constr.append((y, val, lvl, lvl is None))
+
+    construita = None
+    note = ""
+    parter = sorted([(y, v) for (y, v, lvl, pl) in constr if lvl == "parter"])
+    plain = sorted([(y, v) for (y, v, lvl, pl) in constr if pl])
+    per_level = [v for (y, v, lvl, pl) in constr if lvl]
+    if parter:
+        construita = parter[0][1]; note = "construita parter (amprenta la sol)"
+    elif plain:
+        construita = plain[0][1]; note = "construita corp principal (prima aparitie, top)"
+    elif per_level:
+        construita = max(per_level); note = "construita nivel maxim (fara parter explicit)"
+    elif constr:
+        construita = sorted(constr)[0][1]; note = "construita (prima gasita)"
+
+    desf_main = sorted(desf_vals)[0][1] if desf_vals else None
+    flag = None
+    if construita is not None and desf_main is not None and len(levels) > 1 and abs(construita - desf_main) < 0.5:
+        flag = "construita==desfasurata la multi-nivel (verifica: posibil desfasurata luata gresit)"
+    return {"construita_mp": construita, "desfasurata_mp": desf_main,
+            "levels": sorted(levels), "source": ("text_vectorial" if construita is not None else None),
+            "note": note, "flag": flag}
+
+
+def _extract_surface_b64(b64):
+    """base64 (cu/fara prefix data-uri) -> extract_surface. Gol/invalid -> source None."""
+    raw = b64 or ""
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    if not raw:
+        return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None, "note": "gol", "flag": None}
+    try:
+        pdf_bytes = base64.b64decode(raw)
+    except Exception:
+        return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None, "note": "base64 invalid", "flag": None}
+    return extract_surface(pdf_bytes)
+
+
+def extract_surface_from_plans(plan_floors_base64=None, plan_base64=""):
+    """Combina mai multe planuri (multi-etaj): bilantul e pe PARTER (floor 0) dar il cautam in ordine.
+    Intoarce PRIMUL plan cu construita gasita (parterul = floor 0 = primul, are bilantul autoritar)."""
+    plans = []
+    for p in (plan_floors_base64 or []):
+        if isinstance(p, str):
+            plans.append(p)
+        elif isinstance(p, dict):
+            plans.append(p.get("base64") or p.get("plan_base64") or p.get("pdf_base64") or "")
+    if plan_base64:
+        plans.append(plan_base64)
+    for b64 in plans:
+        r = _extract_surface_b64(b64)
+        if r.get("construita_mp") is not None:
+            return r
+    return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None,
+            "note": ("niciun plan cu suprafata in text" if plans else "niciun plan"), "flag": None}
+
+
+class ExtractSurfaceRequest(BaseModel):
+    plan_base64: str = ""
+    plan_floors_base64: list = []   # multi-etaj: list de base64 SAU de {base64}
+
+
+@app.post("/extract-surface")
+def extract_surface_endpoint(request: ExtractSurfaceRequest):
+    """Suprafata construita DETERMINISTA din planuri (base64) — pt. billing server-side (route.ts o
+    re-extrage la generare, fara sa se increada in client). source='text_vectorial' daca s-a gasit;
+    None -> apelantul cade pe Vision. Zero Anthropic, <1s."""
+    try:
+        return extract_surface_from_plans(request.plan_floors_base64, request.plan_base64)
+    except Exception as e:
+        logger.error("[extract-surface] eroare -> source None: %r", e)
+        return {"construita_mp": None, "desfasurata_mp": None, "levels": [], "source": None, "note": f"eroare: {e}", "flag": None}
+
+
+# -------------------------------------------------
 #  POARTA DE VALIDARE PLAN  —  POST /validate-plan
 # -------------------------------------------------
 
@@ -3966,10 +4120,13 @@ def validate_plan_endpoint(request: ValidatePlanRequest):
         text = page.get_text("text") or ""
         n_area = len(draw_elements.AREA_RE.findall(text))
         detected = {"walls": n_walls, "area_labels": n_area, "words": len(words)}
+        # FIX BILLING faza 1: suprafata CONSTRUITA determinista din text vectorial (planul e deja deschis).
+        # Modalul o afiseaza; /api/generate o RE-extrage server-side (nu se increde in client) -> billing.
+        surface = extract_surface(pdf_bytes)
         if n_area == 0 and n_walls < 20:
-            return {"status": "warning", "reason": "not_a_plan", "detected": detected,
+            return {"status": "warning", "reason": "not_a_plan", "detected": detected, "surface": surface,
                     "message": "Fișierul nu pare un plan de arhitectură (nicio cameră cu suprafață, aproape niciun perete detectat). Poate fi o schemă sau alt document."}
-        return {"status": "ok", "detected": detected}
+        return {"status": "ok", "detected": detected, "surface": surface}
     except Exception as e:
         logger.error("[validate-plan] eroare interna -> permis defensiv: %r", e)
         return {"status": "ok", "note": f"validare esuata, permis defensiv: {e}"}
