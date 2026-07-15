@@ -17,6 +17,7 @@ import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
 import { floorCanonic, floorIndex } from "@/lib/floors";
 import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
+import { groupBomBySection, hasSections } from "@/lib/bom-sections";   // bucata 3: gruparea BOM pe cele 8 sectiuni
 import {
   MetricCard, CircuitTable, RoomsList, MemoriuSection, MemoriuDocxButton,
   SchemasSection, SchemaDownloadButton, AnnotatedPlanSection, ProjectInfoCard, PlanPdfSection,
@@ -2405,8 +2406,8 @@ export function ZynapseConfigurator() {
             <div className="flex gap-1 mb-4 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
               {[
                 { id: 'circuits', label: 'Circuite' },
-                { id: 'bom',      label: 'Materiale' },
                 { id: 'schemas',  label: 'Scheme' },
+                { id: 'bom',      label: 'Materiale' },
                 { id: 'plan',     label: 'Planșă' },
                 { id: 'editor',   label: 'Editor' },
                 { id: 'memoriu',  label: 'Memoriu' },
@@ -2525,15 +2526,35 @@ export function ZynapseConfigurator() {
                           </tr>
                         </thead>
                         <tbody>
-                          {result!.bom.map((b, i) => (
-                            <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
-                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.category || ""}</td>
-                              <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || (b as any).articol}</td>
-                              <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? (b as any).cant}</td>
-                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || (b as any).um}</td>
-                              <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || (b as any).obs || ""}</td>
-                            </tr>
-                          ))}
+                          {/* Bucata 3: GRUPAT pe cele 8 sectiuni (camp `sectiune`). Proiecte vechi
+                              fara `sectiune` -> plat de dinainte (non-regresie). */}
+                          {hasSections(result!.bom as any)
+                            ? groupBomBySection(result!.bom as any).flatMap((sec) => [
+                                <tr key={`h-${sec.key}`}>
+                                  <td colSpan={5} className="px-2 pt-3.5 pb-1.5 text-[11px] font-bold tracking-wide"
+                                    style={{ color: "#378ADD", borderBottom: "1px solid rgba(55,138,221,0.18)" }}>
+                                    {sec.label}<span className="ml-2 font-normal" style={{ color: "#545870" }}>· {sec.rows.length}</span>
+                                  </td>
+                                </tr>,
+                                ...sec.rows.map((b: any, i: number) => (
+                                  <tr key={`${sec.key}-${i}`} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                                    <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.category || b.categorie || ""}</td>
+                                    <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || b.articol}</td>
+                                    <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? b.cant}</td>
+                                    <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || b.um}</td>
+                                    <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || b.obs || ""}</td>
+                                  </tr>
+                                )),
+                              ])
+                            : result!.bom.map((b, i) => (
+                                <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                                  <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.category || ""}</td>
+                                  <td className="px-2 py-2 text-sm" style={{ color: "#C8CAD6" }}>{b.item || (b as any).articol}</td>
+                                  <td className="px-2 py-2 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{b.quantity ?? (b as any).cant}</td>
+                                  <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.unit || (b as any).um}</td>
+                                  <td className="px-2 py-2 text-[11px]" style={{ color: "#545870" }}>{b.notes || (b as any).obs || ""}</td>
+                                </tr>
+                              ))}
                         </tbody>
                       </table>
                     </div>

@@ -409,6 +409,7 @@ export interface ProjectResult {
     quantity: number;
     unit: string;
     notes?: string;
+    sectiune?: string;   // restructurare BOM (bucata 1+2): sectiunea functionala pt. grupare UI (bucata 3)
   }> | null;
   bom_source?: string;   // "plan (unified)" | "n8n (fallback)" — traceabilitate BOM unificat
 }

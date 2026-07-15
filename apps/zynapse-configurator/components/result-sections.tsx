@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { isPhasePT, iluminatPlanseToShow } from "@/lib/constants";
 import type { Circuit, RoomResult, ProjectResult } from "@/lib/constants";
+import { groupBomBySection, hasSections, type BomRow } from "@/lib/bom-sections";
 
 export { type ProjectResult };
 
@@ -92,18 +93,32 @@ export function CircuitTable({ circuits, title }: { circuits: Circuit[]; title: 
   );
 }
 
-/* ─── BOM / Materiale (lista de cantitati) — oglinda tabelului din configurator, FARA "Tablouri"
-   (tablourile apar separat, cu circuitele lor). Citire EN {category,item,quantity,unit,notes} +
-   fallback RO {articol,cant,um,obs}. ─── */
+/* ─── BOM / Materiale (lista de cantitati). Bucata 3: GRUPAT pe cele 8 sectiuni functionale (camp
+   `sectiune`, TEG->TES n->TE-CT->ILUMINAT->FORTA->PRIZA LOCUINTA->FV->PRIZA FV; sectiunile goale
+   ascunse). Proiecte VECHI fara `sectiune` -> afisare PLATA de dinainte, FARA "Tablouri" (apar
+   separat cu circuitele lor). Citire EN {category,item,quantity,unit,notes} + fallback RO. ─── */
 export function BomTable({ bom }: { bom?: ProjectResult["bom"] }) {
-  const rows = (bom || []).filter((b) => {
-    const r = b as Record<string, unknown>;
-    const cat = String(r.category ?? r.categorie ?? "").toLowerCase();
-    return !cat.startsWith("tablou");   // exclude "Tablouri"(EN)/"Tablou"(RO) — apar separat cu continut
-  });
-  if (!rows.length) return null;
+  const all = (bom || []) as unknown as BomRow[];
+  const grouped = hasSections(all);
+  // VECHI (fara sectiune): plat + exclude Tablourile (apar separat cu circuitele lor) — non-regresie.
+  const flat = all.filter((r) => !String((r.category ?? r.categorie ?? "") as string).toLowerCase().startsWith("tablou"));
+  const total = grouped ? all.length : flat.length;
+  if (!total) return null;
+  const sections = grouped ? groupBomBySection(all) : [];
+  const cell = (b: BomRow, i: number, key: string) => {
+    const qty = b.quantity ?? b.cant;
+    return (
+      <tr key={key} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+        <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(b.category ?? b.categorie ?? "")}</td>
+        <td className="px-3 py-2.5 text-sm" style={{ color: "#C8CAD6" }}>{String(b.item ?? b.articol ?? "")}</td>
+        <td className="px-3 py-2.5 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{qty == null ? "" : String(qty)}</td>
+        <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(b.unit ?? b.um ?? "")}</td>
+        <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(b.notes ?? b.obs ?? "")}</td>
+      </tr>
+    );
+  };
   return (
-    <ResultSection title="Materiale de comandat" count={rows.length}>
+    <ResultSection title="Materiale de comandat" count={total}>
       <div className="overflow-x-auto -mx-1 mt-3">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -115,19 +130,17 @@ export function BomTable({ bom }: { bom?: ProjectResult["bom"] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((b, i) => {
-              const r = b as Record<string, unknown>;
-              const qty = r.quantity ?? r.cant;
-              return (
-                <tr key={i} style={{ background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
-                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.category ?? r.categorie ?? "")}</td>
-                  <td className="px-3 py-2.5 text-sm" style={{ color: "#C8CAD6" }}>{String(r.item ?? r.articol ?? "")}</td>
-                  <td className="px-3 py-2.5 text-sm font-semibold" style={{ color: "#8B8FA8" }}>{qty == null ? "" : String(qty)}</td>
-                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.unit ?? r.um ?? "")}</td>
-                  <td className="px-3 py-2.5 text-[11px]" style={{ color: "#545870" }}>{String(r.notes ?? r.obs ?? "")}</td>
-                </tr>
-              );
-            })}
+            {grouped
+              ? sections.flatMap((sec) => [
+                  <tr key={`h-${sec.key}`}>
+                    <td colSpan={5} className="px-3 pt-4 pb-1.5 text-[11px] font-bold tracking-wide"
+                      style={{ color: "#378ADD", borderBottom: "1px solid rgba(55,138,221,0.18)" }}>
+                      {sec.label}<span className="ml-2 font-normal" style={{ color: "#545870" }}>· {sec.rows.length}</span>
+                    </td>
+                  </tr>,
+                  ...sec.rows.map((b, i) => cell(b, i, `${sec.key}-${i}`)),
+                ])
+              : flat.map((b, i) => cell(b, i, String(i)))}
           </tbody>
         </table>
       </div>
