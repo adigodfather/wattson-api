@@ -254,6 +254,7 @@ export async function POST(req: NextRequest) {
         if (bj?.success && Array.isArray(bj.rows) && bj.rows.length > 0) {
           parsed.bom = (bj.rows as Array<Record<string, unknown>>).map((r) => ({
             category: r.categorie, item: r.denumire, quantity: r.cantitate, unit: r.um, notes: r.specificatie,
+            sectiune: r.sectiune,   // BOM restructurat: pastreaza sectiunea pt. gruparea vizuala pe cele 8 sectiuni (bucata 3)
           }));
           parsed.bom_source = "plan (unified)";
         } else {
