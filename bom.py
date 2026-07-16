@@ -146,7 +146,8 @@ _TES_FEED_FALLBACK = "CYY-F 5x6"   # sectiunea coloanei TEG->TES cand feed-ul li
 def _extra_meters_by_type(plan_elements, circuits, scale):
     """Metri pt. cablurile care NU sunt in compute_cables: DEDICATE (receptor->tablou) + COLOANA
     (TEG->TE-CT) + COLOANA TEG->TES (cross-plansa, P0-4; o data, scara parterului).
-    Lungime = L-path element->tablou (ca celelalte cabluri). Bucket pe cable_type."""
+    Lungime = L-path element->tablou (ca celelalte cabluri). Bucket pe (SECTIUNE, cable_type):
+    dedicat -> _circuit_section (tehnic->TE-CT, extra->FORTA); coloane -> TEG (tabloul sursa)."""
     panels = _panel_xy(plan_elements)
     teg  = panels.get("tablou_teg") or panels.get("tablou_tes")
     tect = panels.get("tablou_te_ct")
@@ -182,21 +183,21 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
                 a = (float(el["x"]), float(el["y"]))
             except (TypeError, ValueError, KeyError):
                 continue
-            out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(a, target)) * scale
+            out[(_circuit_section(c), ct)] = out.get((_circuit_section(c), ct), 0.0) + _path_len(_cable_l_path(a, target)) * scale
         elif ctype == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
             if teg and tect:
-                out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tect, teg)) * scale
+                out[("TEG", ct)] = out.get(("TEG", ct), 0.0) + _path_len(_cable_l_path(tect, teg)) * scale
         elif ctype == "sub_tablou" and str(c.get("feeds_panel") or "").startswith("TES"):
             # P0-4: feed-ul TEG->TES (coloana cross-plansa) — numarat O DATA, pe pozitiile de plan
             # (proiectia TES pe parter ≈ pozitia TES bruta; plansele-s suprapuse, eroare ~3pt = ~5cm).
             if teg and tes and tes_cross:
-                out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
+                out[("TEG", ct)] = out.get(("TEG", ct), 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
                 tes_counted = True
     # feed TES ABSENT din circuits (breviarul actual nu-l emite — follow-up cunoscut) dar tablourile-s
     # cross-floor -> coloana desenata pe plan exista; numaram cu fallback-ul CONSISTENT cu legenda (5x6).
     if teg and tes and tes_cross and not tes_counted:
         ct = _norm_cable(_TES_FEED_FALLBACK)
-        out[ct] = out.get(ct, 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
+        out[("TEG", ct)] = out.get(("TEG", ct), 0.0) + _path_len(_cable_l_path(tes, teg)) * scale
     return out
 
 
@@ -338,9 +339,9 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
 
     out = {}
 
-    def put(ct, m):
+    def put(sec, ct, m):
         if m > 0:
-            out[ct] = out.get(ct, 0.0) + m
+            out[(sec, ct)] = out.get((sec, ct), 0.0) + m
 
     # cablul circuitului elementului (id-urile per-tablou din enrich = plan_elements.circuit_id)
     cab = {str(c.get("id") or ""): _norm_cable(c.get("cable_type")) for c in (circuits or [])}
@@ -362,7 +363,7 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
             continue
         hm = el.get("mount_height_m")
         h = float(hm) if hm is not None else 1.0
-        put(_norm_cable(c.get("cable_type")), max(0.0, Hc(el) - h))
+        put(_circuit_section(c), _norm_cable(c.get("cable_type")), max(0.0, Hc(el) - h))   # dedicat: tehnic->TE-CT
 
     _SW = draw_elements._SWITCH_TYPES
     _WALL_BULBS = {"aplica_perete", "aplica_senzor"}     # pe perete -> coboara; tavanul NU coboara
@@ -375,20 +376,21 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
             hm = None
         if et in _PRIZA_TYPES:
             h = hm if hm is not None else 0.6            # 0.6 = default-ul CORECT al prizei
-            put(cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
+            put("FORTA", cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
         elif et in _SW:
             h = hm if (hm is not None and abs(hm - _H_GENERIC) > 1e-9) else _H_SWITCH
-            put(_ILUM_CABLE, max(0.0, Hc(el) - h))
+            put("ILUMINAT", _ILUM_CABLE, max(0.0, Hc(el) - h))
         elif et in _WALL_BULBS:
             h = hm if hm is not None else _H_GENERIC
-            put(_ILUM_CABLE, max(0.0, Hc(el) - h))
+            put("ILUMINAT", _ILUM_CABLE, max(0.0, Hc(el) - h))
         elif et == "alimentare_receptor" and draw_elements._grouped_heating_kind(el.get("label")):
             # Regula 10 / H4: VCV/radiatoare GRUPATE -> coborarea la element (H_camera − h_montaj), pe cablul
             # circuitului GRUPAT (via circuit_id, NU descriere). Boilerul/cuptorul/distribuitorul (dedicate,
-            # kind=None) NU intra aici -> prinse de bucla dedicatelor de sus.
+            # kind=None) NU intra aici -> prinse de bucla dedicatelor de sus. VCV/radiator = emitatoare de
+            # camera (nu plant tehnic) -> FORTA.
             kind = draw_elements._grouped_heating_kind(el.get("label"))
             h = hm if hm is not None else _GROUPED_HEATING_DEFAULT_H.get(kind, 1.0)
-            put(cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
+            put("FORTA", cab.get(str(el.get("circuit_id") or ""), _PRIZA_CABLE), max(0.0, Hc(el) - h))
         # aplica_tavan / lustra_led / banda_led: racord la tavan -> coborare 0
 
     # PLECARILE DIN TABLOU: fiecare circuit urca din tabloul lui la tavan (H_tablou − 1.4),
@@ -408,10 +410,10 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
         el = ppos.get(key) or ppos.get("tablou_teg")
         if el is None:
             continue
-        put(_norm_cable(c.get("cable_type")), max(0.0, Hc(el) - _H_PANEL))
+        put(_circuit_section(c), _norm_cable(c.get("cable_type")), max(0.0, Hc(el) - _H_PANEL))   # plecarea = sectiunea circuitului
     # COLOANA TEG->TES (cross-floor): verticala REALA intre etaje (Dan) = per nivel traversat
     # H_nivel + 0.5 planseu, + 1.5 la fiecare capat. Pe cablul feed-ului TES (fallback 5x6).
-    put(_tes_feed_ct(circuits), _tes_column_vertical(plan_elements, rooms))
+    put("TEG", _tes_feed_ct(circuits), _tes_column_vertical(plan_elements, rooms))
     return out
 
 
@@ -463,7 +465,7 @@ def _pdc_min_topup(plan_elements, circuits, rooms, scale, W=None, H=None):
                 pass
         if calc < _PDC_MIN_M:
             ct = _norm_cable(c.get("cable_type"))
-            out[ct] = out.get(ct, 0.0) + (_PDC_MIN_M - calc)
+            out[(_circuit_section(c), ct)] = out.get((_circuit_section(c), ct), 0.0) + (_PDC_MIN_M - calc)   # PDC = tehnic -> TE-CT
     return out
 
 
@@ -534,16 +536,20 @@ def _modules_for_circuit(c):
     return 0
 
 
-def _cable_section(cable_type, column_cts):
-    """Sectiunea unui rand de cablu (BUCATA 2, partitie): iluminat 3x1.5 -> ILUMINAT; forta 3x2.5 ->
-    FORTA; coloana/feed (cable_type de sub_tablou) -> TEG (tabloul sursa); restul (dedicate/alimentari)
-    -> FORTA. Randul e ATOMIC (nu se sparg metrii) -> suma pe sectiuni = totalul global (partitie)."""
-    if cable_type == _ILUM_CABLE:
+def _circuit_section(c):
+    """Sectiunea unui CIRCUIT pt. atribuirea metrilor de cablu/tub LA SURSA (nu pe cable_type, care e
+    PARTAJAT intre tablouri -> nu se poate ruta pe rand). Reguli: iluminat -> ILUMINAT (chiar din camera
+    tehnica); coloana/feed (sub_tablou) -> TEG (tabloul sursa); dedicat TEHNIC (incalzire clasa 1:
+    boiler/pdc/pompa/bms/distribuitor, via draw_elements._is_heating_receptor) -> TE-CT; dedicat EXTRA
+    (AC/internet/cuptor/...) + prize -> FORTA. Aliniat cu clasificarea receptoarelor -> tot echipamentul
+    tehnic LA UN LOC in TE-CT (siguranta pe panel + cablu/tub/receptor pe clasificare tech)."""
+    typ = str((c or {}).get("type") or "")
+    if typ == "iluminat":
         return "ILUMINAT"
-    if cable_type == _PRIZA_CABLE:
-        return "FORTA"
-    if cable_type in (column_cts or set()):
+    if typ == "sub_tablou":
         return "TEG"
+    if typ == "dedicat" and draw_elements._is_heating_receptor((c or {}).get("description") or ""):
+        return "TE-CT"
     return "FORTA"
 
 
@@ -562,39 +568,34 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     circuits = circuits or []
     rows = []
 
-    # 2+7 metri cablu (per cable_type normalizat): iluminat/prize (desenate) + dedicate/coloana
-    # (ORIZONTALE, px*scale) + COBORARILE VERTICALE (H camera − h montaj + plecarile din tablou,
-    # metri reali). Waste-ul se aplica LA FINAL pe suma.
-    m_by_type = dict(horizontal_m) if horizontal_m is not None else _cable_meters_by_type(cables, scale)
-    for ct, m in _extra_meters_by_type(plan_elements, circuits, scale).items():
-        m_by_type[ct] = m_by_type.get(ct, 0.0) + m
+    # 2+7 metri cablu PER (SECTIUNE, cable_type) — atribuire LA SURSA (rutare pe panou pt. echipamentul
+    # tehnic): orizontale desenate iluminat 3x1.5->ILUMINAT / prize 3x2.5->FORTA; dedicate/coloane/
+    # verticale via _circuit_section (dedicat TEHNIC->TE-CT). Cable_type PARTAJAT -> metrii se IMPART pe
+    # sectiuni. Waste LA FINAL. Suma pe sectiuni per cable_type = totalul global (partitie, cantitati IDENTICE).
+    m_by_sec = {}
+    _hz = dict(horizontal_m) if horizontal_m is not None else _cable_meters_by_type(cables, scale)
+    for ct, m in _hz.items():
+        _s = "ILUMINAT" if ct == _ILUM_CABLE else "FORTA"     # orizontale: iluminat (3x1.5) / prize (3x2.5)
+        m_by_sec[(_s, ct)] = m_by_sec.get((_s, ct), 0.0) + m
+    for k, m in _extra_meters_by_type(plan_elements, circuits, scale).items():
+        m_by_sec[k] = m_by_sec.get(k, 0.0) + m
     vertical_m = _vertical_drops(plan_elements, circuits, rooms, W=W, H=H)
-    for ct, m in vertical_m.items():
-        m_by_type[ct] = m_by_type.get(ct, 0.0) + m
+    for k, m in vertical_m.items():
+        m_by_sec[k] = m_by_sec.get(k, 0.0) + m
     # [2] PDC minim 10 m: top-up-ul pana la 10 m pe cablul PDC-ului (PRE-waste, ca restul)
-    for ct, m in _pdc_min_topup(plan_elements, circuits, rooms, scale, W=W, H=H).items():
+    for k, m in _pdc_min_topup(plan_elements, circuits, rooms, scale, W=W, H=H).items():
+        m_by_sec[k] = m_by_sec.get(k, 0.0) + m
+    m_by_sec = {k: v * waste for k, v in m_by_sec.items()}
+    # total per cable_type (pt. TUBURI totale + summary) = suma pe sectiuni
+    m_by_type = {}
+    for (_s, ct), m in m_by_sec.items():
         m_by_type[ct] = m_by_type.get(ct, 0.0) + m
-    m_by_type = {ct: v * waste for ct, v in m_by_type.items()}
 
-    # nr. circuite per cable_type (din TOATE circuitele enrich)
-    circ_by_cable = {}
+    # nr. circuite per (SECTIUNE, cable_type) — pt. spec-ul "N circuite" per rand de cablu (split pe sectiune)
+    circ_by_sec_cable = {}
     for c in circuits:
-        ct = _norm_cable(c.get("cable_type"))
-        circ_by_cable[ct] = circ_by_cable.get(ct, 0) + 1
-
-    # BUCATA 2: cable_types care sunt COLOANE/FEED (sub_tablou) -> sectiunea TEG (tabloul sursa); + TES
-    # cross-floor fallback (5x6, ca in _extra_meters). Restul -> _cable_section (3x1.5/3x2.5/dedicate).
-    column_cts = set()
-    for c in circuits:
-        if c.get("type") == "sub_tablou":
-            column_cts.add(_norm_cable(c.get("cable_type")))
-    _pf = {}
-    for el in plan_elements:
-        _et = el.get("element_type") or ""
-        if _et in ("tablou_teg", "tablou_tes") and _et not in _pf:
-            _pf[_et] = str(el.get("floor") or "parter")
-    if "tablou_teg" in _pf and "tablou_tes" in _pf and _pf["tablou_teg"] != _pf["tablou_tes"]:
-        column_cts.add(_norm_cable(_TES_FEED_FALLBACK))
+        k = (_circuit_section(c), _norm_cable(c.get("cable_type")))
+        circ_by_sec_cable[k] = circ_by_sec_cable.get(k, 0) + 1
 
     # ── 1. SIGURANTE (MCB pe amperaj+poli; RCCB pe mA) — BUCATA 2: grupate pe PANEL (sectiune) ──
     mcb, rccb = {}, {}
@@ -617,12 +618,13 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     for (sec, ma), n in sorted(rccb.items()):
         rows.append(_row("Sigurante", "Protectie diferentiala RCCB %dmA" % ma, "", n, "buc", sectiune=sec))
 
-    # ── 2. CABLURI (tip + metri) — BUCATA 2: sectiune pe destinatie (iluminat/forta/coloana-TEG) ──
-    for ct in sorted(set(list(m_by_type.keys()) + list(circ_by_cable.keys()))):
-        m = m_by_type.get(ct, 0.0)
-        n = circ_by_cable.get(ct, 0)
+    # ── 2. CABLURI (tip + metri) — sectiune LA SURSA (_circuit_section): iluminat->ILUMINAT, prize/extra
+    #     ->FORTA, coloana/feed->TEG, dedicat TEHNIC->TE-CT. Cable_type partajat -> SPLIT pe sectiuni. ──
+    for (sec, ct) in sorted(set(list(m_by_sec.keys()) + list(circ_by_sec_cable.keys()))):
+        m = m_by_sec.get((sec, ct), 0.0)
+        n = circ_by_sec_cable.get((sec, ct), 0)
         spec = "%d circuite" % n if n else "coloana/feed"
-        rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m", sectiune=_cable_section(ct, column_cts)))
+        rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m", sectiune=sec))
     # BRANSAMENT TEG (coloana generala): tip dimensionat ca in monofilara (power_summary),
     # 20 m FIX (marja Dan — deja acopera, NU intra sub waste; nici la tuburi: pozare separata).
     bransament_ct = _bransament_cable(power_summary)
@@ -667,13 +669,15 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             rec["Retea date / Internet (RJ45)"] = rec.get("Retea date / Internet (RJ45)", 0) + 1
     for lbl, n in sorted(rec.items()):
         den = lbl[:1].upper() + lbl[1:] if lbl else lbl
-        rows.append(_row("Receptoare", den, "", n, "buc", sectiune="FORTA"))
+        # tech (incalzire clasa 1: PDC/pompe/BMS/distribuitor/boiler) -> TE-CT; extra (AC/cuptor/internet) -> FORTA
+        _sec = "TE-CT" if draw_elements._is_heating_receptor(lbl) else "FORTA"
+        rows.append(_row("Receptoare", den, "", n, "buc", sectiune=_sec))
 
-    # ── 7. TUBURI (diametru din sectiune; metri = metri cablu) — BUCATA 2: pe SECTIUNE + diametru
-    #     (tuburile urmeaza cablul: _cable_section). Suma pe sectiuni per diametru = totalul global. ──
+    # ── 7. TUBURI (diametru din sectiune; metri = metri cablu) — pe (SECTIUNE, diametru): tuburile
+    #     urmeaza cablul (aceeasi sectiune). Suma pe sectiuni per diametru = totalul global. ──
     tub = {}
-    for ct, m in m_by_type.items():
-        key = (_cable_section(ct, column_cts), _pozare(_section_of(ct)))
+    for (sec, ct), m in m_by_sec.items():
+        key = (sec, _pozare(_section_of(ct)))
         tub[key] = tub.get(key, 0.0) + m
     for (sec, d), m in sorted(tub.items()):
         rows.append(_row("Tuburi", d, "", round(m, 1), "m", sectiune=sec))
