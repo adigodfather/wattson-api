@@ -24,6 +24,7 @@ from schema_generator import (
     draw_text, draw_line, draw_rect,
     draw_page_frame, draw_cartouche,
     CartusFirma, CartusProiect,
+    SCHEMA_X_PADDING, _CARTUS_PLANSA_W_MM, _CARTUS_PLANSA_H_MM,   # CARTUS UNIFICAT: aceleasi repere ca TEG/TES/TE-CT
 )
 
 # =============================================================================
@@ -588,32 +589,78 @@ class _FvCartusShim:
 # BUILD
 # =============================================================================
 def build_fv_schema(package_kw, cartus_firma=None, cartus_proiect=None):
-    """Schema monofilară FV pentru pachetul dat (5/10/15/20) -> bytes PDF (o pagină 420x297)."""
+    """Schema monofilară FV pentru pachetul dat (5/10/15/20) -> bytes PDF (o pagină 420x297).
+    CARTUS UNIFICAT (decizia Dan, 16.07.2026): cartușul = IDENTIC cu al PLANȘELOR și al celorlalte
+    scheme (aceeași funcție cartus_swap._draw_cartus aplicată cu fitz peste PDF-ul reportlab), la
+    ACEEAȘI dimensiune fizică (_CARTUS_PLANSA_W/H_MM), ancorat dreapta-jos. Înainte: cartușul VECHI
+    reportlab (draw_cartouche, 49mm) = alt mecanism + alt aspect decât restul. Conținutul F1-F4
+    NEATINS. Defensiv: orice eroare -> re-randare cu cartușul reportlab vechi (schema NU rămâne fără
+    cartuș), exact ca la schema_generator."""
     pkg = FV_PACKAGES.get(int(package_kw)) or FV_PACKAGES[snap_fv_package(package_kw)]
 
-    buf = BytesIO()
-    set_page_height(_H)
-    c = canvas.Canvas(buf, pagesize=(_W * mm, _H * mm))
-    draw_page_frame(c, _W)
+    def _render(old_cartus: bool) -> bytes:
+        """Pagina completă (F1-F4 + legendă + note + titlu). old_cartus=True -> cartușul reportlab
+        VECHI desenat de reportlab (doar pe calea de fallback); False -> fără cartuș (îl pune fitz)."""
+        buf = BytesIO()
+        set_page_height(_H)
+        c = canvas.Canvas(buf, pagesize=(_W * mm, _H * mm))
+        draw_page_frame(c, _W)
 
-    _draw_pv_field(c, pkg)          # F1 — câmpul PV (dreapta-sus)
-    _draw_tcc(c, pkg)               # F2 — T.CC (breakere DC + SPD DC) pe conductorii DC
-    _draw_inverter(c, pkg)          # F2 — invertorul (MPPT / DC-AC / releu / filtre EMI / borne)
-    _draw_tca(c, pkg)               # F3 — T.CA (SPD 3~ pe derivație + comutator 3P+N)
-    _draw_ac_run_and_meter(c, pkg)  # F3 — traseul AC (CYY-F) + contorul de producție
-    _draw_teg(c)                    # F3 — TEG
-    _draw_racord_bmpt(c, pkg)       # F4 — racordul (breaker + CYABY) + BMPT + limita DEER
+        _draw_pv_field(c, pkg)          # F1 — câmpul PV (dreapta-sus)
+        _draw_tcc(c, pkg)               # F2 — T.CC (breakere DC + SPD DC) pe conductorii DC
+        _draw_inverter(c, pkg)          # F2 — invertorul (MPPT / DC-AC / releu / filtre EMI / borne)
+        _draw_tca(c, pkg)               # F3 — T.CA (SPD 3~ pe derivație + comutator 3P+N)
+        _draw_ac_run_and_meter(c, pkg)  # F3 — traseul AC (CYY-F) + contorul de producție
+        _draw_teg(c)                    # F3 — TEG
+        _draw_racord_bmpt(c, pkg)       # F4 — racordul (breaker + CYABY) + BMPT + limita DEER
 
-    _draw_legend(c)
-    _draw_notes(c)
-    draw_text(c, _W * 0.55, _TITLE_Y, "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC",
-              font=FONT_BOLD, size=15, anchor="center")
-    draw_cartouche(c, _W, _FvCartusShim(cartus_firma, cartus_proiect),
-                   y_start=_CARTUS_Y0, y_end=_CARTUS_Y1)
+        _draw_legend(c)
+        _draw_notes(c)
+        draw_text(c, _W * 0.55, _TITLE_Y, "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC",
+                  font=FONT_BOLD, size=15, anchor="center")
+        if old_cartus:
+            draw_cartouche(c, _W, _FvCartusShim(cartus_firma, cartus_proiect),
+                           y_start=_CARTUS_Y0, y_end=_CARTUS_Y1)
+        c.showPage()
+        c.save()
+        return buf.getvalue()
 
-    c.showPage()
-    c.save()
-    return buf.getvalue()
+    raw = _render(False)
+    try:
+        import fitz
+        import cartus_swap as _cs
+        doc = fitz.open(stream=raw, filetype="pdf")
+        pg = doc[0]
+        MMPT = 72.0 / 25.4
+        # ANCORAT dreapta-jos, pe aceleași repere ca TEG/TES/TE-CT: marginea dreaptă = _W - padding,
+        # marginea de jos = _CARTUS_Y1 (zona cartușului de dinainte). Dimensiunea = cea a planșelor.
+        _x1 = (_W - SCHEMA_X_PADDING) * MMPT
+        _y1 = _CARTUS_Y1 * MMPT
+        bbox = fitz.Rect(_x1 - _CARTUS_PLANSA_W_MM * MMPT, _y1 - _CARTUS_PLANSA_H_MM * MMPT, _x1, _y1)
+        cf = (cartus_firma or CartusFirma()).dict()
+        cp = (cartus_proiect or CartusProiect()).dict()
+        nr = cp.get("plansa_nr") or ""
+        scara = cp.get("scara") or "-"          # schema monofilara: fara scara
+        title_rect, title_base, plansa_box = _cs._draw_cartus(pg, bbox, cf, cp, nr, None, scara)
+        try:
+            doc.set_metadata({**(doc.metadata or {}),
+                              "keywords": "zy_cartus_plansa=%.1f,%.1f,%.1f,%.1f|"
+                                          "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
+                                          % (plansa_box[0], plansa_box[1], plansa_box[2], plansa_box[3],
+                                             title_rect[0], title_rect[1], title_rect[2], title_rect[3],
+                                             title_base)})
+        except Exception:
+            pass
+        out = doc.tobytes(deflate=True)
+        doc.close()
+        # titlul REAL al plansei prin restamp_plansa — EXACT mecanismul folosit de n8n la renumerotare
+        rs = _cs.restamp_plansa(out, nr, "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC")
+        if rs.get("success") and rs.get("pdf_base64"):
+            import base64 as _b64
+            return _b64.b64decode(rs["pdf_base64"])
+        return out
+    except Exception:
+        return _render(True)   # fallback: cartusul reportlab VECHI (schema NU ramane fara cartus)
 
 
 if __name__ == "__main__":
