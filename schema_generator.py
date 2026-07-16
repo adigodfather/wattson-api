@@ -620,6 +620,14 @@ def draw_header(c, width_mm: float, request: SchemaRequest):
 
 MAIN_BREAKER_WIDTH_MM = 60
 SCHEMA_X_PADDING = 6
+
+# CARTUS UNIFORM (decizia Dan, 16.07.2026): cartusul schemelor trebuie sa aiba dimensiunea FIZICA
+# IDENTICA cu a PLANSELOR. ATENTIE: pe PLANSE cartusul NU are dimensiune fixa — se DETECTEAZA per-plan
+# (cartus_swap._detect_cartus_bbox = bbox-ul cartusului arhitectului + 6pt margine). Valorile de mai jos
+# sunt REPERUL MASURAT pe planul real al lui Dan (A2 594x420, 18 ancore -> 182.5 x 42.5 mm). Alt arhitect
+# cu alt cartus -> alta dimensiune pe plansa (schema ramane la reperul asta). Tunabile.
+_CARTUS_PLANSA_W_MM = 182.5
+_CARTUS_PLANSA_H_MM = 42.5
 BUS_Y_TOP = 38
 BUS_LINE_SPACING = 3
 MCB_Y_TOP = 60
@@ -1354,9 +1362,15 @@ def generate_schema_pdf(request: SchemaRequest) -> bytes:
         doc = fitz.open(stream=raw, filetype="pdf")
         pg = doc[0]
         MMPT = 72.0 / 25.4
-        bbox = fitz.Rect(cartouche_x * MMPT, zones["footer_top"] * MMPT,
-                         (cartouche_x + CARTOUCHE_WIDTH_MM) * MMPT,
-                         zones["footer_bottom"] * MMPT)
+        # CARTUS UNIFORM (decizia Dan): dimensiunea FIZICA = cea a PLANSELOR (_CARTUS_PLANSA_*_MM),
+        # nu toata zona de footer (210x78 => era 2.1x mai mare ca aria cartusului de pe plansa).
+        # ANCORAT in coltul DREAPTA-JOS al zonei de footer: marginea dreapta + cea de jos raman EXACT
+        # ca azi; se micsoreaza spre stanga/sus. Restul zonei de footer ramane gol (Dan: uniformitatea
+        # primeaza peste simetria pe pagina). Randarea = ACEEASI _draw_cartus ca la planse, la ACEEASI
+        # dimensiune -> lizibilitate identica cu a planselor (functia scaleaza pe bbox).
+        _x1 = (cartouche_x + CARTOUCHE_WIDTH_MM) * MMPT
+        _y1 = zones["footer_bottom"] * MMPT
+        bbox = fitz.Rect(_x1 - _CARTUS_PLANSA_W_MM * MMPT, _y1 - _CARTUS_PLANSA_H_MM * MMPT, _x1, _y1)
         cf = request.cartus_firma.dict()
         cp = request.cartus_proiect.dict()
         nr = request.cartus_proiect.plansa_nr or ""

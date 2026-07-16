@@ -40,14 +40,15 @@ export const maxDuration = 300;
 type Supa = ReturnType<typeof createServerClient>;
 
 // INSERT proiect SERVER-SIDE (oglinda INSERT-ului client vechi). Rulează CA userul (RLS: own).
-// input_data = body-ul MINUS cartus/page_format (ca payload-ul client), result_data = răspunsul n8n.
+// input_data = body-ul MINUS cartus_firma/page_format, result_data = răspunsul n8n.
+// FIX CARTUS (decizia Dan): `cartus_proiect` (cartușul CONFIRMAT în modal) RĂMÂNE în input_data ca
+// AUDIT TRAIL — înainte era șters, deci nu exista nicăieri în DB urma a ce a confirmat userul.
 // Întoarce id-ul (uuid) sau null pe eroare (clientul face fallback la INSERT-ul lui).
 async function saveProjectServerSide(
   supa: Supa, userId: string, parsed: Record<string, unknown>, data: Record<string, unknown>
 ): Promise<string | null> {
   const inputData: Record<string, unknown> = { ...parsed };
   delete inputData.cartus_firma;
-  delete inputData.cartus_proiect;
   delete inputData.page_format;
   const projectNr = String(parsed?.project_id ?? "").trim();
   const row = {
@@ -230,6 +231,34 @@ export async function POST(req: NextRequest) {
                  "Reîncarcă exportul PDF vectorial din CAD (cu bilanțul de suprafețe vizibil) sau reîncearcă.",
         }, { status: 422 });   // finally eliberează lock; NU salvăm, NU debităm pe declarat-only
       }
+    }
+
+    // ── FIX CARTUS: cartușul CONFIRMAT în modal devine SURSA UNICĂ de adevăr în result_data.project_info,
+    // INAINTE de save. De ce aici: schemele se REGENEREAZĂ la finalizare, iar n8n-finalize reconstruiește
+    // cartușul din result_data.project_info (până acum = Vision BRUT) -> numărul de proiect + șeful de
+    // proiect editate de user se pierdeau (planșele mergeau: ele-s ștampilate în n8n MAIN din
+    // wb.cartus_proiect și NU se regenerează). Un singur loc, ZERO n8n, ZERO backend (precedentul billing).
+    // MAPARE OBLIGATORIE (nume divergente): numar_proiect->proiect_nr, data_proiect->data.
+    // MERGE, nu overwrite: câmpurile care NU vin din modal (plansa_nr, surfaces, ...) rămân din Vision.
+    // Fallback: fără cartus_proiect în payload (sau câmp gol) -> se păstrează Vision (nu crapă). ──
+    {
+      const CARTUS_MAP: Array<[string, string]> = [
+        ["numar_proiect", "proiect_nr"],     // nume divergente (modal -> project_info)
+        ["data_proiect", "data"],            // nume divergente
+        ["sef_proiect", "sef_proiect"],
+        ["titlu_proiect", "titlu_proiect"],
+        ["beneficiar", "beneficiar"],
+        ["amplasament", "amplasament"],
+        ["faza", "faza"],
+      ];
+      const pinfo = ((data.project_info && typeof data.project_info === "object")
+        ? data.project_info : {}) as Record<string, unknown>;
+      let merged = 0;
+      for (const [src, dst] of CARTUS_MAP) {
+        const v = cartusProiect[src];
+        if (typeof v === "string" && v.trim()) { pinfo[dst] = v.trim(); merged++; }
+      }
+      if (merged > 0) data.project_info = pinfo;   // 0 câmpuri confirmate -> project_info neatins (Vision)
     }
 
     // ── SUCCES: persistă + debitează SERVER-SIDE (nu depinde de client). ──
