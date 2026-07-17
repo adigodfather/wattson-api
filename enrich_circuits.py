@@ -401,12 +401,65 @@ def _synth_gas_tect(form, is_mono, has_distributor_on_plan=True):
     return out
 
 
+# ── FIX DRIFT plan<->schema (decizia Dan, 2026-07-17): PLANUL e sursa unica de adevar pt.
+# echipamentele TE-CT. Un circuit TE-CT preservat din base_circuits, type='dedicat', cu echipament
+# MAPABIL pe plan, e pastrat DOAR daca elementul lui mai exista in plan_elements. GATE MEREU ACTIV
+# (fara protectie "plan gol" — respinsa de Dan): plan fara echipamente tech -> dedicatele mapabile
+# DISPAR (userul care nu plaseaza echipamentele si finalizeaza direct accepta schema fara ele).
+# EXCEPTII (protectia 2 — fara reprezentanta obligatorie pe plan): type != 'dedicat' (genericele
+# "Iluminat/Priza rezerva camera tehnica" — gestionate de regula de inlocuire) + cheia nemapabila
+# (None) + BOILERUL ACM (poate fi bifat in formular fara element plasat — ex. gazul face si ACM).
+# Inainte: preservarea era NECONDITIONATA (panel=='TE-CT' -> copiat verbatim) -> circuitul sters
+# de pe plan ramanea NEMURITOR (bucla finalize il re-persista in result_data.circuits la infinit).
+_TECT_GATE_EXEMPT = {"boiler"}
+
+
+def _equip_key_fine(s):
+    """_equip_key + separarea distribuitorului SECUNDAR/de zona de cel PRINCIPAL — DOAR pt. gate.
+    COLIZIUNE reala: 'Distribuitor secundar pardoseala (8 zone)' (element plan) si 'Distribuitor
+    principal incalzire' (circuit breviar) mapeaza AMBELE pe cheia 'distribuitor' -> fara rafinare,
+    secundarul de pe plan ar tine in viata principalul sters. _equip_key global ramane NEATINS
+    (dedup-ul existent base_covered nu se schimba)."""
+    k = _equip_key(s)
+    if k == "distribuitor":
+        t = (s or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
+        if any(w in t for w in ("secundar", "zona", "nivel")):
+            return "distribuitor_zona"
+    return k
+
+
+def _tect_gate_on_plan(circuits, plan_elements):
+    """Filtreaza circuitele TE-CT preservate din base contra PLANULUI curent (vezi comentariul de
+    mai sus). Cheia 'internet' se potriveste si pe element_type='receptor_internet' (elementul
+    retelei nu e alimentare_receptor)."""
+    plan_keys = set()
+    for el in (plan_elements or []):
+        et = (el or {}).get("element_type") or ""
+        if et == "alimentare_receptor":
+            k = _equip_key_fine(el.get("label"))
+            if k:
+                plan_keys.add(k)
+        elif et == "receptor_internet":
+            plan_keys.add("internet")
+    out = []
+    for c in circuits:
+        if c.get("type") != "dedicat":
+            out.append(c)                              # generice (iluminat/prize rezerva) — protectia 2
+            continue
+        k = _equip_key_fine(c.get("description") or c.get("usage"))
+        if k is None or k in _TECT_GATE_EXEMPT or k in plan_keys:
+            out.append(c)                              # nemapabil / boiler ACM / elementul E pe plan
+        # altfel: echipament mapabil FARA element pe plan -> stergere intentionata -> circuitul cade
+    return out
+
+
 def enrich_circuits(plan_elements, form=None, base_circuits=None):
     """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
-    base_circuits (heating-driven, ORTOGONAL de plan; dimensionarea normativa din norme_alimentari
-    ramane INTACTA) + feed-ul coloanei (sub_tablou feeds_panel='TE-CT'). Numerotare PER TABLOU =
-    sistemul PLANULUI: TEG C1..CN, etaj C1-TES..CN-TES, TE-CT C1-TECT..CN-TECT (identice cu
-    plan_elements.circuit_id). base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
+    base_circuits (heating-driven; dimensionarea normativa din norme_alimentari ramane INTACTA),
+    dar GATED pe plan (FIX DRIFT: dedicatele mapabile raman doar cu elementul pe plan) + feed-ul
+    coloanei (sub_tablou feeds_panel='TE-CT'). Numerotare PER TABLOU = sistemul PLANULUI: TEG
+    C1..CN, etaj C1-TES..CN-TES, TE-CT C1-TECT..CN-TECT (identice cu plan_elements.circuit_id).
+    base_circuits lipsa/fara TE-CT (heating 'existing') -> doar TEG/TES."""
     form = form or {}
     plan_elements = plan_elements or []
     # COERENTA MONOFAZATA (regula fizica): bransament mono -> TOT mono (feed-uri, receptoare, grupate,
@@ -429,6 +482,9 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             tect_circuits.append(dict(c))
         elif c.get("type") == "sub_tablou" and c.get("feeds_panel") == "TE-CT":
             feed_circuits.append(dict(c))              # coloana TEG->TE-CT (sectiunea = cable_type)
+    # FIX DRIFT (decizia Dan): baza TE-CT preservata e GATED pe planul CURENT — dedicatele mapabile
+    # raman DOAR daca elementul lor mai e pe plan (stersul dispare din schema/memoriu/BOM la finalize).
+    tect_circuits = _tect_gate_on_plan(tect_circuits, plan_elements)
 
     # SINTEZA GAZ (functionalitate NOUA, ca feed-ul TES — "daca base nu emite, enrich creeaza"):
     # breviarul n8n NU emite TE-CT pe gas_boiler (doar circuit dedicat centrala pe TEG). Setul minim
