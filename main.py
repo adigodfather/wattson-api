@@ -3675,6 +3675,101 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         {"circuit_id": _u["circuit_id"], "room": _u["room"]}).eq("id", _u["id"]).execute()
         except Exception as _e:
             print("[regenerate-plan] assign_circuits skip:", _e)   # defensiv: regenerarea continua
+        # ETICHETE CIRCUITE pe alimentari (decizia Dan, 2026-07-17): codul enrich (C14 / C3-TECT)
+        # injectat IN-MEMORY pe elemente (_cid_label — NU se persista; circuit_id in DB ramane None
+        # pt. dedicate, by design). Enrich = ACEEASI functie + ACELEASI inputuri ca finalize
+        # (plan_elements TOATE + base_circuits=result_data.circuits + form derivat identic) ->
+        # numerotare CONSECVENTA cu schema/memoriul prin constructie. Mapare circuit->element:
+        # (1) pozitia _plan_x/_plan_y (dedup-ul base_covered o seteaza pe circuitele din breviar);
+        # (2) cheia _equip_key_fine + room, apoi doar cheia, in ordinea elementelor (= ordinea in
+        # care enrich creeaza dedicatele 1:1) — acopera 2x AC etc. Defensiv: ORICE esec -> fara
+        # coduri -> draw cade pe eticheta VECHE (fallback in draw_elements).
+        if request.plan_type == "forta":
+            try:
+                import enrich_circuits as _ecm
+                from supabase_client import supabase as _supa5
+                _prj5 = (_supa5.table("projects").select("result_data, input_data")
+                         .eq("id", request.project_id).single().execute().data) or {}
+                _rd5 = (_prj5.get("result_data") or {})
+                _in5 = (_prj5.get("input_data") or {})
+                _allrows = (_supa5.table("plan_elements").select("*")
+                            .eq("project_id", request.project_id).execute().data) or []
+                _conn5 = str((_rd5.get("power_summary") or {}).get("connection") or "").lower()
+                _form5 = {"power_phase": ("tri" if ("trif" in _conn5 or "400" in _conn5) else "mono"),
+                          "has_tech_room": _in5.get("has_tech_room", True),
+                          "heating_type": _in5.get("heating_type"),
+                          "extra_equipment": _in5.get("extra_equipment") or []}
+                _ecirc = _ecm.enrich_circuits(_allrows, _form5, base_circuits=_rd5.get("circuits") or [])
+                _ded = [c for c in _ecirc if isinstance(c, dict) and c.get("type") == "dedicat" and c.get("id")]
+                _RTYPES = ("alimentare_receptor", "receptor_internet")
+
+                def _k_el(_el):
+                    if (_el.get("element_type") or "") == "receptor_internet":
+                        return "internet"
+                    return _ecm._equip_key_fine(_el.get("label"))
+
+                _codes, _ded_left = {}, []
+                # (0) TEXT EXACT (label == description, normalizat, cu/fara prefixul "alimentare") —
+                # INAINTEA pozitiei: pozitiile _plan_x/_plan_y din baza pot fi INCRUCISATE pe chei
+                # comune (ex. cele 2 pompe, cheia 'pompa' — dedup-ul de la generare a legat pozitiile
+                # in ordinea intalnirii). Textul identic garanteaza cod = circuitul REAL al elementului
+                # (eticheta planului consecventa cu schema: C4 = tur si pe plan, si in schema).
+                def _norm_t(_s):
+                    return (_s or "").strip().lower().replace("ă", "a").replace("â", "a").replace("î", "i").replace("ș", "s").replace("ț", "t")
+                _ded_pool = list(_ded)
+                for _el in _allrows:
+                    if (_el.get("element_type") or "") not in _RTYPES or not _el.get("id"):
+                        continue
+                    _lt = _norm_t(_el.get("label"))
+                    if not _lt:
+                        continue
+                    for _c in _ded_pool:
+                        _dt = _norm_t(_c.get("description") or _c.get("usage"))
+                        if _dt == _lt or _dt == ("alimentare " + _lt):
+                            _codes[_el["id"]] = str(_c["id"])
+                            _ded_pool.remove(_c)
+                            break
+                _ded = _ded_pool                                   # ramasii intra pe pozitie/cheie
+                for _c in _ded:                                    # (1) pozitie exacta (dedup a scris-o)
+                    _px, _py = _c.get("_plan_x"), _c.get("_plan_y")
+                    _hit = None
+                    if _px is not None and _py is not None:
+                        for _el in _allrows:
+                            if ((_el.get("element_type") or "") in _RTYPES and _el.get("id")
+                                    and _el["id"] not in _codes
+                                    and abs(float(_el.get("x") or 0) - float(_px)) < 0.01
+                                    and abs(float(_el.get("y") or 0) - float(_py)) < 0.01):
+                                _hit = _el
+                                break
+                    if _hit is not None:
+                        _codes[_hit["id"]] = str(_c["id"])
+                    else:
+                        _ded_left.append(_c)
+                for _el in _allrows:                               # (2) cheie + room, apoi cheie (in ordine)
+                    if (_el.get("element_type") or "") not in _RTYPES or not _el.get("id") or _el["id"] in _codes:
+                        continue
+                    _ke = _k_el(_el)
+                    if not _ke:
+                        continue                                   # custom nemapabil -> fara cod (eticheta veche + nume)
+                    _pick = None
+                    for _c in _ded_left:
+                        if (_ecm._equip_key_fine(_c.get("description") or _c.get("usage")) == _ke
+                                and str(_c.get("room") or "") == str(_el.get("room") or "")):
+                            _pick = _c
+                            break
+                    if _pick is None:
+                        for _c in _ded_left:
+                            if _ecm._equip_key_fine(_c.get("description") or _c.get("usage")) == _ke:
+                                _pick = _c
+                                break
+                    if _pick is not None:
+                        _codes[_el["id"]] = str(_pick["id"])
+                        _ded_left.remove(_pick)
+                for _el in rows:                                   # injectare pe subsetul etajului (alt fetch, acelasi id)
+                    if _el.get("id") in _codes:
+                        _el["_cid_label"] = _codes[_el["id"]]
+            except Exception as _e5:
+                print("[regenerate-plan] etichete circuite skip:", _e5)   # defensiv: eticheta veche
         # COLOANE: feed-urile sub_tablou (TEG->TE-CT/TES) din result_data.circuits -> desenate teal +
         # in legenda. Sectiunea = cable_type-ul feed-ului (normativ, din schema initiala). Defensiv.
         _feeds = []

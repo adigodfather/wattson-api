@@ -365,6 +365,42 @@ def _fmt_height(h):
         return None
 
 
+# ── ETICHETE SCURTE alimentari (decizia Dan, 2026-07-17): abrevieri DOAR PE PLAN (schema pastreaza
+# numele complete). Custom / nemapabil -> None -> ramane numele inginerului. Ordinea conteaza:
+# 'retur' INAINTE de 'tur' (substring), distribuitor secundar/zona INAINTE de principal (DP).
+def _receptor_abbrev(label):
+    t = _norm_lbl(label)
+    if not t:
+        return None
+    if any(k in t for k in ("pdc", "pompa de caldura", "pompa caldura", "aer-apa", "sol-apa")):
+        return "PDC"
+    if "pompa" in t and "retur" in t:
+        return "P-retur"
+    if "pompa" in t and "tur" in t:
+        return "P-tur"
+    if "distribuitor" in t:
+        return "DS" if any(w in t for w in ("secundar", "zona", "nivel")) else "DP"
+    if "automatizare" in t or "bms" in t:
+        return "BMS"
+    if "boiler" in t:
+        return "BOILER"
+    if "centrala" in t and "gaz" in t:
+        return "CT GAZ"
+    if "radiator" in t:
+        return "RADIATOR"
+    if "ventiloconvector" in t or "vcv" in t:
+        return "VCV"
+    if "conditionat" in t:
+        return "AC"
+    if "cuptor" in t:
+        return "CUPTOR"
+    if "hrv" in t or "recuper" in t:
+        return "HRV"
+    if any(k in t for k in ("statie", "incarcare", "masina electrica", "ev_charger")):
+        return "EV"
+    return None
+
+
 def _priza_label(el):
     """Eticheta priza: 'C{circuit_id} - h={mount_height_m}m'. Circuit lipsa -> doar inaltime;
     ambele lipsa -> ''. Ex: circuit_id='C4', mount_height_m=0.6 -> 'C4 - h=0.6m'."""
@@ -465,7 +501,7 @@ def _legend_label(kind, element_type, power_w=None, label=None):
     if kind == "receptor":
         return "Alimentare " + (str(label).strip() if label else "receptor")
     if kind == "internet":
-        return "Priza date / internet (RJ45)"
+        return "DDCS - DOZA DE LEGATURA CURENTI SLABI"   # decizia Dan (era "Priza date / internet (RJ45)")
     # bulb (default)
     name = _LEGEND_BULB_NAME.get(element_type, "Corp")
     base = "{} LED cu senzor de prezenta".format(name) if element_type == "aplica_senzor" else "{} LED".format(name)
@@ -3166,24 +3202,40 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     n_ground += 1
             elif et == "alimentare_receptor":
                 # Receptor (bucata A): simbolul de ALIMENTARE existent (priza_16a = cerc plin), refolosit.
-                # `label` (boiler/cuptor/...) + inaltimea de montaj (h=..m, ca la prize) sub simbol.
+                # ETICHETA SCURTA (decizia Dan, 2026-07-17): "{cod} {ABREVIERE} - h={h}m" —
+                # ex. "C3-CT PDC - h=0.3m" (camera tehnica) / "C8 AC - h=1.5m" (extra). Codul =
+                # _cid_label (injectat IN-MEMORY de /regenerate-plan din enrich; NU se persista) sau
+                # circuit_id (grupatele VCV/radiator il au de la assign_circuits). Sufixul -TECT se
+                # AFISEAZA ca -CT (doar vizual; circuit_id/schema raman C3-TECT). Separator inaltime =
+                # cratima (consecvent cu prizele). Custom/nemapabil (abbrev None): numele inginerului.
+                # FALLBACK (fara cod SI fara abreviere — ex. enrich picat): eticheta VECHE, identic.
                 _draw_priza(page, x, y, "priza_16a")
                 _rl = (el.get("label") or "").strip()
                 _rh = _fmt_height(el.get("mount_height_m"))
                 _rt = (_rl[:1].upper() + _rl[1:]) if _rl else ""
-                if _rt:
-                    # acelasi stil ca etichetele prizelor (bold + 9.0, lizibil); receptorul sta LIBER
-                    # in camera (nu pe perete) -> eticheta ramane SUB simbol (y+24, aer pt. cercul marit).
-                    # O2: echipamentele de INCALZIRE (clasa 1) au descrieri lungi -> WRAP pe cuvinte
-                    # la ~25 caractere, max 2 randuri; h=X.Xm pe ULTIMUL rand. Restul (boiler din alta
-                    # camera / cuptor / AC / EV): single-line ca inainte.
-                    _rfs = 9.0
+                _code = str(el.get("_cid_label") or el.get("circuit_id") or "").strip()
+                _abbr = _receptor_abbrev(_rl)
+                _rfs = 9.0
+                if _code or _abbr:
+                    _disp = _code.replace("-TECT", "-CT")           # DOAR vizual (DB/schema neatinse)
+                    _name = _abbr or _rt                            # custom: numele inginerului
+                    _txt = " ".join(p for p in (_disp, _name) if p)
+                    if _rh:
+                        _txt = "%s - h=%sm" % (_txt, _rh)
+                    _rlines = _wrap_label_25(_txt, 25) if len(_txt) > 25 else [_txt]
+                elif _rt:
+                    # eticheta VECHE (O2): label complet, wrap 25 la heating, h pe ultimul rand
                     if _is_heating_receptor(_rl) and len(_rt) > 25:
                         _rlines = _wrap_label_25(_rt, 25)
                     else:
                         _rlines = [_rt]
                     if _rh:
                         _rlines[-1] = ("%s  h=%sm" % (_rlines[-1], _rh)).strip()
+                else:
+                    _rlines = []
+                if _rlines:
+                    # acelasi stil ca etichetele prizelor (bold + 9.0, lizibil); receptorul sta LIBER
+                    # in camera (nu pe perete) -> eticheta ramane SUB simbol (y+24, aer pt. cercul marit).
                     _rw = max(len(ln) for ln in _rlines) * _rfs * 0.50
                     _labels.append({"text": " ".join(_rlines), "lines": _rlines,
                                     "x0": x - _rw / 2.0, "y": y + 24.0, "w": _rw,
@@ -3193,7 +3245,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
                 _nh = _fmt_height(el.get("mount_height_m"))                           # inaltime de montaj (ca la prize)
                 if _nh:
-                    _nt = "Retea  h=%sm" % _nh
+                    _nt = "DDCS - h=%sm" % _nh          # decizia Dan: "Retea" -> "DDCS" (doza curenti slabi)
                     _nfs = 7.5
                     _nw = len(_nt) * _nfs * 0.46
                     _labels.append({"text": _nt, "x0": x - _nw / 2.0, "y": y + 22.0, "w": _nw,
