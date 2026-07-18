@@ -1186,6 +1186,22 @@ def _nearest_wall_coord(px, py, h_segs, v_segs, axis, tol=SWITCH_SNAP_TOL):
     return best
 
 
+def _wall_axis_dist(pt, h_segs, v_segs, tol=9.0):
+    """Distanta MINIMA a punctului la o axa de perete (V: |x-px| cu py in intervalul segmentului;
+    H: |y-py| cu px in interval; interval largit cu tol, ca _near_wall_count). inf daca niciuna.
+    Generalizarea CONTINUA a testului binar _near_wall_count (tol fixa 9pt) — decide tocul si cand
+    testul binar da egalitate (colturi / pereti dubli / capat la 10-15pt de axa)."""
+    px, py = pt
+    best = float("inf")
+    for (y0, y1, x) in v_segs:
+        if min(y0, y1) - tol <= py <= max(y0, y1) + tol:
+            best = min(best, abs(x - px))
+    for (x0, x1, y) in h_segs:
+        if min(x0, x1) - tol <= px <= max(x0, x1) + tol:
+            best = min(best, abs(y - py))
+    return best
+
+
 def _switch_pos_at_door(d, columns, h_segs, v_segs):
     """Poziția+unghiul întrerupătorului lângă o ușă: latura de deschidere (mâner), LIPIT pe linia
     peretelui lângă toc, spre interiorul camerei; evită sâmburii. Extras din vechea logică per-ușă
@@ -1199,10 +1215,33 @@ def _switch_pos_at_door(d, columns, h_segs, v_segs):
         sy = strike[1] + wy * SWITCH_FROM_JAMB
         wall_h = abs(wx) >= abs(wy)          # peretele e orizontal?
     else:
-        # incert (usa la colt): plasa de siguranta — langa toc, spre interiorul camerei
-        sx = d["x"] + ux * 12.0
-        sy = d["y"] + uy * 12.0
-        wall_h = abs(ux) < abs(uy)           # deschidere ⟂ perete -> peretele e pe axa opusa
+        # FIX "in golul usii" (decizia Dan, 2026-07-18): incert NU mai inseamna "plasa de siguranta
+        # la 12pt de CENTRUL usii" (= practic in golul usii / pe mijloc). Re-decidem TOCUL geometric:
+        # dintre cele 2 capete ale arcului, cel MAI APROPIAT de o axa de perete (_wall_axis_dist,
+        # distanta continua — sparge egalitatile care faceau usa "incerta") = tocul de pe peretele
+        # cel mai apropiat de arc (partea manerului, regula Dan). Apoi ACEEASI formula ca la certe
+        # -> langa toc, la SWITCH_FROM_JAMB. CLAMP implicit: in cel mai rau caz (distante egale)
+        # ajunge langa UN toc — NICIODATA la mijlocul golului. Certele: NEATINSE (ramura de sus).
+        ot = d.get("opentip") or strike
+        # criteriul = POZITIA CANDIDATA (toc + JAMB pe directia balama->capat) sta PE un perete?
+        # (nu capatul brut: la usa de COLT ambele capete au d=0 — dar dincolo de UNUL din tocuri
+        # peretele SE TERMINA (coltul), iar snap-ul ar trage intrerupatorul pe un perete strain.
+        # Capatul cu candidatul pe perete = tocul REAL montabil.)
+        def _cand(e):
+            cx, cy = e[0] - hinge[0], e[1] - hinge[1]
+            cl = math.hypot(cx, cy) or 1.0
+            return (e[0] + cx / cl * SWITCH_FROM_JAMB, e[1] + cy / cl * SWITCH_FROM_JAMB)
+        d_st = _wall_axis_dist(_cand(strike), h_segs, v_segs)
+        d_ot = _wall_axis_dist(_cand(ot), h_segs, v_segs)
+        st = strike if d_st <= d_ot else ot            # tocul re-decis (candidatul pe perete)
+        tip = ot if st is strike else strike           # celalalt capat = varful foii (deschiderea)
+        wx, wy = st[0]-hinge[0], st[1]-hinge[1]
+        wl = math.hypot(wx, wy) or 1.0; wx, wy = wx/wl, wy/wl
+        sx = st[0] + wx * SWITCH_FROM_JAMB
+        sy = st[1] + wy * SWITCH_FROM_JAMB
+        ux, uy = tip[0]-hinge[0], tip[1]-hinge[1]      # sensul REAL de deschidere (pt. unghiul simbolului)
+        ul = math.hypot(ux, uy) or 1.0; ux, uy = ux/ul, uy/ul
+        wall_h = abs(wx) >= abs(wy)          # peretele e orizontal (directia balama->toc)
 
     # SNAP pe linia EXACTĂ a peretelui, pe axa corectă (lipit pe zid, nu pe arc)
     if wall_h:
