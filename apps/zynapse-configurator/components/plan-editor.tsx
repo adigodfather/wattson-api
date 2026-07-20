@@ -849,6 +849,43 @@ export default function PlanEditor({
       setFvpLoading(false);
     }
   }
+  // ── PRIZA in camera tehnica (decizia Dan): plasata AUTOMAT la "Genereaza echipamente" (1 simpla,
+  // idempotent) + buton "Adauga priza" (multiple). room = room-ul tabloului TE-CT (camera tehnica,
+  // sursa unica scrisa de assign_circuits) -> enrich o pune pe TE-CT (circuit C{n}-TECT per priza,
+  // mecanism existent) si genericul "Priza rezerva camera tehnica" e inlocuit. Inaltimea: campul
+  // existent din panoul de proprietati (isPrizaType). Pozitia: SUB grila echipamentelor (y+56+stagger),
+  // nu se suprapune; inginerul o muta. ──
+  const [techPrizaMsg, setTechPrizaMsg] = useState<string | null>(null);
+  async function addTechPriza(auto: boolean): Promise<boolean> {
+    if (mode !== "forta") return false;
+    const tab = elements.find(e => e.element_type === "tablou_te_ct");
+    if (!tab) {
+      if (!auto) setTechPrizaMsg("Plasează întâi tabloul TE-CT (camera tehnică) pe plan.");
+      return false;
+    }
+    const techRoom = (tab.room || "").trim();
+    const techPrizas = elements.filter(e => isPrizaType(e.element_type)
+      && ((techRoom && (e.room || "").trim() === techRoom)
+          || Math.hypot(e.x - tab.x, e.y - tab.y) < 90));
+    if (auto && techPrizas.length > 0) return false;   // AUTO = idempotent (1 priza); butonul poate adauga oricate
+    const stagger = techPrizas.length;
+    const row = {
+      project_id: projectId, floor: floorCanonic(floor), element_type: "priza_simpla",
+      plan_type: "forta", label: null as string | null,
+      room: (techRoom || null) as string | null,
+      x: tab.x + 35 + stagger * 8, y: tab.y + 56 + stagger * 12,
+      wall_mounted: true, rotation: 0, mount_height_m: 0.6, status: null as string | null,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) {
+      if (!auto) setTechPrizaMsg("Adăugarea prizei a eșuat: " + (error?.message || "necunoscut"));
+      return false;
+    }
+    const created = data as PlanElement;
+    setElements(prev => [...prev, created]);
+    if (!auto) { setTechPrizaMsg(null); setSelectedId(created.id); }
+    return true;
+  }
   async function generateHeatingEquipAuto() {
     if (mode !== "forta" || heqLoading || heatingEquipment.length === 0) return;
     const destType = hasTechRoom ? "tablou_te_ct" : "tablou_teg";
@@ -861,7 +898,13 @@ export default function PlanEditor({
     const placed = new Set(elements.filter(e => e.element_type === "alimentare_receptor")
                                    .map(e => (e.label || "").trim()));
     const missing = heatingEquipment.filter(h => !placed.has(h.label));
-    if (missing.length === 0) { setHeqMsg("Toate echipamentele de încălzire sunt deja plasate."); return; }
+    if (missing.length === 0) {
+      // echipamentele-s plasate; priza automata poate lipsi (proiect generat inainte de feature)
+      const addedP = await addTechPriza(true);
+      setHeqMsg(addedP ? "Echipamentele erau plasate — am adăugat priza din camera tehnică."
+                       : "Toate echipamentele de încălzire sunt deja plasate.");
+      return;
+    }
     setHeqLoading(true); setHeqMsg(null);
     try {
       // GRID compact langa tablou: dx=+35pt, dy=28pt, a doua coloana dupa 4 elemente
@@ -874,7 +917,10 @@ export default function PlanEditor({
       const { data, error } = await supabase.from("plan_elements").insert(rows).select(SELECT_COLS);
       if (error || !data) { setHeqMsg("INSERT echipamente eșuat: " + (error?.message || "necunoscut")); return; }
       setElements(prev => [...prev, ...(data as PlanElement[])]);
-      setHeqMsg(`S-au plasat ${data.length} echipamente lângă ${hasTechRoom ? "TE-CT" : "TEG"}.`);
+      // decizia Dan: 1 priza SIMPLA automat in camera tehnica, langa echipamente (idempotent)
+      const addedP = hasTechRoom ? await addTechPriza(true) : false;
+      setHeqMsg(`S-au plasat ${data.length} echipamente lângă ${hasTechRoom ? "TE-CT" : "TEG"}.`
+                + (addedP ? " + priza din camera tehnică." : ""));
     } finally {
       setHeqLoading(false);
     }
@@ -1854,6 +1900,13 @@ export default function PlanEditor({
             ))}
           </div>
         )}
+        {/* PRIZA in camera tehnica (decizia Dan): buton dedicat — fiecare click = o priza noua
+            (priza_simpla, room=camera tehnica -> circuit C{n}-TECT pe TE-CT). Inaltimea: click pe
+            priza -> campul "Inaltime (m)" existent. Plasata sub grila echipamentelor, mutabila. */}
+        <div style={{ marginTop: 10, paddingLeft: 2 }}>
+          <button type="button" className="zy-add-btn" onClick={() => void addTechPriza(false)}>+ Adaugă priză (TE-CT)</button>
+          {techPrizaMsg && <div style={{ fontSize: 11, color: "#C5C8D6", marginTop: 6, lineHeight: 1.5 }}>{techPrizaMsg}</div>}
+        </div>
         <div style={{ marginTop: 10, paddingLeft: 2 }}>
           {!customOpen ? (
             <button type="button" className="zy-add-btn" onClick={() => { setCustomMsg(null); setCustomOpen(true); }}>+ Adaugă alimentare proprie</button>

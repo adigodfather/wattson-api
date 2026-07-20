@@ -582,12 +582,19 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
     # de plan; INLOCUIM genericele (type iluminat/prize = "Iluminat/Priza rezerva camera tehnica")
     # DOAR daca planul a produs iluminat/prize tech REALE (altfel le pastram = non-regresie 'ca inainte').
     kept_base_tect = []
+    _plan_touched_tect = bool(plan_tect)               # planul a LUCRAT camera tehnica (orice circuit TE-CT plan-derivat)
     for c in tect_circuits:
         t = c.get("type")
         if t == "iluminat" and plan_has_ilum:
             continue                                   # inlocuit de becurile REALE din plan
-        if t in ("prize", "priza") and plan_has_priza:
-            continue                                   # inlocuit de prizele REALE din plan
+        if t in ("prize", "priza") and (plan_has_priza or _plan_touched_tect):
+            # CONSECVENTA STRICTA prize (decizia Dan, 2026-07-18 — varianta A): prizele TE-CT vin DOAR
+            # din plan cand camera tehnica e LUCRATA. plan_has_priza -> inlocuite de cele reale (ca
+            # inainte); _plan_touched_tect FARA prize -> stersul TUTUROR prizelor tech = intentia
+            # inginerului -> genericul "Priza rezerva camera tehnica" (sau circuitul real persistat in
+            # base la finalize-ul anterior) NU mai revine. Plan NELUCRAT (zero circuite TE-CT din plan,
+            # ex. proiect vechi fara echipamente plasate) -> genericul RAMANE (plasa normativa, ca azi).
+            continue
         kept_base_tect.append(c)                       # echipamente incalzire (dedicat) + generice fara inlocuitor
     # ordine TE-CT = becuri/prize PLAN INTAI (C1-TECT.. = identic cu plan_elements.circuit_id, si
     # ordinea I7: iluminat/prize inainte de 'dedicat') + incalzirea(baza) numerotata DUPA.

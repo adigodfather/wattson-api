@@ -401,11 +401,18 @@ def _receptor_abbrev(label):
     return None
 
 
+def _cid_display(cid):
+    """Codul circuitului pt. AFISARE pe plan: sufixul '-TECT' -> '-CT' (decizia Dan, DOAR vizual —
+    circuit_id in DB + schemele raman C2-TECT). Sursa UNICA a transformarii (prize + receptoare)."""
+    return (cid or "").replace("-TECT", "-CT")
+
+
 def _priza_label(el):
     """Eticheta priza: 'C{circuit_id} - h={mount_height_m}m'. Circuit lipsa -> doar inaltime;
-    ambele lipsa -> ''. Ex: circuit_id='C4', mount_height_m=0.6 -> 'C4 - h=0.6m'."""
+    ambele lipsa -> ''. Ex: circuit_id='C4', mount_height_m=0.6 -> 'C4 - h=0.6m'.
+    Prizele tech: 'C2-TECT' AFISAT 'C2-CT' (_cid_display, consecvent cu alimentarile)."""
     parts = []
-    cid = ((el or {}).get("circuit_id") or "").strip()
+    cid = _cid_display(((el or {}).get("circuit_id") or "").strip())
     if cid:
         parts.append(cid)
     h = _fmt_height((el or {}).get("mount_height_m"))
@@ -3256,7 +3263,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _abbr = _receptor_abbrev(_rl)
                 _rfs = 9.0
                 if _code or _abbr:
-                    _disp = _code.replace("-TECT", "-CT")           # DOAR vizual (DB/schema neatinse)
+                    _disp = _cid_display(_code)                     # -TECT -> -CT (sursa unica, ca la prize)
                     _name = _abbr or _rt                            # custom: numele inginerului
                     _txt = " ".join(p for p in (_disp, _name) if p)
                     if _rh:
