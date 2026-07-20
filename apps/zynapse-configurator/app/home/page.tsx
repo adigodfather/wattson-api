@@ -10,6 +10,7 @@ import { CalculatorPanel } from "@/components/CreditCalculator";
 import { startCheckout, type BillingChoice } from "@/lib/payment/startCheckout";
 import SiteFooter from "@/components/SiteFooter";
 import BillingModal from "@/components/BillingModal";
+import BeforeAfterSlider from "@/components/BeforeAfterSlider";
 
 // Pachetele vin DIN DB (credit_packages) — sursa de adevăr pt. id/credite/preț.
 interface DbPackage {
@@ -116,6 +117,17 @@ export default function HomePage() {
           Estimează Z-Coins și costul în câteva secunde
         </p>
         <CalculatorPanel onBuy={(credits) => { setBuyError(null); if (!user) { router.push("/login"); return; } setPending({ credits }); }} />
+      </section>
+
+      {/* ── Demo before/after: arhitectura -> plan electric (slider static, /demo/*.png) ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "44px 18px 20px" }}>
+        <h2 style={{ fontSize: 28, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 8px", letterSpacing: -0.5 }}>
+          Din arhitectură în proiect electric
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 14.5, margin: "0 0 24px" }}>
+          Trage bara și compară planșa originală cu planul generat — iluminat sau prize.
+        </p>
+        <BeforeAfterSlider />
       </section>
 
       {/* ── Pachete B2B (doar conturi 30+ zile) ── */}

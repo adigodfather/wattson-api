@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { CalculatorPanel } from "@/components/CreditCalculator";
 import SiteFooter from "@/components/SiteFooter";
+import BeforeAfterSlider from "@/components/BeforeAfterSlider";
 
 interface Node {
   x: number; y: number; vx: number; vy: number;
@@ -682,6 +683,17 @@ export default function Landing() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* ── Demo before/after: arhitectura -> plan electric (slider static, /demo/*.png) ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "40px 40px 20px" }}>
+        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
+          Din arhitectură în proiect electric
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: "0 0 26px" }}>
+          Trage bara și compară planșa originală cu planul generat — iluminat sau prize.
+        </p>
+        <BeforeAfterSlider />
       </section>
 
       {/* ── Ce facem ── */}
