@@ -2538,11 +2538,23 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         # inset CONCENTRIC per echipament (m = 4 + idx*2.5) -> paralele pe acelasi perete, nu suprapuse.
         # DOAR subsetul: clasa 1 + tinta TE-CT + echipamentul si TE-CT in bbox-ul camerei tehnice
         # (toleranta 25pt — bbox-ul Vision poate fi mai mic decat camera reala). Restul: ca inainte.
-        _tech_R = None
+        _tech_R = None                                     # bbox VISION — DOAR pt. gate-ul _in_tech (neschimbat)
+        _tech_wall_R = None                                # conturul de RUTARE: geom (pereti reali) -> Vision
         if tech_l and tect is not None:
             for _nm, _R in room_px.items():
                 if _nm.strip().lower() == tech_l:
+                    # FIX O3 (decizia Dan, 2026-07-20): CONTURUL pe care ruteaza cablurile trece pe
+                    # cascada geom->Vision (tiparul v3 de mai jos). Bbox-ul VISION e umflat spre
+                    # exterior (masurat: latura stanga 286.2 vs peretele real 310.2 => conturul
+                    # "pe perete" iesea prin EXTERIORUL cladirii; inset-ul 4+idx*2.5 nu compensa
+                    # 24pt). geom_bbox = peretii REALI (fetele interioare, ex. 329.2) -> inset-ul
+                    # cade pe INTERIORUL peretilor interiori. GATE-UL _in_tech ramane pe bbox-ul
+                    # VISION (tol 25) — SUBSETUL de echipamente rutate O3 nu se schimba (tabloul/
+                    # BMS pot fi la limita; geom mai mic i-ar scoate din gate = alta cale). Fara
+                    # geometrie -> _tech_wall_R = Vision = comportamentul de azi, byte-identic.
                     _tech_R = _R
+                    _gt = room_geoms.get(_nm.strip()) if room_geoms is not None else None
+                    _tech_wall_R = _gt or _R
                     break
 
         def _in_tech(px, py, tol=25.0):
@@ -2558,7 +2570,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                            key=lambda rc: (rc["y"], rc["x"]))          # idx determinist (y,x)
         _wall_ids = {id(rc) for rc in heat_wall}
         for _idx, rc in enumerate(heat_wall):
-            _Ri = _inset_rect(_tech_R, 4.0 + _idx * 2.5)               # contur concentric per echipament
+            _Ri = _inset_rect(_tech_wall_R, 4.0 + _idx * 2.5)          # contur concentric per echipament (FIX O3: pereti reali)
             _bp1, _t1 = _project_to_rect(rc["x"], rc["y"], _Ri)        # perpendicular pe peretele apropiat
             _bp2, _t2 = _project_to_rect(tect[0], tect[1], _Ri)        # in dreptul TE-CT
             _wpath = [(rc["x"], rc["y"])] + _perimeter_path(_t1, _t2, _Ri) + [(tect[0], tect[1])]
