@@ -47,7 +47,8 @@ export const metadata: Metadata = {
     images: ["/og-image.png"],
   },
   robots: { index: true, follow: true },
-  icons: { icon: "/logo-icon.png" },
+  // favicon: conventia pe fisiere App Router (app/favicon.ico + app/icon.png +
+  // app/apple-icon.png) — Next le injecteaza automat; nu se mai declara aici.
 };
 
 export const viewport: Viewport = {
