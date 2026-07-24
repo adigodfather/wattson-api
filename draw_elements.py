@@ -2530,6 +2530,36 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         for _cid, grp in by_cid.items():
             _route_heating_chain(grp, len(grp))
 
+    def _degrouped_tech_rect(gt, vis, tech_key, rpx):
+        """F2 (2026-07-25): GARD pe geom COMASAT — pe unele planse extract_room_geometry nu
+        prinde peretele dintre camera tehnica si vecina (ea1f0f7b: geom 'Spatiu tehnic'
+        INCLUDEA Baia 1) -> conturul O3 taia prin interiorul vecinei. Detectie: geom-ul
+        acopera >55% din bbox-ul VISION al ALTEI camere care NU e deja acoperita de
+        Vision-ul propriu (>30%) — a doua conditie evita fals-pozitivele pe plansele cu
+        Vision UMFLAT peste vecine (7976635f, unde geom-ul e corect si trebuie pastrat).
+        Comasat -> gt∩vis (peretii reali raman pe laturile necomasate); intersectie
+        degenerata (<20pt) -> None (apelantul cade pe Vision, pre-O3). Necomasat -> gt."""
+        try:
+            for nm2, r2 in (rpx or {}).items():
+                if nm2.strip().lower() == tech_key:
+                    continue
+                a2 = max(0.0, r2[2] - r2[0]) * max(0.0, r2[3] - r2[1])
+                if a2 <= 0:
+                    continue
+                gi = (max(0.0, min(gt[2], r2[2]) - max(gt[0], r2[0]))
+                      * max(0.0, min(gt[3], r2[3]) - max(gt[1], r2[1])))
+                vi = (max(0.0, min(vis[2], r2[2]) - max(vis[0], r2[0]))
+                      * max(0.0, min(vis[3], r2[3]) - max(vis[1], r2[1])))
+                if gi / a2 > 0.55 and vi / a2 < 0.30:
+                    cx0, cy0 = max(gt[0], vis[0]), max(gt[1], vis[1])
+                    cx1, cy1 = min(gt[2], vis[2]), min(gt[3], vis[3])
+                    if cx1 - cx0 >= 20.0 and cy1 - cy0 >= 20.0:
+                        return (cx0, cy0, cx1, cy1)
+                    return None
+        except Exception:
+            pass
+        return gt
+
     if dedicated and (general_xy or tect):
         tech_l = (tech_room_from_elements(elements) or "").strip().lower()
         # O3: cablurile ECHIPAMENTELOR DE INCALZIRE din CAMERA TEHNICA merg PE LANGA PERETE (nu prin
@@ -2554,6 +2584,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                     # geometrie -> _tech_wall_R = Vision = comportamentul de azi, byte-identic.
                     _tech_R = _R
                     _gt = room_geoms.get(_nm.strip()) if room_geoms is not None else None
+                    if _gt is not None:
+                        _gt = _degrouped_tech_rect(_gt, _R, tech_l, room_px)   # F2: gard geom comasat
                     _tech_wall_R = _gt or _R
                     break
 
@@ -2603,8 +2635,17 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             # Gate-fail / fara geometrie / fara dunga / receptor in mijloc -> add-ul de azi.
             _rk2 = (rc.get("room") or "").strip()
             _G2 = None
-            if room_geoms is not None and stripes and _rk2:
-                for _g2 in (room_geoms.get(_rk2), room_px.get(_rk2)):
+            if room_geoms is not None and _rk2:
+                # F2: gardul pe geom comasat si in cascada v3, dar DOAR pentru receptoarele
+                # rutate spre TE-CT (echipamentele camerei tehnice — pe ea1f0f7b geom 'Spatiu
+                # tehnic' includea Baia 1 si arcul PDC-ului trecea prin baie; tech_l e gol
+                # acolo, tabloul TE-CT are room=NULL, deci gate-ul e pe to_tect). NU se aplica
+                # generic: bbox-urile nu pot separa comasarea de camerele deschise arhitectural
+                # (hol<->living) — generic dadea fals-pozitive pe 7976635f (Bucatarie/Birou).
+                _geo2, _vis2 = room_geoms.get(_rk2), room_px.get(_rk2)
+                if _geo2 is not None and _vis2 is not None and to_tect:
+                    _geo2 = _degrouped_tech_rect(_geo2, _vis2, _rk2.strip().lower(), room_px)
+                for _g2 in (_geo2, _vis2):
                     if _g2 is None:
                         continue
                     _bp2, _tb2 = _project_to_rect(rc["x"], rc["y"], _g2)
@@ -2612,6 +2653,26 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                         _G2 = _g2
                         break
             _si2 = _nearest_stripe_idx((rc["x"], rc["y"]), stripes) if _G2 is not None else None
+            if _si2 is None and _G2 is not None and tgt_xy is not None:
+                # F1 (2026-07-25): "v3 FARA dunga" — la generarea initiala nu exista inca trasee
+                # desenate si dedicatele cadeau pe polilinia L DIRECTA prin camere (masurat pe
+                # ea1f0f7b: distribuitorul taia Dressing/Dormitor 2/Baie 2/Hol; AC-ul taia Camera
+                # de zi/Camara/Bucatarie). Aceeasi mecanica v3 (stub perpendicular pe perete + arc
+                # pe conturul camerei LUI), doar tinta = punctul de contur cel mai apropiat de
+                # TABLOU (nu de dunga). Segmentul ramas contur->tablou ramane drept (traversarea
+                # prin usi cere graf de usi — limita acceptata de Dan). Cu dunga desenata ->
+                # ramura de mai jos, byte-identica cu azi.
+                _Ri2 = _inset_rect(_G2, _PRIZA_INSET + (_ded_ord.get(id(rc), 0) + 1) * 2.5)
+                _p1, _tt1 = _project_to_rect(rc["x"], rc["y"], _Ri2)
+                _ex2, _tt2 = _project_to_rect(tgt_xy[0], tgt_xy[1], _Ri2)
+                _pref = [(rc["x"], rc["y"])] + _perimeter_path(_tt1, _tt2, _Ri2)
+                add(rc["et"], (rc["x"], rc["y"]), rc["et"], _ex2, "receptor_dedicat", rc.get("room"),
+                    count=1, path=_pref)                   # segmentul pe conturul camerei (explicit)
+                stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
+                add(rc["et"], _ex2, tgt_ty, tgt_xy, "receptor_dedicat", rc.get("room"),
+                    via_stripe=True, count=1)              # restul: drept spre tablou (fara dunga)
+                stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
+                continue
             if _si2 is not None:
                 _Ri2 = _inset_rect(_G2, _PRIZA_INSET + (_ded_ord.get(id(rc), 0) + 1) * 2.5)
                 _tgt2 = _project_point_on_polyline((rc["x"], rc["y"]), stripes[_si2])[0]
