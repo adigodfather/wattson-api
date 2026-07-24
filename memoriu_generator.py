@@ -11,6 +11,7 @@ Returneaza bytes (.docx) — encodarea base64 se face in endpoint.
 """
 
 import io
+import re
 
 import requests
 from docx import Document
@@ -213,7 +214,7 @@ def _setup_document():
 # PAGINI
 # =============================================================================
 
-def _page_coperta(doc, cp, cf):
+def _page_coperta(doc, cp, cf, titlu="MEMORIU TEHNIC INSTALAȚII ELECTRICE"):
     # 1. spatiere de sus
     _blank(doc, 4)
 
@@ -238,9 +239,8 @@ def _page_coperta(doc, cp, cf):
     # 6. spatiu mare
     _blank(doc, 6)
 
-    # 7. titlu memoriu
-    _add_centered(doc, "MEMORIU TEHNIC INSTALAȚII ELECTRICE",
-                  size=16, bold=True)
+    # 7. titlu document (default = memoriu; caietul de sarcini isi da titlul lui)
+    _add_centered(doc, titlu, size=16, bold=True)
 
     # 8. spatiu
     _blank(doc, 3)
@@ -550,7 +550,104 @@ def _memoriu_docx_fv_sections(doc, solar, is_pt=False):
         pass
 
 
-def _page_memoriu(doc, cp, cf, solar=None):
+# --- Cabluri + lista TEG DINAMICE (2026-07-24, decizia Dan) -------------------
+# Active DOAR cand finalize trimite `bom_cables` (randurile-cablu din /bom, sursa
+# unica cu lista de cantitati); altfel (MAIN/generare initiala, cereri vechi)
+# textul ramane cel static, byte-identic. Fara metri — doar TIPURILE (metrii
+# raman in lista de cantitati). Bransamentul (CYABY-F 5x6, text fix) NEATINS —
+# se rezolva la calculul de sectiune (bucata separata).
+
+def _fmt_cable_type(item):
+    """'CYY-F 3x1.5' -> 'CYY-F 3×1,5 mmp'; 'CYABY 5x 10' -> 'CYABY 5×10 mmp'."""
+    s = re.sub(r"\s*[xX]\s*(\d)", r"x\1", str(item or "").strip())   # '5x 10' -> '5x10'
+    s = re.sub(r"(\d)x(\d)", r"\1×\2", s)
+    s = re.sub(r"(\d)\.(\d)", r"\1,\2", s)                            # 1.5 -> 1,5 (zecimala RO)
+    if "mmp" not in s.lower():
+        m = re.search(r"\d×[\d,]+", s)
+        if m:
+            s = s[:m.end()] + " mmp" + s[m.end():]
+    return s.replace("Cablu solar", "cablu solar")   # la mijloc de enumerare, cu litera mica
+
+
+def _cable_types_ro(bom_cables):
+    """Tipurile UNICE de cablu din randurile BOM ({item, sectiune}), ordonate
+    CYY-F (conductoare, apoi sectiune crescator) -> CYABY -> solar -> MYF."""
+    def _rank(it):
+        low = it.lower()
+        fam = 0 if low.startswith("cyy") else 1 if "cyaby" in low else 2 if "solar" in low else 3 if low.startswith("myf") else 4
+        m = re.search(r"(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)", it)
+        return (fam, int(m.group(1)) if m else 0, float(m.group(2).replace(",", ".")) if m else 0.0)
+    items = [str((r or {}).get("item") or "").strip() for r in (bom_cables or []) if isinstance(r, dict)]
+    seen, out = set(), []
+    for it in sorted([i for i in items if i], key=_rank):
+        f = _fmt_cable_type(it)
+        if f.lower() not in seen:
+            seen.add(f.lower())
+            out.append(f)
+    return out
+
+
+def _fraza_cabluri(tipuri):
+    enum = tipuri[0] if len(tipuri) == 1 else ", ".join(tipuri[:-1]) + " şi " + tipuri[-1]
+    return ("Cablurile utilizate în prezentul proiect sunt de tip " + enum +
+            ", conform listei de cantităţi anexate.")
+
+
+def _teg_feeds_ro(circuits, solar=None):
+    """Li-urile 'Din TEG se vor alimenta' din circuitele REALE (doar ce exista).
+    [] / orice eroare -> apelantul pastreaza lista statica (fail-safe)."""
+    try:
+        cs = [c for c in (circuits or []) if isinstance(c, dict)]
+        def _teg(c):
+            return str(c.get("panel") or "TEG").upper() == "TEG"
+        out = []
+        if any(c.get("type") == "iluminat" and _teg(c) for c in cs):
+            out.append("Circuite de iluminat normal")
+        if any(c.get("type") in ("prize", "priza") and _teg(c) for c in cs):
+            out.append("Circuite de prize")
+        ded_alte, slabi, distrib = [], False, False
+        for c in cs:
+            if c.get("type") != "dedicat" or not _teg(c):
+                continue
+            d = str(c.get("description") or c.get("usage") or "").strip()
+            dl = d.lower()
+            if any(k in dl for k in ("retea", "reţea", "internet", "date", "rj45")):
+                slabi = True
+            elif "distribuitor" in dl:
+                distrib = True
+            elif "cuptor" in dl:
+                ded_alte.append("Circuit alimentare cuptor")
+            else:
+                nume = re.sub(r"^alimentare\s+", "", d, flags=re.I).strip()
+                if len(nume) > 1 and nume[1].islower():
+                    nume = nume[0].lower() + nume[1:]   # 'Aer conditionat' -> 'aer...'; acronimele (EV) raman
+                if nume:
+                    ded_alte.append("Circuit alimentare " + nume)
+        out += ded_alte
+        if slabi:
+            out.append("Circuite curenţi slabi")
+        if distrib:
+            out.append("Circuit alimentare distribuitor")
+        if isinstance(solar, dict) and (solar.get("package_kw") or solar.get("power_kw")):
+            out.append("Sistem fotovoltaic")
+        for c in cs:
+            if c.get("type") == "sub_tablou":
+                fp = str(c.get("feeds_panel") or "").upper()
+                if fp.startswith("TE-CT"):
+                    out.append("Tablou electric cameră tehnică")
+                elif fp.startswith("TES"):
+                    out.append("Tablou electric secundar ({})".format(c.get("feeds_panel")))
+        seen, ded = set(), []
+        for x in out:
+            if x not in seen:
+                seen.add(x)
+                ded.append(x)
+        return ded
+    except Exception:
+        return []
+
+
+def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
     _add_heading(doc, "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE", level=1)
     _add_heading(doc, "1. DATE GENERALE", level=2)
 
@@ -571,7 +668,15 @@ def _page_memoriu(doc, cp, cf, solar=None):
     # Match pe STRINGURI COMPLETE (nu "2.8" izolat — "art. 4.2.2.8 din I7-2011" ramane NEATINS).
     # Fara FV: blocurile ies exact ca inainte (non-regresie).
     _has_fv = isinstance(solar, dict) and bool(solar.get("package_kw") or solar.get("power_kw"))
+    # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
+    _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
+    _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
+    _skip_li = False   # activ dupa lista TEG dinamica: sare li-urile STATICE inlocuite
     for kind, text in _MEMORIU_BLOCKS:
+        if _skip_li:
+            if kind == "li":
+                continue
+            _skip_li = False
         if _has_fv and kind == "h2" and text.startswith("2.8. PROTEC"):
             _memoriu_docx_fv_sections(doc, solar, is_pt=_is_pt(cp.get("faza")))   # 2.8 = FV
             text = "2.9. " + text[len("2.8. "):]                                  # PROTECTIA -> 2.9
@@ -585,6 +690,13 @@ def _page_memoriu(doc, cp, cf, solar=None):
             _add_para(doc, "- " + text)
         else:
             _add_para(doc, text)
+        # Injectii dinamice, ancorate pe TEXT (robust la reordonari), dupa blocul-ancora:
+        if _tipuri and kind == "p" and text.startswith("Distribuţia circuitelor propuse"):
+            _add_para(doc, _fraza_cabluri(_tipuri))                # 2.6: tipurile REALE de cablu
+        if _feeds_teg and kind == "p" and text.startswith("Din tabloul electric general"):
+            for _t in _feeds_teg:                                  # lista TEG REALA (doar ce exista)
+                _add_para(doc, "- " + _t)
+            _skip_li = True
 
     # Semnatura finala in tabel cu chenar (dinamic din cartus_firma), centrat
     doc.add_paragraph()
@@ -932,6 +1044,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     circuits = data.get("circuits") or []          # M5-A: circuite (type/power_w) -> brevier
     power_summary = data.get("power_summary") or {} # M5-A: current_a (Ic TEG), main_breaker_a
     solar = data.get("solar") or {}                # G3: pachetul FV + solul (n8n; gol -> fara capitole FV)
+    bom_cables = data.get("bom_cables") or []      # randurile-cablu /bom (finalize) -> 2.6 + lista TEG dinamice
     is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
 
     # PT: lista REALĂ de planșe (planuri per nivel + scheme monofilare care EXISTĂ), numerotată
@@ -960,7 +1073,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_coperta(doc, cp, cf)
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse, is_pt=is_pt)
-    _page_memoriu(doc, cp, cf, solar=solar)
+    _page_memoriu(doc, cp, cf, solar=solar, bom_cables=bom_cables, circuits=circuits)
     if is_pt:
         # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
         _page_brevier(doc, cp, cf, circuits, power_summary)

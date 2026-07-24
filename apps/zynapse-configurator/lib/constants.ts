@@ -377,6 +377,12 @@ export interface ProjectResult {
   memoriu_docx_path?: string | null;
   memoriu_filename?: string;
   memoriu_size_bytes?: number;
+  // Caiet de sarcini (.docx, FastAPI /generate-caiet-sarcini prin clona finalize) — DOAR la
+  // fazele cu PT (gate in endpoint); DTAC simplu / proiecte vechi -> campurile lipsesc.
+  caiet_docx_base64?: string | null;
+  caiet_docx_path?: string | null;      // Storage project-files (<uid>/<pid>/caiet_sarcini.docx)
+  caiet_filename?: string;
+  has_caiet?: boolean;
   // n8n response fields — parallel to FastAPI circuits_all / heating_circuits
   circuits?: Circuit[];
   circuits_source?: string;   // "plan (enrich)" | "vision (fallback)" — traceabilitate unificare (Faza 2)

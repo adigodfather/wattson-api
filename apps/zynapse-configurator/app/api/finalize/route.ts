@@ -169,6 +169,30 @@ export async function POST(req: NextRequest) {
   const fvKw = snapFvPackage(fvKwRaw);
   const fvSoilType = String(solarEq?.soil_type || "agricol");
 
+  // ── BOM UNIFICAT — chemat INAINTE de n8n (depinde doar de DB: plan_elements exista la finalize).
+  // (1) Randurile-CABLU intra in webhookBody.bom_cables -> memoriul enumera cablurile REALE
+  // (fraza 2.6 + lista TEG dinamice, decizia Dan 2026-07-24 — doar tipuri, fara metri);
+  // (2) ACELASI raspuns devine parsed.bom dupa n8n (sursa unica, UN singur call /bom).
+  // Pica -> bomRows=null: memoriul cade pe textul static, parsed.bom pe fallback-ul n8n (ca azi).
+  let bomRows: Array<Record<string, unknown>> | null = null;
+  try {
+    const bomKey = process.env.ZYNAPSE_INTERNAL_KEY;
+    const bomPs = (rd.power_summary as { connection?: string }) || {};
+    const bomPp = /trif|400/.test(String(bomPs.connection || "").toLowerCase()) ? "tri" : "mono";
+    const br = await fetch(`${FASTAPI}/bom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(bomKey ? { "x-zynapse-key": bomKey } : {}) },
+      body: JSON.stringify({ project_id: projectId, form: { power_phase: bomPp, extra_equipment: [] } }),
+    });
+    const bj = await br.json();
+    if (bj?.success && Array.isArray(bj.rows) && bj.rows.length > 0) {
+      bomRows = bj.rows as Array<Record<string, unknown>>;
+    }
+  } catch { /* bomRows ramane null -> fallback-urile de mai sus */ }
+  const bomCables = (bomRows || [])
+    .filter((r) => String(r.categorie) === "Cabluri" || /cyaby|cablu solar|myf/i.test(String(r.denumire)))
+    .map((r) => ({ item: r.denumire, sectiune: r.sectiune }));
+
   const webhookBody = {
     project_id: projectId,
     circuits,
@@ -189,6 +213,7 @@ export async function POST(req: NextRequest) {
     phase,
     cartus_firma: firma,
     circuits_source: circuitsSource,   // "plan (enrich)" | "vision (fallback)" — traceabilitate Faza 2
+    bom_cables: bomCables,             // randurile-cablu /bom -> memoriul (nodul Generate Memoriu le paseaza)
   };
 
   // ── Circuitele UNIFICATE (enrich) pt. PERSISTARE in result_data -> tabelul UI = documentele.
@@ -239,28 +264,18 @@ export async function POST(req: NextRequest) {
       parsed.circuits_teg = circuitsTeg;
       parsed.circuits_all = uiCircuits;
       parsed.circuits_source = circuitsSource;
-      // BOM UNIFICAT: /bom (din enrich + plan_elements, CONSISTENT cu schema/memoriu/tabel). Mapat la
-      // formatul citit de UI {category,item,quantity,unit,notes}. Fallback: pastreaza BOM-ul n8n (parsed.bom).
-      try {
-        const key = process.env.ZYNAPSE_INTERNAL_KEY;
-        const ps2 = (rd.power_summary as { connection?: string }) || {};
-        const pp2 = /trif|400/.test(String(ps2.connection || "").toLowerCase()) ? "tri" : "mono";
-        const br = await fetch(`${FASTAPI}/bom`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-          body: JSON.stringify({ project_id: projectId, form: { power_phase: pp2, extra_equipment: [] } }),
-        });
-        const bj = await br.json();
-        if (bj?.success && Array.isArray(bj.rows) && bj.rows.length > 0) {
-          parsed.bom = (bj.rows as Array<Record<string, unknown>>).map((r) => ({
-            category: r.categorie, item: r.denumire, quantity: r.cantitate, unit: r.um, notes: r.specificatie,
-            sectiune: r.sectiune,   // BOM restructurat: pastreaza sectiunea pt. gruparea vizuala pe cele 8 sectiuni (bucata 3)
-          }));
-          parsed.bom_source = "plan (unified)";
-        } else {
-          parsed.bom_source = "n8n (fallback)";   // parsed.bom ramane cel de la n8n
-        }
-      } catch { parsed.bom_source = "n8n (fallback)"; }
+      // BOM UNIFICAT: refoloseste raspunsul /bom chemat INAINTE de n8n (sursa unica cu memoriul —
+      // aceleasi randuri). Mapat la formatul UI {category,item,quantity,unit,notes,sectiune}.
+      // bomRows null (/bom picat) -> pastreaza BOM-ul n8n (parsed.bom), ca inainte.
+      if (bomRows) {
+        parsed.bom = bomRows.map((r) => ({
+          category: r.categorie, item: r.denumire, quantity: r.cantitate, unit: r.um, notes: r.specificatie,
+          sectiune: r.sectiune,   // BOM restructurat: pastreaza sectiunea pt. gruparea vizuala pe cele 8 sectiuni (bucata 3)
+        }));
+        parsed.bom_source = "plan (unified)";
+      } else {
+        parsed.bom_source = "n8n (fallback)";   // parsed.bom ramane cel de la n8n
+      }
     }
     return NextResponse.json(parsed, { status: resp.status });
   } catch (err) {

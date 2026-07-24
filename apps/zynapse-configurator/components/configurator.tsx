@@ -1836,6 +1836,10 @@ export function ZynapseConfigurator() {
         schemas: freshSchemas ? [...freshSchemas, ...keptFv] : result.schemas,
         schema_monofilara_pdf: data.schema_monofilara_pdf ?? result.schema_monofilara_pdf,
         memoriu_docx_base64: data.memoriu_docx_base64 ?? result.memoriu_docx_base64,
+        // Caiet de sarcini (doar fazele cu PT; lipsa -> pastreaza ce era / nimic, fara crash)
+        caiet_docx_base64: data.caiet_docx_base64 ?? result.caiet_docx_base64,
+        caiet_filename: data.caiet_filename ?? result.caiet_filename,
+        has_caiet: data.has_caiet ?? result.has_caiet,
         bom: data.bom ?? result.bom,
         bom_source: data.bom_source ?? result.bom_source,   // "plan (unified)" | "n8n (fallback)"
         // UNIFICARE: circuitele enrich (plan) -> tabelul UI (circuits_te_ct/teg) = documentele.
@@ -1888,6 +1892,31 @@ export function ZynapseConfigurator() {
         }
       } catch (e) {
         console.error("[finalize] bloc Storage memoriu esuat (fallback base64):", e);
+      }
+      // Storage caiet de sarcini — oglinda blocului de memoriu: upload pe path fix + sterge
+      // base64 din result_data (volumul nu creste). Fallback: orice esec -> base64 ramane.
+      try {
+        const freshCaiet = typeof updated.caiet_docx_base64 === "string" ? updated.caiet_docx_base64 : "";
+        if (freshCaiet.length > 100 && user && savedProjectId) {
+          const caietPath = `${user.id}/${savedProjectId}/caiet_sarcini.docx`;
+          const rawC = freshCaiet.includes(",") ? freshCaiet.split(",")[1] : freshCaiet;
+          const cStr = atob(rawC);
+          const cBytes = new Uint8Array(cStr.length);
+          for (let i = 0; i < cStr.length; i++) cBytes[i] = cStr.charCodeAt(i);
+          const { error: caietUpErr } = await supabase.storage
+            .from("project-files")
+            .upload(caietPath, new Blob([cBytes], {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }), { upsert: true });
+          if (!caietUpErr) {
+            updated.caiet_docx_path = caietPath;
+            delete updated.caiet_docx_base64;
+          } else {
+            console.error("[finalize] upload caiet in Storage esuat (fallback base64):", caietUpErr.message);
+          }
+        }
+      } catch (e) {
+        console.error("[finalize] bloc Storage caiet esuat (fallback base64):", e);
       }
       // ETAPA 2 Storage: schema monofilara PROASPATA de la finalize -> Storage pe acelasi path
       // (upsert suprascrie versiunea de la generare) + sterge scalarul base64. Duplicatul VECHI
@@ -2736,6 +2765,17 @@ export function ZynapseConfigurator() {
                   <p className="text-sm text-center py-8" style={{ color: "#545870" }}>
                     Memoriul tehnic nu a fost generat pentru acest proiect.
                   </p>
+                )}
+                {/* Caiet de sarcini (.docx) — doar fazele cu PT (campurile lipsesc la DTAC simplu) */}
+                {(result!.caiet_docx_base64 || result!.caiet_docx_path) && (
+                  <div className="mb-4">
+                    <MemoriuDocxButton
+                      base64Docx={result!.caiet_docx_base64}
+                      storagePath={result!.caiet_docx_path}
+                      fileName={result!.caiet_filename || `Caiet_Sarcini_${(result!.project_id || "proiect")}.docx`}
+                      label="Descarcă Caietul de sarcini (.docx)"
+                    />
+                  </div>
                 )}
                 <MemoriuSection text={result!.memoriu_tehnic} />
                 <details className="mt-4">

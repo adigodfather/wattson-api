@@ -3323,6 +3323,44 @@ class GenerateMemoriuRequest(BaseModel):
     # G3: pachetul FV + solul prizei de pamant ({package_kw, soil_type} din extra_equipment.solar;
     # n8n il completeaza in body — partea n8n, separat). Gol -> memoriul FARA capitolele FV.
     solar: dict = {}
+    # 2026-07-24: randurile-cablu din /bom ({item, sectiune}), trimise de finalize prin n8n ->
+    # fraza 2.6 + lista TEG dinamice. Gol/absent -> texte statice byte-identice (MAIN neatins).
+    bom_cables: List[dict] = []
+
+
+class GenerateCaietSarciniRequest(BaseModel):
+    """Caiet de sarcini (2026-07-24) — livrabil DISTINCT de memoriu (CUM se execută).
+    Payload aproape identic cu memoriul; emis DOAR la fazele cu PT (gate _is_pt)."""
+    cartus_proiect: MemoriuCartusProiect = MemoriuCartusProiect()
+    cartus_firma: MemoriuCartusFirma = MemoriuCartusFirma()
+    planse: List[MemoriuPlansa] = []     # nominalizări planşe (1.4) + referinţa cap. 4
+    circuits: List[dict] = []            # specificaţia tablourilor (cap. 7)
+    solar: dict = {}                     # menţiunea FV + normele FV (gol -> fără)
+    extra_floors: Optional[list] = None  # numerotarea planşelor (aceeaşi autoritate ca memoriul)
+    has_tect: Optional[bool] = None
+
+
+@app.post("/generate-caiet-sarcini")
+def generate_caiet_sarcini(request: GenerateCaietSarciniRequest):
+    """Genereaza caietul de sarcini .docx (base64). DOAR la DTAC+PT / PT — la DTAC simplu
+    raspunde success cu skipped=True (fara docx), ca apelantul (n8n) sa treaca mai departe."""
+    try:
+        from memoriu_generator import _is_pt as _cs_is_pt
+        if not _cs_is_pt(request.cartus_proiect.faza):
+            return {"success": True, "skipped": True,
+                    "reason": "faza fara PT — caietul de sarcini se emite doar la DTAC+PT / PT"}
+        from caiet_sarcini_generator import build_caiet_docx
+        docx_bytes = build_caiet_docx(request.model_dump())
+        numar = (request.cartus_proiect.numar_proiect or "proiect").strip()
+        safe_numar = numar.replace("/", "-").replace(" ", "_") or "proiect"
+        return {
+            "success": True,
+            "docx_base64": base64.b64encode(docx_bytes).decode("utf-8"),
+            "filename": f"Caiet_Sarcini_{safe_numar}.docx",
+            "size_bytes": len(docx_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @app.post("/generate-memoriu")

@@ -510,6 +510,17 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
           />
         </div>
       )}
+      {/* Caiet de sarcini (.docx) — doar fazele cu PT (DTAC simplu / proiecte vechi: fara buton) */}
+      {(result.caiet_docx_base64 || result.caiet_docx_path) && (
+        <div className="mb-3">
+          <MemoriuDocxButton
+            base64Docx={result.caiet_docx_base64}
+            storagePath={result.caiet_docx_path}
+            fileName={result.caiet_filename || `Caiet_Sarcini_${result.project_id || "proiect"}.docx`}
+            label="Descarcă Caietul de sarcini (.docx)"
+          />
+        </div>
+      )}
       <MemoriuSection text={result.memoriu_tehnic} />
     </div>
   );
