@@ -2499,9 +2499,30 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     grouped = [rc for rc in receptors if _is_grouped_rc(rc)]
     dedicated = [rc for rc in receptors if not _is_grouped_rc(rc)]
 
-    def _route_heating_chain(grp, n):
+    def _heat_seg_path(a, b, room, ring_inset):
+        """F3 (2026-07-25, optiunea B a lui Dan): segmentul de lant grupat (VCV/radiator) merge pe
+        CONTURUL camerei cand AMBELE capete-s in aceeasi camera cu geometrie (cascada geom->Vision,
+        gate _CHAIN_GATE_PX ca la F1). Altfel None -> segmentul ramane drept (inter-camere = limita
+        acceptata, ca la F1 — traversarea prin usi cere graf de usi)."""
+        if not room:
+            return None
+        for _g in ((room_geoms or {}).get(room), room_px.get(room)):
+            if _g is None:
+                continue
+            _pa, _ = _project_to_rect(a[0], a[1], _g)
+            _pb, _ = _project_to_rect(b[0], b[1], _g)
+            if (math.hypot(a[0] - _pa[0], a[1] - _pa[1]) <= _CHAIN_GATE_PX
+                    and math.hypot(b[0] - _pb[0], b[1] - _pb[1]) <= _CHAIN_GATE_PX):
+                _Ri = _inset_rect(_g, ring_inset)
+                _, _t1 = _project_to_rect(a[0], a[1], _Ri)
+                _, _t2 = _project_to_rect(b[0], b[1], _Ri)
+                return [a] + _perimeter_path(_t1, _t2, _Ri) + [b]
+        return None
+
+    def _route_heating_chain(grp, n, chain_idx=0):
         """Un circuit de incalzire grupat (ACELASI cid, camere diferite): lant nearest-neighbor de la
-        elementul cel mai apropiat de IESIRE + O SINGURA iesire spre tabloul general pe traseu. Centru-centru."""
+        elementul cel mai apropiat de IESIRE + O SINGURA iesire spre tabloul general pe traseu.
+        F3: segmentele same-room merg pe conturul camerei (inel decalat per lant); restul centru-centru."""
         gcen = (sum(p["x"] for p in grp) / len(grp), sum(p["y"] for p in grp) / len(grp))
         if stripes:
             si = _nearest_stripe_idx(gcen, stripes)
@@ -2515,9 +2536,15 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         chain = [start]; rem.remove(start); cur = (start["x"], start["y"])
         while rem:                                          # lant nearest-neighbor (ca prizele)
             nb = nearest(cur, rem); rem.remove(nb); chain.append(nb); cur = (nb["x"], nb["y"])
-        for i in range(len(chain) - 1):                     # segmente CENTRU-CENTRU (fara bara de montaj)
-            add(chain[i]["et"], (chain[i]["x"], chain[i]["y"]), chain[i + 1]["et"],
-                (chain[i + 1]["x"], chain[i + 1]["y"]), "incalzire_lant", None, count=len(chain) - 1 - i)
+        _ring = _PRIZA_INSET + (chain_idx + 1) * 2.5        # inel decalat per lant (nu se suprapun in aceeasi camera)
+        for i in range(len(chain) - 1):
+            _a, _b = chain[i], chain[i + 1]
+            _ra = (_a.get("room") or "").strip()
+            _pp = None
+            if _ra and _ra == (_b.get("room") or "").strip():
+                _pp = _heat_seg_path((_a["x"], _a["y"]), (_b["x"], _b["y"]), _ra, _ring)
+            add(_a["et"], (_a["x"], _a["y"]), _b["et"], (_b["x"], _b["y"]),
+                "incalzire_lant", None, count=len(chain) - 1 - i, path=_pp)   # room=None ca inainte (BOM neatins)
             stats["incalzire_lant"] = stats.get("incalzire_lant", 0) + 1
         add(start["et"], (start["x"], start["y"]), gen_type, general_xy, "incalzire_tablou", None,
             via_stripe=True, count=n)                        # O IESIRE: capul lantului -> traseu -> tablou general
@@ -2527,8 +2554,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         by_cid = {}
         for rc in grouped:
             by_cid.setdefault(rc["cid"], []).append(rc)     # lant pe circuit_id (NU pe camera -> across-floor)
-        for _cid, grp in by_cid.items():
-            _route_heating_chain(grp, len(grp))
+        for _ci3, _cid in enumerate(sorted(by_cid.keys())):  # sorted -> inel determinist per lant
+            _route_heating_chain(by_cid[_cid], len(by_cid[_cid]), chain_idx=_ci3)
 
     def _degrouped_tech_rect(gt, vis, tech_key, rpx):
         """F2 (2026-07-25): GARD pe geom COMASAT — pe unele planse extract_room_geometry nu
@@ -3013,11 +3040,16 @@ def compute_circuits(elements, tech_room=None, general="TEG"):
     _HEATING_CEILING_W = 2000
     hbucket = {}
     for i, el in enumerate(elements):
-        if _grouped_heating_kind((el or {}).get("label")) is None:
+        _hk = _grouped_heating_kind((el or {}).get("label"))
+        if _hk is None:
             continue
-        fl = str((el or {}).get("floor") or "parter").strip().lower()          # split pe (etaj, faza)
+        fl = str((el or {}).get("floor") or "parter").strip().lower()          # split pe (etaj, faza, KIND)
         tri = str((el or {}).get("phase") or "mono").strip().lower() in ("tri", "trifazat", "3")
-        hbucket.setdefault((fl, tri), []).append(i)
+        # SPLIT pe tip (2026-07-25, decizia Dan): radiatoarele in circuite SEPARATE de VCV —
+        # FFD-ul pe (etaj, faza) le amesteca in acelasi circuit/lant (verificat prin simulare pe
+        # ea1f0f7b), iar lantul comun face imposibila rutarea diferita per tip. Proiecte cu UN
+        # singur kind (toate reale azi): bucket-urile raman identice -> circuite byte-identice.
+        hbucket.setdefault((fl, tri, _hk), []).append(i)
 
     def _hw(i):                                                    # putere reala (fallback default per tip)
         el = elements[i]

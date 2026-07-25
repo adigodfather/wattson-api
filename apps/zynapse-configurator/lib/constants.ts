@@ -155,7 +155,11 @@ export const HEATING_RECEPTOR_TYPES: {
   editablePower: boolean; editablePhase: boolean;
   visibleFor: string[];   // H5: valorile EXACTE de heating_distribution la care butonul apare in paleta
 }[] = [
-  { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true,  visibleFor: ["electric_radiator"] },
+  // Radiator electric (2026-07-25, decizia Dan): receptor AUTONOM — butonul lui traieste PERMANENT in
+  // "Echipamente extra" (EQUIPMENT_RECEPTOR_BUTTONS, gate always), nu mai depinde de emisia din formular.
+  // Ramane AICI doar ca DEFINITIE (heatingReceptorDef: defaults 1500W/mono/h=0.3 + putere/faza editabile
+  // la plasare); visibleFor gol -> paleta tech H5 nu-l mai afiseaza (altfel ar aparea in ambele rubrici).
+  { label: "Radiator electric", default_w: 1500, default_phase: "mono", default_height: 0.3, editablePower: true, editablePhase: true,  visibleFor: [] },
   { label: "VCV",               default_w: 100,  default_phase: "mono", default_height: 2.2, editablePower: true, editablePhase: true,  visibleFor: ["fan_coil"] },
   { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false, visibleFor: ["floor_heating", "radiant_ceiling", "fan_coil"] },
 ];
@@ -184,14 +188,17 @@ export type EquipmentReceptorButton = {
   label: string;      // label PERSISTAT pe plan_elements (declanseaza logica backend) + textul din lista
   btnText: string;    // textul butonului: "+ Alimentare {btnText}" (internet = "+ Retea internet")
   // equipment: vizibil daca equipType e bifat. heatingType (boiler): vizibil daca heating_type implica
-  // boiler ACM SAU equipType ("boiler") e bifat (SAU-logic).
-  gate: { kind: "equipment"; equipType: string } | { kind: "heatingType"; equipType: string };
+  // boiler ACM SAU equipType ("boiler") e bifat (SAU-logic). always: vizibil MEREU (receptor autonom).
+  gate: { kind: "equipment"; equipType: string } | { kind: "heatingType"; equipType: string } | { kind: "always" };
 };
 // Ordinea = ordinea afisata in paleta (boiler, cuptor, AC, HRV, EV, internet).
 export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
   { et: "alimentare_receptor", label: "boiler",           btnText: "boiler",           gate: { kind: "heatingType", equipType: "boiler" } },
   { et: "alimentare_receptor", label: "Cuptor electric",  btnText: "cuptor electric",  gate: { kind: "equipment", equipType: "cuptor_electric" } },
   { et: "alimentare_receptor", label: "Aer conditionat",  btnText: "aer condiționat",  gate: { kind: "equipment", equipType: "ac" } },
+  // Radiator electric = autonom (se baga in priza si merge): buton MEREU vizibil, fara gate pe formular.
+  // Label-ul EXACT "Radiator electric" declanseaza defaults-urile Regula 10 la plasare (heatingReceptorDef).
+  { et: "alimentare_receptor", label: "Radiator electric", btnText: "radiator electric", gate: { kind: "always" } },
   { et: "alimentare_receptor", label: "HRV",              btnText: "HRV",              gate: { kind: "equipment", equipType: "hrv" } },
   { et: "alimentare_receptor", label: "Statie incarcare", btnText: "stație încărcare", gate: { kind: "equipment", equipType: "ev_charger" } },
   { et: "receptor_internet",   label: "internet",         btnText: "rețea internet",   gate: { kind: "equipment", equipType: "internet" } },
@@ -204,6 +211,7 @@ export function visibleEquipmentReceptors(
   const ht = (gate.heatingType || "").trim();
   const enabled = new Set(gate.enabledEquipment || []);
   return EQUIPMENT_RECEPTOR_BUTTONS.filter(b => {
+    if (b.gate.kind === "always") return true;       // receptor autonom (radiator electric) — mereu vizibil
     const byEquip = enabled.has(b.gate.equipType);   // bifat in formularul de echipamente
     // H6: boilerul = SAU-logic (heating_type implica boiler ACM SAU bifa "Boiler ACM" activa); restul = doar bifa.
     return b.gate.kind === "heatingType" ? (BOILER_HEATING_TYPES.includes(ht) || byEquip) : byEquip;

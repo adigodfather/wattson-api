@@ -114,7 +114,10 @@ function heatingReceptorDef(label: string | null | undefined) {
 // custom/necunoscut -> Camera tehnica (default, coerent cu locul formularului „Adauga alimentare proprie").
 function isTechReceptor(el: PlanElement): boolean {
   if (el.element_type === "receptor_internet") return false;
-  if (heatingReceptorDef(el.label)) return true;
+  const heat = heatingReceptorDef(el.label);
+  // Radiatorul electric = receptor AUTONOM (decizia Dan 2026-07-25): sta sub "Echipamente extra",
+  // nu sub "Camera tehnica". VCV/Distribuitor zona raman tech (legate de sistemul cu apa).
+  if (heat) return heat.label !== "Radiator electric";
   if (equipKey(el.label)) return isTechReceptorLabel(el.label);
   return true;
 }
@@ -1942,7 +1945,7 @@ export default function PlanEditor({
     const extraRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && !isTechReceptor(e));
     if (eqExtra.length === 0 && extraRecs.length === 0) return null;   // empty-state (nimic extra) -> nu apare
     return (
-      <Rubrica title="Echipamente extra" hint="Aer condiționat, cuptor, ventilație, încărcare auto, internet.">
+      <Rubrica title="Echipamente extra" hint="Aer condiționat, cuptor, radiator electric, ventilație, încărcare auto, internet.">
         {eqExtra.length > 0 && (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
             {eqExtra.map(b => (
