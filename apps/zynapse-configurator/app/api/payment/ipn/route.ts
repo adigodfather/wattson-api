@@ -91,7 +91,9 @@ export async function POST(req: NextRequest) {
           const bd = (pay.billing_data || {}) as Record<string, string>;
           const billing = pay.billing_type
             ? { type: pay.billing_type as "company_profile" | "company_custom" | "individual",
-                name: bd.name, vatCode: bd.vatCode, address: bd.address, email: bd.email, adminName: bd.admin_name }
+                name: bd.name, vatCode: bd.vatCode, address: bd.address, email: bd.email, adminName: bd.admin_name,
+                // e-Factura B2C: judeţ + localitate (+ CNP opţional) -> clientul SmartBill
+                county: bd.county, city: bd.city, cnp: bd.cnp }
             : undefined;
           const inv = await createInvoice(
             prof || {},

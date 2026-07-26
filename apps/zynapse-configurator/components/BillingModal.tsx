@@ -24,6 +24,18 @@ const ACCENT = "#378ADD";
 const isType = (s: string | null | undefined): s is BillingChoice["type"] =>
   s === "company_profile" || s === "company_custom" || s === "individual";
 
+// Judeţele (41 + Bucureşti) — valorile se trimit ca atare la SmartBill (câmpul `county`), care le
+// mapează în e-Factura (cbc:CountrySubentity). Nume COMPLETE fără diacritice: formatul din exemplele
+// SmartBill ("county" => "Galati" / setCounty("Bucharest")); matching-ul lor e pe numele judeţului,
+// nu pe abreviere (NU "CJ"/"B").
+const JUDETE = [
+  "Alba", "Arad", "Arges", "Bacau", "Bihor", "Bistrita-Nasaud", "Botosani", "Braila", "Brasov",
+  "Bucuresti", "Buzau", "Calarasi", "Caras-Severin", "Cluj", "Constanta", "Covasna", "Dambovita",
+  "Dolj", "Galati", "Giurgiu", "Gorj", "Harghita", "Hunedoara", "Ialomita", "Iasi", "Ilfov",
+  "Maramures", "Mehedinti", "Mures", "Neamt", "Olt", "Prahova", "Salaj", "Satu Mare", "Sibiu",
+  "Suceava", "Teleorman", "Timis", "Tulcea", "Valcea", "Vaslui", "Vrancea",
+];
+
 export default function BillingModal({
   open, submitting, error, onConfirm, onCancel,
 }: {
@@ -40,6 +52,11 @@ export default function BillingModal({
   const [cVat, setCVat] = useState("");
   const [cAddr, setCAddr] = useState("");
   const [cEmail, setCEmail] = useState("");
+  // e-Factura B2C: adresa persoanei fizice (judeţ + localitate OBLIGATORII pt. validarea ANAF)
+  const [iCounty, setICounty] = useState("");
+  const [iCity, setICity] = useState("");
+  const [iAddr, setIAddr] = useState("");
+  const [iCnp, setICnp] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +76,23 @@ export default function BillingModal({
           setAdminName(p.admin_name || "");
           setType(isType(p.last_billing_type) ? p.last_billing_type : "individual");
         });
+      // PRESET B2C: datele din ULTIMA plată ca persoană fizică (RLS payments_select_own).
+      // Sursa = ce s-a facturat efectiv -> zero coloane noi în profiles, mereu sincron.
+      supabase
+        .from("payments")
+        .select("billing_data, created_at")
+        .eq("user_id", user.id)
+        .eq("billing_type", "individual")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .then(({ data }) => {
+          if (cancelled || !data?.length) return;
+          const bd = (data[0].billing_data || {}) as Record<string, string>;
+          setICounty(bd.county || "");
+          setICity(bd.city || "");
+          setIAddr(bd.address || "");
+          setICnp(bd.cnp || "");
+        });
     });
     return () => { cancelled = true; };
   }, [open]);
@@ -67,13 +101,18 @@ export default function BillingModal({
 
   const hasFirma = !!(prof?.firma_cui || "").trim();
   const valid =
-    type === "individual" ? !!(prof?.full_name || "").trim()
+    // B2C: numele + judeţul + localitatea sunt obligatorii (fără ele e-Factura e respinsă la SPV)
+    type === "individual" ? !!(prof?.full_name || "").trim() && !!iCounty.trim() && !!iCity.trim()
     : type === "company_profile" ? hasFirma && !!adminName.trim()
     : !!cName.trim() && !!cVat.trim() && !!cAddr.trim();
 
   function confirm() {
     if (!valid || submitting) return;
-    if (type === "individual") onConfirm({ type: "individual" });
+    if (type === "individual") onConfirm({
+      type: "individual",
+      county: iCounty.trim(), city: iCity.trim(),
+      address: iAddr.trim(), cnp: iCnp.trim(),
+    });
     else if (type === "company_profile") onConfirm({ type: "company_profile", adminName: adminName.trim() });
     else onConfirm({ type: "company_custom", name: cName.trim(), vatCode: cVat.trim(), address: cAddr.trim(), email: cEmail.trim(), adminName: adminName.trim() });
   }
@@ -160,8 +199,26 @@ export default function BillingModal({
 
         {opt("individual", "Beneficiar persoană fizică", "Factură pe numele tău.")}
         {type === "individual" && (
-          <div style={{ margin: "-2px 0 10px", padding: "10px 12px", borderRadius: 9, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", fontSize: 12.5, color: "#C8CAD6" }}>
-            Factură pe: <strong style={{ color: "#E2E4E9" }}>{prof?.full_name || "—"}</strong>
+          <div style={{ margin: "-2px 0 10px", padding: "10px 12px", borderRadius: 9, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ fontSize: 12.5, color: "#C8CAD6" }}>
+              Factură pe: <strong style={{ color: "#E2E4E9" }}>{prof?.full_name || "—"}</strong>
+            </div>
+            {/* e-Factura: ANAF cere judeţ + localitate şi pentru persoane fizice (altfel SPV respinge factura). */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+              <label>
+                <span style={lbl}>Județ *</span>
+                <select style={{ ...inputStyle, appearance: "none", cursor: "pointer" }} value={iCounty} onChange={(e) => setICounty(e.target.value)}>
+                  <option value="" style={{ background: "#0E1014" }}>Alege județul…</option>
+                  {JUDETE.map(j => <option key={j} value={j} style={{ background: "#0E1014" }}>{j}</option>)}
+                </select>
+              </label>
+              <label><span style={lbl}>Localitate *</span><input style={inputStyle} value={iCity} onChange={(e) => setICity(e.target.value)} placeholder="Cluj-Napoca" /></label>
+              <label><span style={lbl}>Adresă</span><input style={inputStyle} value={iAddr} onChange={(e) => setIAddr(e.target.value)} placeholder="Str. Exemplu nr. 1, ap. 2" /></label>
+              <label><span style={lbl}>CNP</span><input style={inputStyle} value={iCnp} onChange={(e) => setICnp(e.target.value)} placeholder="opțional" inputMode="numeric" /></label>
+              <div style={{ fontSize: 11.5, color: "#8B8FA8", lineHeight: 1.5 }}>
+                Județul și localitatea sunt cerute de ANAF pentru e-Factură. Fără CNP, factura se emite cu codul generic de persoană fizică.
+              </div>
+            </div>
           </div>
         )}
 

@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     // (UI-ul o impune, dar o re-validăm aici ca un apel direct la API să NU sară gate-ul.)
     const billing = (body.billing || {}) as {
       type?: string; name?: string; vatCode?: string; address?: string; email?: string; adminName?: string;
+      county?: string; city?: string; cnp?: string;
     };
     const bType = String(billing.type || "");
     if (!["company_profile", "company_custom", "individual"].includes(bType)) {
@@ -73,6 +74,18 @@ export async function POST(req: NextRequest) {
       if (!String(bProf?.full_name || "").trim()) {
         return NextResponse.json({ error: "Numele lipsește din cont." }, { status: 400 });
       }
+      // e-Factura B2C: ANAF cere adresă completă pt. cumpărător şi la persoane fizice — fără judeţ +
+      // localitate factura se emite, dar trimiterea în SPV e respinsă ("Județ client incorect").
+      const county = String(billing.county || "").trim();
+      const city = String(billing.city || "").trim();
+      if (!county || !city) {
+        return NextResponse.json({ error: "Completează județul și localitatea (cerute de ANAF pentru e-Factură)." }, { status: 400 });
+      }
+      billingData = {
+        county, city,
+        address: String(billing.address || "").trim(),
+        cnp: String(billing.cnp || "").trim(),   // opţional: gol -> SmartBill pune codul generic de PF
+      };
     }
 
     // valorile finale (credite + sumă) provin EXCLUSIV de pe server, niciodată din client

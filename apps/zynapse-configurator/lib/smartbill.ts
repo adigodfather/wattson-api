@@ -30,9 +30,12 @@ export interface BillingInput {
   type: BillingType;
   name?: string | null;       // company_custom: denumire firmă
   vatCode?: string | null;    // company_custom: CIF
-  address?: string | null;    // company_custom: adresă
+  address?: string | null;    // company_custom: adresă ; individual: stradă+nr (opţional)
   email?: string | null;      // company_custom: email facturare
   adminName?: string | null;  // nume administrator/reprezentant -> observations
+  county?: string | null;     // individual: judeţul (e-Factura B2C — obligatoriu la ANAF)
+  city?: string | null;       // individual: localitatea (idem)
+  cnp?: string | null;        // individual: CNP (opţional -> vatCode; gol = cod generic de PF)
 }
 
 export interface SmartbillClient {
@@ -40,6 +43,8 @@ export interface SmartbillClient {
   vatCode?: string;
   isTaxPayer: boolean;
   address?: string;
+  city?: string;     // e-Factura: localitatea cumpărătorului
+  county?: string;   // e-Factura: judeţul (cbc:CountrySubentity) — ANAF îl cere şi la persoane fizice
   email: string;
   country: string;   // SmartBill cere ţara obligatoriu — platformă RO -> "Romania" automat
   saveToDb: boolean;
@@ -94,16 +99,27 @@ function todayYmd(): string {
 /** Mapare client în funcţie de alegerea de facturare (billing). Fără billing -> comportamentul vechi
  *  (firma_cui completat = B2B firmă; altfel B2C) pentru BACKWARD-COMPAT (plăţi vechi). */
 export function mapSmartbillClient(p: SmartbillProfile, billing?: BillingInput | null): SmartbillClient {
-  const b2c = (): SmartbillClient => ({
-    name: (p.full_name || "Client").trim() || "Client",
-    isTaxPayer: false,
-    country: "Romania",
-    email: (p.email || "").trim(),
-    saveToDb: false,
-  });
+  // b2c(bi): persoană fizică. Judeţ + localitate (din billing) sunt CERUTE de validarea e-Facturii
+  // B2C la ANAF — fără ele SPV respinge trimiterea ("Județ client incorect"), deşi factura se emite.
+  // CNP-ul e OPŢIONAL: dat -> vatCode; lipsă -> SmartBill foloseşte codul generic de persoană fizică.
+  // Plăţi vechi (billing_data gol / fără billing): câmpurile lipsesc -> comportamentul de dinainte.
+  const b2c = (bi?: BillingInput | null): SmartbillClient => {
+    const cnp = (bi?.cnp || "").trim();
+    return {
+      name: (p.full_name || "Client").trim() || "Client",
+      ...(cnp ? { vatCode: cnp } : {}),
+      isTaxPayer: false,
+      ...((bi?.address || "").trim() ? { address: (bi!.address || "").trim() } : {}),
+      ...((bi?.city || "").trim() ? { city: (bi!.city || "").trim() } : {}),
+      ...((bi?.county || "").trim() ? { county: (bi!.county || "").trim() } : {}),
+      country: "Romania",
+      email: (p.email || "").trim(),
+      saveToDb: false,
+    };
+  };
 
   // OPŢIUNEA 3 — persoană fizică (B2C)
-  if (billing?.type === "individual") return b2c();
+  if (billing?.type === "individual") return b2c(billing);
 
   // OPŢIUNEA 2 — firmă cu date AD-HOC (din billing, NU din profil)
   if (billing?.type === "company_custom") {

@@ -28,9 +28,14 @@ export interface BillingChoice {
   type: "company_profile" | "company_custom" | "individual";
   name?: string;       // company_custom: denumire firmă
   vatCode?: string;    // company_custom: CIF
-  address?: string;    // company_custom: adresă
+  address?: string;    // company_custom: adresă ; individual: stradă+nr (opțional)
   email?: string;      // company_custom: email facturare
   adminName?: string;  // nume administrator/reprezentant -> "Reprezentant: X" pe factură
+  // e-Factura B2C (2026-07): ANAF cere adresă completă pt. cumpărător INCLUSIV la persoane fizice —
+  // fără județ + localitate, trimiterea în SPV e respinsă ("Județ client incorect").
+  county?: string;     // individual: județul (nume complet, ex. "Cluj") — OBLIGATORIU
+  city?: string;       // individual: localitatea — OBLIGATORIU
+  cnp?: string;        // individual: CNP (OPȚIONAL; fără el, factura merge cu codul generic de PF)
 }
 
 // Mod pachet fix SAU sumă liberă (doar numărul de credite; prețul se calculează server-side) + facturare.
