@@ -2197,16 +2197,22 @@ export function ZynapseConfigurator() {
             onChange={v => {
               update("heating_type", v);
               // Faza 2 TE-CT: la schimbarea SURSEI, checkbox-ul revine la default-ul ei
-              // (bifat pe PDC/centrala electrica, nebifat pe gaz/termoficare/existing)
+              // (bifat pe PDC/centrala electrica, nebifat pe gaz/termoficare/existing).
+              // defaultTechRoom("electric_radiator") -> false (nu e in lista) => toggle-ul se stinge singur.
               update("has_tech_room", defaultTechRoom(v));
+              // Radiatorul electric e SI generare, SI distributie -> golim emisia. Fara asta, o valoare
+              // aleasa anterior (ex. "floor_heating" de la centrala pe gaz) ar ramane in state si ar
+              // pleca la n8n + in memoriu, desi dropdown-ul e ascuns.
+              if (v === "electric_radiator") update("heating_distribution", "");
             }} options={HEATING_GENERATION} required />
-          {form.heating_type && form.heating_type !== "existing" && (
+          {form.heating_type && form.heating_type !== "existing" && form.heating_type !== "electric_radiator" && (
             <SelectField label="Tip distribuție căldură" value={form.heating_distribution}
               onChange={v => update("heating_distribution", v)} options={HEATING_DISTRIBUTION} />
           )}
           {/* Faza 2 TE-CT: camera tehnica e OPTIONALA pe ORICE sursa — decide DOAR destinatia
               echipamentelor de incalzire: bifat -> tablou TE-CT; nebifat -> TEG (alta incapere). */}
-          {form.heating_type && (
+          {/* Radiatoarele electrice n-au echipamente de camera tehnica (fara pompe/distribuitoare) */}
+          {form.heating_type && form.heating_type !== "electric_radiator" && (
             <Toggle label="Am cameră tehnică" checked={form.has_tech_room}
               onChange={v => update("has_tech_room", v)}
               description={form.has_tech_room

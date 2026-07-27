@@ -71,6 +71,11 @@ export const HEATING_GENERATION = [
   { value: "pdc_ground_water", label: "Pompă de căldură sol-apă (geotermală)" },
   { value: "gas_boiler",       label: "Centrală pe gaz" },
   { value: "electric_boiler",  label: "Centrală electrică" },
+  // Radiatorul electric e SURSA de căldură, nu distribuția (decizia Dan 2026-07-27): mutat aici din
+  // HEATING_DISTRIBUTION, unde permitea combinații fără sens ("Centrală pe gaz + Radiator electric").
+  // INTENȚIONAT absent din HEATING_TYPE_TO_CATEGORY (configurator) -> heating_system=null -> n8n iese
+  // pe ramura "fără echipamente termice": fără TE-CT, fără distribuitor principal/secundar.
+  { value: "electric_radiator", label: "Radiator electric" },
   { value: "district_heating", label: "Termoficare (rețea urbană)" },
   { value: "existing",         label: "Sistem existent (fără modificări)" },
 ];
@@ -84,10 +89,12 @@ export function defaultTechRoom(heatingType: string | null | undefined): boolean
 
 // ─── Heating distribution (TIP DISTRIBUȚIE CĂLDURĂ) ─────────────────────────
 
+// "electric_radiator" a fost MUTAT în HEATING_GENERATION (e sursă, nu emisie — radiatorul electric
+// e și generare, și distribuție). Backendul păstrează eticheta lui în `dist_labels` (main.py) ->
+// proiectele VECHI, salvate cu heating_distribution="electric_radiator", scriu memoriul corect.
 export const HEATING_DISTRIBUTION = [
   { value: "floor_heating",     label: "Încălzire în pardoseală" },
   { value: "fan_coil",          label: "Ventiloconvector" },
-  { value: "electric_radiator", label: "Radiator electric" },
   { value: "radiant_ceiling",   label: "Tavan radiant" },
   { value: "existing",          label: "Sistem existent" },
 ];

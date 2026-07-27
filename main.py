@@ -1501,6 +1501,11 @@ def build_memoriu(
         "pdc_ground_water": "Pompa de caldura sol-apa (geotermala)",
         "gas_boiler":       "Centrala pe gaz",
         "electric_boiler":  "Centrala electrica",
+        # 2026-07-27: radiatorul electric a devenit TIP DE GENERARE in formular (e sursa, nu emisie).
+        # Fara maparea asta, memoriul ar scrie brut "Tip generare caldura: electric_radiator."
+        # `dist_labels` de mai jos PASTREAZA intrarea -> proiectele vechi (salvate cu
+        # heating_distribution="electric_radiator") scriu mai departe corect linia de distributie.
+        "electric_radiator": "Radiator electric",
         "geothermal":       "Sistem geothermal",
         "district_heating": "Termoficare (retea urbana)",
         "existing":         "Sistem existent (fara modificari)",
