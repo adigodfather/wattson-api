@@ -78,17 +78,22 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-/* ─── Status badge ─── */
+/* ─── Status badge — starea GENERĂRII (nu a contului!) ───
+   FIX UX (2026-07-27): eticheta "Inactiv" stătea în header LIPITĂ de numele userului și de sold
+   -> utilizatorii noi o citeau ca "contul meu e inactiv" (o clientă reală a scris la suport, deși
+   contul ei era complet funcțional: confirmat, cu 500 Z-Coins). "Pregătit" nu poate fi confundat
+   cu un cont suspendat și rămâne în aceeași familie cu Procesare/Finalizat/Eroare (toate = stări
+   ale procesului de generare). Tooltip explicit pe badge. Logica de status: NEATINSĂ. */
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; dot: string; text: string; label: string }> = {
-    idle:    { bg: "rgba(139,143,168,0.1)",  dot: "#545870", text: "#8B8FA8", label: "Inactiv" },
+    idle:    { bg: "rgba(139,143,168,0.1)",  dot: "#545870", text: "#8B8FA8", label: "Pregătit" },
     loading: { bg: "rgba(55,138,221,0.12)",  dot: "#378ADD", text: "#5BB8F5", label: "Procesare" },
     success: { bg: "rgba(29,158,117,0.12)",  dot: "#1D9E75", text: "#3ECFA0", label: "Finalizat" },
     error:   { bg: "rgba(226,75,74,0.12)",   dot: "#E24B4A", text: "#F09595", label: "Eroare" },
   };
   const c = map[status] ?? map.idle;
   return (
-    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold tracking-wide uppercase"
+    <span title="Starea generării proiectului" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold tracking-wide uppercase"
       style={{ background: c.bg, color: c.text }}>
       {status === "loading" ? (
         <span className="inline-block w-2 h-2 border-[1.5px] rounded-full"
@@ -273,12 +278,20 @@ async function downloadSchemaEl(
 
 /* ─── Faza proiect chips (Epic 3.11) — DTAC + DTAC+PT live pentru TOȚI (lansare 2026-07-13);
        PT-only rămâne "Curând" (enabled: false în FAZA_PROIECT_OPTIONS). ─── */
-function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function FazaProiectChips({ value, onChange, surfaceMp = 0 }: { value: string; onChange: (v: string) => void; surfaceMp?: number }) {
   return (
     <div className="grid grid-cols-3 gap-2 mb-3.5">
       {FAZA_PROIECT_OPTIONS.map(opt => {
         const enabled = opt.enabled;
         const isSel = value === opt.value;
+        // FIX UX (2026-07-27): costul e vizibil DIN MOMENTUL alegerii fazei — DTAC+PT costă 3x cât
+        // DTAC, iar înainte nimic n-o spunea la selecție (cardul de cost apărea abia după ce
+        // completai suprafața). Cu suprafața completată -> costul concret; fără ea -> tariful/mp.
+        // genCostZ = aceeași regulă ca backendul (sursă unică, deja folosită de hold-ul de sold).
+        const perM2 = isPhasePT(opt.value)
+          ? CREDIT_PRICING.perM2.dtac + CREDIT_PRICING.perM2.pt
+          : CREDIT_PRICING.perM2.dtac;
+        const cost = genCostZ(surfaceMp, opt.value);
         return (
           <button key={opt.value} type="button" disabled={!enabled}
             onClick={() => enabled && onChange(opt.value)}
@@ -292,6 +305,11 @@ function FazaProiectChips({ value, onChange }: { value: string; onChange: (v: st
               opacity: enabled ? 1 : 0.4,
             }}>
             <div className="text-[12px] font-bold">{opt.label}</div>
+            {enabled && (
+              <div className="text-[10px] mt-0.5" style={{ color: isSel ? "#9FD2FA" : "#8B8FA8" }}>
+                {cost > 0 ? `${cost.toLocaleString("ro-RO")} Z-Coins` : `${perM2} ${perM2 === 1 ? "Z-Coin" : "Z-Coins"}/mp`}
+              </div>
+            )}
             {!enabled && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: "#C9A227" }}>Curând</div>}
           </button>
         );
@@ -2083,7 +2101,7 @@ export function ZynapseConfigurator() {
 
           {/* Faza proiect (Epic 3.11) — bound la cartusProiectInput.faza */}
           <SectionLabel>Faza proiect</SectionLabel>
-          <FazaProiectChips value={cartusProiectInput.faza}
+          <FazaProiectChips value={cartusProiectInput.faza} surfaceMp={form.surface_mp}
             onChange={v => setCartusProiectInput(p => ({ ...p, faza: v }))} />
 
           {/* Suprafață construită + cost estimat Z-Coins — DOAR afișare (consumul real: task A5) */}
@@ -2117,6 +2135,11 @@ export function ZynapseConfigurator() {
                 </div>
                 <div className="mt-1 text-[11px]" style={{ color: "#545870" }}>
                   {faza} · {form.surface_mp} mp × {perM2} Z-Coin/mp · {pretZ} lei/Z-Coin
+                </div>
+                {/* ONESTITATE: backendul facturează pe max(construita extrasă din planșe, declarat) —
+                    estimarea de aici poate creşte dacă planşele indică o suprafaţă mai mare. */}
+                <div className="mt-1 text-[11px]" style={{ color: "#545870" }}>
+                  Estimare pe suprafața declarată. Dacă planșele indică o suprafață construită mai mare, costul final se calculează pe aceasta.
                 </div>
                 {user && (() => {
                   const bal = profile?.credits_balance ?? 0;
