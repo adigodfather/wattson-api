@@ -225,7 +225,11 @@ def _rect_overlap_pct(a, b):
 #    _geom_fixtures/test_extract_room_labels.py — 16/16 pe LASAK, 7/7 pe VADAN; vezi skill-ul
 #    geom-extraction). Pattern "A: NN" ANCORAT la inceput de linie; numele = linia imediat
 #    deasupra, aliniata orizontal. Determinist, zero Vision. Plan raster -> lista goala. ──
-_AREA_LABEL_PATTERN = r'A:\s*([\d.,]+)'
+# Eticheta de arie a camerei: "A: 13.48 m²" (conventia Jurjea) SAU "S=4.72 m2" (alte birouri,
+# 2026-07-28 — planul unui client real; fara varianta asta extract_room_geometry rata TOATE camerele
+# si FIX-C1/rutarea pe pereti cadeau pe bbox-urile Vision). Ancorat (rx.match) -> "Scara 1:50" si
+# "Suprafata construita = ..." NU se potrivesc (dupa S urmeaza litera, nu separatorul).
+_AREA_LABEL_PATTERN = r'[AS]\s*[:=]\s*([\d.,]+)'
 
 
 def _collect_text_lines(page):

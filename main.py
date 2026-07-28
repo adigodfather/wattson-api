@@ -4082,8 +4082,20 @@ _SURF_EXCLUDE = ("utila", "locuib", "teren", "alei", "pavat", "verzi", "vitrat",
 # ancora CONSTRUITA (deaccentuat/lower): "Suprafata construita" (+ constr.), "S. construita", sau abreviere
 # STRANSA "Sc="/"Ac=" DIRECT inainte de separator. NU prinde "S c a r a 1:50" (scara scrisa rasfirat).
 _SURF_ANCHOR = re.compile(
-    r"^\s*(?:supraf\w*\s+construit\w*|supraf\w*\s+constr\.?|s\.?\s*construit\w*|(?:sc|ac)\.?\s*[=:])")
+    r"^\s*(?:supraf\w*\s+construit\w*|supraf\w*\s+constr\.?|s\.?\s*construit\w*|(?:sc|ac)\.?\s*[=:]"
+    # 2026-07-28: formulari uzuale la ALTE birouri (cele de sus — "Sc=", "Ac=", "S construita" — erau
+    # deja acoperite). Ancora ramane STRANSA: fiecare varianta cere cuvantul intreg, nu prefix liber.
+    r"|s\.\s*c\.\s*[=:]|aria\s+construit\w*|amprenta\s+la\s+sol|supraf\w*\s+la\s+sol)")
 _SURF_NUM = re.compile(r"[=:]\s*([\d]+(?:[.,]\d+)?)\s*(?:mp|m2|m²|mc)?", re.I)
+
+# Ariile PER CAMERA ("A: 13.48 m²" — Jurjea ; "S=4.72 m2" — alte birouri). Ancore EXPLICITE pe
+# litera + separator: un regex generic ("orice numar urmat de m2") ar inghiti si valorile din
+# bilant si ar DUBLA suma (masurat: 2429 mp in loc de 208 pe un plan real). "Sc=" / "Ac=" NU se
+# potrivesc aici (dupa S/A urmeaza o litera, nu separatorul) -> bilantul nu contamineaza suma.
+_ROOM_AREA_RX = re.compile(r"^\s*[as]\s*[:=]\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)\s*(?:m2|mp|m²)\b")
+# Coeficient CONSERVATOR pereti: construita = Σ utila x k. Masurat pe plan real cu bilant:
+# 245.73 / 208.04 = 1.181. Folosim 1.15 -> ramanem SUB realitate (nu putem supra-factura).
+_ROOM_SUM_COEF = 1.15
 
 def extract_surface(pdf_bytes):
     """Suprafata CONSTRUITA (amprenta la sol) DETERMINIST din textul vectorial. Ancora obligatorie
@@ -4115,7 +4127,16 @@ def extract_surface(pdf_bytes):
     constr = []       # (y, val, level|None, is_plain)
     desf_vals = []    # (y, val) — desfasurata pe corp (non-total), doar referinta/coerenta
     levels = set()
+    room_areas = []   # ariile PER CAMERA (prag minim cand lipseste bilantul)
     for y, n in lines:
+        mroom = _ROOM_AREA_RX.match(n)
+        if mroom:
+            try:
+                rv = float(mroom.group(1).replace(",", "."))
+                if 0.5 <= rv <= 2000:              # plaja sanatoasa pt. o incapere (filtreaza cotele)
+                    room_areas.append(rv)
+            except ValueError:
+                pass
         if not _SURF_ANCHOR.match(n):
             continue
         mval = _SURF_NUM.search(n)
@@ -4161,9 +4182,25 @@ def extract_surface(pdf_bytes):
     flag = None
     if construita is not None and desf_main is not None and len(levels) > 1 and abs(construita - desf_main) < 0.5:
         flag = "construita==desfasurata la multi-nivel (verifica: posibil desfasurata luata gresit)"
+
+    # PRAG MINIM din ariile camerelor (2026-07-28): construita >= Σ utila MEREU (peretii doar adauga),
+    # deci Σ x 1.15 e o limita inferioara FIZICA, nu o estimare. Rol dublu:
+    #  (a) planurile FARA bilant (primul client din afara conventiei Jurjea) nu mai cad pe 422;
+    #  (b) inchide exploatul "declar 10 mp pentru o casa de 160" (billing-ul ia greatest).
+    # Bilantul are PRIORITATE: cand exista, `construita_mp` ramane EXACT valoarea lui (non-regresie).
+    rooms_sum = round(sum(room_areas), 2) if room_areas else None
+    construita_min = round(rooms_sum * _ROOM_SUM_COEF, 2) if rooms_sum else None
+    source = "text_vectorial" if construita is not None else None
+    if construita is None and construita_min:
+        construita = construita_min
+        source = "suma_camere"
+        note = "prag din Σ arii camere (%d camere x %.2f = %.2f mp); planul nu are bilant" % (
+            len(room_areas), _ROOM_SUM_COEF, construita_min)
     return {"construita_mp": construita, "desfasurata_mp": desf_main,
-            "levels": sorted(levels), "source": ("text_vectorial" if construita is not None else None),
-            "note": note, "flag": flag}
+            "levels": sorted(levels), "source": source,
+            "note": note, "flag": flag,
+            "rooms_sum_mp": rooms_sum, "rooms_count": len(room_areas),
+            "construita_min_mp": construita_min}
 
 
 def _extract_surface_b64(b64):
