@@ -233,6 +233,30 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── GATE DE SANITATE (2026-07-28): fără BAZA CURATĂ (`planuri`) proiectul e INUTILIZABIL — nu se
+    // pot desena planșele de iluminat/forță, nu se plasează elemente, editorul n-are pe ce lucra.
+    // Fluxul raporta `success: true` (schemele + memoriul se generaseră) ȘI DEBITA: măsurat pe două
+    // generări reale cu planuri fără casetă de titlu — 480 + 324 Z-Coins pentru un rezultat gol.
+    // Același principiu ca fail-closed-ul de suprafață de mai sus: NU debităm pentru ce n-am livrat.
+    // GENERAL: prinde ORICE cauză care lasă `planuri` gol, nu doar cartușul nedetectat. ──
+    {
+      const planuriArr = data.planuri as unknown[] | undefined;
+      if (!Array.isArray(planuriArr) || planuriArr.length === 0) {
+        // motivul concret, când backendul îl raportează (ex. cartuș nedetectat) -> mesaj util
+        let motiv = "";
+        try {
+          const sp = (data.swap_plans as Array<Record<string, unknown>> | undefined)?.[0];
+          const e = sp && typeof sp.error === "string" ? sp.error : "";
+          if (e) motiv = ` Motiv: ${e}`;
+        } catch { /* mesaj generic */ }
+        console.error(`[/api/generate] planuri gol -> NU salvam/debitam.${motiv}`);
+        return NextResponse.json({
+          error: "Planșele nu au putut fi generate din acest plan, așa că nu am debitat Z-Coins. " +
+                 "Verifică exportul PDF (planșă completă din CAD) și reîncearcă." + motiv,
+        }, { status: 422 });   // finally eliberează lock-ul; fără save, fără consume_credits
+      }
+    }
+
     // ── FIX CARTUS: cartușul CONFIRMAT în modal devine SURSA UNICĂ de adevăr în result_data.project_info,
     // INAINTE de save. De ce aici: schemele se REGENEREAZĂ la finalizare, iar n8n-finalize reconstruiește
     // cartușul din result_data.project_info (până acum = Vision BRUT) -> numărul de proiect + șeful de

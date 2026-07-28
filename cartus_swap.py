@@ -272,6 +272,61 @@ def _logo_bytes(url):
         return None
 
 
+_MM_PT = 2.834645669
+_CARTUS_FB_W_MM, _CARTUS_FB_H_MM = 182.5, 42.5   # aceeasi dimensiune ca pe planse/scheme
+
+
+def _page_occupancy(page, frame_frac=0.6):
+    """Bbox-urile a TOT ce e desenat/scris pe pagina — baza pentru detectia zonelor libere.
+    IGNORA dreptunghiurile care acopera peste `frame_frac` din pagina: sunt fundalul si CHENARUL
+    plansei (masurat pe un plan real: 100% si 96% din pagina), nu continut — altfel orice zona
+    pare ocupata si fallback-ul n-ar gasi niciodata loc. Desenul cladirii (~25%) ramane."""
+    boxes = []
+    page_area = max(1.0, page.rect.width * page.rect.height)
+    try:
+        for dr in page.get_drawings():
+            r = dr.get("rect")
+            if r is not None and r.width > 0 and r.height > 0:
+                if (r.width * r.height) / page_area > frame_frac:
+                    continue                      # fundal / chenar de plansa
+                boxes.append((r.x0, r.y0, r.x1, r.y1))
+    except Exception:
+        pass
+    try:
+        for w in page.get_text("words"):
+            boxes.append((w[0], w[1], w[2], w[3]))
+    except Exception:
+        pass
+    return boxes
+
+
+def _free_corner_rect(page, W, H, margin=20.0, gap=6.0):
+    """Dreptunghi LIBER pentru cartusul Zynapse cand planul n-are caseta de titlu (fallback).
+    Ordinea = conventia de plansa: jos-dreapta -> jos-stanga -> sus-dreapta -> sus-stanga.
+    Daca la dimensiunea standard nu incape nicaieri, incearca variante scalate (85%, 70%) —
+    tot cartusul complet, doar mai mic. None = nicio zona libera: apelantul REFUZA (nu
+    suprapunem niciodata peste desenul arhitectului)."""
+    boxes = _page_occupancy(page)
+
+    def _free(x0, y0, x1, y1):
+        for (bx0, by0, bx1, by1) in boxes:
+            if bx0 < x1 + gap and bx1 > x0 - gap and by0 < y1 + gap and by1 > y0 - gap:
+                return False
+        return True
+
+    for k in (1.0, 0.85, 0.7):
+        cw, ch = _CARTUS_FB_W_MM * _MM_PT * k, _CARTUS_FB_H_MM * _MM_PT * k
+        if cw > W - 2 * margin or ch > H - 2 * margin:
+            continue
+        for (x0, y0) in ((W - margin - cw, H - margin - ch),    # jos-dreapta (conventia)
+                         (margin, H - margin - ch),             # jos-stanga
+                         (W - margin - cw, margin),             # sus-dreapta
+                         (margin, margin)):                     # sus-stanga
+            if _free(x0, y0, x0 + cw, y0 + ch):
+                return fitz.Rect(x0, y0, x0 + cw, y0 + ch)
+    return None
+
+
 def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
     """Cartus nou pe structura CARTUS.xlsx: grila 10 randuri x 3 zone verticale.
       STANGA (~29.5%): titlu proiectant (2r) | SIGLA (4r) | DATE DE CONTACT (1r) | date firma (3r)
@@ -460,19 +515,31 @@ def swap_cartus_plan(data: dict) -> dict:
     scara = _detect_scara(page)
     bbox, n_hits = _detect_cartus_bbox(page, W, H)
 
+    # FALLBACK CARTUS (2026-07-28): planurile unor birouri sunt DESEN PUR, fara caseta de titlu
+    # (plan real de client: zero ancore — nici "beneficiar", nici "scara", nici "plansa"). Inainte
+    # refuzam si intorceam 0 bytes -> `planuri` ramanea GOL -> fara plansele de iluminat/forta, fara
+    # plan_elements, editorul n-avea pe ce lucra (si se debitau creditele degeaba). Acum: pastram
+    # planul NEATINS si desenam cartusul Zynapse intr-un colt LIBER. Gate STRICT pe bbox is None ->
+    # planurile CU cartuş detectat trec pe ramura veche, byte-identic.
+    cartus_fallback = False
     if bbox is None:
-        return {
-            "success": False,
-            "error": ("Cartus nedetectat ({} ancore < 3) — nu s-a desenat nimic, "
-                      "planul ramane neatins.").format(n_hits),
-            "detected": {"format": fmt, "scara": scara, "cartus_bbox": None},
-        }
+        bbox = _free_corner_rect(page, W, H)
+        if bbox is None:
+            return {
+                "success": False,
+                "error": ("Cartus nedetectat ({} ancore < 3) si nicio zona libera pentru unul nou — "
+                          "nu s-a desenat nimic, planul ramane neatins.").format(n_hits),
+                "detected": {"format": fmt, "scara": scara, "cartus_bbox": None},
+            }
+        cartus_fallback = True
 
     # 5. Acoperire cartus vechi cu alb opac. +6pt pe laturi: CHENARUL vectorial al cartusului e
     # putin in AFARA bbox-ului text-detectat (masurat pe c7890: linia de sus la y=1055 vs bbox
     # 1059.6) — altfel ramane un chenar dublu subtire la cartusul Zynapse. Blocul e in colt: safe.
-    page.draw_rect(fitz.Rect(max(0.0, bbox.x0 - 6.0), max(0.0, bbox.y0 - 6.0),
-                             min(W, bbox.x1 + 6.0), min(H, bbox.y1 + 6.0)),
+    # FALLBACK: zona e libera prin constructie -> FARA expandarea de 6pt (ar putea musca din desen).
+    _pad = 0.0 if cartus_fallback else 6.0
+    page.draw_rect(fitz.Rect(max(0.0, bbox.x0 - _pad), max(0.0, bbox.y0 - _pad),
+                             min(W, bbox.x1 + _pad), min(H, bbox.y1 + _pad)),
                    color=(1, 1, 1), fill=(1, 1, 1))
 
     # 5a. GUNOI DE EXPORT + contact izolat — TINTIT pe BBOX-uri de CUVINTE (nu zone: imposibil sa
@@ -640,6 +707,9 @@ def swap_cartus_plan(data: dict) -> dict:
         "pdf_base64": base64.b64encode(out).decode("utf-8"),
         "filename": "Plan_{}_cartus_zynapse.pdf".format(safe_nr),
         "size_bytes": len(out),
+        # true = planul n-avea caseta de titlu; cartusul Zynapse s-a desenat intr-un colt liber,
+        # restul plansei ramane NEATINSA (fara acoperirea cartusului vechi, care nu exista).
+        "cartus_fallback": cartus_fallback,
         "detected": {
             "format": fmt,
             "scara": scara,
