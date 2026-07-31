@@ -3,6 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import TurnstileWidget from "@/components/TurnstileWidget";
+
+// Anti-bot (2026-07-31): un val de inregistrari automate a ars livrabilitatea SMTP-ului —
+// 38 din 43 de conturi neconfirmate aveau `full_name` generat aleatoriu. Turnstile opreste
+// botii INAINTE ca Supabase sa trimita mailul de confirmare (bounce-urile strica reputatia).
+// FALLBACK: fara NEXT_PUBLIC_TURNSTILE_SITE_KEY -> widget-ul nu se randeaza si signup-ul
+// merge NORMAL. Codul poate fi pushat inainte de configurarea cheilor, fara sa blocheze pe nimeni.
+const TURNSTILE_SITE_KEY = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "").trim();
 
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: "10px 14px", borderRadius: 10, fontSize: 14,
@@ -23,11 +31,15 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaNonce, setCaptchaNonce] = useState(0);   // schimbat -> widget remontat (token nou)
 
   const validate = () => {
     if (!fullName.trim()) return "Introdu numele complet";
     if (password.length < 8) return "Parola trebuie să aibă minim 8 caractere";
     if (password !== confirm) return "Parolele nu coincid";
+    // gate DOAR cand CAPTCHA e configurat (fara cheie -> flux normal)
+    if (TURNSTILE_SITE_KEY && !captchaToken) return "Așteaptă verificarea de securitate (câteva secunde) și reîncearcă";
     return null;
   };
 
@@ -45,10 +57,16 @@ export default function RegisterPage() {
       options: {
         data: { full_name: fullName.trim() },
         emailRedirectTo: "https://www.zynapse.org/auth/callback",
+        // token-ul e verificat de Supabase (Auth -> Bot and Abuse Protection). Fara CAPTCHA
+        // configurat, campul lipseste complet -> comportamentul de dinainte.
+        ...(captchaToken ? { captchaToken } : {}),
       },
     });
 
     if (error) {
+      // token-ul Turnstile e de UNICA folosinta -> dupa un esec se cere unul nou
+      setCaptchaToken("");
+      setCaptchaNonce(n => n + 1);
       setError(error.message);
       setLoading(false);
     } else {
@@ -142,6 +160,16 @@ export default function RegisterPage() {
               <input className="zy-input" type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
                 placeholder="Repetă parola" required autoComplete="new-password" style={inputStyle} />
             </div>
+
+            {/* Verificare anti-bot — invizibilă pentru majoritatea userilor. Fără cheie: nimic randat. */}
+            {TURNSTILE_SITE_KEY && (
+              <TurnstileWidget
+                key={captchaNonce}
+                siteKey={TURNSTILE_SITE_KEY}
+                onToken={setCaptchaToken}
+                onError={() => setError("Verificarea de securitate a eșuat. Reîncarcă pagina și încearcă din nou.")}
+              />
+            )}
 
             {error && (
               <div style={{
