@@ -48,9 +48,18 @@ export default function TurnstileWidget({
           sitekey: siteKey,
           theme: "dark",                        // tema platformei (#0A0B0E)
           language: "ro",
+          // Tokenul Turnstile expira in 300s si e de UNICA folosinta. Daca userul lasa pagina
+          // deschisa si se logheaza mai tarziu, tokenul vechi -> "invalid-input-response".
+          // refresh-expired:auto => widgetul isi ia singur token nou la expirare (userul nu face nimic).
+          "refresh-expired": "auto",
+          retry: "auto",                        // eroare de retea -> reincearca singur
+          "retry-interval": 2000,
           callback: (t: string) => onTokenRef.current(t),
           "error-callback": () => { onTokenRef.current(""); onErrorRef.current?.(); },
-          "expired-callback": () => onTokenRef.current(""),   // token expirat -> se cere din nou
+          // expirat -> golim tokenul din state (gate-ul opreste submit-ul pana vine unul nou)
+          "expired-callback": () => onTokenRef.current(""),
+          // dupa `reset()` widgetul poate cere din nou interactiune -> tokenul vechi nu mai e valid
+          "timeout-callback": () => onTokenRef.current(""),
         });
       } catch { onErrorRef.current?.(); }
     };
@@ -93,6 +102,14 @@ export default function TurnstileWidget({
 // FALLBACK: fără NEXT_PUBLIC_TURNSTILE_SITE_KEY -> `required` false, `widget` null,
 // `token` "" -> apelantul nu trimite captchaToken și fluxul merge exact ca înainte.
 const SITE_KEY = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "").trim();
+
+/** Eroarea bruta de la Supabase cand tokenul e expirat/consumat/respins de Cloudflare
+ *  ("captcha protection: request disallowed (invalid-input-response)") -> mesaj pentru om. */
+export function captchaErrorMessage(raw: string): string | null {
+  const m = (raw || "").toLowerCase();
+  if (!m.includes("captcha")) return null;
+  return "Verificarea de securitate a expirat. Am reîncărcat-o — mai încearcă o dată.";
+}
 
 export function useTurnstile(onFail?: (msg: string) => void) {
   const [token, setToken] = useState("");

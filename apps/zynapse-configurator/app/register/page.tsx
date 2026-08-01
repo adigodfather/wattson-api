@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import TurnstileWidget from "@/components/TurnstileWidget";
+import TurnstileWidget, { captchaErrorMessage } from "@/components/TurnstileWidget";
 
 // Anti-bot (2026-07-31): un val de inregistrari automate a ars livrabilitatea SMTP-ului —
 // 38 din 43 de conturi neconfirmate aveau `full_name` generat aleatoriu. Turnstile opreste
@@ -67,7 +67,7 @@ export default function RegisterPage() {
       // token-ul Turnstile e de UNICA folosinta -> dupa un esec se cere unul nou
       setCaptchaToken("");
       setCaptchaNonce(n => n + 1);
-      setError(error.message);
+      setError(captchaErrorMessage(error.message) ?? error.message);
       setLoading(false);
     } else {
       setDone(true);

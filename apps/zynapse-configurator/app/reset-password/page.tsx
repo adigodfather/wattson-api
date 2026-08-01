@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import { useTurnstile } from "@/components/TurnstileWidget";
+import { useTurnstile, captchaErrorMessage } from "@/components/TurnstileWidget";
 
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState("");
@@ -29,8 +29,8 @@ export default function ResetPasswordPage() {
     });
 
     if (error) {
-      captcha.reset();                         // token de unică folosință
-      setError(error.message);
+      captcha.reset();                         // token de unică folosință (consumat și la eșec)
+      setError(captchaErrorMessage(error.message) ?? error.message);
       setLoading(false);
     } else {
       setDone(true);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { useTurnstile } from "@/components/TurnstileWidget";
+import { useTurnstile, captchaErrorMessage } from "@/components/TurnstileWidget";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,13 +14,16 @@ export default function LoginPage() {
   const router = useRouter();
   // CAPTCHA: setarea Supabase e globală — fără token aici, LOGIN-ul e respins.
   const captcha = useTurnstile(setError);
+  const busyRef = useRef(false);   // gardă sincronă (setLoading e asincron -> nu blochează dublul click)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (captcha.required && !captcha.token) {
+    if (busyRef.current) return;                // anti double-submit: al 2-lea click ar refolosi
+    if (captcha.required && !captcha.token) {   // un token deja consumat -> invalid-input-response
       setError("Așteaptă verificarea de securitate (câteva secunde) și reîncearcă");
       return;
     }
+    busyRef.current = true;
     setError(null);
     setLoading(true);
     const supabase = createClient();
@@ -29,11 +32,13 @@ export default function LoginPage() {
       options: { ...captcha.captchaOption },   // fără CAPTCHA configurat -> obiect gol (flux vechi)
     });
     if (error) {
-      captcha.reset();                          // token consumat -> se cere unul nou
-      setError(error.message === "Invalid login credentials"
-        ? "Email sau parolă incorectă"
-        : error.message);
+      captcha.reset();                          // token consumat (chiar și la eșec) -> unul nou
+      setError(captchaErrorMessage(error.message)
+        ?? (error.message === "Invalid login credentials"
+          ? "Email sau parolă incorectă"
+          : error.message));
       setLoading(false);
+      busyRef.current = false;
     } else {
       router.push("/home");
       router.refresh();
