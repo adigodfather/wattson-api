@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { useTurnstile } from "@/components/TurnstileWidget";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,14 +12,24 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  // CAPTCHA: setarea Supabase e globală — fără token aici, LOGIN-ul e respins.
+  const captcha = useTurnstile(setError);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (captcha.required && !captcha.token) {
+      setError("Așteaptă verificarea de securitate (câteva secunde) și reîncearcă");
+      return;
+    }
     setError(null);
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email, password,
+      options: { ...captcha.captchaOption },   // fără CAPTCHA configurat -> obiect gol (flux vechi)
+    });
     if (error) {
+      captcha.reset();                          // token consumat -> se cere unul nou
       setError(error.message === "Invalid login credentials"
         ? "Email sau parolă incorectă"
         : error.message);
@@ -101,6 +112,9 @@ export default function LoginPage() {
                   color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
                 }} />
             </div>
+
+            {/* Verificare anti-bot (invizibilă în mod normal). Fără cheie configurată: nimic randat. */}
+            {captcha.widget}
 
             {error && (
               <div style={{

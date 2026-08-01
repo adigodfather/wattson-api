@@ -3,24 +3,33 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import { useTurnstile } from "@/components/TurnstileWidget";
 
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  // CAPTCHA: endpoint public de auth -> cu protecția activă în Supabase, fără token e respins.
+  const captcha = useTurnstile(setError);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (captcha.required && !captcha.token) {
+      setError("Așteaptă verificarea de securitate (câteva secunde) și reîncearcă");
+      return;
+    }
     setError(null);
     setLoading(true);
 
     const supabase = createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: "https://www.zynapse.org/auth/callback?next=/update-password",
+      ...captcha.captchaOption,               // fără CAPTCHA configurat -> câmpul lipsește
     });
 
     if (error) {
+      captcha.reset();                         // token de unică folosință
       setError(error.message);
       setLoading(false);
     } else {
@@ -100,6 +109,9 @@ export default function ResetPasswordPage() {
                       color: "#E2E4E9", outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box",
                     }} />
                 </div>
+
+                {/* Verificare anti-bot (invizibilă în mod normal). Fără cheie: nimic randat. */}
+                {captcha.widget}
 
                 {error && (
                   <div style={{

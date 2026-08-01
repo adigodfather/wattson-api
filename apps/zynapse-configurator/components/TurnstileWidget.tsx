@@ -9,7 +9,7 @@
 // Randare EXPLICITĂ (?render=explicit): în React, varianta cu auto-render pe `.cf-turnstile`
 // se dublează la re-render/StrictMode. Aici widget-ul e creat o singură dată și curățat la unmount.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type TurnstileApi = {
   render: (el: HTMLElement, opts: Record<string, unknown>) => string;
@@ -81,4 +81,41 @@ export default function TurnstileWidget({
 
   if (!siteKey) return null;
   return <div ref={boxRef} style={{ minHeight: 65 }} />;
+}
+
+// ─── useTurnstile — CAPTCHA pentru orice flux de auth ────────────────────────
+// Setarea din Supabase (Attack Protection) e GLOBALĂ: se aplică la TOATE endpoint-urile
+// publice de auth, nu doar la signup. Orice pagină care cheamă signInWithPassword /
+// resetPasswordForEmail trebuie să trimită token, altfel Supabase respinge cu
+// "captcha protection: request disallowed". Hook-ul ține state-ul + widget-ul într-un
+// singur loc, ca să nu se mai uite un flux.
+//
+// FALLBACK: fără NEXT_PUBLIC_TURNSTILE_SITE_KEY -> `required` false, `widget` null,
+// `token` "" -> apelantul nu trimite captchaToken și fluxul merge exact ca înainte.
+const SITE_KEY = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "").trim();
+
+export function useTurnstile(onFail?: (msg: string) => void) {
+  const [token, setToken] = useState("");
+  const [nonce, setNonce] = useState(0);       // schimbat -> widget remontat (token NOU)
+
+  // token-ul Turnstile e de UNICĂ folosință: după orice apel eșuat trebuie regenerat
+  const reset = useCallback(() => { setToken(""); setNonce(n => n + 1); }, []);
+
+  const widget = SITE_KEY ? (
+    <TurnstileWidget
+      key={nonce}
+      siteKey={SITE_KEY}
+      onToken={setToken}
+      onError={() => onFail?.("Verificarea de securitate a eșuat. Reîncarcă pagina și încearcă din nou.")}
+    />
+  ) : null;
+
+  return {
+    token,
+    reset,
+    required: !!SITE_KEY,                       // true -> gate pe token înainte de submit
+    widget,
+    /** de pus în `options` la apelul de auth: { ...captchaOption } */
+    captchaOption: token ? { captchaToken: token } : {},
+  };
 }
