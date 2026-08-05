@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { CalculatorPanel } from "@/components/CreditCalculator";
 import SiteFooter from "@/components/SiteFooter";
 import BeforeAfterSlider from "@/components/BeforeAfterSlider";
+import YouTubeEmbed from "@/components/YouTubeEmbed";
 
 interface Node {
   x: number; y: number; vx: number; vy: number;
@@ -694,6 +695,17 @@ export default function Landing() {
           Trage bara și compară planșa originală cu planul generat — iluminat sau prize.
         </p>
         <BeforeAfterSlider />
+      </section>
+
+      {/* ── Videoclip de prezentare (lazy: thumbnail + play, iframe abia la click) ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "40px 40px 20px" }}>
+        <h2 style={{ fontSize: 34, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 12px", letterSpacing: -.8 }}>
+          Vezi platforma în acțiune
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 15, margin: "0 0 26px" }}>
+          Un tur scurt: de la planul arhitectural la proiectul electric complet.
+        </p>
+        <YouTubeEmbed videoId="Jgf07VAjXS4" start={5} title="Zynapse — prezentarea platformei" />
       </section>
 
       {/* ── Ce facem ── */}

@@ -11,6 +11,7 @@ import { startCheckout, type BillingChoice } from "@/lib/payment/startCheckout";
 import SiteFooter from "@/components/SiteFooter";
 import BillingModal from "@/components/BillingModal";
 import BeforeAfterSlider from "@/components/BeforeAfterSlider";
+import YouTubeEmbed from "@/components/YouTubeEmbed";
 
 // Pachetele vin DIN DB (credit_packages) — sursa de adevăr pt. id/credite/preț.
 interface DbPackage {
@@ -128,6 +129,17 @@ export default function HomePage() {
           Trage bara și compară planșa originală cu planul generat — iluminat sau prize.
         </p>
         <BeforeAfterSlider />
+      </section>
+
+      {/* ── Videoclip de prezentare (lazy: thumbnail + play, iframe abia la click) ── */}
+      <section style={{ position: "relative", zIndex: 1, maxWidth: 960, margin: "0 auto", padding: "44px 18px 20px" }}>
+        <h2 style={{ fontSize: 28, fontWeight: 700, color: "#fff", textAlign: "center", margin: "0 0 8px", letterSpacing: -0.5 }}>
+          Vezi platforma în acțiune
+        </h2>
+        <p style={{ textAlign: "center", color: "#888", fontSize: 14.5, margin: "0 0 24px" }}>
+          Un tur scurt: de la planul arhitectural la proiectul electric complet.
+        </p>
+        <YouTubeEmbed videoId="Jgf07VAjXS4" start={5} title="Zynapse — prezentarea platformei" />
       </section>
 
       {/* ── Pachete B2B (doar conturi 30+ zile) ── */}
