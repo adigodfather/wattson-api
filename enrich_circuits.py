@@ -274,6 +274,131 @@ def _enrich_heating_group(c, panel, floor_idx, is_mono=False):
         "name": c["id"], "_heating_group": True,
     }
 
+# ── BANDA LED: drivere -> circuite dedicate (SEPARATE de iluminatul normal) ──────────────────
+# Driverele (banda_led_driver) NU intra pe circuitul de becuri: sunt surse 24V cu inrush propriu.
+# MAX 4 drivere/circuit — curentul de pornire CUMULAT al surselor LED declanseaza automatul chiar
+# daca regimul permanent e mic. Peste 4 -> circuite multiple, EGALE (6 -> 3+3, nu 4+2): incarcarea
+# echilibrata tine inrush-ul sub prag pe fiecare.
+_BANDA_W_PER_M = 9.6                 # banda 24V, 60 LED/m (aceeasi constanta ca in bom.py)
+_BANDA_MAX_DRIVERE_CIRCUIT = 4
+_PX_TO_M_FIX = 0.0249                # scara aproximativa (~1:71) cand apelantul nu paseaza una reala
+# (metri_max, breaker_a, sectiune_mm2) — dimensionare pe LUNGIMEA benzilor, nu pe curentul de regim:
+# 576 W inseamna 2.5 A, dar sectiunea e impusa de inrush si de caderea de tensiune pe trasee lungi.
+_BANDA_SIZING = ((30.0, 10, 1.5), (60.0, 16, 2.5), (float("inf"), 20, 4.0))
+
+
+def _split_balanced(n, maxper):
+    """n elemente in grupuri de maxim `maxper`, cat mai EGALE: 6,4 -> [3,3]; 5,4 -> [3,2];
+    9,4 -> [3,3,3]; 4,4 -> [4]. Intoarce lista marimilor."""
+    if n <= 0:
+        return []
+    k = int(math.ceil(float(n) / maxper))          # numarul MINIM de circuite
+    base, rest = divmod(n, k)
+    return [base + (1 if i < rest else 0) for i in range(k)]
+
+
+def _polyline_len_px(el):
+    """Lungimea poliliniei cable_path in px (0.0 daca lipseste/malformata)."""
+    cp = (el or {}).get("cable_path")
+    if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+        return 0.0
+    try:
+        pts = [(float(p[0]), float(p[1])) for p in cp]
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+    return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+               for i in range(len(pts) - 1))
+
+
+def _dist_point_to_banda(px, py, banda):
+    """Distanta de la (px,py) la cel mai apropiat VARF al benzii (suficient si robust: benzile au
+    varfuri dese, iar asocierea e pe 'cel mai apropiat driver', nu pe o masuratoare fizica)."""
+    cp = (banda or {}).get("cable_path") or []
+    best = None
+    for p in cp:
+        try:
+            d = math.hypot(px - float(p[0]), py - float(p[1]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if best is None or d < best:
+            best = d
+    return best
+
+
+def _benzi_per_driver(drivers, benzi):
+    """ASOCIEREA driver <-> benzi: FIECARE BANDA merge la driverul CEL MAI APROPIAT (nu invers).
+    Asa fiecare banda are exact un driver — fara benzi orfane si fara ambiguitate — iar un driver
+    poate ramane fara benzi (inginerul a pus unul in plus; il semnalam in UI, nu-l inventam noi).
+    Intoarce lista paralela cu `drivers`: lungimea in px a benzilor arondate fiecaruia."""
+    out = [0.0] * len(drivers)
+    if not drivers:
+        return out
+    for b in benzi:
+        best_i, best_d = None, None
+        for i, d in enumerate(drivers):
+            try:
+                dist = _dist_point_to_banda(float(d.get("x") or 0), float(d.get("y") or 0), b)
+            except (TypeError, ValueError):
+                dist = None
+            if dist is None:
+                continue
+            if best_d is None or dist < best_d:
+                best_i, best_d = i, dist
+        if best_i is not None:
+            out[best_i] += _polyline_len_px(b)
+    return out
+
+
+def _banda_circuit_sizing(total_m):
+    """(breaker_a, cable_type, sectiune) din lungimea TOTALA de banda a circuitului (tabelul Dan)."""
+    for lim, brk, sec in _BANDA_SIZING:
+        if total_m <= lim:
+            return brk, "CYY-F 3x%s" % ("%.1f" % sec).rstrip("0").rstrip("."), sec
+    return 20, "CYY-F 3x4", 4.0
+
+
+def _enrich_banda_drivers(els, panel, floor_idx, nextn, gsuf, scale=None):
+    """Circuitele DEDICATE ale driverelor de banda LED de pe un etaj. Grupare max 4/circuit
+    (echilibrat), dimensionare pe metrii benzilor arondate DRIVERELOR ACELUI CIRCUIT (nu pe
+    totalul etajului). Curba C obligatoriu: LED-urile dau inrush pana la 250x In, care ar
+    declansa curba B. Intoarce (circuite, nextn_actualizat, harta driver_id -> circuit_id)."""
+    drivers = [el for el in els if (el.get("element_type") or "") == "banda_led_driver"]
+    if not drivers:
+        return [], nextn, {}
+    benzi = [el for el in els if (el.get("element_type") or "") == "banda_led_path"]
+    sc = float(scale) if scale else _PX_TO_M_FIX
+    # ordine stabila (stanga->dreapta, sus->jos) ca gruparea sa nu depinda de ordinea din DB
+    drivers.sort(key=lambda d: (float(d.get("y") or 0), float(d.get("x") or 0)))
+    px_per_driver = _benzi_per_driver(drivers, benzi)
+
+    out, cid_map, i = [], {}, 0
+    for size in _split_balanced(len(drivers), _BANDA_MAX_DRIVERE_CIRCUIT):
+        grup = drivers[i:i + size]
+        metri = sum(px_per_driver[i:i + size]) * sc
+        i += size
+        breaker_a, cbl, sec = _banda_circuit_sizing(metri)
+        power_w = int(round(metri * _BANDA_W_PER_M))
+        cid = "C%d%s" % (nextn, gsuf)
+        nextn += 1
+        for d in grup:
+            if d.get("id"):
+                cid_map[d["id"]] = cid
+        out.append({
+            "id": cid, "fasa": None, "room": None, "type": "dedicat", "floor": floor_idx,
+            "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
+            "breaker_a": breaker_a, "room_type": None, "cable_type": cbl,
+            "description": "Alimentare drivere banda LED",
+            "is_bathroom": False, "is_exterior": False,
+            "breaker_type": "MCB-1P-C",          # curba C: inrush-ul surselor LED ar arunca curba B
+            "pi_normalized": False,
+            "ia_calculated_a": round(power_w / 230.0, 2) if power_w else 0.0,
+            "normalize_reason": "Drivere banda LED (%d buc, %.1f m banda) — sectiune impusa de inrush"
+                                % (len(grup), metri),
+            "name": cid, "_banda_drivers": len(grup), "_banda_metri": round(metri, 1),
+        })
+    return out, nextn, cid_map
+
+
 # ── Regula 5: faza round-robin ciclic PER TABLOU ─────────────────────────────
 def assign_phases(circuits, is_mono=False):
     # BRANSAMENT MONOFAZAT: exista O SINGURA faza reala -> TOATE circuitele "R" (round-robin-ul R/S/T
@@ -453,7 +578,7 @@ def _tect_gate_on_plan(circuits, plan_elements):
     return out
 
 
-def enrich_circuits(plan_elements, form=None, base_circuits=None):
+def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     """PLAN -> circuite (TEG/TES) in formatul result_data.circuits. TE-CT = PRESERVAT din
     base_circuits (heating-driven; dimensionarea normativa din norme_alimentari ramane INTACTA),
     dar GATED pe plan (FIX DRIFT: dedicatele mapabile raman doar cu elementul pe plan) + feed-ul
@@ -526,6 +651,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             if k and k not in base_covered:
                 base_covered[k] = c
 
+    banda_cid_map = {}                                 # id element driver -> circuit_id (pt. eticheta pe plan)
     by_panel = {}                                      # panel -> (elements, floor_idx)
     for el in plan_elements:
         panel, fidx = _floor_panel(el.get("floor"))
@@ -571,6 +697,12 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None):
             rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
             plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono))
             nextn += 1
+
+        # BANDA LED: driverele etajului -> circuite DEDICATE (separate de becuri), max 4/circuit.
+        # DUPA receptoare -> primesc urmatoarele numere libere din tabloul etajului.
+        _bd, nextn, _bmap = _enrich_banda_drivers(els, panel, fidx, nextn, gsuf, scale=scale)
+        plan_out.extend(_bd)
+        banda_cid_map.update(_bmap)
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
     plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]

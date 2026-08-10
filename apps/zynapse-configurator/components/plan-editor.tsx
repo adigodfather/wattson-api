@@ -100,6 +100,9 @@ const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
 const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
 const isFvChainType = (t: string) => t === "fv_chain_path";          // lantul FV desenat MANUAL (polilinie deschisa galbena)
+// Banda LED TRASATA: polilinie DESCHISA pe planul de iluminat -> metri REALI in BOM (lungimea desenata),
+// spre deosebire de `banda_led` PUNCTUAL (simbol vechi, numarat la bucata) care ramane neatins.
+const isBandaLedPathType = (t: string) => t === "banda_led_path";
 const isReceptorType = (t: string) => t === "alimentare_receptor";   // Receptoare bucata A: 1 tip + `label` (boiler/cuptor/...)
 const isInternetType = (t: string) => t === "receptor_internet";     // Retea internet (RJ45): simbol propriu (turcoaz + router + WiFi)
 // Inaltime de montaj DEFAULT pe tip la receptoare (metri), ca la prize; modificabila in editor.
@@ -125,6 +128,8 @@ function receptorDefaultHeight(et: string, label: string): number {
   const h = heatingReceptorDef(label);
   if (h) return h.default_height;                    // Regula 10: radiator 0.3 / VCV 2.2 / distribuitor 0.5
   if (et === "receptor_internet") return 2.0;
+  // driverul benzii se monteaza sus, langa banda (in tavan fals / nisa de rigips)
+  if (et === "banda_led_driver") return 2.4;
   const l = (label || "").toLowerCase();
   if (l.includes("cuptor")) return 0.5;
   if (l.includes("statie") || l.includes("incarcare") || l.includes("ev")) return 1.2;
@@ -134,6 +139,8 @@ function receptorDefaultHeight(et: string, label: string): number {
 const COL_PRIZA = "#1565C0";   // simbol priza in editor (ALBASTRU/forta — coerent cu cablurile, distinct de iluminat)
 const COL_GROUND = "#F27308";  // PORTOCALIU — priza de pamant (platbanda), coerent cu backend _GROUND_COLOR
 const COL_FV_CHAIN = "#F9A825";  // GALBEN/GOLD — lantul FV desenat manual, coerent cu backend _FV_LINK_COLOR
+const COL_BANDA_LED = "#00B8A9";  // TURCOAZ — banda LED trasata manual; distinct de rosu (iluminat),
+                                  // portocaliu (priza de pamant), galben (FV) si albastru (forta)
 // caseta-placeholder a legendei in editor, in PUNCTE PDF (afisata x scale, ca elementele).
 // Doar placeholder mutabil; continutul real (simboluri + text) se deseneaza pe PDF la "Obtine plan" (L3).
 const LEG_W = 90, LEG_H = 60;
@@ -475,6 +482,13 @@ export default function PlanEditor({
   const [fvChainPts, setFvChainPts] = useState<number[][]>([]);          // puncte fixate (puncte PDF)
   const [fvChainHover, setFvChainHover] = useState<[number, number] | null>(null);
   const fvChainPtsRef = useRef<number[][]>([]);   // sursa SINCRONA (vezi nota groundPtsRef)
+  // Banda LED trasata: acelasi mecanism (click succesiv + rubber-band + dublu-click/Enter), polilinie
+  // DESCHISA min 2 puncte, pe planul de ILUMINAT. Spre deosebire de priza de pamant (una singura),
+  // benzile sunt MAI MULTE per plan (living, bucatarie, hol) -> lista in rubrica, nu element unic.
+  const [drawingBandaLed, setDrawingBandaLed] = useState(false);
+  const [bandaLedPts, setBandaLedPts] = useState<number[][]>([]);
+  const [bandaLedHover, setBandaLedHover] = useState<[number, number] | null>(null);
+  const bandaLedPtsRef = useRef<number[][]>([]);   // sursa SINCRONA (vezi nota groundPtsRef)
   // Receptoare (bucata A): mod de plasare "1 click" — { et: element_type, label } activ sau null.
   // Primul click pe plan plaseaza si iese din mod (analog drawingGround, dar 1 punct, nu poligon).
   // et generalizat: alimentari = "alimentare_receptor", retea = "receptor_internet" (doar tip+simbol difera).
@@ -503,6 +517,18 @@ export default function PlanEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawingFvChain]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Escape/Enter pt. banda LED (identic cu lantul FV).
+  useEffect(() => {
+    if (!drawingBandaLed) return;
+    const onKey = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (ev.key === "Escape") { ev.preventDefault(); cancelDrawBandaLed(); }
+      else if (ev.key === "Enter") { ev.preventDefault(); void finishDrawBandaLed(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawingBandaLed]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Escape anuleaza plasarea receptorului.
   useEffect(() => {
     if (!placingReceptor) return;
@@ -1127,7 +1153,8 @@ export default function PlanEditor({
   // ── Faza 3: priza de pamant — desenare manuala prin click succesiv pe colturile fundatiei. ──
   function startDrawGround() {
     setSelectedId(null);            // fara selectie activa cat desenam
-    cancelDrawFvChain();            // un singur mod de desenare activ (straturile de captura nu se suprapun)
+    cancelDrawFvChain();            // un singur mod de desenare activ
+    cancelDrawBandaLed();           // (straturile de captura nu se suprapun)
     groundPtsRef.current = [];
     groundShiftRef.current = false;
     setGroundPts([]);
@@ -1218,6 +1245,7 @@ export default function PlanEditor({
   function startDrawFvChain() {
     setSelectedId(null);
     cancelDrawGround();             // un singur mod de desenare activ
+    cancelDrawBandaLed();
     fvChainPtsRef.current = [];
     setFvChainPts([]);
     setFvChainHover(null);
@@ -1279,6 +1307,71 @@ export default function PlanEditor({
     setFvChainHover(null);
   }
 
+  // ── Banda LED trasata: mecanismul lantului FV (polilinie DESCHISA), pe planul de ILUMINAT. ──
+  // Metrii din BOM ies din lungimea DESENATA, nu dintr-o estimare -> banda desenata inlocuieste
+  // ghicitul. Alinierea ortogonala e mostenita din snapOrtho (aceleasi apeluri ca la FV/priza).
+  function startDrawBandaLed() {
+    setSelectedId(null);
+    cancelDrawGround();              // un singur mod de desenare activ
+    cancelDrawFvChain();
+    bandaLedPtsRef.current = [];
+    setBandaLedPts([]);
+    setBandaLedHover(null);
+    setDrawingBandaLed(true);
+  }
+  function cancelDrawBandaLed() {
+    setDrawingBandaLed(false);
+    bandaLedPtsRef.current = [];
+    setBandaLedPts([]);
+    setBandaLedHover(null);
+  }
+  function addBandaLedPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const prev = bandaLedPtsRef.current[bandaLedPtsRef.current.length - 1];
+    const pt = isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                              : snapOrtho(prev, pos.x / scale, pos.y / scale);
+    const next = [...bandaLedPtsRef.current, [pt[0], pt[1]]];
+    bandaLedPtsRef.current = next;
+    setBandaLedPts(next);
+  }
+  function moveBandaLedHover(e: KonvaEventObject<MouseEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const prev = bandaLedPtsRef.current[bandaLedPtsRef.current.length - 1];
+    setBandaLedHover(isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                                    : snapOrtho(prev, pos.x / scale, pos.y / scale));
+  }
+  // finalizeaza: INSERT banda_led_path (min 2 puncte — polilinie deschisa, ca lantul FV).
+  async function finishDrawBandaLed() {
+    const raw = bandaLedPtsRef.current || [];
+    const pts: number[][] = [];
+    for (const p of raw) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.5) pts.push([p[0], p[1]]);
+    }
+    if (pts.length < 2) return;     // o banda are nevoie de minim 2 puncte
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),
+      element_type: "banda_led_path",
+      plan_type: "iluminat",        // banda e corp de iluminat -> plansa de iluminat
+      label: null as string | null,
+      room: null as string | null,
+      x: pts[0][0],
+      y: pts[0][1],                 // ancora = punctul 0 (sincron cu NOT NULL x,y)
+      wall_mounted: false,
+      rotation: 0,
+      status: null as string | null,
+      cable_path: pts,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT banda LED esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+    setSelectedId((data as PlanElement).id);
+    cancelDrawBandaLed();
+  }
+
   // ── Receptoare (bucata A): plasare "1 click" a unei alimentari (boiler/cuptor/...). ──
   // Buton -> intra in mod (label = tipul); primul click pe plan -> INSERT alimentare_receptor
   // la punctul respectiv (puncte PDF = pos/scale) + iese din mod. Simbol = "alimentare directa" (PDF).
@@ -1295,8 +1388,10 @@ export default function PlanEditor({
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
-      element_type: p.et,                // "alimentare_receptor" | "receptor_internet"
-      plan_type: "forta",
+      element_type: p.et,                // "alimentare_receptor" | "receptor_internet" | "banda_led_driver"
+      // driverul de banda LED apartine planului de ILUMINAT (si NU trebuie sa apara pe forta);
+      // restul receptoarelor raman pe forta, exact ca inainte.
+      plan_type: p.et === "banda_led_driver" ? "iluminat" : "forta",
       label: p.label,                    // alimentari: boiler/cuptor/...; retea: "internet"; termice: Radiator/VCV/Distribuitor zona
       room: null as string | null,
       x: pos.x / scale,
@@ -1913,6 +2008,76 @@ export default function PlanEditor({
     );
   };
 
+  // Banda LED trasata — DOAR pe planul de iluminat. Spre deosebire de priza de pamant (una singura),
+  // benzile sunt MAI MULTE per plan -> lista cu stergere per traseu. Metrii ies din desen (BOM).
+  const renderBandaLedSection = () => {
+    if (mode !== "iluminat") return null;
+    const benzi = elements.filter(e => isBandaLedPathType(e.element_type));
+    const drivere = elements.filter(e => e.element_type === "banda_led_driver");
+    return (
+      <Rubrica title="Bandă LED" hint="Trasează banda pe plan — metrii din listă ies din lungimea desenată.">
+        {benzi.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
+            {benzi.map((el, i) => (
+              <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COL_BANDA_LED, flexShrink: 0 }} />
+                Banda {i + 1} · {(el.cable_path || []).length} puncte
+                <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {drawingBandaLed ? (
+          <div style={{ paddingLeft: 2 }}>
+            <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+              Click pe traseul benzii · <b>{bandaLedPts.length}</b> punct{bandaLedPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+            </div>
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="zy-add-btn" onClick={() => void finishDrawBandaLed()} disabled={bandaLedPts.length < 2}>Finalizează</button>
+              <button type="button" className="zy-add-btn" onClick={cancelDrawBandaLed}>Anulează</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={startDrawBandaLed}>+ Desenează bandă LED</button>
+          </div>
+        )}
+
+        {/* DRIVERE (surse 24V): plasate manual, oricate. Circuitul lor e SEPARAT de becuri — max 4
+            drivere pe circuit (inrush-ul cumulat al surselor LED). */}
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          {drivere.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
+              {drivere.map((el, i) => (
+                <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: COL_BANDA_LED, flexShrink: 0 }} />
+                  Driver {i + 1}{el.mount_height_m != null ? ` · h=${el.mount_height_m}m` : ""}
+                  <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
+                </div>
+              ))}
+              {drivere.length > 4 && (
+                <div style={{ fontSize: 10.5, color: "#8B8FA8", paddingLeft: 2 }}>
+                  Peste 4 drivere — se împart automat pe {Math.ceil(drivere.length / 4)} circuite.
+                </div>
+              )}
+            </div>
+          )}
+          {benzi.length > 0 && drivere.length === 0 && (
+            <div style={{ fontSize: 11, color: "#F0B429", marginBottom: 8, paddingLeft: 2, lineHeight: 1.5 }}>
+              Banda desenată nu are driver — adaugă cel puțin unul ca să fie alimentată.
+            </div>
+          )}
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn"
+                    onClick={() => startPlaceReceptor("banda_led_driver", "Driver bandă LED")}>
+              + Adaugă driver
+            </button>
+          </div>
+        </div>
+      </Rubrica>
+    );
+  };
+
   // Receptoare (bucata A, PILOT): butoane de "alimentare" — 1 click pe plan plaseaza simbolul de
   // alimentare. Pilot = doar boilerul; restul receptoarelor se adauga identic (bucata C = gating pe bifate).
   // ── RUBRICA „Camera tehnica" — echipamente incalzire (generare) + butoane tech (radiator/VCV/distribuitor/
@@ -2145,6 +2310,7 @@ export default function PlanEditor({
           {roomKeys.map(renderRoom)}
           {mode === "iluminat" && renderPanelsSection()}
           {mode === "forta" && renderPrizaSection()}
+          {renderBandaLedSection()}
           {renderGroundingSection()}
           {renderCameraTehnicaSection()}
           {renderEchipamenteExtraSection()}
@@ -2217,7 +2383,8 @@ export default function PlanEditor({
                   />
                 ))}
                 {ordered.map((el) => {
-                  if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)) return null;   // traseu + priza de pamant + lantul FV randate separat
+                  if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
+                      || isBandaLedPathType(el.element_type)) return null;   // traseu + priza de pamant + lant FV + banda LED randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -2226,7 +2393,9 @@ export default function PlanEditor({
                   const isPriza = isPrizaType(el.element_type);
                   const isReceptor = isReceptorType(el.element_type);   // alimentare receptor (bucata A)
                   const isInternet = isInternetType(el.element_type);   // retea internet (simbol propriu)
-                  const col = isBulb ? COL_BULB : isInternet ? NET_EDGE : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
+                  const isDriver = el.element_type === "banda_led_driver";   // sursa 24V a benzii LED
+                  const col = isBulb ? COL_BULB : isInternet ? NET_EDGE : isDriver ? COL_BANDA_LED
+                            : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   const isLegend = isLegendType(el.element_type);
                   const legW = LEG_W * scale, legH = LEG_H * scale;   // caseta legenda (puncte PDF x scale)
@@ -2325,6 +2494,14 @@ export default function PlanEditor({
                       ) : isInternet ? (
                         /* retea internet = simbol propriu (caseta turcoaz plina = zona de hit a Group-ului) */
                         internetSymbol()
+                      ) : isDriver ? (
+                        /* DRIVER banda LED = sursa 230V~ -> 24V=; caseta cu "~=" (conventia de convertor) */
+                        <>
+                          <Rect x={-12} y={-8} width={24} height={16} cornerRadius={2}
+                                fill="#FFFFFF" stroke={COL_BANDA_LED} strokeWidth={2} />
+                          <Text x={-12} y={-8} width={24} height={16} align="center" verticalAlign="middle"
+                                text="~=" fontSize={11} fontStyle="bold" fill={COL_BANDA_LED} listening={false} />
+                        </>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}
@@ -2369,6 +2546,37 @@ export default function PlanEditor({
                           lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
                   );
                 })}
+                {/* Benzile LED EXISTENTE — polilinii DESCHISE turcoaz, read-only (redesenare = sterge + deseneaza). */}
+                {elements.filter(e => isBandaLedPathType(e.element_type)).map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <Line key={el.id} points={flat} stroke={COL_BANDA_LED} strokeWidth={4}
+                          lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
+                  );
+                })}
+                {/* Banda LED: MOD DESENARE — strat de captura + rubber-band (ca lantul FV). */}
+                {drawingBandaLed && (() => {
+                  const previewPts = bandaLedHover ? [...bandaLedPts, bandaLedHover] : bandaLedPts;
+                  const flat = previewPts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  return (
+                    <>
+                      <Rect x={0} y={0} width={pngW} height={pngH} fill="transparent" listening
+                            onClick={addBandaLedPoint} onTap={addBandaLedPoint}
+                            onMouseMove={moveBandaLedHover}
+                            onDblClick={() => void finishDrawBandaLed()} onDblTap={() => void finishDrawBandaLed()}
+                            onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      {previewPts.length >= 2 && (
+                        <Line points={flat} stroke={COL_BANDA_LED} strokeWidth={2.5} dash={[6, 4]}
+                              lineCap="round" lineJoin="round" opacity={0.9} listening={false} />
+                      )}
+                      {bandaLedPts.map((p, i) => (
+                        <Circle key={i} x={p[0] * scale} y={p[1] * scale} radius={4}
+                                fill="#fff" stroke={COL_BANDA_LED} strokeWidth={2} listening={false} />
+                      ))}
+                    </>
+                  );
+                })()}
                 {/* Lantul FV EXISTENT — polilinie DESCHISA galbena, read-only (redesenare = sterge + deseneaza). */}
                 {elements.filter(e => isFvChainType(e.element_type)).map((el) => {
                   const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];

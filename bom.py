@@ -504,6 +504,26 @@ def _row(cat, den, spec, qty, um, sectiune=None):
 # ── ELEMENTE NOI (restructurare BOM, bucata 1) — helperi puri ──────────────────
 _FV_SOLAR_CABLE_M = {5: 55, 10: 110, 15: 125, 20: 135}   # cablu solar 1x6 (m)/pachet — lookup fix Dan (marja 10% inclusa)
 
+# ── BANDA LED trasata (banda_led_path) ────────────────────────────────────────
+# Metrii ies din lungimea DESENATA (nu dintr-o estimare). Driverul se dimensioneaza pe PUTERE,
+# nu "1 bucata per traseu": o banda de 3 m si una de 25 m n-au nevoie de aceeasi sursa.
+_BANDA_LED_W_PER_M = 9.6      # banda 24V standard (60 LED/m). DE CONFIRMAT cu Dan.
+_BANDA_LED_RESERVE = 1.20     # driverele nu se incarca la 100% -> rezerva 20% (uzual la surse LED)
+_BANDA_LED_DRIVERS = (30, 60, 100, 150, 200, 300)   # gama uzuala de surse 24V (W)
+
+
+def _banda_led_driver(power_w):
+    """Sursa/driver pentru o banda: cel mai mic din gama care acopera puterea CU rezerva. Peste
+    cel mai mare model -> mai multe bucati din el. Intoarce (watts_model, bucati) sau None."""
+    need = float(power_w or 0) * _BANDA_LED_RESERVE
+    if need <= 0:
+        return None
+    for w in _BANDA_LED_DRIVERS:
+        if need <= w:
+            return (w, 1)
+    top = _BANDA_LED_DRIVERS[-1]
+    return (top, int(math.ceil(need / top)))
+
 
 def _panel_section(panel):
     """(sectiune, denumire tablou) din campul `panel` al circuitului: TEG / TES n / TE-CT."""
@@ -772,6 +792,49 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                              "TEG->fundatie (+1.5 coborare +2 fundatie)", round(_d20, 1), "m", sectiune=_sec_pl))
         # [d] piesa de separatie (1 buc)
         rows.append(_row("Priza de pamant locuinta", "Piesa de separatie", "priza de pamant", 1, "buc", sectiune=_sec_pl))
+
+    # BANDA LED TRASATA (banda_led_path): metri REALI din lungimea desenata + sursa/driver pe putere.
+    # Cate un rand de banda per traseu desenat (living/bucatarie/hol au benzi diferite, cu drivere
+    # proprii montate langa ele). Elementul PUNCTUAL `banda_led` ramane numarat la bucata mai sus —
+    # proiectele vechi nu se schimba. Fara traseu desenat -> sectiunea lipseste (non-regresie).
+    _benzi = []
+    for el in plan_elements:
+        if (el.get("element_type") or "") != "banda_led_path":
+            continue
+        _cp = el.get("cable_path")
+        if not isinstance(_cp, (list, tuple)) or len(_cp) < 2:
+            continue
+        try:
+            _pts = [(float(p[0]), float(p[1])) for p in _cp]
+        except (TypeError, ValueError, IndexError):
+            continue
+        _m = _path_len(_pts) * scale
+        if _m > 0:
+            _benzi.append(_m)
+    if _benzi:
+        _tot = round(sum(_benzi), 1)
+        rows.append(_row("Banda LED", "Banda LED 24V",
+                         "1 traseu desenat" if len(_benzi) == 1 else "%d trasee desenate" % len(_benzi),
+                         _tot, "m", sectiune="ILUMINAT"))
+        # DRIVERELE: cate a PLASAT inginerul pe plan (element banda_led_driver), fiecare dimensionat
+        # pe benzile ARONDATE LUI (banda merge la driverul cel mai apropiat — aceeasi regula ca in
+        # enrich_circuits si ca la legaturile desenate, ca sa nu existe trei adevaruri diferite).
+        import enrich_circuits as _ec
+        _drivers = [el for el in plan_elements if (el.get("element_type") or "") == "banda_led_driver"]
+        if _drivers:
+            _benzi_els = [el for el in plan_elements if (el.get("element_type") or "") == "banda_led_path"]
+            _px = _ec._benzi_per_driver(_drivers, _benzi_els)
+            _drv = {}
+            for _p in _px:
+                _d = _banda_led_driver(_p * scale * _BANDA_LED_W_PER_M)
+                if _d:
+                    _drv[_d[0]] = _drv.get(_d[0], 0) + _d[1]
+                else:
+                    _drv[_BANDA_LED_DRIVERS[0]] = _drv.get(_BANDA_LED_DRIVERS[0], 0) + 1   # driver fara banda arondata
+            for _w in sorted(_drv):
+                rows.append(_row("Banda LED", "Sursa/driver LED 24V %dW" % _w,
+                                 "alimentare banda (rezerva %d%%)" % round((_BANDA_LED_RESERVE - 1) * 100),
+                                 _drv[_w], "buc", sectiune="ILUMINAT"))
 
     # [h][i] SISTEM FOTOVOLTAIC: panouri (nr_panouri din pachet) + cablu solar 1x6 (lookup pachet) +
     #     CYABY TEG->sistem FV (metri REALI din fv_link desenat * scale — fv_link e exclus din metrii

@@ -705,7 +705,15 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     ground_rows = ([{"kind": "ground", "text": "Platbanda 40 x 4 OL-ZN"}]
                    if "ground_electrode_path" in present else [])
 
-    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows + ground_rows
+    # i) BANDA LED trasata (turcoaz pe plansa de iluminat). Doar cand inginerul a desenat-o.
+    banda_rows = ([{"kind": "banda_led", "text": "Banda LED"}]
+                  if "banda_led_path" in present else [])
+    if "banda_led_driver" in present:
+        banda_rows.append({"kind": "banda_driver", "text": "Driver banda LED 230V/24V"})
+        if "banda_led_path" in present:
+            banda_rows.append({"kind": "banda_link", "text": "Legatura 24V driver - banda"})
+
+    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows + ground_rows + banda_rows
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -1520,6 +1528,81 @@ def _draw_ground_electrode(page, el_ground, teg_xy=None):
     return True
 
 
+_BANDA_LED_COLOR = (0.00, 0.72, 0.65)   # TURCOAZ — distinct de rosu (iluminat), portocaliu (priza) si galben (FV)
+_BANDA_LED_WIDTH = 2.2                  # mai groasa decat cablurile (0.8): banda e un corp, nu un traseu de cablu
+
+
+def _draw_banda_led(page, el_banda):
+    """Deseneaza banda LED trasata manual de inginer (element banda_led_path): polilinie DESCHISA
+    turcoaz pe punctele cable_path. Spre deosebire de priza de pamant NU se inchide (banda are
+    inceput si sfarsit). cable_path = puncte PDF (>=2).
+    Defensiv: cable_path lipsa/malformat -> nu deseneaza nimic (return False, nu crapa).
+    Returneaza True daca a desenat."""
+    cp = el_banda.get("cable_path")
+    if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+        return False
+    pts = []
+    for p in cp:
+        try:
+            pts.append(fitz.Point(float(p[0]), float(p[1])))
+        except (TypeError, ValueError, IndexError):
+            return False
+    if len(pts) < 2:
+        return False
+    page.draw_polyline(pts, color=_BANDA_LED_COLOR, width=_BANDA_LED_WIDTH)   # DESCHISA (fara closePath)
+    return True
+
+
+_BANDA_LINK_WIDTH = 0.7    # legatura 24V driver->banda: SUBTIRE si punctata (nu e cablu de circuit)
+_BANDA_LINK_DASH = "[2 2] 0"
+
+
+def _draw_banda_driver(page, x, y):
+    """Simbolul driverului de banda LED: caseta cu '~=' (conventia de convertor 230V~ -> 24V=),
+    in turcoazul benzii. Coerent cu simbolul din editor."""
+    r = fitz.Rect(x - 9, y - 6, x + 9, y + 6)
+    page.draw_rect(r, color=_BANDA_LED_COLOR, fill=(1, 1, 1), width=1.2)
+    page.insert_text(fitz.Point(x - 6.2, y + 2.6), "~=", fontsize=7.5,
+                     fontname="hebo", color=_BANDA_LED_COLOR)
+
+
+def _draw_banda_links(page, drivers, benzi):
+    """Legaturile 24V driver -> banda: fiecare BANDA se leaga de driverul CEL MAI APROPIAT, de la
+    capatul ei cel mai apropiat. Linie SUBTIRE PUNCTATA (nu e cablu de circuit, e joasa tensiune).
+    Intoarce numarul de legaturi desenate. Fara drivere / fara benzi -> 0 (fail-safe)."""
+    if not drivers or not benzi:
+        return 0
+    n = 0
+    for b in benzi:
+        cp = b.get("cable_path") or []
+        pts = []
+        for p in cp:
+            try:
+                pts.append((float(p[0]), float(p[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if len(pts) < 2:
+            continue
+        # driverul cel mai apropiat + capatul benzii cel mai apropiat de EL
+        best = None
+        for d in drivers:
+            try:
+                dx, dy = float(d.get("x") or 0), float(d.get("y") or 0)
+            except (TypeError, ValueError):
+                continue
+            for q in (pts[0], pts[-1]):
+                dist = math.hypot(dx - q[0], dy - q[1])
+                if best is None or dist < best[0]:
+                    best = (dist, (dx, dy), q)
+        if best is None:
+            continue
+        _, dxy, q = best
+        page.draw_line(fitz.Point(dxy[0], dxy[1]), fitz.Point(q[0], q[1]),
+                       color=_BANDA_LED_COLOR, width=_BANDA_LINK_WIDTH, dashes=_BANDA_LINK_DASH)
+        n += 1
+    return n
+
+
 _BUNDLE_GAP = 3.0   # MANUNCHI: offset lateral (pt) intre cabluri care converg pe ACEEASI dunga (paralele, nu suprapuse)
 
 
@@ -1999,6 +2082,16 @@ def _draw_legend(page, x, y, rows):
             # PLATBANDA prizei de pamant — linie GROASA CONTINUA portocalie (exact stilul de pe plan)
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_GROUND_COLOR, width=2.0)
+        elif kind == "banda_led":
+            # BANDA LED trasata — linie GROASA CONTINUA turcoaz (exact stilul de pe plan)
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_BANDA_LED_COLOR, width=2.0)
+        elif kind == "banda_driver":
+            _draw_banda_driver(page, cx, cy)                      # caseta "~=" (acelasi simbol ca pe plan)
+        elif kind == "banda_link":
+            # legatura 24V — linie SUBTIRE PUNCTATA (exact stilul de pe plan)
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_BANDA_LED_COLOR, width=_BANDA_LINK_WIDTH, dashes=_BANDA_LINK_DASH)
         elif kind == "crossing":
             # TRAVERSARE NIVEL: cercul cu sageata (sus/jos), micsorat pt. celula legendei
             _draw_floor_crossing(page, cx, cy, up=bool(r.get("up", True)), label=None)
@@ -2223,7 +2316,11 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
             prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id"),
                            "rot": el.get("rotation")})   # O1: orientarea barei = rotation persistat (ca desenul)
-        elif et in _RECEPTOR_TYPES:        # FORTA: receptor -> linie proprie (dedicat) SAU daisy-chain (grupate, Regula 10)
+        elif et in _RECEPTOR_TYPES or et == "banda_led_driver":
+            # FORTA: receptor -> linie proprie (dedicat) SAU daisy-chain (grupate, Regula 10).
+            # ILUMINAT: driverul benzii LED intra pe ACEEASI cale (alimentare 230V dintr-un circuit
+            # dedicat). Nu ajunge pe plansa de forta pentru ca elementele sunt filtrate pe plan_type
+            # INAINTE de compute_cables, iar driverul e plan_type="iluminat".
             receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label"), "cid": el.get("circuit_id")})
     teg = panels.get("tablou_teg")
     # FIX etaj iluminat: tabloul GENERAL al plansei pentru ILUMINAT, cu fallback-ul fortei
@@ -3351,6 +3448,19 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
+            elif et == "banda_led_path":
+                # Banda LED trasata: polilinie deschisa, pe plansa de ILUMINAT (elementele sunt deja
+                # filtrate pe plan_type inainte de desen, deci nu mai e nevoie de gate aici).
+                _draw_banda_led(page, el)
+            elif et == "banda_led_driver":
+                # Sursa 24V a benzii — simbol + eticheta cu codul de circuit (ca receptoarele).
+                _draw_banda_driver(page, x, y)
+                _dcid = _cid_display(el.get("_cid_label") or el.get("circuit_id") or "")
+                _dh = _fmt_height(el.get("mount_height_m"))
+                _dtxt = " ".join(t for t in (_dcid, "DRIVER LED", ("- h=%s" % _dh) if _dh else "") if t)
+                if _dtxt:
+                    _labels.append({"text": _dtxt, "x0": x - len(_dtxt) * 4.5 * 0.50, "y": y - 12.0,
+                                    "w": len(_dtxt) * 4.5, "fs": 4.5, "font": "hebo", "color": RED})
             elif et == "alimentare_receptor":
                 # Receptor (bucata A): simbolul de ALIMENTARE existent (priza_16a = cerc plin), refolosit.
                 # ETICHETA SCURTA (decizia Dan, 2026-07-17): "{cod} {ABREVIERE} - h={h}m" —
@@ -3404,6 +3514,15 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
+        # LEGATURILE 24V driver -> banda (punctate, sub etichete). Defensiv: orice eroare -> plansa
+        # ramane corecta, doar fara legaturi.
+        try:
+            _drv_els = [e for e in elements if (e.get("element_type") or "") == "banda_led_driver"]
+            _bnd_els = [e for e in elements if (e.get("element_type") or "") == "banda_led_path"]
+            if _drv_els and _bnd_els:
+                _draw_banda_links(page, _drv_els, _bnd_els)
+        except Exception:
+            pass
         # ETICHETELE deasupra tuturor simbolurilor, cu anti-coliziune. Defensiv: orice eroare la
         # rezolvare NU strica planul — fallback la pozitiile de baza (comportamentul vechi).
         try:
