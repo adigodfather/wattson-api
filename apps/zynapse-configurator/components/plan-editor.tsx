@@ -317,6 +317,33 @@ function snapToPolyline(px: number, py: number, pts: number[][], threshold = 30)
   return best && best.dist < threshold ? [best.x, best.y] : null;
 }
 
+// ── Aliniere ORTOGONALA a traseelor desenate manual ─────────────────────────────────────────
+// Metrii din BOM se calculeaza din geometria DESENATA: un traseu tras din neatentie la 3-4 grade
+// fata de axa adauga lungime parazita si arata stramb pe plansa. Sub ORTHO_MAX_DEG abaterea e sigur
+// neintentionata -> punctul se proiecteaza pe axa dominanta. Peste prag, diagonala e intentionata
+// (colt de fundatie pe plan oblic) si ramane NEATINSA. Shift dezactiveaza (conventie CAD/Figma).
+// Pura si fara efecte secundare -> refolosita in toate punctele de desenare.
+const ORTHO_MAX_DEG = 15;
+
+function snapOrtho(ref: number[] | null | undefined, px: number, py: number,
+                   maxDeg = ORTHO_MAX_DEG): [number, number] {
+  if (!ref || ref.length < 2) return [px, py];          // fara punct de referinta (primul click) -> brut
+  const dx = px - ref[0], dy = py - ref[1];
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  if (adx === 0 && ady === 0) return [px, py];
+  // abaterea fata de axa DOMINANTA (cea pe care segmentul e mai lung)
+  const devDeg = (Math.atan2(Math.min(adx, ady), Math.max(adx, ady)) * 180) / Math.PI;
+  if (devDeg > maxDeg) return [px, py];                 // diagonala intentionata -> neatinsa
+  return adx >= ady ? [px, ref[1]]                      // ~orizontal -> y de la referinta
+                    : [ref[0], py];                     // ~vertical  -> x de la referinta
+}
+
+// Shift apasat in evenimentul Konva (nativul e in e.evt). TouchEvent n-are shiftKey -> "in" type-safe.
+function isShiftDown(e: { evt?: unknown }): boolean {
+  const ev = e?.evt as Record<string, unknown> | undefined;
+  return !!(ev && typeof ev === "object" && "shiftKey" in ev && ev.shiftKey);
+}
+
 const fieldLabel: CSSProperties = { display: "block", fontSize: 10, color: "#8B8FA8", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.3 };
 const inputStyle: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px", fontSize: 12.5,
@@ -439,6 +466,9 @@ export default function PlanEditor({
   // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
   // fara re-render intre ele, deci finishDrawGround trebuie sa vada colturile adaugate in acelasi gest.
   const groundPtsRef = useRef<number[][]>([]);
+  // Shift la ULTIMUL colt plasat: finishDrawGround (apelat din Enter/buton/dublu-click, deci fara
+  // eveniment) trebuie sa stie daca inginerul a cerut explicit punct brut, ca sa nu alinieze inchiderea.
+  const groundShiftRef = useRef(false);
   // Lantul FV (manual): mod desenare polilinie DESCHISA galbena — mecanismul prizei de pamant
   // (click succesiv + rubber-band + dublu-click/Enter), dar min 2 puncte si fara inchidere.
   const [drawingFvChain, setDrawingFvChain] = useState(false);
@@ -1024,17 +1054,30 @@ export default function PlanEditor({
     let yPdf = e.target.y() / scale;
     // SNAP faza A: un varf de traseu SECUNDAR se lipeste de traseul PRINCIPAL (secundar pornit din
     // principal — vizual, fara legatura in date). Sub prag -> punctul de pe principal.
+    let lipitDePrincipal = false;
     if (el.label === "secundar") {
       const principal = elements.find(t => t.element_type === "traseu" && t.label !== "secundar");
       const pp = principal?.cable_path;
       if (pp && pp.length >= 2) {
         const s = snapToPolyline(xPdf, yPdf, pp, 30);
-        if (s) { xPdf = s[0]; yPdf = s[1]; e.target.position({ x: xPdf * scale, y: yPdf * scale }); }
+        if (s) { xPdf = s[0]; yPdf = s[1]; e.target.position({ x: xPdf * scale, y: yPdf * scale }); lipitDePrincipal = true; }
       }
     }
     const base = (el.cable_path && el.cable_path.length >= 2)
       ? el.cable_path.map(p => [p[0], p[1]])
       : [[el.x, el.y], [el.x + 120, el.y]];
+    // ALINIERE ORTOGONALA. PRIORITATE: lipirea de traseul principal CASTIGA — e o legatura reala
+    // (secundarul trebuie sa porneasca DE PE principal), iar ortogonalizarea l-ar desprinde de el.
+    // Altfel: incearca fata de varful ANTERIOR; daca acela e diagonal (peste prag), fata de URMATORUL
+    // — un varf din mijloc poate fi aliniat cu oricare vecin, iar asta e miscarea naturala.
+    if (!lipitDePrincipal && !isShiftDown(e)) {
+      let al = snapOrtho(base[i - 1], xPdf, yPdf);
+      if (al[0] === xPdf && al[1] === yPdf) al = snapOrtho(base[i + 1], xPdf, yPdf);
+      if (al[0] !== xPdf || al[1] !== yPdf) {
+        xPdf = al[0]; yPdf = al[1];
+        e.target.position({ x: xPdf * scale, y: yPdf * scale });   // varful sare vizual pe pozitia aliniata
+      }
+    }
     base[i] = [xPdf, yPdf];
     const patch: Partial<PlanElement> = { cable_path: base };
     if (i === 0) { patch.x = xPdf; patch.y = yPdf; }   // capatul 0 = ancora -> tine x,y in sync
@@ -1062,6 +1105,9 @@ export default function PlanEditor({
       const d = Math.hypot(cx - px2, cy - py2);
       if (d < bestD) { bestD = d; bestI = i; bestPt = [px2, py2]; }
     }
+    // aliniere fata de capatul ANTERIOR al segmentului spart: pe un segment deja ortogonal proiectia
+    // e deja aliniata (nu se schimba nimic); pe unul oblic, varful nou devine cotul care il indreapta.
+    if (!isShiftDown(e)) bestPt = snapOrtho(pts[bestI], bestPt[0], bestPt[1]);
     const next = [...pts.slice(0, bestI + 1), bestPt, ...pts.slice(bestI + 1)];   // intre capetele segmentului
     setLocalField(el.id, { cable_path: next });   // varful 0 neschimbat -> x,y raman in sync
     persist(el.id, { cable_path: next });
@@ -1083,6 +1129,7 @@ export default function PlanEditor({
     setSelectedId(null);            // fara selectie activa cat desenam
     cancelDrawFvChain();            // un singur mod de desenare activ (straturile de captura nu se suprapun)
     groundPtsRef.current = [];
+    groundShiftRef.current = false;
     setGroundPts([]);
     setGroundHover(null);
     setDrawingGround(true);
@@ -1090,6 +1137,7 @@ export default function PlanEditor({
   function cancelDrawGround() {
     setDrawingGround(false);
     groundPtsRef.current = [];
+    groundShiftRef.current = false;
     setGroundPts([]);
     setGroundHover(null);
   }
@@ -1098,15 +1146,23 @@ export default function PlanEditor({
   function addGroundPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
-    const next = [...groundPtsRef.current, [pos.x / scale, pos.y / scale]];
+    // aliniere fata de coltul precedent (Shift -> punct brut). Identic cu ce arata rubber-band-ul.
+    const prev = groundPtsRef.current[groundPtsRef.current.length - 1];
+    groundShiftRef.current = isShiftDown(e);            // retinut pt. inchiderea din finishDrawGround
+    const pt = isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                              : snapOrtho(prev, pos.x / scale, pos.y / scale);
+    const next = [...groundPtsRef.current, [pt[0], pt[1]]];
     groundPtsRef.current = next;
     setGroundPts(next);
   }
-  // mousemove -> rubber-band de la ultimul colt fixat la cursor
+  // mousemove -> rubber-band de la ultimul colt fixat la cursor. Previzualizarea arata pozitia
+  // ALINIATA: ce vede inginerul inainte de click = ce obtine dupa click.
   function moveGroundHover(e: KonvaEventObject<MouseEvent>) {
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
-    setGroundHover([pos.x / scale, pos.y / scale]);
+    const prev = groundPtsRef.current[groundPtsRef.current.length - 1];
+    setGroundHover(isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                                  : snapOrtho(prev, pos.x / scale, pos.y / scale));
   }
   // finalizeaza: INSERT ground_electrode_path (min 3 colturi). floor din PROP (nu elements[0] -> evita bug latent).
   async function finishDrawGround() {
@@ -1118,6 +1174,21 @@ export default function PlanEditor({
       if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.5) pts.push([p[0], p[1]]);
     }
     if (pts.length < 3) return;     // un contur are nevoie de minim 3 colturi
+    // ── INCHIDEREA conturului (ultimul colt -> primul) nu trece prin niciun eveniment de desenare,
+    // deci ramanea singura latura neortogonala. O aliniem aici — perimetrul acestui contur intra
+    // DIRECT in BOM ca platbanda OL-Zn 40x4, deci precizia conteaza mai mult decat oriunde.
+    // CONFLICTUL: ultimul colt e deja aliniat fata de PENULTIMUL (o coordonata e fixata de latura
+    // desenata), iar alinierea la PRIMUL fixeaza o coordonata. Compatibile doar cand axele sunt
+    // PERPENDICULARE (latura anterioara orizontala + inchidere verticala, sau invers). Cand s-ar bate
+    // cap in cap, pastram latura DESENATA — inginerul a vazut-o pe ecran si a acceptat-o — iar
+    // inchiderea ramane oblica. Regula: nu strica o latura ortogonala ca sa repari alta.
+    if (!groundShiftRef.current) {
+      const n = pts.length - 1;
+      const ort = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) < 1e-9 || Math.abs(a[1] - b[1]) < 1e-9;
+      const inchis = snapOrtho(pts[0], pts[n][0], pts[n][1]);
+      // aplicam daca latura anterioara nu era ortogonala (n-avem ce strica) sau ramane ortogonala
+      if (!ort(pts[n - 1], pts[n]) || ort(pts[n - 1], inchis)) pts[n] = [inchis[0], inchis[1]];
+    }
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),   // PROP curent (parter), NU elements[0]?.floor
@@ -1161,14 +1232,19 @@ export default function PlanEditor({
   function addFvChainPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
-    const next = [...fvChainPtsRef.current, [pos.x / scale, pos.y / scale]];
+    const prev = fvChainPtsRef.current[fvChainPtsRef.current.length - 1];
+    const pt = isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                              : snapOrtho(prev, pos.x / scale, pos.y / scale);
+    const next = [...fvChainPtsRef.current, [pt[0], pt[1]]];
     fvChainPtsRef.current = next;
     setFvChainPts(next);
   }
   function moveFvChainHover(e: KonvaEventObject<MouseEvent>) {
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
-    setFvChainHover([pos.x / scale, pos.y / scale]);
+    const prev = fvChainPtsRef.current[fvChainPtsRef.current.length - 1];
+    setFvChainHover(isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                                   : snapOrtho(prev, pos.x / scale, pos.y / scale));
   }
   // finalizeaza: INSERT fv_chain_path (min 2 puncte — polilinie deschisa, nu contur).
   async function finishDrawFvChain() {
