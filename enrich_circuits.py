@@ -333,8 +333,17 @@ def pereche_banda_driver(drivers, benzi):
     Publica: o folosesc si gruparea pe circuite, si rutarea cablului 24V, si BOM-ul."""
     out = []
     for b in benzi:
+        # CAMERA are prioritate peste distanta: butoanele din rubrica fiecarei camere scriu `room`
+        # pe ambele elemente, deci o banda din Living NU se leaga la sursa din Dormitor chiar daca
+        # aceea e geometric mai apropiata (perete comun). Fara camera pe elemente (desenare libera
+        # sau proiecte de dinainte) -> candidatii raman TOTI, adica exact comportamentul vechi.
+        _br = str((b or {}).get("room") or "").strip().lower()
+        cand = [(i, d) for i, d in enumerate(drivers)
+                if _br and str((d or {}).get("room") or "").strip().lower() == _br]
+        if not cand:
+            cand = list(enumerate(drivers))
         best_i, best_d = None, None
-        for i, d in enumerate(drivers):
+        for i, d in cand:
             try:
                 dist = _dist_point_to_banda(float(d.get("x") or 0), float(d.get("y") or 0), b)
             except (TypeError, ValueError):

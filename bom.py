@@ -17,7 +17,9 @@ _PRIZA_KINDS = {"priza_lant", "priza_tablou"}
 _ILUM_CABLE  = "CYY-F 3x1.5"
 _PRIZA_CABLE = "CYY-F 3x2.5"
 
-_BULB_TYPES  = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "banda_led"}
+# "banda_led" (punctual) SCOS: banda se traseaza (banda_led_path) si intra in BOM la METRI, nu la
+# bucata. Numele ramane in _NAMES pentru randare/compatibilitate. Sincron cu draw_elements._BULB_TYPES.
+_BULB_TYPES  = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor"}
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct"}
 

@@ -706,7 +706,7 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
                    if "ground_electrode_path" in present else [])
 
     # i) BANDA LED trasata (turcoaz pe plansa de iluminat). Doar cand inginerul a desenat-o.
-    banda_rows = ([{"kind": "banda_led", "text": "Banda LED"}]
+    banda_rows = ([{"kind": "banda_led_path", "text": "Banda LED 24V"}]
                   if "banda_led_path" in present else [])
     if "banda_led_driver" in present:
         banda_rows.append({"kind": "banda_driver", "text": "Driver banda LED 230V/24V"})
@@ -1333,7 +1333,11 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 
 
 # Seturi de tip (categorisire la redraw din plan_elements editat) — aceleasi valori ca CHECK + frontend.
-_BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "banda_led"}
+# "banda_led" (punctual) SCOS din familia becurilor: banda se traseaza acum (banda_led_path, metri
+# reali din desen), nu se numara la bucata. Simbolul, abrevierea si _BULB_TOP raman definite —
+# un element vechi/orfan se DESENEAZA in continuare, doar ca nu mai intra in legenda de becuri
+# si nu mai poate fi creat din UI. Sincron cu bom.py (altfel BOM-ul si plansa ar diverge).
+_BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator",
                 "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2: tablourile FV si pe PDF
@@ -2045,7 +2049,7 @@ def _draw_legend(page, x, y, rows):
             # PLATBANDA prizei de pamant — linie GROASA CONTINUA portocalie (exact stilul de pe plan)
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_GROUND_COLOR, width=2.0)
-        elif kind == "banda_led":
+        elif kind == "banda_led_path":
             # BANDA LED trasata — linie GROASA CONTINUA turcoaz (exact stilul de pe plan)
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_BANDA_LED_COLOR, width=2.0)

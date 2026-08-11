@@ -47,6 +47,17 @@ const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selecta
 const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
+
+// Banda LED se pune DOAR in interior: exclude terasele/balcoanele/podestele si accesele. Criteriul
+// e pe NUME (editorul lucreaza exclusiv cu numele camerei — room_type-ul Vision nu ajunge aici),
+// in oglinda cu BALCONY_KW din auto-prize.ts si _TERRACE_KW din enrich_circuits.py. Garajul si
+// spatiul tehnic sunt PERMISE (regula e "nu in exterior", nu "doar camere de locuit").
+const EXTERIOR_KW = ["teras", "balcon", "loggia", "logie", "podest", "acces", "curte", "exterior"];
+function isCameraInterioara(name: string): boolean {
+  if (!name || name === NO_ROOM) return false;   // fara camera -> desenare libera din rubrica globala
+  const n = name.toLowerCase().trim();
+  return !EXTERIOR_KW.some(k => n.includes(k));
+}
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
 const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path";
 
@@ -56,7 +67,8 @@ const BULB_TYPES = [
   { value: "aplica_tavan",  label: "Aplică tavan" },
   { value: "aplica_perete", label: "Aplică perete" },
   { value: "aplica_senzor", label: "Aplică cu senzor" },
-  { value: "banda_led",     label: "Bandă LED" },
+  // "banda_led" (punctual) NU mai e ofertat: banda se TRASEAZA acum (banda_led_path -> metri reali).
+  // Randarea tipului vechi ramane peste tot ca plasa, dar un bec nu mai poate fi schimbat in banda.
 ];
 const SWITCH_TYPES = [
   { value: "intrerupator_simplu",    label: "Întrerupător simplu" },
@@ -489,10 +501,14 @@ export default function PlanEditor({
   const [bandaLedPts, setBandaLedPts] = useState<number[][]>([]);
   const [bandaLedHover, setBandaLedHover] = useState<[number, number] | null>(null);
   const bandaLedPtsRef = useRef<number[][]>([]);   // sursa SINCRONA (vezi nota groundPtsRef)
+  // Camera din care s-a pornit desenarea (butonul e in rubrica ei) -> se scrie pe element. Asa
+  // stim camera DIN START: butonul "+ Sursa" se conditioneaza pe ea, iar rutarea 24V n-o mai
+  // deriva geometric. null = desenare libera din rubrica globala (zona nedetectata).
+  const bandaLedRoomRef = useRef<string | null>(null);
   // Receptoare (bucata A): mod de plasare "1 click" — { et: element_type, label } activ sau null.
   // Primul click pe plan plaseaza si iese din mod (analog drawingGround, dar 1 punct, nu poligon).
   // et generalizat: alimentari = "alimentare_receptor", retea = "receptor_internet" (doar tip+simbol difera).
-  const [placingReceptor, setPlacingReceptor] = useState<{ et: string; label: string } | null>(null);
+  const [placingReceptor, setPlacingReceptor] = useState<{ et: string; label: string; room?: string | null } | null>(null);
   // Escape anuleaza / Enter finalizeaza cat timp desenam (finishDrawGround citeste ref-ul -> puncte curente).
   useEffect(() => {
     if (!drawingGround) return;
@@ -1310,10 +1326,11 @@ export default function PlanEditor({
   // ── Banda LED trasata: mecanismul lantului FV (polilinie DESCHISA), pe planul de ILUMINAT. ──
   // Metrii din BOM ies din lungimea DESENATA, nu dintr-o estimare -> banda desenata inlocuieste
   // ghicitul. Alinierea ortogonala e mostenita din snapOrtho (aceleasi apeluri ca la FV/priza).
-  function startDrawBandaLed() {
+  function startDrawBandaLed(room: string | null = null) {
     setSelectedId(null);
     cancelDrawGround();              // un singur mod de desenare activ
     cancelDrawFvChain();
+    bandaLedRoomRef.current = room;  // camera butonului (null = desenare libera)
     bandaLedPtsRef.current = [];
     setBandaLedPts([]);
     setBandaLedHover(null);
@@ -1357,7 +1374,7 @@ export default function PlanEditor({
       element_type: "banda_led_path",
       plan_type: "iluminat",        // banda e corp de iluminat -> plansa de iluminat
       label: null as string | null,
-      room: null as string | null,
+      room: bandaLedRoomRef.current,   // camera butonului; null la desenarea libera
       x: pts[0][0],
       y: pts[0][1],                 // ancora = punctul 0 (sincron cu NOT NULL x,y)
       wall_mounted: false,
@@ -1375,9 +1392,9 @@ export default function PlanEditor({
   // ── Receptoare (bucata A): plasare "1 click" a unei alimentari (boiler/cuptor/...). ──
   // Buton -> intra in mod (label = tipul); primul click pe plan -> INSERT alimentare_receptor
   // la punctul respectiv (puncte PDF = pos/scale) + iese din mod. Simbol = "alimentare directa" (PDF).
-  function startPlaceReceptor(et: string, label: string) {
+  function startPlaceReceptor(et: string, label: string, room: string | null = null) {
     setSelectedId(null);
-    setPlacingReceptor({ et, label });
+    setPlacingReceptor({ et, label, room });
   }
   async function placeReceptorAt(e: KonvaEventObject<MouseEvent | TouchEvent>) {
     const p = placingReceptor;
@@ -1393,7 +1410,9 @@ export default function PlanEditor({
       // restul receptoarelor raman pe forta, exact ca inainte.
       plan_type: p.et === "banda_led_driver" ? "iluminat" : "forta",
       label: p.label,                    // alimentari: boiler/cuptor/...; retea: "internet"; termice: Radiator/VCV/Distribuitor zona
-      room: null as string | null,
+      // camera vine de la butonul din rubrica ei (driverul de banda); receptoarele clasice o lasa
+      // null ca inainte -> room-ul lor se deriva geometric in backend, comportament neschimbat.
+      room: p.room ?? null,
       x: pos.x / scale,
       y: pos.y / scale,
       wall_mounted: false,
@@ -1820,9 +1839,22 @@ export default function PlanEditor({
             {rpanels.map((el, i) => renderElementRow(el, rpanels.length > 1 ? ` #${i + 1}` : ""))}
             {rother.map((el) => renderElementRow(el, ""))}
             {mode === "iluminat" && (
-              <div className="flex gap-1.5 mt-2 pl-1">
+              <div className="flex gap-1.5 mt-2 pl-1" style={{ flexWrap: "wrap" }}>
                 <button type="button" className="zy-add-btn" onClick={() => addElement(key, "bulb")}>+ Bec</button>
                 <button type="button" className="zy-add-btn" onClick={() => addElement(key, "switch")}>+ Întrerupător</button>
+                {/* Banda LED: DOAR in camere interioare. Sursa apare abia dupa ce camera are banda —
+                    un driver fara banda n-ar avea ce alimenta. Camera se scrie pe element din start. */}
+                {isCameraInterioara(key) && (
+                  <>
+                    <button type="button" className="zy-add-btn" onClick={() => startDrawBandaLed(key)}>+ Bandă LED</button>
+                    {list.some(e => isBandaLedPathType(e.element_type)) && (
+                      <button type="button" className="zy-add-btn"
+                              onClick={() => startPlaceReceptor("banda_led_driver", "Driver bandă LED", key)}>
+                        + Sursă
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {mode === "forta" && (
@@ -2015,13 +2047,13 @@ export default function PlanEditor({
     const benzi = elements.filter(e => isBandaLedPathType(e.element_type));
     const drivere = elements.filter(e => e.element_type === "banda_led_driver");
     return (
-      <Rubrica title="Bandă LED" hint="Trasează banda pe plan — metrii din listă ies din lungimea desenată.">
+      <Rubrica title="Bandă LED" hint="Rezumatul benzilor din proiect. Adaugă-le din rubrica fiecărei camere; aici doar pentru zone fără cameră detectată.">
         {benzi.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
             {benzi.map((el, i) => (
               <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: COL_BANDA_LED, flexShrink: 0 }} />
-                Banda {i + 1} · {(el.cable_path || []).length} puncte
+                {el.room || `Banda ${i + 1}`} · {(el.cable_path || []).length} puncte
                 <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
               </div>
             ))}
@@ -2039,7 +2071,7 @@ export default function PlanEditor({
           </div>
         ) : (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={startDrawBandaLed}>+ Desenează bandă LED</button>
+            <button type="button" className="zy-add-btn" onClick={() => startDrawBandaLed(null)}>+ Bandă LED (fără cameră)</button>
           </div>
         )}
 
@@ -2064,13 +2096,15 @@ export default function PlanEditor({
           )}
           {benzi.length > 0 && drivere.length === 0 && (
             <div style={{ fontSize: 11, color: "#F0B429", marginBottom: 8, paddingLeft: 2, lineHeight: 1.5 }}>
-              Banda desenată nu are driver — adaugă cel puțin unul ca să fie alimentată.
+              Banda desenată nu are sursă — adaug-o din rubrica camerei ei.
             </div>
           )}
+          {/* Sursa se adauga din rubrica CAMEREI (butonul "+ Sursă" apare acolo dupa ce camera are
+              banda). Aici ramane doar rezumatul + desenarea LIBERA, pentru zone nedetectate. */}
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
             <button type="button" className="zy-add-btn"
                     onClick={() => startPlaceReceptor("banda_led_driver", "Driver bandă LED")}>
-              + Adaugă driver
+              + Sursă (fără cameră)
             </button>
           </div>
         </div>
