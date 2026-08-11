@@ -510,6 +510,7 @@ _FV_SOLAR_CABLE_M = {5: 55, 10: 110, 15: 125, 20: 135}   # cablu solar 1x6 (m)/p
 _BANDA_LED_W_PER_M = 9.6      # banda 24V standard (60 LED/m). DE CONFIRMAT cu Dan.
 _BANDA_LED_RESERVE = 1.20     # driverele nu se incarca la 100% -> rezerva 20% (uzual la surse LED)
 _BANDA_LED_DRIVERS = (30, 60, 100, 150, 200, 300)   # gama uzuala de surse 24V (W)
+_BANDA_LED_CABLE = "MYF 2x1.5"      # legatura 24V driver -> banda (joasa tensiune, 2 conductoare)
 
 
 def _banda_led_driver(power_w):
@@ -835,6 +836,20 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                 rows.append(_row("Banda LED", "Sursa/driver LED 24V %dW" % _w,
                                  "alimentare banda (rezerva %d%%)" % round((_BANDA_LED_RESERVE - 1) * 100),
                                  _drv[_w], "buc", sectiune="ILUMINAT"))
+            # CABLUL 24V driver -> banda: metri REALI din traseul RUTAT pe contur (kind="banda_24v"
+            # din compute_cables), nu din linia dreapta. Exclus din metrii de circuit prin whitelist
+            # (_ILUM_KINDS/_PRIZA_KINDS nu-l contin), deci il numaram AICI — acelasi tipar ca fv_link.
+            _m24 = sum((c.get("length") if c.get("length") is not None else _path_len(c.get("path") or []))
+                       for c in (cables or []) if c.get("kind") == "banda_24v")
+            if _m24 > 0:
+                _m24_m = round(_m24 * scale * waste, 1)
+                rows.append(_row("Banda LED", _BANDA_LED_CABLE, "alimentare 24V drivere -> benzi",
+                                 _m24_m, "m", sectiune="ILUMINAT"))
+                # TUB: MYF e conductor FLEXIBIL fara manta -> se pozeaza obligatoriu in tub. Nu vine
+                # din bucla de tuburi (aceea porneste din metrii de CIRCUIT, care exclud banda_24v),
+                # deci il adaugam aici, cu diametrul dat de sectiune — aceeasi regula (_pozare).
+                rows.append(_row("Tuburi", _pozare(1.5), "alimentare 24V drivere -> benzi",
+                                 _m24_m, "m", sectiune="ILUMINAT"))
 
     # [h][i] SISTEM FOTOVOLTAIC: panouri (nr_panouri din pachet) + cablu solar 1x6 (lookup pachet) +
     #     CYABY TEG->sistem FV (metri REALI din fv_link desenat * scale — fv_link e exclus din metrii

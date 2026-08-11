@@ -1566,43 +1566,6 @@ def _draw_banda_driver(page, x, y):
                      fontname="hebo", color=_BANDA_LED_COLOR)
 
 
-def _draw_banda_links(page, drivers, benzi):
-    """Legaturile 24V driver -> banda: fiecare BANDA se leaga de driverul CEL MAI APROPIAT, de la
-    capatul ei cel mai apropiat. Linie SUBTIRE PUNCTATA (nu e cablu de circuit, e joasa tensiune).
-    Intoarce numarul de legaturi desenate. Fara drivere / fara benzi -> 0 (fail-safe)."""
-    if not drivers or not benzi:
-        return 0
-    n = 0
-    for b in benzi:
-        cp = b.get("cable_path") or []
-        pts = []
-        for p in cp:
-            try:
-                pts.append((float(p[0]), float(p[1])))
-            except (TypeError, ValueError, IndexError):
-                continue
-        if len(pts) < 2:
-            continue
-        # driverul cel mai apropiat + capatul benzii cel mai apropiat de EL
-        best = None
-        for d in drivers:
-            try:
-                dx, dy = float(d.get("x") or 0), float(d.get("y") or 0)
-            except (TypeError, ValueError):
-                continue
-            for q in (pts[0], pts[-1]):
-                dist = math.hypot(dx - q[0], dy - q[1])
-                if best is None or dist < best[0]:
-                    best = (dist, (dx, dy), q)
-        if best is None:
-            continue
-        _, dxy, q = best
-        page.draw_line(fitz.Point(dxy[0], dxy[1]), fitz.Point(q[0], q[1]),
-                       color=_BANDA_LED_COLOR, width=_BANDA_LINK_WIDTH, dashes=_BANDA_LINK_DASH)
-        n += 1
-    return n
-
-
 _BUNDLE_GAP = 3.0   # MANUNCHI: offset lateral (pt) intre cabluri care converg pe ACEEASI dunga (paralele, nu suprapuse)
 
 
@@ -2814,6 +2777,49 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                 via_stripe=True, count=1)                 # linie proprie (nu daisy-chain), grosime proprie
             stats["receptor_dedicat"] = stats.get("receptor_dedicat", 0) + 1
 
+    # BANDA LED 24V: driver -> banda, RUTAT pe conturul camerei (nu linie dreapta) — metrii din BOM
+    # trebuie sa fie reali. Refoloseste _heat_seg_path (acelasi mecanism ca lanturile grupate): ambele
+    # capete in aceeasi camera cu geometrie -> ocolire pe contur; altfel segment drept (limita acceptata
+    # la F1 — traversarea prin usi cere graf de usi). Asocierea vine din enrich_circuits (SURSA UNICA;
+    # import lazy — enrich importa draw_elements, deci la nivel de modul ar fi circular).
+    _drv_els = [e for e in (elements or []) if ((e or {}).get("element_type") or "") == "banda_led_driver"]
+    _bnd_els = [e for e in (elements or []) if ((e or {}).get("element_type") or "") == "banda_led_path"]
+    if _drv_els and _bnd_els:
+        try:
+            import enrich_circuits as _ecm
+            _map = _ecm.pereche_banda_driver(_drv_els, _bnd_els)
+            for _b, _di in zip(_bnd_els, _map):
+                if _di is None:
+                    continue
+                _d = _drv_els[_di]
+                _cp = _b.get("cable_path") or []
+                try:
+                    _bpts = [(float(p[0]), float(p[1])) for p in _cp]
+                    _dxy = (float(_d.get("x")), float(_d.get("y")))
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if len(_bpts) < 2:
+                    continue
+                # capatul benzii cel mai apropiat de driver (ACEEASI alegere ca la desenul legaturii)
+                _end = min((_bpts[0], _bpts[-1]),
+                           key=lambda q: math.hypot(_dxy[0] - q[0], _dxy[1] - q[1]))
+                # camera driverului: elementul se salveaza cu room=null (plasare libera pe plan),
+                # deci o derivam GEOMETRIC din bbox-urile camerei — altfel rutarea pe contur nu s-ar
+                # activa niciodata. Banda in ALTA camera -> _heat_seg_path intoarce None (gate-ul cere
+                # ambele capete in aceeasi camera) -> segment drept, ca la F1.
+                _room = (_d.get("room") or "").strip()
+                if not _room:
+                    for _nm, _R in (room_px or {}).items():
+                        if _R[0] <= _dxy[0] <= _R[2] and _R[1] <= _dxy[1] <= _R[3]:
+                            _room = _nm
+                            break
+                _pp = _heat_seg_path(_dxy, _end, _room, _PRIZA_INSET) if _room else None
+                add("banda_led_driver", _dxy, "banda_led_path", _end, "banda_24v", None,
+                    count=1, path=_pp)
+                stats["banda_24v"] = stats.get("banda_24v", 0) + 1
+        except Exception:
+            pass                                       # fail-safe: fara legaturi, plansa ramane corecta
+
     # FV (MANUAL, decizia Dan): lantul T.CC -> INV -> T.CA -> TEG e DESENAT de inginer —
     # element fv_chain_path (polilinie ca priza de pamant, dar GALBENA), emis ca un cablu
     # kind=fv_link -> mosteneste GRATIS culoarea #F9A825, gate-ul "doar forta" din redraw,
@@ -3384,6 +3390,16 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                         _draw_column(page, _fp[0], _fp[-1], path=_fp, color=_FV_LINK_COLOR)
                     n_cable += 1
                     continue
+                # BANDA 24V: traseul RUTAT (pe contur cand se poate), dar pastreaza stilul SUBTIRE
+                # PUNCTAT — e joasa tensiune si trebuie sa ramana distincta de cablurile de circuit.
+                if _kind == "banda_24v":
+                    _bp = _c.get("path")
+                    if _bp and len(_bp) >= 2:
+                        page.draw_polyline([fitz.Point(p[0], p[1]) for p in _bp],
+                                           color=_BANDA_LED_COLOR, width=_BANDA_LINK_WIDTH,
+                                           dashes=_BANDA_LINK_DASH)
+                    n_cable += 1
+                    continue
                 # GROSIME pe trepte: width din count-ul manunchiului (1/2-3/4+); iluminat count=1 -> neschimbat.
                 _draw_cable(page, _c.get("path"),
                             color=_PRIZA_COLOR if (_kind.startswith("priza") or _kind.startswith("receptor") or _kind.startswith("incalzire")) else None,
@@ -3514,15 +3530,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 n_receptor += 1
             else:
                 n_skip += 1                                                          # alt tip necunoscut -> SKIP
-        # LEGATURILE 24V driver -> banda (punctate, sub etichete). Defensiv: orice eroare -> plansa
-        # ramane corecta, doar fara legaturi.
-        try:
-            _drv_els = [e for e in elements if (e.get("element_type") or "") == "banda_led_driver"]
-            _bnd_els = [e for e in elements if (e.get("element_type") or "") == "banda_led_path"]
-            if _drv_els and _bnd_els:
-                _draw_banda_links(page, _drv_els, _bnd_els)
-        except Exception:
-            pass
+        # (legaturile 24V driver->banda se deseneaza acum ca CABLURI kind="banda_24v", rutate pe
+        # contur in compute_cables — sub simboluri, ca restul cablurilor)
         # ETICHETELE deasupra tuturor simbolurilor, cu anti-coliziune. Defensiv: orice eroare la
         # rezolvare NU strica planul — fallback la pozitiile de baza (comportamentul vechi).
         try:

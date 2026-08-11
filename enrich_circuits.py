@@ -325,14 +325,13 @@ def _dist_point_to_banda(px, py, banda):
     return best
 
 
-def _benzi_per_driver(drivers, benzi):
-    """ASOCIEREA driver <-> benzi: FIECARE BANDA merge la driverul CEL MAI APROPIAT (nu invers).
-    Asa fiecare banda are exact un driver — fara benzi orfane si fara ambiguitate — iar un driver
-    poate ramane fara benzi (inginerul a pus unul in plus; il semnalam in UI, nu-l inventam noi).
-    Intoarce lista paralela cu `drivers`: lungimea in px a benzilor arondate fiecaruia."""
-    out = [0.0] * len(drivers)
-    if not drivers:
-        return out
+def pereche_banda_driver(drivers, benzi):
+    """ASOCIEREA driver <-> benzi, SURSA UNICA: FIECARE BANDA merge la driverul CEL MAI APROPIAT
+    (nu invers). Asa fiecare banda are exact un driver — fara benzi orfane si fara ambiguitate —
+    iar un driver poate ramane fara benzi (inginerul a pus unul in plus; il semnalam in UI, nu-l
+    inventam noi). Intoarce lista paralela cu `benzi`: indexul driverului (sau None).
+    Publica: o folosesc si gruparea pe circuite, si rutarea cablului 24V, si BOM-ul."""
+    out = []
     for b in benzi:
         best_i, best_d = None, None
         for i, d in enumerate(drivers):
@@ -344,8 +343,18 @@ def _benzi_per_driver(drivers, benzi):
                 continue
             if best_d is None or dist < best_d:
                 best_i, best_d = i, dist
-        if best_i is not None:
-            out[best_i] += _polyline_len_px(b)
+        out.append(best_i)
+    return out
+
+
+def _benzi_per_driver(drivers, benzi):
+    """Lungimea (px) a benzilor arondate fiecarui driver — agregarea asocierii de mai sus."""
+    out = [0.0] * len(drivers)
+    if not drivers:
+        return out
+    for b, i in zip(benzi, pereche_banda_driver(drivers, benzi)):
+        if i is not None:
+            out[i] += _polyline_len_px(b)
     return out
 
 
