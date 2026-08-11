@@ -205,11 +205,12 @@ function bulbSymbol(type: string) {
           ))}
         </>
       );
-    case "aplica_senzor":   // cerc + X, dar cu interior GALBEN
+    case "aplica_senzor":   // PERETE cu senzor: forma lui aplica_perete, umplută GALBEN (oglinda planșei)
       return (
         <>
-          <Circle x={0} y={0} radius={9} stroke={COL_BULB} strokeWidth={2} fill={COL_SENZOR_FILL} />
-          {bulbX(9)}
+          <Arc x={0} y={0} innerRadius={0} outerRadius={9} angle={180} rotation={0}
+               stroke={COL_BULB} strokeWidth={2} fill={COL_SENZOR_FILL} />
+          <Circle x={0} y={4} radius={1.8} fill={COL_BULB} listening={false} />
         </>
       );
     default:                // aplica_tavan: cerc (fără fill) + X

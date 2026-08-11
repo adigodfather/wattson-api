@@ -91,8 +91,13 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
         for tx in (-18, -6, 6, 18):
             page.draw_line(fitz.Point(cx0 + tx * s, cy0 - 3 * s), fitz.Point(cx0 + tx * s, cy0 + 3 * s), color=RED, width=1.0)
     elif et == "aplica_senzor":
-        page.draw_circle(center, 9 * s, color=RED, fill=_BULB_YELLOW, width=1.2)
-        X(9 * s)
+        # PERETE cu senzor: EXACT forma lui aplica_perete (semicerc + punct), umpluta GALBEN.
+        # Simbolul vechi era cerc+X galben, adica forma de TAVAN — contrazicea propria clasificare
+        # (_WALL_BULBS: cablul ii coboara ca la o aplica de perete). Conventia ramane aceeasi ca la
+        # tavan: forma normala -> aceeasi forma umpluta galben pentru varianta cu senzor.
+        page.draw_sector(center, fitz.Point(cx0 + 9 * s, cy0), 180, color=RED, fill=_BULB_YELLOW,
+                         width=1.2, fullSector=True)
+        page.draw_circle(fitz.Point(cx0, cy0 + 4 * s), 1.8 * s, color=RED, fill=RED, width=0.8)
     else:  # aplica_tavan (default) — NESCHIMBAT: cerc + X la raza r
         page.draw_circle(center, r * s, color=RED, width=1.2)
         X(r * s)
@@ -111,6 +116,11 @@ def _norm_name_ro(s):
     for suf in (" (parter)", " (etaj)", " (mansarda)"):
         s = s.replace(suf, "")
     return " ".join(s.split())
+
+
+# Rubrica SINTETICA pentru corpul de la intrare: nu vine din Vision, dar editorul o afiseaza ca pe
+# orice camera (gruparea e pe numele din `room`). Numele e si contractul cu frontend-ul.
+_ACCES_ROOM = "Acces clădire"
 
 
 def _bulb_rule_for_room(name):
@@ -3810,6 +3820,27 @@ def draw_plan_elements(data: dict) -> dict:
                         "x": round(s["x"], 1), "y": round(s["y"], 1),
                         "wall_mounted": True, "rotation": round(float(s.get("angle", 0)), 3),
                         "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
+                    })
+                # ── ACCES CLADIRE: aplica cu senzor pe fatada, la intrare (DOAR parter) ──────────
+                # Detectia automata a usii de intrare a fost abandonata dupa testarea pe 8 planuri
+                # reale (marcaj autentic pe 1, fals pozitivi din legenda/nume de camera pe 2), asa
+                # ca NU ghicim pozitia: plasam corpul intr-o rubrica proprie, sub mijlocul fatadei,
+                # iar inginerul il trage unde e usa (inclusiv in afara conturului — e corp exterior).
+                # Camera e SINTETICA: `room` liber -> editorul o grupeaza automat ca orice camera
+                # (byRoom e cheiat pe nume), cu aceleasi butoane "+ Bec"/"+ Intrerupator".
+                # aplica_senzor are senzor propriu -> regula SP il scoate din pairing-ul cu
+                # intrerupatoare; circuitul ramane iluminatul parterului, ca la orice bec.
+                # Idempotent GRATIS: save_plan_elements face DELETE+INSERT per (project, floor).
+                if _floor == "parter" and centers:
+                    _cx = sum(c["x"] for c in centers) / len(centers)
+                    _cy = max(c["y"] for c in centers)
+                    _elements.append({
+                        "project_id": _project_uuid, "floor": _floor,
+                        "element_type": "aplica_senzor",
+                        "label": None, "room": _ACCES_ROOM,
+                        "x": round(_cx, 1), "y": round(_cy + 45.0, 1),   # sub fatada; pozitie PROVIZORIE
+                        "wall_mounted": False, "rotation": 0,
+                        "circuit_id": None, "source_panel": None, "power_w": 30, "z_index": 0,
                     })
                 save_plan_elements(_project_uuid, _elements)
             except Exception:
