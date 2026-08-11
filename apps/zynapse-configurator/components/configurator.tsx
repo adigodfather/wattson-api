@@ -319,7 +319,7 @@ function FazaProiectChips({ value, onChange, surfaceMp = 0 }: { value: string; o
 }
 
 /* ─── Building subtype list (PAS 2) ─── */
-function SubtypeList({ category, value, onChange }: { category: string; value: string; onChange: (v: string) => void }) {
+function SubtypeList({ category, value, onChange, isAdmin = false }: { category: string; value: string; onChange: (v: string) => void; isAdmin?: boolean }) {
   const subtypes = BUILDING_SUBTYPES[category] || [];
   if (!subtypes.length) return null;
   return (
@@ -332,7 +332,11 @@ function SubtypeList({ category, value, onChange }: { category: string; value: s
           const sel = value === s.value;
           // "Curând" per sub-tip (pattern-ul categoriilor): blocat DOAR daca nu-i deja selectat —
           // un proiect vechi resumed cu sub-tipul Soon ramane vizibil selectat (click nou blocat).
-          const blocked = !!s.soon && !sel;
+          // ADMIN: deblocat, ca sa se poata lucra logica dedicata pe fiecare tip inainte de lansare.
+          // Badge-ul RAMANE (galben "Curand" -> albastru "Admin"): tipul e tot nelansat pentru clienti,
+          // iar Dan trebuie sa vada dintr-o privire pe care le-a deschis doar pentru el.
+          const blocked = !!s.soon && !sel && !isAdmin;
+          const soonAdmin = !!s.soon && !blocked && isAdmin;
           return (
             <button key={s.value} type="button" disabled={blocked}
               onClick={() => !blocked && onChange(s.value)}
@@ -347,6 +351,7 @@ function SubtypeList({ category, value, onChange }: { category: string; value: s
               }}>
               {s.label}
               {blocked && <span className="text-[10px] font-semibold" style={{ color: "#C9A227", marginLeft: 8 }}>Curând</span>}
+              {soonAdmin && <span className="text-[10px] font-semibold" style={{ color: "#5BB8F5", marginLeft: 8 }}>Admin</span>}
             </button>
           );
         })}
@@ -2172,7 +2177,7 @@ export function ZynapseConfigurator() {
           <CategoryCards value={form.building_category} onChange={handleCategoryChange} />
           {form.building_category && (
             <SubtypeList category={form.building_category} value={form.building_type}
-              onChange={v => update("building_type", v)} />
+              onChange={v => update("building_type", v)} isAdmin={user?.id === ADMIN_USER_ID} />
           )}
 
           {/* 4. Regim înălțime */}
