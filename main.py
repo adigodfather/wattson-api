@@ -3441,12 +3441,25 @@ class DrawPlanElementsRequest(BaseModel):
     apply_geometry: bool = False  # True DOAR pe faza PT (din n8n) -> centroid geometric din pereți
     project_id: str = ""          # uuid Supabase (din save_project) -> persistă elementele în plan_elements (OPȚIONAL)
     floor: str = "parter"         # eticheta etaj pt. plan_elements (idempotență per project_id+floor)
+    comercial_subtip: str = ""    # sub-tipul spațiului comercial; gol -> se citește din DB (vezi mai jos)
 
 
 @app.post("/draw-plan-elements")
 def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
     try:
-        return draw_elements.draw_plan_elements(request.model_dump())
+        payload = request.model_dump()
+        # Sub-tipul comercial NU vine prin n8n (contractul lui nu se schimbă): se citește din
+        # projects.input_data, pe baza lui project_id, care e deja în payload. Cine îl trimite
+        # explicit are prioritate. Orice eșec -> fără sub-tip = exact comportamentul de dinainte.
+        if not payload.get("comercial_subtip") and request.project_id:
+            try:
+                from supabase_client import supabase as _supa
+                _p = (_supa.table("projects").select("input_data")
+                      .eq("id", request.project_id).single().execute().data) or {}
+                payload["comercial_subtip"] = ((_p.get("input_data") or {}).get("comercial_subtip") or "")
+            except Exception:
+                pass
+        return draw_elements.draw_plan_elements(payload)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

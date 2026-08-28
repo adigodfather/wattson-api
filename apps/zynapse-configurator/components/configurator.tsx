@@ -16,6 +16,7 @@ import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
 import { floorCanonic, floorIndex } from "@/lib/floors";
+import { COMERCIAL_CATEGORII, SUBTIP_DEFAULT } from "@/lib/comercial";   // sub-tipul comercial (categorie -> sub-tip)
 import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
 import { groupBomBySection, hasSections } from "@/lib/bom-sections";   // bucata 3: gruparea BOM pe cele 8 sectiuni
 import {
@@ -314,6 +315,60 @@ function FazaProiectChips({ value, onChange, surfaceMp = 0 }: { value: string; o
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ─── Sub-tip COMERCIAL (2 niveluri: categorie -> sub-tip) ─── */
+// Apare DOAR pe „Spațiu comercial în bloc". Sub-tipul da intelesul numelor generice de camere:
+// „Sala" e sala de aparate pe fitness, sala de servire pe restaurant, spatiu de vanzare pe magazin.
+function ComercialSubtipSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // Categoria afisata se DEDUCE din valoare, nu se tine separat: asa nu poate ramane deschisa o
+  // categorie in timp ce formularul are un sub-tip din alta (userul ar vedea „Medical" si ar genera
+  // magazin). Click pe categorie -> primul ei sub-tip, pe care userul il rafineaza dupa.
+  const cur = COMERCIAL_CATEGORII.find(c => c.subtipuri.some(s => s.value === value))
+           ?? COMERCIAL_CATEGORII[0];
+  return (
+    <div className="mb-3.5">
+      <label className="block text-[12px] font-semibold tracking-wide mb-1.5" style={{ color: "#8B8FA8" }}>
+        TIP DE SPAȚIU COMERCIAL <span style={{ color: "#E24B4A" }}>*</span>
+      </label>
+      {/* nivelul 1: categoria */}
+      <div className="flex gap-1.5 mb-2" style={{ flexWrap: "wrap" }}>
+        {COMERCIAL_CATEGORII.map(c => {
+          const sel = c.value === cur.value;
+          return (
+            <button key={c.value} type="button" onClick={() => onChange(c.subtipuri[0].value)}
+              className="px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-100 font-[inherit] cursor-pointer"
+              style={{
+                background: sel ? "rgba(55,138,221,0.12)" : "rgba(255,255,255,0.02)",
+                border: sel ? "1px solid rgba(55,138,221,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                color: sel ? "#5BB8F5" : "#C8CAD6",
+              }}>
+              <span style={{ marginRight: 5 }}>{c.icon}</span>{c.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* nivelul 2: sub-tipul din categoria aleasa */}
+      <div className="flex flex-col gap-1">
+        {cur.subtipuri.map(s => {
+          const sel = value === s.value;
+          const n = s.camere.length;
+          return (
+            <button key={s.value} type="button" onClick={() => onChange(s.value)}
+              className="text-left px-3 py-2 rounded-lg text-sm transition-all duration-100 font-[inherit] cursor-pointer"
+              style={{
+                background: sel ? "rgba(55,138,221,0.1)" : "rgba(255,255,255,0.02)",
+                border: sel ? "1px solid rgba(55,138,221,0.35)" : "1px solid rgba(255,255,255,0.06)",
+                color: sel ? "#5BB8F5" : "#C8CAD6",
+              }}>
+              {s.label}
+              <span style={{ fontSize: 10.5, color: "#545870", marginLeft: 8 }}>{n} camere</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1562,6 +1617,10 @@ export function ZynapseConfigurator() {
         ...(form.building_type === "bloc_locuinte" && form.floors ? { floors: parseInt(form.floors) } : {}),
         ...(form.building_type === "bloc_locuinte" && form.apartments_per_floor ? { apartments_per_floor: parseInt(form.apartments_per_floor) } : {}),
         ...(form.building_category === "industrial" && motors.length > 0 ? { motors } : {}),
+        // Sub-tipul comercial ajunge in DB (projects.form_data) — de acolo il citeste backendul la
+        // /regenerate-plan, unde payload-ul are doar project_id (contractul lui nu se schimba).
+        ...(form.building_type === "spatiu_comercial_bloc"
+          ? { comercial_subtip: form.comercial_subtip || SUBTIP_DEFAULT } : {}),
       };
 
       console.log("PAYLOAD TRIMIS:", JSON.stringify({
@@ -2179,6 +2238,10 @@ export function ZynapseConfigurator() {
             <SubtypeList category={form.building_category} value={form.building_type}
               onChange={v => update("building_type", v)} isAdmin={user?.id === ADMIN_USER_ID} />
           )}
+          {form.building_type === "spatiu_comercial_bloc" && (
+            <ComercialSubtipSelector value={form.comercial_subtip || SUBTIP_DEFAULT}
+              onChange={v => update("comercial_subtip", v)} />
+          )}
 
           {/* 4. Regim înălțime */}
           <SectionLabel>Regim înălțime</SectionLabel>
@@ -2779,6 +2842,8 @@ export function ZynapseConfigurator() {
                   hasTechRoom={form.has_tech_room}
                   hasFv={!!equipment.solar?.enabled}
                   fvKw={snapFvPackage(equipment.solar?.power_kw)}
+                  comercialSubtip={form.building_type === "spatiu_comercial_bloc"
+                    ? (form.comercial_subtip || SUBTIP_DEFAULT) : null}
                   finalized={resumedFinalized}
                 />
               </div>

@@ -152,11 +152,28 @@ _AREA_STEP_MP = (
 )
 
 
-def bulb_area_step(name):
+def _nume_efectiv(name, subtip):
+    """Numele pe care se aplica REGULILE. Cu sub-tip comercial, numele de pe plan se traduce intai
+    in camera canonica si se folosesc regulile ETICHETEI ei: „Sala" pe un fitness devine „Sala
+    aparate", pe un magazin „Spatiu vanzare" — acelasi cuvant, doua seturi de reguli.
+    Fara sub-tip (orice cladire rezidentiala) -> numele normalizat, nimic nu se schimba.
+    Oglinda exacta a lui prizeRuleForRoom din auto-prize.ts."""
+    n = _norm_name_ro(name)
+    if not subtip:
+        return n
+    try:
+        import comercial
+        lbl = comercial.eticheta_canonica(n, subtip)
+        return _norm_name_ro(lbl) if lbl else n
+    except Exception:
+        return n   # fail-safe: modul lipsa/eroare -> exact comportamentul de dinainte
+
+
+def bulb_area_step(name, subtip=None):
     """Pasul „+1 corp la X mp" pentru o camera (None = fara pas -> mecanismul vechi, 1 sau 2 becuri).
     Camerele comerciale au pasul in _COMERCIAL_RULES; birou/depozit il primesc separat, ca sa NU li
     se schimbe tipul sau puterea existenta decat unde e decis explicit."""
-    n = _norm_name_ro(name)
+    n = _nume_efectiv(name, subtip)
     for rx, _t, _w, step in _COMERCIAL_RULES:
         if rx.search(n):
             return step
@@ -166,7 +183,7 @@ def bulb_area_step(name):
     return None
 
 
-def _bulb_rule_for_room(name):
+def _bulb_rule_for_room(name, subtip=None):
     """Regula TIP + PUTERE corp de iluminat pe camera (oglinda prizeRuleForRoom; valori BASIC,
     inginerul le schimba in editor). Decide DOAR tip+putere — CATE corpuri decide _vision_centers.
       terase (acces + acoperita)     -> aplica_senzor 30W  (SP: FARA intrerupator + direct TEG,
@@ -175,7 +192,7 @@ def _bulb_rule_for_room(name):
       dormitoare / birouri              -> lustra_led 30W
       restul (bai, holuri, camara, dressing, spalator, depozitare, spatiu tehnic) -> aplica_tavan 25W
     Ordine specific->generic (ca la prize). Returneaza (element_type, power_w)."""
-    n = _norm_name_ro(name)
+    n = _nume_efectiv(name, subtip)
     if "teras" in n:
         return ("aplica_senzor", 30)
     # COMERCIAL, INAINTE de regulile rezidentiale: "Spatiu servicii" ar cadea altfel pe generic.
@@ -994,7 +1011,7 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
     return moved
 
 
-def _vision_centers(rooms, W, H, geoms=None, walls=None):
+def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     """PASĂ AUTORITARĂ de plasare becuri (consolidează gărzile-plasture anterioare).
     rooms = [{ name, area_m2, bbox:{x,y,w,h} }] (fracții 0-1). geoms = PARALEL cu rooms (geometry).
     Per cameră cu bbox valid -> ANCORĂ:
@@ -1096,7 +1113,7 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
         # ale pragului rezidential. Restul raman pe mecanismul vechi (1 sau 2 la ROOM_LARGE_M2),
         # deci camerele de locuit sunt NEATINSE. Plafon 12: peste, plasarea uniforma n-ar mai avea
         # sens fara o grila reala (si nicio camera din proiectele reale nu-l atinge).
-        _step = bulb_area_step(label)
+        _step = bulb_area_step(label, subtip)
         _n = min(12, 1 + int(area // _step)) if (_step and area > 0) else (2 if area >= ROOM_LARGE_M2 else 1)
         if _n >= 2:
             # N corpuri distribuite UNIFORM pe axa LUNGA, la pozitiile (2i+1)/2N — aceeasi asezare
@@ -3718,6 +3735,9 @@ def draw_plan_elements(data: dict) -> dict:
     Cale 2 (fallback): regex pe textul de suprafață (_find_room_centers).
     Plasă de siguranță: 0 camere găsite → returnează planul NEMODIFICAT."""
     try:
+        # Sub-tipul comercial (a1_magazin_general / b1_restaurant / ...) — decide cum se citesc
+        # numele GENERICE de camere. Gol pe orice cladire rezidentiala -> regulile raman neatinse.
+        subtip = (data.get("comercial_subtip") or "").strip() or None
         pdf_b64 = data.get("pdf_base64") or ""
         raw = pdf_b64.split(",", 1)[1] if "," in pdf_b64 else pdf_b64
         pdf_bytes = base64.b64decode(raw)
@@ -3760,7 +3780,7 @@ def draw_plan_elements(data: dict) -> dict:
         # Cale nouă: dacă primim camere cu bbox de la Vision (fracții 0-1),
         # desenăm becurile din centrele lor — robust, independent de text/regex.
         # Altfel -> fallback la calea veche cu regex pe textul de suprafață.
-        vision_centers, vision_stats = _vision_centers(rooms, W, H, geoms, walls)
+        vision_centers, vision_stats = _vision_centers(rooms, W, H, geoms, walls, subtip)
         if vision_centers:
             source = "vision_bbox"
             centers = vision_centers
@@ -3791,7 +3811,7 @@ def draw_plan_elements(data: dict) -> dict:
         # REGULA TIP+PUTERE pe camera (basic, editabil): atasata pe fiecare corp DEJA plasat.
         # NU schimba cate corpuri / pozitiile (decise de _vision_centers cu geometry).
         for c in centers:
-            _bt, _bw = _bulb_rule_for_room(c.get("label"))
+            _bt, _bw = _bulb_rule_for_room(c.get("label"), subtip)
             c["_bulb_type"] = _bt
             c["_bulb_pw"] = _bw
 

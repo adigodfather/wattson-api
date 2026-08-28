@@ -246,6 +246,9 @@ export interface FormData {
   project_id: string;
   building_category: string;    // "rezidential" | "public" | "industrial"
   building_type: string;        // subtype value
+  // Sub-tipul COMERCIAL (categorie -> sub-tip), doar cand building_type = "spatiu_comercial_bloc".
+  // Da intelesul numelor generice de camere („Sala" = aparate pe fitness, servire pe restaurant).
+  comercial_subtip: string;
   surface_mp: number;           // suprafață construită declarată (mp), pentru calcul Z-Coins
   power_phase: string;          // "mono" | "tri"
   insulation_level: string;
@@ -275,6 +278,7 @@ export const INITIAL_FORM: FormData = {
   project_id: "",
   building_category: "",
   building_type: "",
+  comercial_subtip: "",
   surface_mp: 0,
   power_phase: "mono",
   insulation_level: "",

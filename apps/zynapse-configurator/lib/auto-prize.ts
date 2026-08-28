@@ -12,6 +12,8 @@
 //
 // NU face INSERT in DB, NU deseneaza, NU atinge UI-ul (acelea = F5b). Doar count + pozitii.
 
+import { cameraCanonica, CAMERE_COMERCIALE } from "./comercial";
+
 export type Circuit = { room?: string | null; type?: string | null; outlets?: number | null };
 export type RoomBBox = { x: number; y: number; w: number; h: number }; // 0-1 normalizat (Vision)
 export type WallSeg = { x1: number; y1: number; x2: number; y2: number }; // puncte PDF (/extract-geometry)
@@ -63,8 +65,17 @@ const COMERCIAL_PRIZE: [RegExp, number, number | null][] = [
 ];
 const deDiacritice = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
 
-export function prizeRuleForRoom(name: string | null | undefined, areaM2?: number | null): PrizaRule | null {
-  const n = (name ?? "").toLowerCase().trim();
+export function prizeRuleForRoom(
+  name: string | null | undefined,
+  areaM2?: number | null,
+  subtip?: string | null,          // sub-tipul comercial: da intelesul numelor GENERICE („Sala", „Spatiu")
+): PrizaRule | null {
+  // Cu sub-tip comercial, numele de pe plan se traduce intai in camera canonica, si REGULILE se
+  // aplica pe eticheta ei. Asa „Sala" pe un fitness devine „Sala aparate", iar pe un magazin
+  // „Spatiu vanzare" — acelasi cuvant, doua seturi de reguli. Fara sub-tip: nimic nu se schimba.
+  const canon = subtip ? cameraCanonica(name, subtip) : null;
+  const efectiv = canon ? CAMERE_COMERCIALE[canon].label : (name ?? "");
+  const n = efectiv.toLowerCase().trim();
   const na = deDiacritice(n);
   const supl = (pas: number | null) =>
     pas && areaM2 && areaM2 > 0 ? Math.floor(areaM2 / pas) : 0;   // „+1 priză la X mp"

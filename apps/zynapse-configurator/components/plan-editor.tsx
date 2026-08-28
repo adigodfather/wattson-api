@@ -12,6 +12,7 @@ import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
+import { cameraCanonica, CAMERE_COMERCIALE } from "@/lib/comercial";   // numele de pe plan -> camera canonica (sub-tip comercial)
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
 import { equipKey, isTechReceptorLabel, type HeatingEquipment } from "@/lib/heating-equipment";   // T3 + clasificare tech/extra pt. rubrici
@@ -444,6 +445,7 @@ export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
+  comercialSubtip = null,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
@@ -459,7 +461,11 @@ export default function PlanEditor({
      hasFv?: boolean; fvKw?: number;
      // FIX 4 (prize automat): gardul "nefinalizat" — pe proiecte finalizate re-deschise (resume)
      // NU se auto-genereaza prize (zero scrieri automate in DB pe proiecte inchise)
-     finalized?: boolean }) {
+     finalized?: boolean;
+     // Sub-tipul comercial (categorie -> sub-tip). Da intelesul numelor GENERICE de camere de pe
+     // plan: „Sala" e sala de aparate pe fitness, sala de servire pe restaurant, spatiu de vanzare
+     // pe magazin. null pe orice alt tip de cladire -> regulile rezidentiale, neatinse.
+     comercialSubtip?: string | null }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -760,7 +766,7 @@ export default function PlanEditor({
     const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
     const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
     const stagger = list.filter(e => (e.element_type || "").startsWith("priza")).length;   // evita suprapunerea
-    const rule = prizeRuleForRoom(roomKey === NO_ROOM ? null : roomKey);   // FIX-P: h per camera (baie 1.2 / terasa+balcon 0.4)
+    const rule = prizeRuleForRoom(roomKey === NO_ROOM ? null : roomKey, null, comercialSubtip);   // FIX-P: h per camera (baie 1.2 / terasa+balcon 0.4)
     const row = {
       project_id: projectId,
       floor,
@@ -817,7 +823,7 @@ export default function PlanEditor({
       let nRooms = 0;
       for (const room of roomsForFloor) {
         // aria din Vision -> suplimentarul „+1 priză la X mp" (comercial, birou, depozit)
-        const rule = prizeRuleForRoom(room?.name, room?.area_m2);
+        const rule = prizeRuleForRoom(room?.name, room?.area_m2, comercialSubtip);
         if (!rule || rule.count <= 0) continue;          // SKIP spatiu tehnic (null) + terasa acces (count 0)
         if (!room?.bbox) continue;
         // V4: perimetrul = geom_bbox (pereti reali SAU ancora etichetei) cand exista; fallback
@@ -1839,7 +1845,17 @@ export default function PlanEditor({
           style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.06)", cursor: "pointer" }}
         >
           <span className="zy-chev" style={{ display: "inline-block", width: 11, flexShrink: 0, fontSize: 9, color: "#8B8FA8", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: "#E2E4E9", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{key}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: "#E2E4E9", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {key}
+            {/* Pe spatii comerciale: cum s-a citit numele de pe plan. Se arata DOAR cand difera de
+                el (un „Sala" generic devine „Sală aparate" pe fitness) — altfel ar dubla eticheta. */}
+            {(() => {
+              const canon = comercialSubtip ? cameraCanonica(key, comercialSubtip) : null;
+              const lbl = canon ? CAMERE_COMERCIALE[canon].label : null;
+              if (!lbl || lbl.toLowerCase() === key.toLowerCase()) return null;
+              return <span style={{ fontSize: 10.5, fontWeight: 500, color: "#5BB8F5", marginLeft: 6 }}>· {lbl}</span>;
+            })()}
+          </span>
           <span style={{ fontSize: 10.5, color: "#545870", flexShrink: 0 }}>{count}</span>
         </button>
 
