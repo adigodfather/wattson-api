@@ -176,6 +176,95 @@ export function subtipById(value: string | null | undefined): SubtipDef | null {
   return null;
 }
 
+// ── REGULI PE DESTINATIE (iluminat + prize + zona umeda), pe cheia camerei canonice ──────────
+//
+// PRINCIPIUL (decizia Dan): propunem MINIMUL NORMAT, inginerul adauga daca vrea. Un proiect
+// sub-luminat e neconform; unul cu un panou in plus e doar mai scump.
+//
+// `lx` e documentar (nivelul minim normat, NP 061-2002 / SR EN 12464-1) — nu intra in niciun calcul;
+// e acolo ca sa se vada DE CE are camera corpul si pasul astea, si ca sa poata fi contestat.
+// `pas`/`prizePas` = „+1 la X mp" (null = valoare fixa, indiferent de suprafata).
+// `prizaTip: "ip44"` + `umed` = zona umeda; vezi rccb_zone / _WET30 din enrich_circuits.py.
+//
+// CHEILE COMUNE (depozit, birou, receptie, vanzare, casa_marcat, sala_birouri, grup_sanitar...) sunt
+// INTENTIONAT absente: au deja reguli din pasii anteriori si trebuie sa ramana neatinse. Cheia lipsa
+// de aici -> se cade pe eticheta canonica si pe regulile vechi = exact comportamentul de dinainte.
+export type RegulaCamera = {
+  lx: number;                 // documentar: nivelul minim normat
+  corp: string;               // element_type al corpului de iluminat
+  w: number;                  // puterea unui corp
+  pas: number | null;         // „+1 corp la X mp"
+  prize: number;              // numar fix de prize
+  prizePas: number | null;    // „+1 priza la X mp"
+  prizaTip?: "ip44";          // zona umeda -> priza etansa
+  umed?: "10ma" | "30ma";     // protectie diferentiala ceruta pe circuitul de prize
+};
+
+export const REGULI: Record<string, RegulaCamera> = {
+  // — A. COMERT —
+  cam_frigorifica: { lx: 150, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null },
+  receptie_marfa:  { lx: 200, corp: "aplica_tavan", w: 25, pas: 12,   prize: 2, prizePas: null },
+  oficina:         { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 12 },
+  receptura:       { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: null },
+  expunere:        { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 12 },
+
+  // — B. ALIMENTATIE —
+  servire:         { lx: 200, corp: "panou_led",    w: 40, pas: 12,   prize: 4, prizePas: 15 },
+  bucatarie:       { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: 8 },
+  bar:             { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 6, prizePas: 8 },
+  // decizia Dan: se stropeste, dar NU e zona cu dus/cada -> circuit cu RCCB 30mA, priza NORMALA
+  // (pragul de 10mA e rezervat zonelor 0-2 din I7, iar IP44 nu e justificat aici)
+  spalator_vase:   { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 4, prizePas: null,
+                     umed: "30ma" },
+  zona_preparare:  { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: 8 },
+  // acelasi tip+putere ca terasa rezidentiala (aplica_senzor 30W) — se adauga DOAR pasul de suprafata
+  terasa:          { lx: 100, corp: "aplica_senzor", w: 30, pas: 15,  prize: 2, prizePas: null },
+
+  // — C. SERVICII PERSONALE —
+  sala_lucru:      { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 6 },
+  // decizia Dan: scafele NU sunt zona cu cada/dus -> priza NORMALA, dar circuit cu RCCB 30mA
+  zona_spalare:    { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null,
+                     umed: "30ma" },
+  manichiura:      { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 6 },
+  cabina_trat:     { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null },
+  // decizia Dan: ca spalatorul de vase — RCCB 30mA, priza NORMALA (nu e zona cu dus/cada)
+  sala_masini:     { lx: 300, corp: "panou_led",    w: 40, pas: 12,   prize: 6, prizePas: 10,
+                     umed: "30ma" },
+  zona_calcat:     { lx: 300, corp: "panou_led",    w: 40, pas: 12,   prize: 6, prizePas: 10 },
+  primire:         { lx: 200, corp: "aplica_tavan", w: 25, pas: 12,   prize: 2, prizePas: null },
+
+  // — D. MEDICAL —
+  cabinet:         { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: null },
+  sala_tratament:  { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 12 },
+  sterilizare:     { lx: 300, corp: "panou_led",    w: 40, pas: null, prize: 4, prizePas: null },
+  radiologie:      { lx: 300, corp: "aplica_tavan", w: 25, pas: 8,    prize: 2, prizePas: null },
+  laborator:       { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: null },
+  recoltare:       { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: null },
+  dep_reactivi:    { lx: 150, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null },
+  // PROPUNERE (nu era in tabelul de prize): aliniat la cabinet — tot camera de interventie cu aparate
+  chirurgie:       { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: null },
+  cazare_animale:  { lx: 150, corp: "aplica_tavan", w: 25, pas: 12,   prize: 2, prizePas: null },
+  asteptare:       { lx: 200, corp: "aplica_tavan", w: 25, pas: 12,   prize: 2, prizePas: null },
+
+  // — E. SPORT / RECREERE —
+  sala_aparate:    { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 15 },
+  sala_clase:      { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 12 },
+  // zona cu dus = acelasi regim ca baia (I7-2011): IP44 + RCCB 10mA
+  dusuri:          { lx: 200, corp: "aplica_tavan", w: 25, pas: 8,    prize: 2, prizePas: null,
+                     prizaTip: "ip44", umed: "10ma" },
+  sala_principala: { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 15 },
+  zona_joaca:      { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 15 },
+
+  // — F. BIROURI / ALTELE —
+  sala_sedinte:    { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: 12 },
+  camera_server:   { lx: 300, corp: "aplica_tavan", w: 25, pas: 8,    prize: 6, prizePas: 12 },
+  arhiva:          { lx: 200, corp: "aplica_tavan", w: 25, pas: 12,   prize: 2, prizePas: null },
+  atelier:         { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: 10 },
+  sala_grupa:      { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 15 },
+  sala_mese:       { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 4, prizePas: 15 },
+  dormitor_copii:  { lx: 100, corp: "aplica_tavan", w: 25, pas: 12,   prize: 4, prizePas: 15 },
+};
+
 // ── RECUNOASTEREA: nume de pe plansa -> cheie de camera canonica ─────────────────────────────
 const deDiacritice = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
 

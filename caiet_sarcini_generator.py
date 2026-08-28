@@ -243,6 +243,20 @@ _CS_CAP3 = [
           "filetată a duliei. Se interzice suspendarea corpurilor de iluminat direct de conductele "
           "de alimentare; dispozitivele de suspendare se aleg astfel încât să suporte fără "
           "deformări o greutate egală cu de 5 ori greutatea corpului de iluminat, minimum 10 kg."),
+    # ILUMINAT DE SIGURANTA (I7-2011 cap. 7.23 + SR EN 1838). Text STATIC, ca restul caietului:
+    # cerintele de executie sunt aceleasi indiferent daca proiectul are sau nu corpuri de siguranta
+    # (caietul descrie CUM se executa, memoriul descrie CE s-a proiectat).
+    ("p", "Corpurile de iluminat de siguranţă (evacuare şi antipanică) vor fi executate din "
+          "materiale cu clasa B de reacţie la foc şi se montează la minimum 2 m faţă de pardoseală, "
+          "pe căile de evacuare şi deasupra ieşirilor, la o distanţă de cel mult 15 m între ele. "
+          "Corpurile autonome şi kiturile de emergenţă vor avea autonomie de minimum 2 ore şi "
+          "punere în funcţiune în cel mult 5 secunde de la dispariţia tensiunii normale."),
+    ("p", "Circuitul de alimentare a corpurilor de evacuare este dedicat, fără protecţie "
+          "diferenţială şi fără întreruptor pe traseu, astfel încât să nu poată fi scos din "
+          "funcţiune odată cu circuitele normale de iluminat. La recepţie se verifică aprinderea "
+          "corpurilor la întreruperea alimentării normale şi menţinerea lor în funcţiune pe durata "
+          "de autonomie declarată. Verificarea se repetă periodic pe durata exploatării, iar "
+          "rezultatele se consemnează în registrul de întreţinere al instalaţiei."),
 ]
 
 _CS_CAP4_PRINCIPII = [

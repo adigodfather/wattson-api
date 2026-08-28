@@ -12,7 +12,7 @@
 //
 // NU face INSERT in DB, NU deseneaza, NU atinge UI-ul (acelea = F5b). Doar count + pozitii.
 
-import { cameraCanonica, CAMERE_COMERCIALE } from "./comercial";
+import { cameraCanonica, CAMERE_COMERCIALE, REGULI } from "./comercial";
 
 export type Circuit = { room?: string | null; type?: string | null; outlets?: number | null };
 export type RoomBBox = { x: number; y: number; w: number; h: number }; // 0-1 normalizat (Vision)
@@ -79,6 +79,20 @@ export function prizeRuleForRoom(
   const na = deDiacritice(n);
   const supl = (pas: number | null) =>
     pas && areaM2 && areaM2 > 0 ? Math.floor(areaM2 / pas) : 0;   // „+1 priză la X mp"
+  // REGULA PE DESTINAȚIE — prima, și numai cu sub-tip selectat. Camerele COMUNE (grup sanitar,
+  // depozit, birou, recepție...) nu au regulă aici și cad mai jos, pe regulile vechi, neatinse.
+  // Zonele umede comerciale (dușuri IP44, spălător vase) își iau tipul de priză de aici; RCCB-ul
+  // se decide în enrich_circuits.py, din ACEEAȘI sursă (comercial.REGULI).
+  const reg = canon ? REGULI[canon] : undefined;
+  if (reg) {
+    const own = (name ?? "").trim() || "Camera";
+    return {
+      count: reg.prize + supl(reg.prizePas),
+      type: reg.prizaTip === "ip44" ? "priza_exterior_ip44" : "priza_simpla",
+      circuitGroup: own,                       // circuitul poartă numele DE PE PLAN, nu eticheta
+      heightM: reg.prizaTip === "ip44" ? 1.2 : 0.6,
+    };
+  }
   // COMERCIAL, înaintea regulilor rezidențiale (numele sunt specifice, nu se suprapun).
   // Grupul sanitar rămâne PRIMUL (mai jos e deja tratat) — zona umedă are prioritate absolută.
   if (!BATH_RX.test(n)) {

@@ -2245,6 +2245,7 @@ class CircuitInputNew(BaseModel):
     room: Optional[str] = None
     rccb_group: Optional[str] = None
     level: Optional[str] = None      # e.g. "etaj_1", "mansarda", "parter"
+    kit_panica: int = 0              # nr. becuri cu kit de emergenta pe circuit (gate-ul Notei 5)
 
 
 class PowerSummaryNew(BaseModel):
@@ -3565,7 +3566,11 @@ def bom_endpoint(request: BomRequest):
             for _fl in ("parter", "etaj", "mansarda"):
                 _floor_wh.setdefault(_fl, (_W, _H))
         # ACELEASI circuite ca schema/memoriu (enrich; pe TOATE elementele — per proiect, nu per etaj).
-        circuits = _ec.enrich_circuits(rows, request.form or {}, base_circuits=base_circuits)
+        # sub-tipul comercial (zonele umede proprii comertului) din DB, ca la /draw-plan-elements:
+        # callerul nu-l trimite, dar project_id e deja aici -> BOM-ul vede aceleasi circuite ca schema
+        _formb = dict(request.form or {})
+        _formb.setdefault("comercial_subtip", (proj.get("input_data") or {}).get("comercial_subtip") or "")
+        circuits = _ec.enrich_circuits(rows, _formb, base_circuits=base_circuits)
         # FOLLOW-UP FIX-C1: geometria camerelor (pereti reali) PER ETAJ din bazele curate
         # (rd.planuri[i].pdf_base64, aceeasi sursa ca redraw; ordinea = parter/etaj/mansarda) ->
         # compute_cables din BOM ruteaza EXACT ca desenul (gate geom_bbox->Vision) -> metrii =
@@ -3754,6 +3759,7 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                 _form5 = {"power_phase": ("tri" if ("trif" in _conn5 or "400" in _conn5) else "mono"),
                           "has_tech_room": _in5.get("has_tech_room", True),
                           "heating_type": _in5.get("heating_type"),
+                          "comercial_subtip": _in5.get("comercial_subtip") or "",
                           "extra_equipment": _in5.get("extra_equipment") or []}
                 _ecirc = _ecm.enrich_circuits(_allrows, _form5, base_circuits=_rd5.get("circuits") or [])
                 _ded = [c for c in _ecirc if isinstance(c, dict) and c.get("type") == "dedicat" and c.get("id")]

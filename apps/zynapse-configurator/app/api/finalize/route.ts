@@ -100,6 +100,8 @@ export async function POST(req: NextRequest) {
             power_phase,
             has_tech_room: (inputData.has_tech_room as boolean | undefined) ?? true,
             heating_type: (inputData.heating_type as string | undefined) ?? "",
+            // sub-tipul comercial -> zonele umede proprii comerțului (dușuri 10mA, spălător 30mA)
+            comercial_subtip: (inputData.comercial_subtip as string | undefined) ?? "",
             extra_equipment: Array.isArray(inputData.extra_equipment) ? inputData.extra_equipment : [],
           },
           base_circuits: visionCircuits,

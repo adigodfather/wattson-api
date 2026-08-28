@@ -133,6 +133,9 @@ class Circuit(BaseModel):
     has_rccb_individual: bool = False
     rccb_ma: Optional[int] = 30
     has_afdd: Optional[bool] = False
+    # nr. becuri cu kit de emergenta pe circuit (iluminat antipanica). Serveste DOAR gate-ului notei
+    # de siguranta din legenda; 0 = proiect fara instalatie de siguranta.
+    kit_panica: int = 0
     sub_tablou_color1: Optional[str] = None  # ex: "#00bfff"
     sub_tablou_color2: Optional[str] = None  # ex: "#ff69b4"
 
@@ -1117,14 +1120,28 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
     draw_line(c, notes_x, y_start + 6, notes_x + notes_w, y_start + 6, width=0.2)
 
     ny = y_start + 11
+    # Nota despre iluminatul de siguranta se tiparea NECONDITIONAT, deci si pe schema fiecarei case
+    # unifamiliale, unde nu se aplica. Acum apare DOAR cand proiectul chiar are instalatie de
+    # siguranta: un circuit dedicat de evacuare SAU cel putin un bec echipat cu kit de panica.
+    # circuitele vin ca obiecte Pydantic (nu dict-uri) -> getattr, ca peste tot in fisierul asta
+    # circuitele vin ca obiecte Pydantic (nu dict-uri) -> getattr, ca peste tot in fisierul asta.
+    # `destinatie` = descrierea circuitului dupa maparea din n8n (enrich.description -> destinatie).
+    _has_safety = any(
+        ("siguranta" in str(getattr(cc, "destinatie", "") or "").lower())
+        or int(getattr(cc, "kit_panica", 0) or 0) > 0
+        for cc in (circuits or [])
+    )
     notes = [
         "Nota 1: I7-2011 Tab. 3.5 — coeficient de utilizare ku conform tip cladire.",
         "Nota 2: Executantul va respecta I7-2011, SR EN 60364, Legea 10/1995.",
         "Nota 3: Protectiile se reverifica daca Isc difera de cel de calcul.",
         "Nota 4: Toate prizele din bai se conecteaza la RCCB tip A 10mA.",
-        "Nota 5: Iluminat de siguranta conform NP 061-2002 pentru cladiri publice.",
-        "Nota 6: Cablurile vor fi protejate in tuburi IPEY conform I7-2011 Tab. 5.18.",
     ]
+    if _has_safety:
+        notes.append("Nota 5: Iluminat de siguranta conform NP 061-2002 si I7-2011 cap. 7.23, "
+                     "autonomie minima 2 ore.")
+    notes.append("Nota %d: Cablurile vor fi protejate in tuburi IPEY conform I7-2011 Tab. 5.18."
+                 % (6 if _has_safety else 5))
     for note in notes:
         if ny + 3 > y_end - 2:
             break

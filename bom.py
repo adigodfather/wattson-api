@@ -12,7 +12,9 @@ import draw_elements
 from draw_elements import _PX_TO_M, _cable_l_path
 
 # ── kind (compute_cables) -> sectiune cablu. iluminat=1.5 fix, prize=2.5 fix (ca enrich). ──
-_ILUM_KINDS  = {"bec_lant", "bec_paralel", "cap_scara", "senzor_teg", "sw_tablou"}
+# "evacuare_teg" = alimentarea PERMANENTA a corpului de evacuare: acelasi cablu de iluminat
+# (3x1.5), doar ca merge direct la tablou, fara intrerupator -> intra in metrii de ILUMINAT.
+_ILUM_KINDS  = {"bec_lant", "bec_paralel", "cap_scara", "senzor_teg", "sw_tablou", "evacuare_teg"}
 _PRIZA_KINDS = {"priza_lant", "priza_tablou"}
 _ILUM_CABLE  = "CYY-F 3x1.5"
 _PRIZA_CABLE = "CYY-F 3x2.5"
@@ -677,6 +679,20 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             bec[(et, pw)] = bec.get((et, pw), 0) + 1
     for (et, pw), n in sorted(bec.items()):
         rows.append(_row("Becuri", _NAMES.get(et, et), ("%dW" % pw if pw else ""), n, "buc", sectiune="ILUMINAT"))
+
+    # ── 4b. ILUMINAT DE SIGURANTA (I7-2011 cap. 7.23) — doua randuri, ambele din plan_elements:
+    #   corpurile de EVACUARE = aparate autonome (acumulatorul e IN corp, deci FARA rand separat);
+    #   kiturile de ANTIPANICA = accesoriu montat pe un bec normal, care ramane in randul lui de mai
+    #   sus (nu se dubleaza: kitul se numara aparte, corpul o singura data). Randuri doar daca exista.
+    _n_evac = sum(1 for el in plan_elements if (el.get("element_type") or "") == "corp_evacuare")
+    if _n_evac:
+        rows.append(_row("Becuri", "Corp iluminat evacuare autonom", "autonomie 2h, 8W",
+                         _n_evac, "buc", sectiune="ILUMINAT"))
+    _n_kit = sum(1 for el in plan_elements
+                 if (el.get("element_type") or "") in _BULB_TYPES and el.get("kit_panica"))
+    if _n_kit:
+        rows.append(_row("Becuri", "Kit emergenta 2h", "iluminat antipanica, montat pe corpul existent",
+                         _n_kit, "buc", sectiune="ILUMINAT"))
 
     # ── 5. TABLOURI — BUCATA 2: blocul vechi (1 buc/tablou din plan_elements) ELIMINAT, RECONCILIAT
     #     cu randurile NOI din bucata 1 ("Tablou electric <panel>", 1 buc, N randuri pe sectiunea lui).

@@ -85,6 +85,54 @@ SUBTIPURI = {
     "f3_gradinita": (['sala_grupa', 'sala_mese', 'dormitor_copii', 'chicineta', 'vestiar', 'grup_sanitar', 'birou', 'depozit'], 'sala_grupa', 'sala_grupa'),
 }
 
+# REGULI PE DESTINATIE, pe cheia camerei canonice (vezi comentariul din comercial.ts):
+#   cheie -> (lx documentar, element_type, W, pas_mp | None,
+#             prize fixe, pas_prize_mp | None, tip_priza | None, umed "10ma"/"30ma" | None)
+# Cheile COMUNE (depozit/birou/receptie/vanzare/...) lipsesc INTENTIONAT: au deja reguli si raman
+# neatinse. Cheie absenta -> se cade pe eticheta canonica si pe regulile vechi.
+REGULI = {
+    "cam_frigorifica": (150, 'aplica_tavan', 25, None, 2, None, None, None),
+    "receptie_marfa":  (200, 'aplica_tavan', 25, 12.0, 2, None, None, None),
+    "oficina":         (500, 'panou_led', 40, 8.0, 4, 12.0, None, None),
+    "receptura":       (500, 'panou_led', 40, 8.0, 4, None, None, None),
+    "expunere":        (300, 'panou_led', 40, 10.0, 4, 12.0, None, None),
+    "servire":         (200, 'panou_led', 40, 12.0, 4, 15.0, None, None),
+    "bucatarie":       (500, 'panou_led', 40, 8.0, 6, 8.0, None, None),
+    "bar":             (300, 'panou_led', 40, 10.0, 6, 8.0, None, None),
+    "spalator_vase":   (300, 'aplica_tavan', 25, None, 4, None, None, '30ma'),
+    "zona_preparare":  (500, 'panou_led', 40, 8.0, 6, 8.0, None, None),
+    "terasa":          (100, 'aplica_senzor', 30, 15.0, 2, None, None, None),
+    "sala_lucru":      (500, 'panou_led', 40, 8.0, 4, 6.0, None, None),
+    "zona_spalare":    (300, 'aplica_tavan', 25, None, 2, None, None, '30ma'),
+    "manichiura":      (500, 'panou_led', 40, 8.0, 4, 6.0, None, None),
+    "cabina_trat":     (300, 'aplica_tavan', 25, None, 2, None, None, None),
+    "sala_masini":     (300, 'panou_led', 40, 12.0, 6, 10.0, None, '30ma'),
+    "zona_calcat":     (300, 'panou_led', 40, 12.0, 6, 10.0, None, None),
+    "primire":         (200, 'aplica_tavan', 25, 12.0, 2, None, None, None),
+    "cabinet":         (500, 'panou_led', 40, 8.0, 6, None, None, None),
+    "sala_tratament":  (500, 'panou_led', 40, 8.0, 4, 12.0, None, None),
+    "sterilizare":     (300, 'panou_led', 40, None, 4, None, None, None),
+    "radiologie":      (300, 'aplica_tavan', 25, 8.0, 2, None, None, None),
+    "laborator":       (500, 'panou_led', 40, 8.0, 4, None, None, None),
+    "recoltare":       (500, 'panou_led', 40, 8.0, 4, None, None, None),
+    "dep_reactivi":    (150, 'aplica_tavan', 25, None, 2, None, None, None),
+    "chirurgie":       (500, 'panou_led', 40, 8.0, 6, None, None, None),
+    "cazare_animale":  (150, 'aplica_tavan', 25, 12.0, 2, None, None, None),
+    "asteptare":       (200, 'aplica_tavan', 25, 12.0, 2, None, None, None),
+    "sala_aparate":    (300, 'panou_led', 40, 10.0, 4, 15.0, None, None),
+    "sala_clase":      (300, 'panou_led', 40, 10.0, 4, 12.0, None, None),
+    "dusuri":          (200, 'aplica_tavan', 25, 8.0, 2, None, 'ip44', '10ma'),
+    "sala_principala": (300, 'panou_led', 40, 10.0, 4, 15.0, None, None),
+    "zona_joaca":      (300, 'panou_led', 40, 10.0, 4, 15.0, None, None),
+    "sala_sedinte":    (500, 'panou_led', 40, 8.0, 6, 12.0, None, None),
+    "camera_server":   (300, 'aplica_tavan', 25, 8.0, 6, 12.0, None, None),
+    "arhiva":          (200, 'aplica_tavan', 25, 12.0, 2, None, None, None),
+    "atelier":         (500, 'panou_led', 40, 8.0, 6, 10.0, None, None),
+    "sala_grupa":      (300, 'panou_led', 40, 10.0, 4, 15.0, None, None),
+    "sala_mese":       (300, 'panou_led', 40, 10.0, 4, 15.0, None, None),
+    "dormitor_copii":  (100, 'aplica_tavan', 25, 12.0, 4, 15.0, None, None),
+}
+
 SUBTIP_DEFAULT = "a1_magazin_general"
 
 # Numele PUR generice - doar ele se rezolva prin sub-tip. Cer cuvantul singur (eventual cu numar),

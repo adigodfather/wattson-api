@@ -475,6 +475,33 @@ _MEMORIU_BLOCKS = [
 ]
 
 
+def _memoriu_docx_siguranta_section(doc, nr, n_evac, n_kit):
+    """Capitolul de ILUMINAT DE SIGURANTA. Se scrie DOAR daca proiectul chiar are asa ceva
+    (n_evac + n_kit > 0), ca la FV — un capitol despre o instalatie inexistenta e mai rau decat
+    lipsa lui. `nr` = numarul capitolului (2.8 fara FV, 2.9 cu FV)."""
+    _add_heading(doc, "%s. Iluminat de siguranță" % nr, level=2)
+    _add_para(doc, "Conform I7-2011 cap. 7.23 și SR EN 1838, instalația de iluminat de siguranță "
+                   "asigură continuarea iluminării la întreruperea alimentării normale. Sursa de "
+                   "energie este locală (acumulator în corp, respectiv kit de emergență montat pe "
+                   "corpul existent), cu autonomie de minimum 2 ore și punere în funcțiune în cel "
+                   "mult 5 secunde de la dispariția tensiunii.")
+    if n_evac:
+        _add_para(doc, "Iluminatul de evacuare se realizează cu %d corp%s autonom%s, montate la "
+                       "minimum 2 m față de pardoseală, pe căile de evacuare și deasupra ieșirilor, "
+                       "conform planșei de iluminat. Corpurile sunt alimentate dintr-un circuit "
+                       "DEDICAT, fără protecție diferențială și fără întrerupător, astfel încât o "
+                       "defecțiune pe circuitele normale de iluminat să nu le scoată din funcțiune."
+                   % (n_evac, "" if n_evac == 1 else "uri", "" if n_evac == 1 else "e"))
+    if n_kit:
+        _add_para(doc, "Iluminatul antipanică se realizează prin echiparea a %d corp%s de iluminat "
+                       "normal%s cu kit de emergență cu autonomie 2 ore. Corpurile rămân pe "
+                       "circuitele lor de iluminat; kitul preia alimentarea local, la dispariția "
+                       "tensiunii." % (n_kit, "" if n_kit == 1 else "uri", "" if n_kit == 1 else "e"))
+    _add_para(doc, "Corpurile de iluminat de siguranță vor fi din materiale cu clasa B de reacție la "
+                   "foc. Funcționarea și autonomia se verifică la recepție și periodic, pe durata "
+                   "exploatării.")
+
+
 def _memoriu_docx_fv_sections(doc, solar, is_pt=False):
     """G3: capitolele FV în memoriul DOCX — [B] descrierea sistemului (identică pe faze) + [C]
     priza de pământ DEDICATĂ, RAMIFICATĂ pe fază (fix Dan): PT -> breviarul complet pe pattern-ul
@@ -668,6 +695,14 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
     # Match pe STRINGURI COMPLETE (nu "2.8" izolat — "art. 4.2.2.8 din I7-2011" ramane NEATINS).
     # Fara FV: blocurile ies exact ca inainte (non-regresie).
     _has_fv = isinstance(solar, dict) and bool(solar.get("package_kw") or solar.get("power_kw"))
+    # ILUMINAT DE SIGURANTA: capitol gated pe PREZENTA REALA (ca FV). Sursa = CIRCUITELE, pe care
+    # memoriul deja le primeste — nu plan_elements, care ar fi cerut un camp nou in payload-ul n8n.
+    # Corpurile de evacuare: `_evacuare_corpuri` de pe circuitul lor dedicat; kiturile: `kit_panica`
+    # insumat pe circuitele de iluminat. Ambele absente -> 0/0 -> capitolul nu apare si memoriul
+    # iese byte-identic ca inainte.
+    _n_evac = sum(int((c or {}).get("_evacuare_corpuri") or 0) for c in circuits)
+    _n_kit = sum(int((c or {}).get("kit_panica") or 0) for c in circuits)
+    _has_safety = bool(_n_evac or _n_kit)
     # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
     _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
@@ -677,11 +712,20 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
             if kind == "li":
                 continue
             _skip_li = False
-        if _has_fv and kind == "h2" and text.startswith("2.8. PROTEC"):
-            _memoriu_docx_fv_sections(doc, solar, is_pt=_is_pt(cp.get("faza")))   # 2.8 = FV
-            text = "2.9. " + text[len("2.8. "):]                                  # PROTECTIA -> 2.9
-        elif _has_fv and kind == "li" and "paragrafului 2.8." in text:
-            text = text.replace("paragrafului 2.8.", "paragrafului 2.9.")
+        if kind == "h2" and text.startswith("2.8. PROTEC") and (_has_fv or _has_safety):
+            # ORDINEA (decizia Dan): FV ramane 2.8, siguranta vine dupa ea. Cu ambele prezente:
+            # 2.8 FV · 2.9 siguranta · 2.10 PROTECTIA. Cu una singura, ea ia 2.8 si PROTECTIA 2.9.
+            _nr_next = 8
+            if _has_fv:
+                _memoriu_docx_fv_sections(doc, solar, is_pt=_is_pt(cp.get("faza")))
+                _nr_next += 1
+            if _has_safety:
+                _memoriu_docx_siguranta_section(doc, "2.%d" % _nr_next, _n_evac, _n_kit)
+                _nr_next += 1
+            text = "2.%d. " % _nr_next + text[len("2.8. "):]                      # PROTECTIA -> 2.9/2.10
+        elif (_has_fv or _has_safety) and kind == "li" and "paragrafului 2.8." in text:
+            text = text.replace("paragrafului 2.8.",
+                                "paragrafului 2.%d." % (8 + (1 if _has_fv else 0) + (1 if _has_safety else 0)))
         if kind == "h1":
             _add_heading(doc, text, level=1)
         elif kind == "h2":

@@ -8,6 +8,10 @@ import fitz  # PyMuPDF
 
 # Roșu pentru planșa de iluminat (RGB 0-1)
 RED = (0.86, 0.16, 0.16)
+_RED_DEFAULT = RED                      # alias: _draw_bulb umbreste `RED` cu parametrul `color`
+# ILUMINAT DE SIGURANTA (I7-2011 cap. 7.23): verdele conventional al cailor de evacuare (SR EN 1838).
+# Se foloseste si la corpul de evacuare (pictograma), si la becul normal echipat cu kit de panica.
+_SAFETY_GREEN = (0.043, 0.588, 0.286)   # #0B9649
 _BULB_YELLOW = (0.980, 0.780, 0.459)   # #FAC775 — umplutură DOAR la aplica_senzor
 
 # Pattern suprafață cameră: "A: 20.41 mp" / "A:20.41mp" / "S = 12.3 mp" etc.
@@ -62,13 +66,16 @@ def _find_room_centers(page, W, H):
     return centers
 
 
-def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, scale=1.0):
+def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, scale=1.0, color=None):
     """Simbol corp de iluminat PE TIP (contur roșu; senzor cu umplutură galbenă), portat din Konva:
       aplica_tavan: cerc + X | aplica_perete: semicerc + punct | lustra_led: cerc+X + 2 inele |
       banda_led: dreptunghi alungit + liniuțe | aplica_senzor: cerc + X cu fill galben.
     y_offset: deplasare verticală (cale text_regex -22; vision_bbox/regenerare 0). aplica_tavan = aspectul vechi.
-    scale: factor pe TOATE razele/offset-urile (forma identica, mai mica) — pt. legenda (L3). scale=1.0 = neschimbat."""
+    scale: factor pe TOATE razele/offset-urile (forma identica, mai mica) — pt. legenda (L3). scale=1.0 = neschimbat.
+    color: culoarea conturului; None = ROSU (normal). VERDE = bec echipat cu kit de panica — ACELASI
+    simbol, doar culoarea difera, ca inginerul sa vada dintr-o privire care corpuri raman aprinse."""
     s = scale
+    RED = color or _RED_DEFAULT   # umbreste constanta globala DOAR in interiorul functiei
     cx0 = cx; cy0 = cy + y_offset   # centrul simbolului
 
     def X(rr):  # X = două diagonale la 45° pe rază rr
@@ -109,6 +116,49 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
     else:  # aplica_tavan (default) — NESCHIMBAT: cerc + X la raza r
         page.draw_circle(center, r * s, color=RED, width=1.2)
         X(r * s)
+
+
+# ── ILUMINAT DE SIGURANTA ────────────────────────────────────────────────────────────────────
+# Doua mecanisme, deliberat diferite (decizia Dan):
+#   (a) EVACUARE   = corp AUTONOM cu acumulator, element propriu 'corp_evacuare'. INTENTIONAT
+#       ABSENT din _BULB_TYPES: altfel compute_circuits l-ar inghiti in circuitul normal de
+#       iluminat, iar el trebuie sa aiba circuit DEDICAT (tiparul banda_led_driver).
+#   (b) ANTIPANICA = KIT pe un bec NORMAL existent -> becul ramane bec, pe circuitul lui;
+#       se schimba doar culoarea pe plansa (verde) si un rand in lista de cantitati.
+# Plasarea corpurilor de evacuare e MANUALA — regula "max 15 m pe caile de evacuare" cere un graf
+# de usi care nu exista (vezi _heat_seg_path: "traversarea prin usi cere graf de usi"), iar detectia
+# usilor s-a dovedit nefiabila (autentica pe 1 din 8 planuri reale). O plansa cu corpuri plasate
+# automat ar PAREA conforma fara sa fie, si inginerul o semneaza.
+_EVAC_TYPE = "corp_evacuare"
+_EVAC_W = 8                       # W per corp (LED autonom) — putere de circuit, nu de iluminare
+_SIGURANTA_ROOM = "Iluminat de siguranță"   # rubrica sintetica din editor (tiparul _ACCES_ROOM)
+# Pragurile de marcare AUTOMATA cu kit de panica (I7-2011). Se aplica DOAR unde exista deja un bec.
+_KIT_ROOM_M2 = 60.0               # incapere mare -> un bec din ea primeste kit
+_KIT_BATH_M2 = 8.0                # grup sanitar / baie peste 8 mp -> idem
+
+
+def _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=1.0):
+    """Pictograma de iesire, VERDE: dreptunghi plin + sageata alba spre tocul usii. Deliberat ALTA
+    forma decat orice bec (cerc/semicerc/patrat) — pe plansa se vede imediat ca nu-i corp normal."""
+    s = scale
+    x0, y0 = cx, cy + y_offset
+    w, h = 15.0 * s, 8.5 * s
+    page.draw_rect(fitz.Rect(x0 - w, y0 - h, x0 + w, y0 + h),
+                   color=_SAFETY_GREEN, fill=_SAFETY_GREEN, width=0.8)
+    W = (1, 1, 1)
+    # tocul usii (bara verticala + prag) in dreapta
+    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 - 5.5 * s), fitz.Point(x0 + 8.5 * s, y0 + 5.5 * s), color=W, width=1.4 * s)
+    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 - 5.5 * s), fitz.Point(x0 + 4.0 * s, y0 - 5.5 * s), color=W, width=1.4 * s)
+    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 + 5.5 * s), fitz.Point(x0 + 4.0 * s, y0 + 5.5 * s), color=W, width=1.4 * s)
+    # sageata spre usa
+    page.draw_line(fitz.Point(x0 - 9.0 * s, y0), fitz.Point(x0 + 1.5 * s, y0), color=W, width=1.6 * s)
+    page.draw_line(fitz.Point(x0 + 1.5 * s, y0), fitz.Point(x0 - 2.5 * s, y0 - 3.5 * s), color=W, width=1.6 * s)
+    page.draw_line(fitz.Point(x0 + 1.5 * s, y0), fitz.Point(x0 - 2.5 * s, y0 + 3.5 * s), color=W, width=1.6 * s)
+
+
+def _is_kit(el):
+    """Becul e echipat cu kit de panica? (coloana plan_elements.kit_panica; absenta -> False)."""
+    return bool((el or {}).get("kit_panica"))
 
 
 # eticheta becului: "{Nume} LED[ SP] {power}W" — power_w gol/None -> fara watt (NU inventa default)
@@ -152,6 +202,20 @@ _AREA_STEP_MP = (
 )
 
 
+def _comercial_regula(name, subtip):
+    """Regula pe destinatie a camerei (tuplul din comercial.REGULI) sau None. Se apeleaza DOAR cu
+    sub-tip comercial selectat -> pe cladirile rezidentiale nu se atinge nimic. Cheile COMUNE
+    (depozit/birou/receptie/vanzare/...) nu au regula aici: cad mai jos, pe regulile vechi."""
+    if not subtip:
+        return None
+    try:
+        import comercial
+        k = comercial.camera_canonica(_norm_name_ro(name), subtip)
+        return comercial.REGULI.get(k) if k else None
+    except Exception:
+        return None   # fail-safe: modul lipsa/eroare -> exact comportamentul de dinainte
+
+
 def _nume_efectiv(name, subtip):
     """Numele pe care se aplica REGULILE. Cu sub-tip comercial, numele de pe plan se traduce intai
     in camera canonica si se folosesc regulile ETICHETEI ei: „Sala" pe un fitness devine „Sala
@@ -171,8 +235,12 @@ def _nume_efectiv(name, subtip):
 
 def bulb_area_step(name, subtip=None):
     """Pasul „+1 corp la X mp" pentru o camera (None = fara pas -> mecanismul vechi, 1 sau 2 becuri).
-    Camerele comerciale au pasul in _COMERCIAL_RULES; birou/depozit il primesc separat, ca sa NU li
-    se schimbe tipul sau puterea existenta decat unde e decis explicit."""
+    Camerele comerciale au pasul in comercial.REGULI (pe destinatie) sau in _COMERCIAL_RULES;
+    birou/depozit il primesc separat, ca sa NU li se schimbe tipul sau puterea existenta decat unde
+    e decis explicit."""
+    reg = _comercial_regula(name, subtip)
+    if reg:
+        return reg[3]                       # pas_mp (None = un singur corp)
     n = _nume_efectiv(name, subtip)
     for rx, _t, _w, step in _COMERCIAL_RULES:
         if rx.search(n):
@@ -192,6 +260,11 @@ def _bulb_rule_for_room(name, subtip=None):
       dormitoare / birouri              -> lustra_led 30W
       restul (bai, holuri, camara, dressing, spalator, depozitare, spatiu tehnic) -> aplica_tavan 25W
     Ordine specific->generic (ca la prize). Returneaza (element_type, power_w)."""
+    # REGULA PE DESTINATIE (spatii comerciale) — prima, si numai cu sub-tip selectat. Camerele fara
+    # regula proprie (cele COMUNE) cad mai jos, pe regulile vechi.
+    reg = _comercial_regula(name, subtip)
+    if reg:
+        return (reg[1], reg[2])             # element_type, W
     n = _nume_efectiv(name, subtip)
     if "teras" in n:
         return ("aplica_senzor", 30)
@@ -224,7 +297,7 @@ def _bulb_label(element_type, power_w, circuit_id=None):
     return "{} - {}".format(cid, txt) if cid else txt   # fara circuit_id -> eticheta veche (backward-compat)
 
 
-def _bulb_label_spec(cx, cy, element_type, power_w, circuit_id=None):
+def _bulb_label_spec(cx, cy, element_type, power_w, circuit_id=None, kit=False):
     """Spec eticheta bec (pozitia DE BAZA, identica cu desenul vechi): text centrat pe cx, DEASUPRA
     simbolului (top din _BULB_TOP). None daca nu e nimic de scris. Desenul efectiv = _draw_label_spec."""
     txt = _bulb_label(element_type, power_w, circuit_id)
@@ -234,7 +307,9 @@ def _bulb_label_spec(cx, cy, element_type, power_w, circuit_id=None):
     w = len(txt) * fs * 0.50                      # latime aproximativa (centrare; bold = chars mai late)
     top = _BULB_TOP.get(element_type, 10)
     return {"text": txt, "x0": cx - w / 2.0, "y": cy - top - 5.0, "w": w, "fs": fs,
-            "font": "hebo", "color": RED}         # hebo = Helvetica BOLD
+            # eticheta urmeaza culoarea simbolului: verde la becul cu kit, ca sa nu ramana
+            # un simbol verde cu textul lui rosu
+            "font": "hebo", "color": (_SAFETY_GREEN if kit else RED)}   # hebo = Helvetica BOLD
 
 
 _LBL_LINE_H = 10.0   # inaltimea unui rand suplimentar de eticheta (O2: wrap pe 2 randuri)
@@ -574,7 +649,7 @@ def _legend_pw(pw):
         return None
 
 
-def _legend_label(kind, element_type, power_w=None, label=None):
+def _legend_label(kind, element_type, power_w=None, label=None, kit=False):
     """Text DESCRIPTIV pt. LEGENDA (separat de _bulb_label, care ramane SCURT pt. etichetele de pe plan):
       - bulb / switch / panel (iluminat); prize / receptor(alimentare) / internet (forta).
       - cablul e construit direct in build_legend_rows (plan_type-aware). Putere None -> fara segment W."""
@@ -589,6 +664,14 @@ def _legend_label(kind, element_type, power_w=None, label=None):
     if kind == "internet":
         return "DDCS - DOZA DE LEGATURA CURENTI SLABI"   # decizia Dan (era "Priza date / internet (RJ45)")
     # bulb (default)
+    if kit:
+        # I7-2011, iluminat antipanica. Textul include CORPUL, nu doar kitul: exista cate un rand
+        # per tip de bec echipat, iar "Bec de panica echipat cu kit" repetat de 3 ori ar fi fost
+        # trei randuri identice cu simboluri diferite (capcana veche aplica_tavan/aplica_perete).
+        _n = _LEGEND_BULB_NAME.get(element_type, "Corp")
+        _p = _legend_pw(power_w)
+        return "%s LED%s echipat cu kit de panica, autonomie 2 ore" % (
+            _n, (" de %dW" % _p) if _p is not None else "")
     name = _LEGEND_BULB_NAME.get(element_type, "Corp")
     base = "{} LED cu senzor de prezenta".format(name) if element_type == "aplica_senzor" else "{} LED".format(name)
     pw = _legend_pw(power_w)
@@ -692,13 +775,14 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
         if et not in _BULB_TYPES:
             continue
         pw = _legend_pw(el.get("power_w"))
-        key = (et, pw)
+        kit = _is_kit(el)                      # becul cu kit de panica = RAND PROPRIU (alt text, verde)
+        key = (et, pw, kit)
         if key in seen:
             continue
         seen.add(key)
-        bulbs.append({"kind": "bulb", "element_type": et, "power_w": pw,
-                      "text": _legend_label("bulb", et, pw)})
-    bulbs.sort(key=lambda r: (r["element_type"], r["power_w"] is None, r["power_w"] or 0))
+        bulbs.append({"kind": "bulb", "element_type": et, "power_w": pw, "kit": kit,
+                      "text": _legend_label("bulb", et, pw, kit=kit)})
+    bulbs.sort(key=lambda r: (r["kit"], r["element_type"], r["power_w"] is None, r["power_w"] or 0))
 
     # b) INTRERUPATOARE (iluminat): doar tipurile prezente, ordine determinista
     switches = [{"kind": "switch", "element_type": et, "text": _legend_label("switch", et)}
@@ -792,7 +876,13 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
         if "banda_led_path" in present:
             banda_rows.append({"kind": "banda_link", "text": "Legatura 24V driver - banda"})
 
-    return bulbs + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows + ground_rows + banda_rows
+    # j) ILUMINAT DE SIGURANTA: corpul de evacuare (autonom). Kitul de panica NU are rand aici —
+    # e deja in `bulbs`, ca rand propriu al becului echipat (acelasi simbol, verde, alt text).
+    evac_rows = ([{"kind": "evacuare",
+                   "text": "Corp iluminat evacuare autonom, autonomie 2 ore"}]
+                 if _EVAC_TYPE in present else [])
+
+    return bulbs + evac_rows + switches + prizes_rows + receptor_rows + internet_rows + panels + fv_rows + cable_rows + ground_rows + banda_rows
 
 
 # Prag suprafață "cameră mare" -> 2 becuri (pe axa lungă). Ușor de ajustat.
@@ -2100,7 +2190,10 @@ def _draw_legend(page, x, y, rows):
         cx = x + PAD + SYM_W / 2.0
         kind = r.get("kind")
         if kind == "bulb":
-            _draw_bulb(page, cx, cy, r.get("element_type") or "aplica_tavan", y_offset=0, scale=0.42)
+            _draw_bulb(page, cx, cy, r.get("element_type") or "aplica_tavan", y_offset=0, scale=0.42,
+                       color=(_SAFETY_GREEN if r.get("kit") else None))
+        elif kind == "evacuare":
+            _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=0.42)
         elif kind == "panel":
             # +2 vertical: conectorul tabloului urca ~8pt -> centreaza simbolul in celula
             _draw_panel(page, cx, cy + 2.0, r.get("element_type") or "", scale=0.5, with_label=False)
@@ -2352,6 +2445,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     Skip sigure: intrerupator cu room null (legacy), bec non-senzor fara switch in camera, tablou lipsa.
     Returneaza (cables, stats). cable = {from_type, from_xy, to_type, to_xy, path:[(x,y)..], kind, length, room}."""
     bulbs, switches, panels, prizes, receptors = [], [], {}, [], []
+    evacs = []                       # corpuri de evacuare: alimentare PERMANENTA, direct la tablou
     for el in (elements or []):
         try:
             et = el.get("element_type") or ""
@@ -2359,7 +2453,9 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         except (TypeError, ValueError, KeyError):
             continue
         room = el.get("room")
-        if et in _BULB_TYPES:
+        if et == _EVAC_TYPE:
+            evacs.append({"et": et, "x": x, "y": y, "room": room})
+        elif et in _BULB_TYPES:
             bulbs.append({"et": et, "x": x, "y": y, "room": room})
         elif et in _SWITCH_TYPES:
             if room:                       # skip intrerupator cu room null (legacy)
@@ -2431,6 +2527,17 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         bulbs_by_room.setdefault(b["room"], []).append(b)
     for s in switches:
         sw_by_room.setdefault(s["room"], []).append(s)
+
+    # CORP DE EVACUARE -> TABLOU, NECONDITIONAT. Spre deosebire de senzor (R2: cu intrerupator in
+    # camera devine comutabil), corpul de evacuare NU se comuta niciodata — un corp de siguranta pe
+    # intrerupator nu e corp de siguranta. Traseul e L/dunga ca la restul, dar fara etapa de switch.
+    for b in evacs:
+        if lum_panel_xy:
+            add(_EVAC_TYPE, (b["x"], b["y"]), lum_panel_type, lum_panel_xy, "evacuare_teg",
+                b.get("room"), via_stripe=True)
+            stats["evacuare_teg"] = stats.get("evacuare_teg", 0) + 1
+        else:
+            stats["skip_tablou_lipsa"] += 1
 
     # BEC -> INTRERUPATOR (pe tip) + SENZOR -> TEG
     for room, rb in bulbs_by_room.items():
@@ -3519,10 +3626,22 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             except (TypeError, ValueError, KeyError):
                 continue
             if et in _BULB_TYPES:
-                _draw_bulb(page, x, y, et, y_offset=0)                               # forma PE TIP (1b)
-                _sp = _bulb_label_spec(x, y, et, el.get("power_w"), el.get("circuit_id"))   # eticheta + prefix circuit
+                # Kitul de panica NU schimba forma, doar culoarea: acelasi corp, pe acelasi circuit,
+                # dar verde ca sa se vada dintr-o privire care raman aprinse la caderea tensiunii.
+                _draw_bulb(page, x, y, et, y_offset=0,
+                           color=(_SAFETY_GREEN if _is_kit(el) else None))            # forma PE TIP (1b)
+                _sp = _bulb_label_spec(x, y, et, el.get("power_w"), el.get("circuit_id"), kit=_is_kit(el))
                 if _sp:
                     _labels.append(_sp)
+                n_bulb += 1
+            elif et == _EVAC_TYPE:
+                # Corp de evacuare autonom: pictograma verde + eticheta cu codul circuitului dedicat
+                # (acelasi tipar ca driverul de banda).
+                _draw_corp_evacuare(page, x, y)
+                _ecid = _cid_display(el.get("_cid_label") or el.get("circuit_id") or "")
+                _etxt = " ".join(t for t in (_ecid, "EVACUARE") if t)
+                _labels.append({"text": _etxt, "x0": x - len(_etxt) * 4.5 * 0.50, "y": y - 13.0,
+                                "w": len(_etxt) * 4.5, "fs": 4.5, "font": "hebo", "color": _SAFETY_GREEN})
                 n_bulb += 1
             elif et in _SWITCH_TYPES:
                 _draw_switch(page, x, y, float(el.get("rotation") or 0.0), et)        # pe tip (deja)
@@ -3827,7 +3946,11 @@ def draw_plan_elements(data: dict) -> dict:
                 doors = geometry.extract_doors(page, W, H)
                 columns = geometry.extract_columns(page)
                 h_segs, v_segs, _dd = geometry._collect(page)
-                _sw_centers = [c for c in centers if c.get("_bulb_type") != "aplica_senzor"]
+                # FARA intrerupator: senzorul isi comanda singur lumina, iar corpul de evacuare
+                # trebuie sa ramana alimentat permanent. _switch_centers are paritate 1:1 STRICTA
+                # (garanteaza cate un intrerupator per intrare), deci excluderea se face AICI.
+                _NO_SWITCH = ("aplica_senzor", _EVAC_TYPE)
+                _sw_centers = [c for c in centers if c.get("_bulb_type") not in _NO_SWITCH]
                 switches = _switch_centers(_sw_centers, doors, columns, h_segs, v_segs, W, H, rboxes)
             except Exception:
                 switches = []
@@ -3900,6 +4023,42 @@ def draw_plan_elements(data: dict) -> dict:
                         "wall_mounted": True, "rotation": round(float(s.get("angle", 0)), 3),
                         "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
                     })
+                # ── KIT DE PANICA (I7-2011): marcheaza AUTOMAT cate un bec in incaperile care il
+                # cer — camere peste 60 mp si grupuri sanitare peste 8 mp. Se pune pe UN singur bec
+                # din incapere (primul, ordinea e deja determinista), si DOAR daca incaperea are
+                # bec: nu inventam corpuri, doar echipam unul existent. Inginerul poate debifa din
+                # editor. Aria vine din cartus (aceeasi sursa ca numarul de becuri).
+                _area_by_room = {}
+                for _r in (rooms or []):
+                    try:
+                        _nm = ((_r or {}).get("name") or "").strip()
+                        _a = float((_r or {}).get("area_m2") or 0)
+                        if _nm and _a > 0:
+                            _area_by_room[_nm] = max(_a, _area_by_room.get(_nm, 0.0))
+                    except (TypeError, ValueError):
+                        continue
+                # zona umeda: ACEEASI sursa ca RCCB-ul de 10mA (enrich_circuits._BATH_RX), importata
+                # lazy ca sa nu se dubleze lista (import circular la nivel de modul; tiparul e deja
+                # folosit in compute_cables). Import esuat -> prag unic de camera (fail-safe).
+                try:
+                    import enrich_circuits as _ec_bath
+                    _bath_rx = _ec_bath._BATH_RX
+                except Exception:
+                    _bath_rx = None
+                _kit_done = set()
+                for _el in _elements:
+                    if _el.get("element_type") not in _BULB_TYPES:
+                        continue
+                    _nm = (_el.get("room") or "").strip()
+                    if not _nm or _nm in _kit_done:
+                        continue
+                    _a = _area_by_room.get(_nm, 0.0)
+                    _prag = (_KIT_BATH_M2 if (_bath_rx and _bath_rx.search(_norm_name_ro(_nm)))
+                             else _KIT_ROOM_M2)
+                    if _a > _prag:
+                        _el["kit_panica"] = True
+                        _kit_done.add(_nm)
+
                 # ── ACCES CLADIRE: aplica cu senzor pe fatada, la intrare (DOAR parter) ──────────
                 # Detectia automata a usii de intrare a fost abandonata dupa testarea pe 8 planuri
                 # reale (marcaj autentic pe 1, fals pozitivi din legenda/nume de camera pe 2), asa

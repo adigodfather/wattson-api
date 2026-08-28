@@ -86,11 +86,32 @@ def pozare_for(section):
 # Sincron cu BATH_RX din lib/auto-prize.ts (prizele IP44) — altfel prizele si RCCB-ul diverg.
 _BATH_RX = re.compile(r"(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)", re.I)
 _TERRACE_KW = ("terasa", "terasă", "balcon", "loggia", "logie")
-def rccb_zone(room):
-    """Categoria zonei cu RCCB 10mA (sau None). Bai -> 'baie'; terase/balcoane -> 'terasa'."""
+def _comercial_umed(room, subtip):
+    """Nivelul de protectie ceruta de o camera COMERCIALA umeda: '10ma' / '30ma' / None.
+    Sursa e comercial.REGULI — ACEEASI din care auto-prize.ts ia tipul prizei (IP44), ca sa nu poata
+    diverge priza de protectia ei. Fara sub-tip (orice cladire rezidentiala) -> None, deci nimic nu
+    se schimba: „Spalator" dintr-o casa ramane exact cum e azi."""
+    if not subtip:
+        return None
+    try:
+        import comercial
+        import unicodedata as _ud
+        n = _ud.normalize("NFKD", room or "")
+        n = " ".join("".join(c for c in n if not _ud.combining(c)).lower().split())
+        k = comercial.camera_canonica(n, subtip)
+        reg = comercial.REGULI.get(k) if k else None
+        return reg[7] if reg else None      # campul `umed` (ultimul din tuplu)
+    except Exception:
+        return None                          # fail-safe: exact comportamentul de dinainte
+
+
+def rccb_zone(room, subtip=None):
+    """Categoria zonei cu RCCB 10mA (sau None). Bai -> 'baie'; terase/balcoane -> 'terasa';
+    zonele comerciale cu dus -> 'dus' (acelasi regim I7-2011 ca baia)."""
     r = (room or "").strip().lower()
     if _BATH_RX.search(r): return "baie"
     if any(k in r for k in _TERRACE_KW): return "terasa"
+    if _comercial_umed(room, subtip) == "10ma": return "dus"
     return None
 
 # ── Regula 2: putere receptor din formular (join pe label) ───────────────────
@@ -177,7 +198,7 @@ def _bulb_w(el):
 
 _ROOM_TYPE = None  # room_type pe plan = neutru (Vision-only); pastram nume brut
 
-def _enrich_group(c, els, panel, floor_idx):
+def _enrich_group(c, els, panel, floor_idx, subtip=None):
     """Circuit iluminat/priza din compute_circuits -> ~15 campuri (fara fasa, atribuita ulterior).
     NIVEL 1: circuitele cu id '-TECT' (becuri/prize din camera tehnica) -> panel='TE-CT' (nu TEG)."""
     kind = c["kind"]                                   # iluminat | priza
@@ -201,18 +222,27 @@ def _enrich_group(c, els, panel, floor_idx):
         desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _FLOOR_NAME.get(floor_idx, panel))
     else:
         room = c.get("room") or (els[idxs[0]].get("room") if idxs else None)   # VERBATIM (nume plan neschimbat)
-        zone = rccb_zone(room)                         # "baie"/"terasa"/None -> RCCB 10mA la ambele
+        zone = rccb_zone(room, subtip)                 # "baie"/"terasa"/"dus"/None -> RCCB 10mA
         outlets = sum(1 for i in idxs if (els[i].get("element_type") or "").startswith("priza"))
         desc = "Prize " + (str(room) if room else _FLOOR_NAME.get(floor_idx, panel))
     rccb = zone is not None
     bt = "MCB-1P-C" + (" + RCCB 10mA" if rccb else "")
+    # Zona umeda COMERCIALA de nivel 2 (spalator vase / masini de spalat / scafe de frizerie):
+    # nu e zona cu dus, deci NU 10mA, dar circuitul cere diferential 30mA. Campurile sunt cele pe
+    # care BOM-ul le stie deja (rccb_ma / has_rccb_individual) -> rand RCCB 30mA in lista.
+    umed30 = (kind != "iluminat" and not rccb and _comercial_umed(room, subtip) == "30ma")
     return {
+        **({"rccb_ma": 30, "has_rccb_individual": True} if umed30 else {}),
         "id": c["id"], "fasa": None, "room": room, "type": ctype, "floor": floor_idx,
         "panel": panel_out, "pozare": pozare_for(sec), "outlets": outlets, "power_w": power_w,
         # BUG1: nr. corpuri de iluminat -> "N LL" in schema. Maparea n8n (Pregatire Schema TEG/TES) citeste
         # cantitate = ... || outlets || lighting_points || 1; iluminatul are outlets=0 -> avea nevoie de acest
         # camp (altfel cadea pe 1). power_w ramane suma reala. Prize: 0 (numarul lor vine din outlets).
         "lighting_points": len(idxs) if kind == "iluminat" else 0,
+        # cate becuri de pe circuitul asta au kit de panica. Becul RAMANE pe circuitul lui normal
+        # (kitul e un acumulator local, nu o alta alimentare) — campul serveste doar ca schema sa
+        # stie ca proiectul are instalatie de siguranta (gate-ul Notei 5).
+        "kit_panica": sum(1 for i in idxs if (els[i] or {}).get("kit_panica")) if kind == "iluminat" else 0,
         "breaker_a": breaker_a, "room_type": zone, "cable_type": cbl, "description": desc,
         "is_bathroom": bool(rccb), "is_exterior": bool(is_ext), "breaker_type": bt,
         "pi_normalized": pi_norm, "ia_calculated_a": ia, "normalize_reason": reason,
@@ -424,6 +454,52 @@ def _enrich_banda_drivers(els, panel, floor_idx, nextn, gsuf, scale=None):
     return out, nextn, cid_map
 
 
+# ── ILUMINAT DE SIGURANTA: circuitul dedicat al corpurilor de evacuare ───────
+# Un corp de siguranta pe circuitul normal de iluminat nu e corp de siguranta: la declansarea
+# circuitului se stinge odata cu becurile pe care ar trebui sa le suplineasca. De aceea are circuit
+# PROPRIU, fara RCD (I7-2011: protectia diferentiala nu se pune pe circuitele de siguranta, ca sa nu
+# existe cauza comuna de intrerupere) si fara intrerupator. Corpurile sunt autonome (acumulator in
+# corp), deci circuitul le alimenteaza doar incarcarea — de aici puterea mica.
+_EVAC_W_PER_CORP = 8          # W/corp (identic cu _EVAC_W din draw_elements — corpuri LED autonome)
+_EVAC_MAX_PER_CIRCUIT = 20    # peste asta se sparge in mai multe circuite (limita practica de doze)
+
+
+def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf):
+    """Circuitele DEDICATE ale corpurilor de evacuare de pe un etaj. Tiparul _enrich_banda_drivers:
+    scaneaza elementele de un tip, le grupeaza, intoarce (circuite, nextn, harta element -> circuit).
+    MCB 10A curba C, FARA RCD, cablu de iluminat (3x1.5). Fara corpuri -> ([], nextn, {})."""
+    corpuri = [el for el in els if (el.get("element_type") or "") == "corp_evacuare"]
+    if not corpuri:
+        return [], nextn, {}
+    corpuri.sort(key=lambda d: (float(d.get("y") or 0), float(d.get("x") or 0)))   # ordine stabila
+    out, cid_map, i = [], {}, 0
+    for size in _split_balanced(len(corpuri), _EVAC_MAX_PER_CIRCUIT):
+        grup = corpuri[i:i + size]
+        i += size
+        power_w = _EVAC_W_PER_CORP * len(grup)
+        cbl, sec = cable_type("iluminat", 10, False, tri=False)
+        cid = "C%d%s" % (nextn, gsuf)
+        nextn += 1
+        for d in grup:
+            if d.get("id"):
+                cid_map[d["id"]] = cid
+        out.append({
+            "id": cid, "fasa": None, "room": None, "type": "iluminat", "floor": floor_idx,
+            "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
+            "lighting_points": len(grup),
+            "breaker_a": 10, "room_type": None, "cable_type": cbl,
+            "description": "Iluminat de siguranta - evacuare",
+            "is_bathroom": False, "is_exterior": False,
+            "breaker_type": "MCB-1P-C",     # FARA RCD: cauza comuna de intrerupere pe un circuit de siguranta
+            "pi_normalized": False,
+            "ia_calculated_a": round(power_w / 230.0, 2) if power_w else 0.0,
+            "normalize_reason": "Circuit de siguranta dedicat (%d corpuri autonome, 2h) - fara RCD, "
+                                "fara intrerupator" % len(grup),
+            "name": cid, "_evacuare_corpuri": len(grup),
+        })
+    return out, nextn, cid_map
+
+
 # ── Regula 5: faza round-robin ciclic PER TABLOU ─────────────────────────────
 def assign_phases(circuits, is_mono=False):
     # BRANSAMENT MONOFAZAT: exista O SINGURA faza reala -> TOATE circuitele "R" (round-robin-ul R/S/T
@@ -622,6 +698,11 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     # (non-regresie totala pe proiectele existente).
     is_tech_room = form.get("has_tech_room", True) is not False
 
+    # SPATII COMERCIALE: sub-tipul (a1_magazin_general / b1_restaurant / ...) da intelesul numelor de
+    # camere -> zonele umede proprii comertului (dusuri de fitness 10mA, spalator vase / masini de
+    # spalat / scafe de frizerie 30mA). Absent pe orice cladire rezidentiala -> nimic nu se schimba.
+    comercial_subtip = (str(form.get("comercial_subtip") or "").strip() or None)
+
     # PRESERVARE din base_circuits (parsat INTAI): circuitele TE-CT (heating) + feed-ul coloanei.
     # NU recalculam (dimensionarea din norme_alimentari e deja normativa); doar copiem + renumerotam.
     tect_circuits, feed_circuits = [], []
@@ -694,7 +775,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
             if c.get("kind") == "incalzire":                               # Regula 10: VCV/radiatoare grupate
                 plan_out.append(_enrich_heating_group(c, panel, fidx, is_mono=is_mono))
             else:
-                plan_out.append(_enrich_group(c, els, panel, fidx))
+                plan_out.append(_enrich_group(c, els, panel, fidx, comercial_subtip))
         nextn = cc["n_circuits"] + 1
         gsuf = "" if general == "TEG" else "-%s" % general
         tech_l = (tech_room or "").strip().lower()     # NIVEL 2: receptor cu room==camera tehnica -> TE-CT
@@ -728,6 +809,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         _bd, nextn, _bmap = _enrich_banda_drivers(els, panel, fidx, nextn, gsuf, scale=scale)
         plan_out.extend(_bd)
         banda_cid_map.update(_bmap)
+        # ILUMINAT DE SIGURANTA: circuit dedicat pentru corpurile de evacuare de pe etajul asta
+        _ev, nextn, _evmap = _enrich_evacuare(els, panel, fidx, nextn, gsuf)
+        plan_out.extend(_ev)
+        banda_cid_map.update(_evmap)   # aceeasi harta element -> circuit (folosita la etichetele de pe plan)
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
     plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]

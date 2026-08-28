@@ -40,12 +40,18 @@ type PlanElement = {
   phase?: string | null;            // Regula 10: 'mono' | 'tri' (radiator/VCV per element); null = mono
   circuit_id?: string | null;       // atribuit AUTOMAT la "Obtine plan" (C3); incarcat pt. eticheta (C4)
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
+  kit_panica?: boolean | null;      // bec normal echipat cu kit de emergenta 2h (iluminat antipanica)
 };
 
-const COL_BULB = "#1E63D6";
+const COL_BULB_DEFAULT = "#1E63D6";   // albastrul normal al corpurilor de iluminat
 const COL_SWITCH = "#D62828";
 const COL_SEL = "#FFD400";        // contur galben pe plan pt. elementul selectat
 const COL_SENZOR_FILL = "#FAC775"; // umplutură galbenă DOAR pt. aplica_senzor
+// ILUMINAT DE SIGURANȚĂ: verdele convențional al căilor de evacuare (SR EN 1838), identic cu
+// _SAFETY_GREEN din draw_elements.py — editorul și planșa arată la fel.
+const COL_SAFETY = "#0B9649";
+const EVAC_TYPE = "corp_evacuare";
+const SIGURANTA_ROOM = "Iluminat de siguranță";
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 
@@ -60,7 +66,7 @@ function isCameraInterioara(name: string): boolean {
   return !EXTERIOR_KW.some(k => n.includes(k));
 }
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
-const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -169,7 +175,7 @@ const TYPE_LABEL: Record<string, string> = Object.fromEntries(
 const typeLabel = (t: string) => TYPE_LABEL[t] || t;
 
 // X (2 diagonale) înscris într-un cerc de rază r — refolosit la tavan / lustră / senzor
-function bulbX(r: number) {
+function bulbX(r: number, COL_BULB = COL_BULB_DEFAULT) {
   const d = r * 0.7071;
   return (
     <>
@@ -180,7 +186,9 @@ function bulbX(r: number) {
 }
 
 // Simbol bec per tip (Konva), contur albastru COL_BULB, relativ la origine (0,0). Senzor = fill galben.
-function bulbSymbol(type: string) {
+// `col` = culoarea conturului: verde pentru becul echipat cu kit de panică — ACELAȘI simbol, doar
+// culoarea diferă (oglinda lui _draw_bulb(color=...) din draw_elements.py).
+function bulbSymbol(type: string, COL_BULB = COL_BULB_DEFAULT) {
   switch (type) {
     case "aplica_perete":   // semicerc (partea curbă în jos) + punct plin
       return (
@@ -195,7 +203,7 @@ function bulbSymbol(type: string) {
           <Circle x={0} y={0} radius={24} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
           <Circle x={0} y={0} radius={18} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
           <Circle x={0} y={0} radius={12} stroke={COL_BULB} strokeWidth={2} />
-          {bulbX(12)}
+          {bulbX(12, COL_BULB)}
         </>
       );
     case "banda_led":       // dreptunghi alungit rotunjit + liniuțe interioare (LED-uri)
@@ -227,7 +235,7 @@ function bulbSymbol(type: string) {
       return (
         <>
           <Circle x={0} y={0} radius={9} stroke={COL_BULB} strokeWidth={2} />
-          {bulbX(9)}
+          {bulbX(9, COL_BULB)}
         </>
       );
   }
@@ -714,6 +722,36 @@ export default function PlanEditor({
     const created = data as PlanElement;
     setElements(prev => [...prev, created]);
     setExpandedRooms(prev => (prev.has(roomKey) ? prev : new Set(prev).add(roomKey)));
+    setSelectedId(created.id);
+  }
+
+  // ILUMINAT DE SIGURANȚĂ: corp de evacuare autonom. Plasarea e MANUALĂ prin decizie explicită —
+  // regula „max 15 m pe căile de evacuare" cere un graf de uși care nu există, iar detecția ușilor
+  // s-a dovedit nefiabilă (autentică pe 1 din 8 planuri reale). Un corp plasat automat ar face
+  // planșa să PARĂ conformă fără să fie. Aici îl punem în mijlocul planului, inginerul îl trage
+  // deasupra ieșirii. Camera e SINTETICĂ (`room` liber) -> editorul o grupează ca pe orice cameră.
+  async function addCorpEvacuare() {
+    const floor = floorCanonic(elements[0]?.floor ?? "parter");
+    const existente = elements.filter(e => e.element_type === EVAC_TYPE);
+    const stagger = existente.length;
+    const row = {
+      project_id: projectId,
+      floor,
+      element_type: EVAC_TYPE,
+      plan_type: "iluminat",
+      label: null as string | null,
+      room: SIGURANTA_ROOM,
+      x: (pngW > 0 ? (pngW / scale) / 2 : 100) + stagger * 34,
+      y: (pngH > 0 ? (pngH / scale) / 2 : 100) + stagger * 10,
+      wall_mounted: true,          // se montează pe perete, la minimum 2 m față de pardoseală
+      rotation: 0,
+      power_w: 8,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT corp evacuare esuat", error?.message); return; }
+    const created = data as PlanElement;
+    setElements(prev => [...prev, created]);
+    setExpandedRooms(prev => new Set(prev).add(SIGURANTA_ROOM));
     setSelectedId(created.id);
   }
 
@@ -1766,6 +1804,27 @@ export default function PlanEditor({
           </>
         )}
 
+        {/* KIT DE PANICĂ (iluminat antipanică, I7-2011): se echipează un corp NORMAL existent.
+            Becul rămâne pe circuitul lui — se schimbă doar culoarea pe planșă (verde) și apare un
+            rând de kituri în lista de cantități. Marcat automat la generare pe încăperile care-l
+            cer (peste 60 mp, grupuri sanitare peste 8 mp); aici se poate adăuga sau scoate. */}
+        {isBulbType(selected.element_type) && (
+          <label style={{ display: "flex", alignItems: "center", gap: 7, margin: "8px 0 4px", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={!!selected.kit_panica}
+              onChange={e => {
+                setLocalField(selected.id, { kit_panica: e.target.checked });
+                persist(selected.id, { kit_panica: e.target.checked });
+              }}
+              style={{ width: 14, height: 14, accentColor: COL_SAFETY, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 12, color: selected.kit_panica ? COL_SAFETY : "#C5C8D6" }}>
+              Kit de panică (autonomie 2 ore)
+            </span>
+          </label>
+        )}
+
         {selected.room && (
           <div style={{ fontSize: 11, color: "#8B8FA8", marginTop: 2 }}>Cameră: <span style={{ color: "#C5C8D6" }}>{selected.room}</span></div>
         )}
@@ -1804,7 +1863,7 @@ export default function PlanEditor({
             <span aria-hidden style={{
               width: 10, height: 10, flexShrink: 0,
               borderRadius: isBulb ? "50%" : 2,
-              border: `2px solid ${isBulb ? COL_BULB : COL_SWITCH}`,
+              border: `2px solid ${isBulb ? COL_BULB_DEFAULT : COL_SWITCH}`,
               background: isBulb ? "rgba(30,99,214,0.25)" : "rgba(214,40,40,0.25)",
             }} />
           )}
@@ -2063,6 +2122,39 @@ export default function PlanEditor({
             <button type="button" className="zy-add-btn" onClick={startDrawGround}>+ Desenează priza de pământ</button>
           </div>
         )}
+      </Rubrica>
+    );
+  };
+
+  // ILUMINAT DE SIGURANȚĂ — rubrică proprie, DOAR pe planul de iluminat. Vizibilă chiar și fără
+  // corpuri: butonul trebuie să existe ca inginerul să poată adăuga primul. Plasarea e manuală
+  // (regula de 15 m pe căile de evacuare cere un graf de uși care nu există).
+  const renderSigurantaSection = () => {
+    if (mode !== "iluminat") return null;
+    const evac = elements.filter(e => e.element_type === EVAC_TYPE);
+    const kits = elements.filter(e => isBulbType(e.element_type) && e.kit_panica);
+    return (
+      <Rubrica title="Iluminat de siguranță" hint="Corpuri de evacuare autonome (2h), plasate manual deasupra ieșirilor și pe căile de evacuare. Kitul de panică se bifează pe becul normal, din rubrica camerei lui.">
+        <div style={{ fontSize: 11, color: "#8B8FA8", marginBottom: 7, paddingLeft: 2, lineHeight: 1.5 }}>
+          {evac.length} corp{evac.length === 1 ? "" : "uri"} de evacuare · {kits.length} bec{kits.length === 1 ? "" : "uri"} cu kit de panică
+        </div>
+        {evac.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
+            {evac.map((el, i) => (
+              <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COL_SAFETY, flexShrink: 0 }} />
+                <button type="button" onClick={() => selectElement(el.id)}
+                  style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit" }}>
+                  Corp evacuare {i + 1}
+                </button>
+                <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+          <button type="button" className="zy-add-btn" onClick={() => void addCorpEvacuare()}>+ Corp evacuare</button>
+        </div>
       </Rubrica>
     );
   };
@@ -2371,6 +2463,7 @@ export default function PlanEditor({
           {roomKeys.map(renderRoom)}
           {mode === "iluminat" && renderPanelsSection()}
           {mode === "forta" && renderPrizaSection()}
+          {renderSigurantaSection()}
           {renderBandaLedSection()}
           {renderGroundingSection()}
           {renderCameraTehnicaSection()}
@@ -2455,7 +2548,10 @@ export default function PlanEditor({
                   const isReceptor = isReceptorType(el.element_type);   // alimentare receptor (bucata A)
                   const isInternet = isInternetType(el.element_type);   // retea internet (simbol propriu)
                   const isDriver = el.element_type === "banda_led_driver";   // sursa 24V a benzii LED
-                  const col = isBulb ? COL_BULB : isInternet ? NET_EDGE : isDriver ? COL_BANDA_LED
+                  const isEvac = el.element_type === EVAC_TYPE;               // corp de evacuare (autonom)
+                  const col = isEvac ? COL_SAFETY
+                            : isBulb ? (el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)
+                            : isInternet ? NET_EDGE : isDriver ? COL_BANDA_LED
                             : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
                   const panel = isPanel ? (PANEL_INFO[el.element_type] || { short: "", colA: "#D1D5DB", colB: "#6B7280" }) : null;
                   const isLegend = isLegendType(el.element_type);
@@ -2525,10 +2621,22 @@ export default function PlanEditor({
                             </>
                           )}
                         </>
+                      ) : isEvac ? (
+                        <>
+                          {/* Pictogramă de ieșire, verde — oglinda lui _draw_corp_evacuare din planșă.
+                              Dreptunghiul PLIN e și zona de hit a Group-ului draggable. */}
+                          <Rect x={-15} y={-8.5} width={30} height={17} cornerRadius={2} fill={COL_SAFETY} />
+                          <Line points={[8.5, -5.5, 8.5, 5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
+                          <Line points={[8.5, -5.5, 4, -5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
+                          <Line points={[8.5, 5.5, 4, 5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
+                          <Line points={[-9, 0, 1.5, 0]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
+                          <Line points={[1.5, 0, -2.5, -3.5]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
+                          <Line points={[1.5, 0, -2.5, 3.5]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
+                        </>
                       ) : isBulb ? (
                         <>
                           {bulbHit(el.element_type)}
-                          {bulbSymbol(el.element_type)}
+                          {bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
                         </>
                       ) : isLegend ? (
                         <>
