@@ -50,8 +50,34 @@ export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; 
 const BATH_RX = /(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)/i;
 const BALCONY_KW = ["balcon", "loggia", "logie"];
 
-export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | null {
+// SPAȚII COMERCIALE — regex pe nume normalizat, oglinda lui _COMERCIAL_RULES din draw_elements.py.
+// [count fix, pas_mp] — pasul adaugă +1 priză la fiecare X mp (null = doar fixul).
+// Numele vin cu diacritice din Vision, deci le scoatem înainte de test (ca _norm_name_ro în backend).
+const COMERCIAL_PRIZE: [RegExp, number, number | null][] = [
+  [/\b(sala|spatiu|sp\.?)\s*(de\s+)?vanzare\b|\bshowroom|\bmagazin/, 4, 10],
+  [/\b(spatiu|sp\.?)\s*servicii\b|\bdeservire/,                      4, 10],
+  [/\bcasa\s*(de\s+)?marcat\b|\breceptie\b/,                         4, null],
+  [/\bvestiar|\bgarderob/,                                           2, null],
+  [/\bchicinet|\boficiu\b/,                                          4, null],
+  [/\bprobe?\b|\bcabina\s*prob/,                                     1, null],
+];
+const deDiacritice = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+
+export function prizeRuleForRoom(name: string | null | undefined, areaM2?: number | null): PrizaRule | null {
   const n = (name ?? "").toLowerCase().trim();
+  const na = deDiacritice(n);
+  const supl = (pas: number | null) =>
+    pas && areaM2 && areaM2 > 0 ? Math.floor(areaM2 / pas) : 0;   // „+1 priză la X mp"
+  // COMERCIAL, înaintea regulilor rezidențiale (numele sunt specifice, nu se suprapun).
+  // Grupul sanitar rămâne PRIMUL (mai jos e deja tratat) — zona umedă are prioritate absolută.
+  if (!BATH_RX.test(n)) {
+    for (const [rx, fix, pas] of COMERCIAL_PRIZE) {
+      if (rx.test(na)) {
+        const own = (name ?? "").trim() || "Camera";
+        return { count: fix + supl(pas), type: "priza_simpla", circuitGroup: own, heightM: 0.6 };
+      }
+    }
+  }
   const own = (name ?? "").trim() || "Camera";   // circuit propriu = numele camerei
   const S: PrizaType = "priza_simpla";
   const IP44: PrizaType = "priza_exterior_ip44"; // si pt. IP65 (terasa) — nu exista tip IP65 v1
@@ -71,7 +97,7 @@ export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | n
   if (n.includes("spatiu tehnic") || n.includes("tehnic")) return null;
   // 4. DEPOZIT/CAMARA/DRESSING -> 2 (ATENTIE: "camara" NU prinde "camera" -> inainte de living)
   if (n.includes("depozit") || n.includes("camara") || n.includes("dressing"))
-    return { count: 2, type: S, circuitGroup: own, heightM: 0.6 };
+    return { count: 2 + supl(20), type: S, circuitGroup: own, heightM: 0.6 };   // +1 la 20 mp
   // 5. LIVING / CAMERA DE ZI / "zi" -> 4
   if (n.includes("living") || n.includes("camera de zi") || n.includes(" zi") || n === "zi")
     return { count: 4, type: S, circuitGroup: own, heightM: 0.6 };
@@ -80,7 +106,7 @@ export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | n
   if (n.includes("garaj")) return { count: 3, type: IP44, circuitGroup: own, heightM: 0.6 };
   if (n.includes("bucatar")) return { count: 6, type: S, circuitGroup: "KITCHEN", heightM: 0.6 };
   if (n.includes("dormitor")) return { count: 3, type: S, circuitGroup: own, heightM: 0.6 };
-  if (n.includes("birou")) return { count: 4, type: S, circuitGroup: own, heightM: 0.6 };
+  if (n.includes("birou")) return { count: 4 + supl(12), type: S, circuitGroup: own, heightM: 0.6 };   // 500 lx -> +1 la 12 mp
   if (n.includes("spalator")) return { count: 2, type: S, circuitGroup: own, heightM: 0.6 };
   if (n.includes("hol")) return { count: 2, type: S, circuitGroup: "HOL", heightM: 0.6 };
   // 7. DEFAULT (nume necunoscut) -> 2 simpla, circuit propriu

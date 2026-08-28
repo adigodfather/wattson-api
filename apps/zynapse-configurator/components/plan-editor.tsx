@@ -67,6 +67,7 @@ const BULB_TYPES = [
   { value: "aplica_tavan",  label: "Aplică tavan" },
   { value: "aplica_perete", label: "Aplică perete" },
   { value: "aplica_senzor", label: "Aplică cu senzor" },
+  { value: "panou_led",     label: "Panou LED" },
   // "banda_led" (punctual) NU mai e ofertat: banda se TRASEAZA acum (banda_led_path -> metri reali).
   // Randarea tipului vechi ramane peste tot ca plasa, dar un bec nu mai poate fi schimbat in banda.
 ];
@@ -205,6 +206,14 @@ function bulbSymbol(type: string) {
           ))}
         </>
       );
+    case "panou_led":       // PANOU LED (comerț/birou, tavan fals): pătrat cu diagonale — oglinda planșei
+      return (
+        <>
+          <Rect x={-11} y={-11} width={22} height={22} stroke={COL_BULB} strokeWidth={2} />
+          <Line points={[-11, -11, 11, 11]} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
+          <Line points={[-11, 11, 11, -11]} stroke={COL_BULB} strokeWidth={1.5} listening={false} />
+        </>
+      );
     case "aplica_senzor":   // PERETE cu senzor: forma lui aplica_perete, umplută GALBEN (oglinda planșei)
       return (
         <>
@@ -226,14 +235,14 @@ function bulbSymbol(type: string) {
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
 function bulbHit(type: string) {
   if (type === "banda_led") return <Rect x={-32} y={-9} width={64} height={18} cornerRadius={7} fill="rgba(0,0,0,0.001)" />;
-  const r = type === "lustra_led" ? 26 : 11;
+  const r = type === "lustra_led" ? 26 : type === "panou_led" ? 15 : 11;
   return <Circle x={0} y={0} radius={r} fill="rgba(0,0,0,0.001)" />;
 }
 
 // Contur de selecție (galben) adaptat la mărimea/forma fiecărui tip de bec
 function bulbSelRing(type: string) {
   if (type === "banda_led") return <Rect x={-35} y={-12} width={70} height={24} cornerRadius={6} stroke={COL_SEL} strokeWidth={3} listening={false} />;
-  const r = type === "lustra_led" ? 29 : 15;
+  const r = type === "lustra_led" ? 29 : type === "panou_led" ? 19 : 15;
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
@@ -437,7 +446,7 @@ export default function PlanEditor({
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
-     rooms?: { name?: string | null; floor?: string | number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
+     rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
      heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[];
      bgLoading?: boolean;   // forta: fundalul curat se randeaza -> spinner in loc de gol/eroare
@@ -807,7 +816,8 @@ export default function PlanEditor({
       const rows: Record<string, unknown>[] = [];
       let nRooms = 0;
       for (const room of roomsForFloor) {
-        const rule = prizeRuleForRoom(room?.name);
+        // aria din Vision -> suplimentarul „+1 priză la X mp" (comercial, birou, depozit)
+        const rule = prizeRuleForRoom(room?.name, room?.area_m2);
         if (!rule || rule.count <= 0) continue;          // SKIP spatiu tehnic (null) + terasa acces (count 0)
         if (!room?.bbox) continue;
         // V4: perimetrul = geom_bbox (pereti reali SAU ancora etichetei) cand exista; fallback

@@ -86,6 +86,14 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
         page.draw_circle(center, 18 * s, color=RED, width=1.2)
         page.draw_circle(center, 12 * s, color=RED, width=1.2)
         X(12 * s)
+    elif et == "panou_led":
+        # PANOU LED (corp de comert/birou, montat in tavan fals): patrat cu diagonalele trasate —
+        # simbolul uzual de panel/troffer. Distinct de cerc (tavan), semicerc (perete) si dreptunghi
+        # alungit (banda). Patrat, nu dreptunghi: se citeste ca panou 60x60, nu ca banda.
+        _q = 11 * s
+        page.draw_rect(fitz.Rect(cx0 - _q, cy0 - _q, cx0 + _q, cy0 + _q), color=RED, width=1.2)
+        page.draw_line(fitz.Point(cx0 - _q, cy0 - _q), fitz.Point(cx0 + _q, cy0 + _q), color=RED, width=1.0)
+        page.draw_line(fitz.Point(cx0 - _q, cy0 + _q), fitz.Point(cx0 + _q, cy0 - _q), color=RED, width=1.0)
     elif et == "banda_led":
         page.draw_rect(fitz.Rect(cx0 - 30 * s, cy0 - 7 * s, cx0 + 30 * s, cy0 + 7 * s), color=RED, width=1.2)
         for tx in (-18, -6, 6, 18):
@@ -105,8 +113,8 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
 
 # eticheta becului: "{Nume} LED[ SP] {power}W" — power_w gol/None -> fara watt (NU inventa default)
 _BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
-              "aplica_senzor": "Aplica", "banda_led": "Banda"}
-_BULB_TOP = {"lustra_led": 25, "banda_led": 8}   # extinderea simbolului in sus (pt. pozitia etichetei)
+              "aplica_senzor": "Aplica", "banda_led": "Banda", "panou_led": "Panou"}
+_BULB_TOP = {"lustra_led": 25, "banda_led": 8, "panou_led": 12}   # extinderea simbolului in sus (pt. pozitia etichetei)
 
 
 def _norm_name_ro(s):
@@ -123,6 +131,41 @@ def _norm_name_ro(s):
 _ACCES_ROOM = "Acces clădire"
 
 
+# ── SPATII COMERCIALE: tip + putere + pas de suprafata ("+1 corp la X mp") ────────────────────
+# Nivelurile normate (NP 061-2002 Anexa 2 + SR EN 12464-1): depozite 100-150 lx, vestiare 200,
+# comert 300-500, birouri 500. Cele 4 corpuri vechi erau toate rezidentiale; panoul LED acopera
+# comertul si biroul. Numele se recunosc cu REGEX delimitat (tiparul GR. SANITAR): abrevierile
+# reale de pe plansa ("Sp. vanzare", "SPATIU SERVICII") nu se potrivesc cu substring-uri libere.
+# (regex, tip, putere_W, pas_mp) — pas None = un singur corp indiferent de suprafata.
+_COMERCIAL_RULES = (
+    (re.compile(r"\b(sala|spatiu|sp\.?)\s*(de\s+)?vanzare\b|\bshowroom|\bmagazin",        re.I), "panou_led",   40, 8.0),
+    (re.compile(r"\bcasa\s*(de\s+)?marcat\b|\breceptie\b|\bcheck\s*-?\s*out\b",           re.I), "panou_led",   40, 8.0),
+    (re.compile(r"\b(spatiu|sp\.?)\s*servicii\b|\bdeservire",                             re.I), "panou_led",   40, 10.0),
+    (re.compile(r"\bvestiar\b|\bgarderob",                                                 re.I), "aplica_tavan", 25, 10.0),
+    (re.compile(r"chicinet|\boficiu\b",                                                    re.I), "lustra_led",   40, None),
+    (re.compile(r"\bprob[aăe]\b|cabin[aă]\s*prob",                                         re.I), "aplica_tavan", 25, None),
+)
+# Pasul de suprafata pentru camerele care EXISTAU deja (valorile de tip/putere raman ale lor).
+_AREA_STEP_MP = (
+    (re.compile(r"\bbirou\b", re.I),                      12.0),
+    (re.compile(r"depozit|\bcamar[aă]\b|depozitare", re.I), 15.0),
+)
+
+
+def bulb_area_step(name):
+    """Pasul „+1 corp la X mp" pentru o camera (None = fara pas -> mecanismul vechi, 1 sau 2 becuri).
+    Camerele comerciale au pasul in _COMERCIAL_RULES; birou/depozit il primesc separat, ca sa NU li
+    se schimbe tipul sau puterea existenta decat unde e decis explicit."""
+    n = _norm_name_ro(name)
+    for rx, _t, _w, step in _COMERCIAL_RULES:
+        if rx.search(n):
+            return step
+    for rx, step in _AREA_STEP_MP:
+        if rx.search(n):
+            return step
+    return None
+
+
 def _bulb_rule_for_room(name):
     """Regula TIP + PUTERE corp de iluminat pe camera (oglinda prizeRuleForRoom; valori BASIC,
     inginerul le schimba in editor). Decide DOAR tip+putere — CATE corpuri decide _vision_centers.
@@ -135,9 +178,18 @@ def _bulb_rule_for_room(name):
     n = _norm_name_ro(name)
     if "teras" in n:
         return ("aplica_senzor", 30)
+    # COMERCIAL, INAINTE de regulile rezidentiale: "Spatiu servicii" ar cadea altfel pe generic.
+    # Dupa "teras" ca sa nu fure "Terasa comerciala"; inaintea restului fiindca numele comerciale
+    # sunt specifice si nu se suprapun cu living/dormitor.
+    for rx, et, pw, _step in _COMERCIAL_RULES:
+        if rx.search(n):
+            return (et, pw)
     if "living" in n or "camera de zi" in n or " zi" in n or n == "zi" or "bucatar" in n:
         return ("lustra_led", 40)
-    if "dormitor" in n or "birou" in n:
+    # BIROU: 500 lx normat -> 40W (era 30W, valoare rezidentiala). Dormitorul ramane la 30W.
+    if "birou" in n:
+        return ("lustra_led", 40)
+    if "dormitor" in n:
         return ("lustra_led", 30)
     return ("aplica_tavan", 25)
 
@@ -466,7 +518,7 @@ def _draw_priza_label(page, cx, cy, el, inward=None):
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
 # Nume de baza becuri in legenda. Tablouri/intrerupatoare = text descriptiv. FARA diacritice (ca restul planului).
 _LEGEND_BULB_NAME = {"aplica_tavan": "Aplica", "aplica_perete": "Aplica", "lustra_led": "Lustra",
-                     "banda_led": "Banda", "aplica_senzor": "Aplica"}
+                     "banda_led": "Banda", "aplica_senzor": "Aplica", "panou_led": "Panou"}
 _PANEL_LEGEND_NAME = {
     "tablou_teg":    "TEG: Tablou electric general (montaj h=1.5m)",
     "tablou_te_ct":  "TE-CT: Tablou electric camera-tehnica (montaj h=1.5m)",
@@ -1039,16 +1091,23 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None):
         # ~0% variație între generări ȘI exactă (= aria reală). NU pe aria GEOMETRICĂ — poligonul
         # poate over-merge (ex. Camera de zi geom 49.7 vs cartuș 35.75 -> ar putea umfla gresit count-ul).
         # `area` = area_m2 cartuș când există; fallback la aria bbox doar dacă lipsește din cartuș.
-        if area >= ROOM_LARGE_M2:
-            # 2 becuri pe axa LUNGĂ a bbox-ului, re-centrate pe (cxc, cyc). PROTEJATE (coverage intentionat).
-            if w * W >= h * H:
-                dx = (w / 6.0) * W   # jumătatea distanței dintre pozițiile 1/3 și 2/3
-                centers.append({"x": cxc - dx, "y": cyc, "label": label, "room": idx, "geometric": _anchored, "protected": True})
-                centers.append({"x": cxc + dx, "y": cyc, "label": label, "room": idx, "geometric": _anchored, "protected": True})
-            else:
-                dy = (h / 6.0) * H
-                centers.append({"x": cxc, "y": cyc - dy, "label": label, "room": idx, "geometric": _anchored, "protected": True})
-                centers.append({"x": cxc, "y": cyc + dy, "label": label, "room": idx, "geometric": _anchored, "protected": True})
+        # CATE corpuri: camerele cu PAS de suprafata (comercial + birou/depozit) primesc
+        # 1 + area//pas — un spatiu de vanzare de 34 mp are nevoie de mai mult decat cele 2 becuri
+        # ale pragului rezidential. Restul raman pe mecanismul vechi (1 sau 2 la ROOM_LARGE_M2),
+        # deci camerele de locuit sunt NEATINSE. Plafon 12: peste, plasarea uniforma n-ar mai avea
+        # sens fara o grila reala (si nicio camera din proiectele reale nu-l atinge).
+        _step = bulb_area_step(label)
+        _n = min(12, 1 + int(area // _step)) if (_step and area > 0) else (2 if area >= ROOM_LARGE_M2 else 1)
+        if _n >= 2:
+            # N corpuri distribuite UNIFORM pe axa LUNGA, la pozitiile (2i+1)/2N — aceeasi asezare
+            # ca vechiul caz cu 2 (care da 1/4 si 3/4), doar generalizata.
+            _horiz = w * W >= h * H
+            _span = (w * W) if _horiz else (h * H)
+            for _i in range(_n):
+                _off = _span * ((2 * _i + 1) / (2.0 * _n) - 0.5)
+                centers.append({"x": cxc + (_off if _horiz else 0.0),
+                                "y": cyc + (0.0 if _horiz else _off),
+                                "label": label, "room": idx, "geometric": _anchored, "protected": True})
         else:
             # R2 — HOL alungit (bbox aspect>2, fallback): 1 bec in MIJLOCUL holului, garantat off-wall.
             # Axa SCURTA (perp) = mijloc intre cei 2 pereti lungi; daca DOAR UNUL se gaseste -> mijloc
@@ -1347,7 +1406,7 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 # reali din desen), nu se numara la bucata. Simbolul, abrevierea si _BULB_TOP raman definite —
 # un element vechi/orfan se DESENEAZA in continuare, doar ca nu mai intra in legenda de becuri
 # si nu mai poate fi creat din UI. Sincron cu bom.py (altfel BOM-ul si plansa ar diverge).
-_BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor"}
+_BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "panou_led"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator",
                 "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2: tablourile FV si pe PDF
