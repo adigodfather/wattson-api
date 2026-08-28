@@ -4092,7 +4092,11 @@ _SURF_NUM = re.compile(r"[=:]\s*([\d]+(?:[.,]\d+)?)\s*(?:mp|m2|m²|mc)?", re.I)
 # litera + separator: un regex generic ("orice numar urmat de m2") ar inghiti si valorile din
 # bilant si ar DUBLA suma (masurat: 2429 mp in loc de 208 pe un plan real). "Sc=" / "Ac=" NU se
 # potrivesc aici (dupa S/A urmeaza o litera, nu separatorul) -> bilantul nu contamineaza suma.
-_ROOM_AREA_RX = re.compile(r"^\s*[as]\s*[:=]\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)\s*(?:m2|mp|m²)\b")
+# "SU=" (suprafata utila) adaugat dupa masurarea ancorelor REALE pe 9 planuri distincte: A (58
+# aparitii), S (42), SU (4). Restul gasite — AC / ACD / S.C / SOL / TRS — sunt ancore de BILANT si
+# raman EXCLUSE intentionat; adaugarea lor ar dubla suma. Ancorele stau ENUMERATE (su|a|s), nu
+# generalizate: "su" INAINTE de [as], altfel "s" ar consuma litera si "u" ar rupe potrivirea.
+_ROOM_AREA_RX = re.compile(r"^\s*(?:su|[as])\s*[:=]\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)\s*(?:m2|mp|m²)\b")
 # Coeficient CONSERVATOR pereti: construita = Σ utila x k. Masurat pe plan real cu bilant:
 # 245.73 / 208.04 = 1.181. Folosim 1.15 -> ramanem SUB realitate (nu putem supra-factura).
 _ROOM_SUM_COEF = 1.15

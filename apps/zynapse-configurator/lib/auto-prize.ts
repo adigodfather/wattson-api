@@ -39,10 +39,15 @@ export function prizeCountPerRoom(circuits: Circuit[] | null | undefined): Recor
 export type PrizaType = "priza_simpla" | "priza_dubla" | "priza_16a" | "priza_exterior_ip44";
 export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; heightM: number };
 
-// FIX-P: familiile de camere cu prize IP44 — SINCRON cu enrich_circuits.py (_BATH_KW / _TERRACE_KW):
+// FIX-P: familiile de camere cu prize IP44 — SINCRON cu enrich_circuits.py (_BATH_RX / _TERRACE_KW):
 // acolo dau RCCB 10mA pe circuit, aici tipul + inaltimea prizei. Modifici una -> modifici AMBELE
 // (altfel: simbol/cablu normal pe un circuit protejat 10mA). "teras" acopera terasa/terasă din enrich.
-const BATH_KW = ["baie", "bath", "wc", "g.s", "grup sanitar", "gs"];
+// ZONA UMEDA — regex, OGLINDA EXACTĂ a lui _BATH_RX din enrich_circuits.py. Pe planuri reale camera
+// se cheamă „GR. SANITAR" (abreviere), care nu se potrivea cu vechile chei → prize simple, fără IP44
+// și fără RCCB 10mA (neconform I7-2011). „sanitar" acoperă toate variantele scrise; „g.s" acoperă
+// abrevierea pură, dar DELIMITATĂ — vechiul „gs" ca substring liber era un fals-pozitiv în așteptare.
+// Dacă se schimbă una, se schimbă AMÂNDOUĂ: altfel prizele primesc IP44 iar circuitul rămâne fără RCCB.
+const BATH_RX = /(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)/i;
 const BALCONY_KW = ["balcon", "loggia", "logie"];
 
 export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | null {
@@ -52,7 +57,7 @@ export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | n
   const IP44: PrizaType = "priza_exterior_ip44"; // si pt. IP65 (terasa) — nu exista tip IP65 v1
 
   // 0. BAIE/G.S./WC (prima, ca in enrich.rccb_zone) -> 1 IP44 la h=1.2, grup comun BAIE
-  if (BATH_KW.some((k) => n.includes(k)))
+  if (BATH_RX.test(n))
     return { count: 1, type: IP44, circuitGroup: "BAIE", heightM: 1.2 };
   // 1-2. TERASA: "acces" -> 0 (manual) INAINTE de terasa generica (acoperita -> 2 IP65->IP44, h=0.4)
   if (n.includes("teras"))
@@ -71,7 +76,7 @@ export function prizeRuleForRoom(name: string | null | undefined): PrizaRule | n
   if (n.includes("living") || n.includes("camera de zi") || n.includes(" zi") || n === "zi")
     return { count: 4, type: S, circuitGroup: own, heightM: 0.6 };
   // 6. restul (specific): garaj, bucatarie(KITCHEN), dormitor, birou, spalator, hol(COMUN)
-  //    (baie a urcat la punctul 0 — familia BATH_KW acopera si "baie")
+  //    (baie a urcat la punctul 0 — BATH_RX acopera si "baie")
   if (n.includes("garaj")) return { count: 3, type: IP44, circuitGroup: own, heightM: 0.6 };
   if (n.includes("bucatar")) return { count: 6, type: S, circuitGroup: "KITCHEN", heightM: 0.6 };
   if (n.includes("dormitor")) return { count: 3, type: S, circuitGroup: own, heightM: 0.6 };

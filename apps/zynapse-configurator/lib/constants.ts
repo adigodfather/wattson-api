@@ -78,6 +78,12 @@ export const HEATING_GENERATION = [
   { value: "electric_radiator", label: "Radiator electric" },
   { value: "district_heating", label: "Termoficare (rețea urbană)" },
   { value: "existing",         label: "Sistem existent (fără modificări)" },
+  // Spatiu intr-o cladire colectiva (comercial la parter de bloc, apartament): incalzirea vine de la
+  // centrala imobilului, deci proiectul electric n-are sursa proprie. Distinct de "existing", care
+  // spune ca EXISTA o instalatie in spatiu si nu se modifica. Eticheta de memoriu exista deja in
+  // backend ("none" -> "Fara incalzire centralizata", main.py). INTENTIONAT absent din
+  // HEATING_TYPE_TO_CATEGORY -> heating_system=null -> n8n iese pe ramura fara echipamente termice.
+  { value: "none",             label: "Fără sistem propriu / racordat la centrala clădirii" },
 ];
 
 // Faza 2 TE-CT: default-ul checkbox-ului "am camera tehnica" PER SURSA (decizia Dan):

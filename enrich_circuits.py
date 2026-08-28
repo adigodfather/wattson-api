@@ -77,12 +77,19 @@ def pozare_for(section):
     return "IPEY 32mm"
 
 # ── Regula 8: zone cu RCCB 10mA obligatoriu (I7-2011): BAI + TERASE/BALCOANE ──
-_BATH_KW = ("baie", "bath", "wc", "g.s", "grup sanitar", "gs")
+# ZONA UMEDA — regex, nu lista de substring-uri. Motivul: pe planuri reale camera se cheama
+# "GR. SANITAR" (abreviere), care nu se potrivea cu niciuna din vechile chei -> primea prize simple,
+# FARA IP44 si FARA RCCB 10mA = neconform I7-2011, si invizibil (proiectul parea complet).
+#   "sanitar"  acopera "Grup sanitar" / "GR. SANITAR" / "Gr.Sanitar" / "G.S. sanitar"
+#   g[.\s]*s   acopera abrevierea pura "G.S." / "GS" / "G S", dar DELIMITATA (\b) — vechiul "gs"
+#              ca substring liber ar fi prins orice cuvant cu literele astea.
+# Sincron cu BATH_RX din lib/auto-prize.ts (prizele IP44) — altfel prizele si RCCB-ul diverg.
+_BATH_RX = re.compile(r"(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)", re.I)
 _TERRACE_KW = ("terasa", "terasă", "balcon", "loggia", "logie")
 def rccb_zone(room):
     """Categoria zonei cu RCCB 10mA (sau None). Bai -> 'baie'; terase/balcoane -> 'terasa'."""
     r = (room or "").strip().lower()
-    if any(k in r for k in _BATH_KW): return "baie"
+    if _BATH_RX.search(r): return "baie"
     if any(k in r for k in _TERRACE_KW): return "terasa"
     return None
 

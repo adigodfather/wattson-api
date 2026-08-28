@@ -2210,7 +2210,7 @@ export function ZynapseConfigurator() {
               // pleca la n8n + in memoriu, desi dropdown-ul e ascuns.
               if (v === "electric_radiator") update("heating_distribution", "");
             }} options={HEATING_GENERATION} required />
-          {form.heating_type && form.heating_type !== "existing" && form.heating_type !== "electric_radiator" && (
+          {form.heating_type && form.heating_type !== "existing" && form.heating_type !== "none" && form.heating_type !== "electric_radiator" && (
             <SelectField label="Tip distribuție căldură" value={form.heating_distribution}
               onChange={v => update("heating_distribution", v)} options={HEATING_DISTRIBUTION} />
           )}
