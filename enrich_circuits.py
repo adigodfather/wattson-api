@@ -148,10 +148,18 @@ def _ddcs_power(els):
     la dimensionare); butonul de panica si contactul magnetic sunt pasive (0 W).
     Fara echipamente de securitate -> exact 150 W, ca inainte. Rezultatul e rotunjit IN SUS."""
     try:
-        from draw_elements import _CS_POWER_W
+        from draw_elements import _CS_POWER_W, _CAM_TIPURI, _cam_tip
     except Exception:
         return _NET_RECEPTOR_W            # fail-safe: comportamentul de dinainte
-    extra = sum(_CS_POWER_W.get((e or {}).get("element_type") or "", 0) for e in (els or []))
+    extra = 0.0
+    for e in (els or []):
+        et = (e or {}).get("element_type") or ""
+        if et == "camera_video":
+            # puterea depinde de TIP: PTZ-ul are motoare de rotire + zoom motorizat, camera termica
+            # are senzor racit/stabilizat. Restul raman la 6 W.
+            extra += _CAM_TIPURI[_cam_tip(e)]["w"]
+        else:
+            extra += _CS_POWER_W.get(et, 0)
     return int(math.ceil(_NET_RECEPTOR_W + extra))
 
 # TIP NORMALIZAT pt. DEDUP receptor plan <-> circuit formular (ordine SPECIFIC->generic; robust la

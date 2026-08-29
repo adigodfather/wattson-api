@@ -717,12 +717,27 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                     continue
                 _k = _cs_cable_kind(el)
                 _cs_m[_k] = _cs_m.get(_k, 0.0) + _path_len(_pts) * scale
+            elif et == "camera_video":
+                # rand separat per TIP + MONTAJ: o Bullet de exterior si o Dome de interior sunt
+                # produse diferite (IP66/IP67, distanta IR), nu doua bucati din acelasi articol.
+                _k = draw_elements._cam_tip(el)
+                _mo = "exterior" if str(el.get("label") or "").strip().lower() == "exterior" else "interior"
+                _cs_cnt[("camera_video", _k, _mo)] = _cs_cnt.get(("camera_video", _k, _mo), 0) + 1
             elif et in _CS_BOM_NAME:
                 _cs_cnt[et] = _cs_cnt.get(et, 0) + 1
         for et in _CS_TYPES:
             if et in _cs_cnt:
                 rows.append(_row("Curenti slabi", _CS_BOM_NAME[et], "", _cs_cnt[et], "buc",
                                  sectiune="CURENTI SLABI"))
+        for _k in draw_elements._CAM_TIPURI:
+            for _mo in ("interior", "exterior"):
+                _n = _cs_cnt.get(("camera_video", _k, _mo))
+                if _n:
+                    _sp = draw_elements._CAM_TIPURI[_k]
+                    rows.append(_row("Curenti slabi",
+                                     "Camera supraveghere video IP 1080p tip %s" % _sp["nume"],
+                                     "montaj %s, unghi %d grade, raza %d m" % (_mo, _sp["unghi"], _sp["raza_m"]),
+                                     _n, "buc", sectiune="CURENTI SLABI"))
         for _k in _CS_CABLE:
             if _cs_m.get(_k):
                 rows.append(_row("Cabluri", _CS_CABLE[_k]["bom"], "traseu desenat",

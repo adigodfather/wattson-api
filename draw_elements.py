@@ -861,7 +861,7 @@ _CS_BOM_NAME = {
     "sirena_interioara": "Sirena de interior",
     "sirena_exterioara": "Sirena de exterior",
     "buton_panica": "Buton manual de panica cu sticla de protectie",
-    "camera_video": "Camera supraveghere video IP 1080p",
+    # camera_video: NU are rand generic — BOM-ul scrie cate un rand per TIP + MONTAJ (bom.py)
     "nvr": "NVR - inregistrator video de retea 24 canale",
     "rack_9u": "Rack 9U 600x600 cu sursa, UPS si patch panel",
     "sursa_alimentare_cs": "Sursa in comutatie 12V CC / 10,5 Ah, cutie metalica",
@@ -906,6 +906,256 @@ def _cs_cable_kind(el):
     """Tipul de cablu al unui traseu de curenti slabi (din `label`); necunoscut -> coaxial."""
     k = str((el or {}).get("label") or "").strip().lower()
     return k if k in _CS_CABLE else _CS_CABLE_DEFAULT
+
+
+# ── CAMERE: cele 7 tipuri, cu unghiul si raza conului de acoperire ───────────────────────────
+# Unghiurile si razele sunt FIXE per tip (decizia Dan) — nu se editeaza pe element. Valorile sunt
+# tipice de fisa tehnica: obiectiv 2.8 mm da ~105-110 grade (dome/turret), 4 mm ~90 (bullet),
+# termica are obiectiv ingust (25-50) dar distanta mare, PTZ se roteste 360.
+# TOATE folosesc ACELASI simbol (decizia Dan): difera doar eticheta, legenda, conul si randul BOM.
+_CAM_TIPURI = {
+    "bullet":     {"nume": "Bullet",       "abbr": "BUL",  "unghi": 90,  "raza_m": 30, "w": 6},
+    "dome":       {"nume": "Dome",         "abbr": "DOM",  "unghi": 110, "raza_m": 15, "w": 6},
+    "turret":     {"nume": "Turret",       "abbr": "TUR",  "unghi": 110, "raza_m": 15, "w": 6},
+    "ptz":        {"nume": "PTZ",          "abbr": "PTZ",  "unghi": 360, "raza_m": 50, "w": 20},
+    "fisheye180": {"nume": "Fisheye 180",  "abbr": "F180", "unghi": 180, "raza_m": 10, "w": 6},
+    "fisheye360": {"nume": "Fisheye 360",  "abbr": "F360", "unghi": 360, "raza_m": 10, "w": 6},
+    "termica":    {"nume": "Termica",      "abbr": "TRM",  "unghi": 50,  "raza_m": 40, "w": 10},
+}
+# Camerele SALVATE INAINTE de tipuri n-au camera_tip -> Dome, cel mai uzual la interior.
+_CAM_DEFAULT = "dome"
+_CAM_LEGENDA = {
+    "bullet":     "Camera supraveghere video IP tip Bullet, montaj perete, IR",
+    "dome":       "Camera supraveghere video IP tip Dome, carcasa antivandal",
+    "turret":     "Camera supraveghere video IP tip Turret (eyeball)",
+    "ptz":        "Camera supraveghere video IP tip PTZ, rotire 360 grade, zoom optic",
+    "fisheye180": "Camera supraveghere video IP tip Fisheye, unghi 180 grade",
+    "fisheye360": "Camera supraveghere video IP tip Fisheye, unghi 360 grade",
+    "termica":    "Camera termica, detectie in intuneric total",
+}
+# Conul de acoperire: albastru deschis, transparent. Se deseneaza SUB simboluri si cabluri.
+#
+# DE CE 0.10 SI NU 0.30: razele sunt REALE (10-50 m), iar planşele sunt mici. Pe planul de referinta
+# (58 mp, A4 1:100) o singura camera bullet de 30 m are raza de 1417 pt pe o pagina de 595x842 —
+# adica acopera tot. Cu 7 camere si 30% opacitate planşa iese SPALATA complet, nu se mai citeste
+# nimic dedesubt (verificat vizual). Straturile se aduna: 7 conuri x 10% dau tot ~50% acolo unde se
+# suprapun toate. Conturul (mai saturat) e cel care arata unde bate camera; umplutura doar sugereaza.
+_CAM_CON_COLOR = (0.42, 0.65, 0.90)     # #6BA6E6
+_CAM_CON_EDGE = (0.16, 0.42, 0.72)      # #2A6BB8 — conturul, mai inchis, ca sa se vada limita
+_CAM_CON_OPACITY = 0.10
+_CAM_CON_EDGE_OPACITY = 0.55
+
+
+def _clip_poly(pts, rect):
+    """Decupeaza un poligon la un dreptunghi (Sutherland-Hodgman). Conul se opreste la conturul
+    cladirii: la scara reala, o camera de 30 m dintr-un spatiu de 58 mp ar acoperi si cartusul, si
+    tabelele, si marginile foii. Fara `rect` valid -> poligonul ramane neatins."""
+    if rect is None:
+        return pts
+    out = list(pts)
+    for (dim, lim, keep_lo) in (("x", rect.x0, False), ("x", rect.x1, True),
+                                ("y", rect.y0, False), ("y", rect.y1, True)):
+        if not out:
+            return []
+        inside = (lambda p: (getattr(p, dim) <= lim) if keep_lo else (getattr(p, dim) >= lim))
+        nxt = []
+        for i, cur in enumerate(out):
+            prev = out[i - 1]
+            ci, pi = inside(cur), inside(prev)
+            if ci != pi:                      # taie latura pe muchie
+                a1, b1 = getattr(prev, dim), getattr(cur, dim)
+                t = 0.0 if b1 == a1 else (lim - a1) / (b1 - a1)
+                nxt.append(fitz.Point(prev.x + (cur.x - prev.x) * t, prev.y + (cur.y - prev.y) * t))
+            if ci:
+                nxt.append(cur)
+        out = nxt
+    return out
+
+
+def _cladire_rect(rooms, W, H):
+    """Dreptunghiul cladirii = reuniunea bbox-urilor camerelor (fractii Vision -> puncte), cu o
+    margine mica. Fara camere -> None (conul ramane nedecupat)."""
+    xs, ys = [], []
+    for r in (rooms or []):
+        bb = (r or {}).get("bbox") or {}
+        try:
+            x, y = float(bb["x"]), float(bb["y"])
+            w, h = float(bb["w"]), float(bb["h"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        xs += [x * W, (x + w) * W]
+        ys += [y * H, (y + h) * H]
+    if not xs:
+        return None
+    m = 12.0
+    return fitz.Rect(max(0, min(xs) - m), max(0, min(ys) - m),
+                     min(W, max(xs) + m), min(H, max(ys) + m))
+
+
+def _poly_area(pts):
+    """Aria unui poligon (formula ariei lui Gauss). Sub 3 puncte -> 0."""
+    if not pts or len(pts) < 3:
+        return 0.0
+    a = 0.0
+    for i, q in enumerate(pts):
+        p = pts[i - 1]
+        a += p.x * q.y - q.x * p.y
+    return abs(a) / 2.0
+
+
+def _cam_taie(pts, clip_rect, fallback_rect):
+    """Decupeaza conul la incapere; daca din incapere nu ramane aproape nimic (sub 3% din suprafata
+    ei) inseamna ca se uita in afara — atunci se decupeaza la cladire."""
+    if clip_rect is None:
+        return _clip_poly(pts, fallback_rect)
+    cut = _clip_poly(pts, clip_rect)
+    if fallback_rect is not None and _poly_area(cut) < 0.03 * clip_rect.width * clip_rect.height:
+        return _clip_poly(pts, fallback_rect)
+    return cut
+
+
+def _cam_camera_rect(el, rooms, W, H):
+    """Incaperea in care sta camera, ca dreptunghi in puncte. Camerele se lipesc de perete, deci stau
+    FIX pe marginea bbox-ului -> toleranta la incadrare. Daca punctul cade in mai multe bbox-uri
+    (camere alaturate, pereti comuni), castiga aceea spre care se UITA camera. Nicio potrivire ->
+    None (apelantul cade pe conturul cladirii)."""
+    try:
+        x = float(el["x"]); y = float(el["y"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    tol = 6.0
+    cand = []
+    for r in (rooms or []):
+        bb = (r or {}).get("bbox") or {}
+        try:
+            rx, ry = float(bb["x"]) * W, float(bb["y"]) * H
+            rw, rh = float(bb["w"]) * W, float(bb["h"]) * H
+        except (TypeError, ValueError, KeyError):
+            continue
+        if rw <= 0 or rh <= 0:
+            continue
+        if rx - tol <= x <= rx + rw + tol and ry - tol <= y <= ry + rh + tol:
+            cand.append(fitz.Rect(rx, ry, rx + rw, ry + rh))
+    if not cand:
+        return None
+    if len(cand) == 1:
+        return cand[0]
+    if _CAM_TIPURI[_cam_tip(el)]["unghi"] >= 360:
+        return max(cand, key=lambda q: q.width * q.height)     # 360: cea mai mare
+    try:
+        rot = float(el.get("rotation") or 0.0)
+    except (TypeError, ValueError):
+        rot = 0.0
+    ux, uy = math.cos(rot), math.sin(rot)
+    return max(cand, key=lambda q: (q.x0 + q.x1) / 2.0 * ux + (q.y0 + q.y1) / 2.0 * uy
+                                   - (x * ux + y * uy))
+
+
+def _cam_zona_exterior(cladire, page, page_rect):
+    """Zona in care are sens conul unei camere de EXTERIOR: cladirea plus o rama in jurul ei.
+    O camera montata pe fatada se uita in AFARA — privirea ei nu-i marginita de incaperea pe al carei
+    perete sta, deci decuparea pe incapere ar sterge-o complet. Rama e vizuala, nu metrica: raza reala
+    (30-50 m) depaseste oricum foaia, iar ce ramane de citit e directia si deschiderea.
+
+    Rama se OPRESTE la ce e deja tiparit pe foaie in afara cladirii — legenda, tabelul de incaperi,
+    cartusul. Pe planşele stranse (cladirea la 15 pt de tabel) asta lasa spre partea aglomerata doar
+    un ciot: adevarat, acolo chiar nu-i loc. Spre partea libera conul iese intreg. Fara blocuri de
+    text (planşa goala) ramane rama plina."""
+    if cladire is None:
+        return None
+    m = max(36.0, 0.10 * math.hypot(cladire.width, cladire.height))
+    z = fitz.Rect(max(0.0, cladire.x0 - m), max(0.0, cladire.y0 - m),
+                  min(page_rect.width, cladire.x1 + m), min(page_rect.height, cladire.y1 + m))
+    try:
+        blocuri = page.get_text("blocks")
+    except Exception:
+        blocuri = []
+    for bl in blocuri:
+        try:
+            r = fitz.Rect(bl[0], bl[1], bl[2], bl[3])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if r.is_empty or not r.intersects(z):
+            continue
+        if r.y0 >= cladire.y1:                                  # bloc DEDESUBT
+            z.y1 = min(z.y1, max(cladire.y1, r.y0 - 2.0))
+        elif r.y1 <= cladire.y0:                                # DEASUPRA
+            z.y0 = max(z.y0, min(cladire.y0, r.y1 + 2.0))
+        elif r.x0 >= cladire.x1:                                # la DREAPTA
+            z.x1 = min(z.x1, max(cladire.x1, r.x0 - 2.0))
+        elif r.x1 <= cladire.x0:                                # la STANGA
+            z.x0 = max(z.x0, min(cladire.x0, r.x1 + 2.0))
+    return z if z.width > 1 and z.height > 1 else None
+
+
+def _cam_tip(el):
+    """Tipul camerei (cheie din _CAM_TIPURI). Lipsa/necunoscut -> Dome (proiectele de dinainte)."""
+    k = str((el or {}).get("camera_tip") or "").strip().lower()
+    return k if k in _CAM_TIPURI else _CAM_DEFAULT
+
+
+def _draw_con_camera(page, el, scale_m_per_px, page_rect, clip_rect=None, fallback_rect=None,
+                     raza_max=None):
+    """Conul de acoperire al unei camere: sector cu unghiul si raza TIPULUI, la scara REALA a
+    planului. Orientarea vine din `rotation` (radiani, ca la prize).
+
+    Raza in puncte = raza_m / scala. Pe planşele mici asta DEPASESTE foaia (o camera bullet de 30 m
+    intr-un spatiu de 58 mp acopera tot) — de-aia raza desenata se limiteaza la diagonala paginii:
+    mai departe n-ar avea ce arata, iar geometria absurda ar incetini randarea. Restul e adevarat
+    la scara.
+
+    DECUPAREA la `clip_rect` (incaperea camerei) nu-i cosmetica, e fizica: peretii opresc imaginea,
+    o camera nu vede prin ei. Fara ea, pe un spatiu de 90 mp cele sapte conuri se suprapun peste toata
+    cladirea si planşa devine o ceata albastra uniforma, din care nu mai citesti ce acoperă fiecare.
+    Daca dupa decupare nu mai ramane aproape nimic (camera de exterior, lipita pe fatada, se uita in
+    AFARA incaperii), se reia decuparea cu `fallback_rect` — conturul cladirii.
+    360 grade -> cerc complet (PTZ, Fisheye 360): rotatia n-are efect vizual.
+    Returneaza True daca a desenat."""
+    try:
+        x = float(el["x"]); y = float(el["y"])
+    except (TypeError, ValueError, KeyError):
+        return False
+    spec = _CAM_TIPURI[_cam_tip(el)]
+    sc = float(scale_m_per_px or 0) or _PX_TO_M
+    r = spec["raza_m"] / sc
+    _diag = math.hypot(page_rect.width, page_rect.height)
+    r = min(r, _diag)                       # dincolo de foaie nu mai are ce arata
+    if raza_max:
+        # Camerele de EXTERIOR: raza desenata se opreste la grosimea ramei. Rama e un dreptunghi care
+        # CONTINE cladirea, asa ca fara plafon un PTZ de fatada (360 grade, 50 m) ar umple si cladirea,
+        # si tot spatiul din jur — planşa iesea albastra cap-coada. Raza adevarata ramane in legenda si
+        # in lista de cantitati; pe desen conteaza directia si deschiderea.
+        r = min(r, float(raza_max))
+    if r <= 1:
+        return False
+    if spec["unghi"] >= 360:
+        # cerc complet (PTZ, Fisheye 360): rotatia n-are efect vizual. Se aproximeaza cu poligon,
+        # ca sa poata fi decupat la contur ca si sectoarele.
+        pts = [fitz.Point(x + r * math.cos(math.radians(a)), y + r * math.sin(math.radians(a)))
+               for a in range(0, 360, 6)]
+        return _fill_con(page, _cam_taie(pts, clip_rect, fallback_rect))
+    try:
+        rot = float(el.get("rotation") or 0.0)
+    except (TypeError, ValueError):
+        rot = 0.0
+    half = math.radians(spec["unghi"]) / 2.0
+    pts = [fitz.Point(x, y)]
+    N = max(8, int(spec["unghi"] / 6))      # un punct la ~6 grade: destul de neted, putine noduri
+    for i in range(N + 1):
+        a = rot - half + (2 * half) * i / N
+        pts.append(fitz.Point(x + r * math.cos(a), y + r * math.sin(a)))
+    return _fill_con(page, _cam_taie(pts, clip_rect, fallback_rect))
+
+
+def _fill_con(page, pts):
+    """Umplutura foarte transparenta + contur mai saturat. Conturul e cel care se citeste; fara el,
+    la 10%% opacitate conul aproape ca dispare pe planşele aglomerate."""
+    if len(pts) < 3:
+        return False
+    page.draw_polyline(pts, color=_CAM_CON_EDGE, fill=_CAM_CON_COLOR,
+                       fill_opacity=_CAM_CON_OPACITY, stroke_opacity=_CAM_CON_EDGE_OPACITY,
+                       width=0.7, closePath=True)
+    return True
 
 
 def _cs_abbr_for(el):
@@ -1036,6 +1286,23 @@ def _legend_rows_cs(elements, present):
     rows = []
     for et in _CS_TYPES:
         if et not in present or et not in _CS_LEGEND:
+            continue
+        if et == "camera_video":
+            # cate un rand per TIP folosit (nu unul generic): un Bullet de exterior si un Dome de
+            # interior sunt produse diferite si asa le vede si lista de cantitati.
+            _tipuri = []
+            for _e in (elements or []):
+                if (_e or {}).get("element_type") == "camera_video":
+                    _k = _cam_tip(_e)
+                    if _k not in _tipuri:
+                        _tipuri.append(_k)
+            for _k in sorted(_tipuri, key=lambda z: list(_CAM_TIPURI).index(z)):
+                _tc = _CAM_LEGENDA[_k]
+                _rc = {"kind": "cs", "element_type": et, "text": _tc}
+                if len(_tc) > 72:
+                    _rc["lines"] = _wrap_label_25(_tc, 72)
+                rows.append(_rc)
+            rows.append({"kind": "cam_con", "text": "Zona de acoperire camera (unghi si raza dupa tip)"})
             continue
         _t = _CS_LEGEND[et]
         _r = {"kind": "cs", "element_type": et, "text": _t}
@@ -2503,6 +2770,11 @@ def _draw_legend(page, x, y, rows):
             _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=0.42)
         elif kind == "cs":
             _draw_cs(page, cx, cy, r.get("element_type") or "doza_cs", scale=0.55)
+        elif kind == "cam_con":
+            _cp = [fitz.Point(x + PAD + 4.0, cy + 4.0), fitz.Point(x + PAD + SYM_W - 4.0, cy - 4.5),
+                   fitz.Point(x + PAD + SYM_W - 4.0, cy + 4.5)]
+            page.draw_polyline(_cp, color=None, fill=_CAM_CON_COLOR,
+                               fill_opacity=_CAM_CON_OPACITY, width=0, closePath=True)
         elif kind == "cs_cable":
             _spec = _CS_CABLE.get(r.get("cable") or _CS_CABLE_DEFAULT, _CS_CABLE[_CS_CABLE_DEFAULT])
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
@@ -3865,6 +4137,36 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _cs_idx = cs_index_map([e for e in elements if (e or {}).get("element_type") in _CS_TYPES])
         _e_com = _e_comercial(subtip)   # comercial -> DDCS se eticheteaza RACK (doar numele)
         n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
+        # CONURILE de acoperire ale camerelor: PRIMELE de tot, sub cabluri si sub simboluri —
+        # sunt fundal, nu prim-plan. Scara REALA a planului (derive_scale din arii), nu cea fixa:
+        # conul e geometric, o scara aproximativa ar desena o arie gresita. Lipsa ariilor ->
+        # derive_scale cade singur pe _PX_TO_M (~1:71) si spune asta prin `sursa`.
+        _cam_scale = _PX_TO_M
+        try:
+            from bom import derive_scale as _dsc
+            _cam_scale, _cam_scale_src = _dsc(rooms, page.rect.width, page.rect.height)
+        except Exception:
+            _cam_scale_src = "fallback fix"
+        _cam_clip = _cladire_rect(rooms, page.rect.width, page.rect.height)
+        _cam_ext = _cam_zona_exterior(_cam_clip, page, page.rect)
+        # grosimea ramei = cea mai lata dintre cele patru laturi; devine plafon de raza la exterior
+        _cam_rama = (max(_cam_clip.x0 - _cam_ext.x0, _cam_ext.x1 - _cam_clip.x1,
+                         _cam_clip.y0 - _cam_ext.y0, _cam_ext.y1 - _cam_clip.y1)
+                     if (_cam_ext is not None and _cam_clip is not None) else None)
+        for _el in (elements or []):
+            if (_el or {}).get("element_type") == "camera_video":
+                try:
+                    if str((_el or {}).get("label") or "").strip().lower() == "exterior":
+                        _draw_con_camera(page, _el, _cam_scale, page.rect, _cam_ext, _cam_ext,
+                                         _cam_rama)
+                    else:
+                        _draw_con_camera(page, _el, _cam_scale, page.rect,
+                                         _cam_camera_rect(_el, rooms,
+                                                          page.rect.width, page.rect.height)
+                                         or _cam_clip, _cam_clip)
+                except Exception:
+                    pass          # conul e decorativ: orice eroare NU strica planşa
+
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
         n_cable = 0
@@ -4002,6 +4304,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _cs_i = _cs_idx.get(el.get("id"))
                 if _cs_ab and _cs_i:
                     _cs_ab = "%s %d" % (_cs_ab, _cs_i)     # PIR 1 / CV-INT 2 (doar cand sunt mai multe)
+                if et == "camera_video":
+                    # tipul, ABREVIAT: "CV-INT 2 DOM h=2.5m". Numele intreg ("Dome") ar face
+                    # eticheta cu ~40%% mai lunga, iar pe 15 elemente in 58 mp se suprapun.
+                    # Numele complet ramane in legenda si in lista de cantitati.
+                    _cs_ab = "%s %s" % (_cs_ab, _CAM_TIPURI[_cam_tip(el)]["abbr"])
                 _cs_h = _fmt_height(el.get("mount_height_m"))
                 # fara abreviere (doza) -> FARA eticheta: dozele-s multe si un "h=3.1m" langa
                 # fiecare patratel e doar zgomot.

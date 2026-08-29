@@ -7,8 +7,8 @@
 // Add = INSERT cu ACELAȘI tipar ca popularea (configurator.tsx); id e gen_random_uuid() în DB.
 // Remove = DELETE manual (cu confirm inline), fără paritate automată.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group } from "react-konva";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group, Wedge } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
@@ -41,6 +41,7 @@ type PlanElement = {
   circuit_id?: string | null;       // atribuit AUTOMAT la "Obtine plan" (C3); incarcat pt. eticheta (C4)
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
   kit_panica?: boolean | null;      // bec normal echipat cu kit de emergenta 2h (iluminat antipanica)
+  camera_tip?: string | null;       // doar camera_video: bullet/dome/turret/ptz/fisheye180/360/termica
 };
 
 const COL_BULB_DEFAULT = "#1E63D6";   // albastrul normal al corpurilor de iluminat
@@ -75,7 +76,7 @@ const MODE_LABEL: Record<PlanMode, string> = {
   iluminat: "iluminat", forta: "forță", curenti_slabi: "curenți slabi",
 };
 
-const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -253,6 +254,131 @@ function bulbSymbol(type: string, COL_BULB = COL_BULB_DEFAULT) {
 // ── CURENȚI SLABI: cele 13 tipuri, simboluri și rubrici ─────────────────────────────────────
 // Două familii de culoare, după cele două sisteme — oglinda lui _CS_EFRACTIE/_CS_VIDEO din
 // draw_elements.py (editorul și planșa arată la fel).
+// ── CAMERE: cele 7 tipuri (oglinda lui _CAM_TIPURI din draw_elements.py) ────────────────────
+// Unghiul si raza sunt FIXE per tip. Toate folosesc ACELASI simbol; difera doar eticheta,
+// legenda, conul si randul din lista de cantitati.
+const CAM_TIPURI = [
+  { value: "bullet",     nume: "Bullet",      abbr: "BUL",  unghi: 90,  raza: 30 },
+  { value: "dome",       nume: "Dome",        abbr: "DOM",  unghi: 110, raza: 15 },
+  { value: "turret",     nume: "Turret",      abbr: "TUR",  unghi: 110, raza: 15 },
+  { value: "ptz",        nume: "PTZ",         abbr: "PTZ",  unghi: 360, raza: 50 },
+  { value: "fisheye180", nume: "Fisheye 180", abbr: "F180", unghi: 180, raza: 10 },
+  { value: "fisheye360", nume: "Fisheye 360", abbr: "F360", unghi: 360, raza: 10 },
+  { value: "termica",    nume: "Termică",     abbr: "TRM",  unghi: 50,  raza: 40 },
+] as const;
+const CAM_DEFAULT = "dome";   // camerele salvate ÎNAINTE de tipuri
+const camSpec = (t: string | null | undefined) =>
+  CAM_TIPURI.find(c => c.value === String(t || "").toLowerCase()) ||
+  CAM_TIPURI.find(c => c.value === CAM_DEFAULT)!;
+// Rotația n-are efect vizual la 360° (cerc complet) -> mânerul nu se afișează.
+const camAreOrientare = (t: string | null | undefined) => camSpec(t).unghi < 360;
+
+const COL_CAM_CON = "#6BA6E6";
+// Scara fixă de rezervă (~1:71), identică cu _PX_TO_M din backend: proiectele fără arii de cameră
+// cad pe ea în ambele locuri, deci conul din editor și cel de pe planșă rămân la fel.
+const PX_TO_M_FIX = 0.02491;
+// Scara REALĂ m/px: sum(area_m2) / sum(aria bbox în px²) -> sqrt. Oglinda lui derive_scale (bom.py).
+function derivePdfScale(
+  rooms: Array<{ area_m2?: number | null; bbox?: { w: number; h: number } | null }>,
+  W: number, H: number
+): number | null {
+  let m2 = 0, px2 = 0;
+  for (const r of rooms || []) {
+    const a = Number(r?.area_m2 || 0), w = Number(r?.bbox?.w || 0), h = Number(r?.bbox?.h || 0);
+    if (a > 0 && w > 0 && h > 0 && W > 0 && H > 0) { m2 += a; px2 += w * W * h * H; }
+  }
+  return m2 > 0 && px2 > 0 ? Math.sqrt(m2 / px2) : null;
+}
+const COL_CAM_CON_EDGE = "#2A6BB8";
+
+// ── DECUPAREA CONULUI (oglinda lui _cam_camera_rect / _cam_zona_exterior din draw_elements.py) ──
+// Peretii opresc imaginea: conul unei camere de interior se taie la incaperea ei. Fara asta, pe un
+// spatiu de 90 mp toate conurile depasesc cladirea si desenul devine o ceata uniforma. Camera de
+// EXTERIOR se uita in afara, deci se taie la o rama in jurul cladirii, nu la incapere.
+type Dr = { x0: number; y0: number; x1: number; y1: number };
+type RoomBox = { area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null };
+const drArie = (r: Dr) => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
+function camIncapere(el: PlanElement, rooms: RoomBox[], W: number, H: number): Dr | null {
+  const tol = 6;               // camerele se lipesc de perete -> stau FIX pe marginea bbox-ului
+  const cand: Dr[] = [];
+  for (const r of rooms || []) {
+    const b = r?.bbox; if (!b) continue;
+    const x0 = b.x * W, y0 = b.y * H, x1 = (b.x + b.w) * W, y1 = (b.y + b.h) * H;
+    if (x1 <= x0 || y1 <= y0) continue;
+    if (el.x >= x0 - tol && el.x <= x1 + tol && el.y >= y0 - tol && el.y <= y1 + tol)
+      cand.push({ x0, y0, x1, y1 });
+  }
+  if (!cand.length) return null;
+  if (cand.length === 1) return cand[0];
+  if (!camAreOrientare(el.camera_tip))                       // 360: cea mai mare
+    return cand.reduce((a, b) => (drArie(b) > drArie(a) ? b : a));
+  const rot = el.rotation || 0, ux = Math.cos(rot), uy = Math.sin(rot);
+  const scor = (r: Dr) => ((r.x0 + r.x1) / 2 - el.x) * ux + ((r.y0 + r.y1) / 2 - el.y) * uy;
+  return cand.reduce((a, b) => (scor(b) > scor(a) ? b : a));
+}
+function camCladire(rooms: RoomBox[], W: number, H: number): Dr | null {
+  const xs: number[] = [], ys: number[] = [];
+  for (const r of rooms || []) {
+    const b = r?.bbox; if (!b) continue;
+    xs.push(b.x * W, (b.x + b.w) * W); ys.push(b.y * H, (b.y + b.h) * H);
+  }
+  if (!xs.length) return null;
+  const m = 12;
+  return { x0: Math.min(...xs) - m, y0: Math.min(...ys) - m,
+           x1: Math.max(...xs) + m, y1: Math.max(...ys) + m };
+}
+// Sutherland-Hodgman + aria lui Gauss: acelasi test ca `_cam_taie` — daca din incapere nu ramane
+// aproape nimic (camera se uita in AFARA ei), se cade pe conturul cladirii.
+function taiePoly(pts: number[][], r: Dr): number[][] {
+  let out = pts;
+  for (const [ax, lim, jos] of [[0, r.x0, false], [0, r.x1, true],
+                                [1, r.y0, false], [1, r.y1, true]] as const) {
+    if (!out.length) return out;
+    const inn = (p: number[]) => (jos ? p[ax] <= lim : p[ax] >= lim);
+    const nxt: number[][] = [];
+    out.forEach((cur, i) => {
+      const prev = out[(i - 1 + out.length) % out.length];
+      if (inn(cur) !== inn(prev)) {
+        const t = prev[ax] === cur[ax] ? 0 : (lim - prev[ax]) / (cur[ax] - prev[ax]);
+        nxt.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+      }
+      if (inn(cur)) nxt.push(cur);
+    });
+    out = nxt;
+  }
+  return out;
+}
+const ariePoly = (p: number[][]) => p.length < 3 ? 0 : Math.abs(
+  p.reduce((a, q, i) => a + p[(i - 1 + p.length) % p.length][0] * q[1]
+                          - q[0] * p[(i - 1 + p.length) % p.length][1], 0)) / 2;
+// Dreptunghiul la care se taie conul camerei `el`, in coordonate PDF. null -> netaiat.
+// Grosimea ramei din jurul cladirii. La camerele de EXTERIOR e si plafon de raza: rama e un
+// dreptunghi care CONTINE cladirea, deci fara plafon un PTZ de fatada (360°) ar umple si cladirea, si
+// tot ce-i in jur. Raza adevarata ramane in legenda si in lista de cantitati.
+export function camRamaExt(rooms: RoomBox[], W: number, H: number): number | null {
+  const c = camCladire(rooms, W, H);
+  return c ? Math.max(36, 0.10 * Math.hypot(c.x1 - c.x0, c.y1 - c.y0)) : null;
+}
+export function camClip(el: PlanElement, rooms: RoomBox[], W: number, H: number, rPdf: number): Dr | null {
+  const cladire = camCladire(rooms, W, H);
+  if (String(el.label || "").toLowerCase() === "exterior") {
+    if (!cladire) return null;
+    const m = camRamaExt(rooms, W, H) as number;
+    return { x0: cladire.x0 - m, y0: cladire.y0 - m, x1: cladire.x1 + m, y1: cladire.y1 + m };
+  }
+  const inc = camIncapere(el, rooms, W, H);
+  if (!inc) return cladire;
+  const sp = camSpec(el.camera_tip);
+  const rot = el.rotation || 0, half = (sp.unghi * Math.PI / 180) / 2;
+  const pts: number[][] = sp.unghi >= 360 ? [] : [[el.x, el.y]];
+  const N = sp.unghi >= 360 ? 60 : Math.max(8, Math.round(sp.unghi / 6));
+  for (let i = 0; i <= N; i++) {
+    const a = sp.unghi >= 360 ? (i * 2 * Math.PI) / N : rot - half + (2 * half * i) / N;
+    pts.push([el.x + rPdf * Math.cos(a), el.y + rPdf * Math.sin(a)]);
+  }
+  return ariePoly(taiePoly(pts, inc)) < 0.03 * drArie(inc) ? cladire : inc;
+}
+
 const COL_CS_EFR = "#C2185B";
 const COL_CS_VID = "#283593";
 // `h` = înălțimea de montaj IMPLICITĂ (m), editabilă pe element din panoul de proprietăți —
@@ -361,6 +487,51 @@ const CS_ABBR: Record<string, string> = {
   sirena_interioara: "SI", sirena_exterioara: "SE", buton_panica: "BP",
   nvr: "NVR", rack_9u: "RACK", sursa_alimentare_cs: "SA", doza_cs: "",
 };
+// ── SNAP ÎN COLȚ — camerele se montează de obicei în colț, ca să acopere maximum.
+// Colțurile = capetele de perete din care pornește un al doilea perete PERPENDICULAR. Dacă un colț e
+// mai aproape decât pragul, camera se prinde de el ȘI se orientează pe bisectoare (spre interior).
+// Sub prag nu există colț -> se cade pe snapToWall (mecanismul PRIZELOR, refolosit ca atare).
+const CAM_CORNER_SNAP = 26;    // pt — sub pragul de perete (40), ca peretele să nu fure colțul
+export function snapCamera(px: number, py: number, walls: WallSeg[]):
+    { x: number; y: number; rot: number | null } {
+  if (!walls.length) return { x: px, y: py, rot: null };
+  // 1. colț: capătul de perete cel mai apropiat care are un al doilea perete PERPENDICULAR lângă el
+  let best: { x: number; y: number; d: number; rot: number } | null = null;
+  for (const w of walls) {
+    for (const [cx, cy] of [[w.x1, w.y1], [w.x2, w.y2]] as const) {
+      const d = Math.hypot(px - cx, py - cy);
+      if (d > CAM_CORNER_SNAP) continue;
+      const oriz1 = Math.abs(w.x2 - w.x1) >= Math.abs(w.y2 - w.y1);
+      for (const v of walls) {
+        if (v === w) continue;
+        const oriz2 = Math.abs(v.x2 - v.x1) >= Math.abs(v.y2 - v.y1);
+        if (oriz1 === oriz2) continue;                       // trebuie perpendicular
+        const tip = Math.min(Math.hypot(v.x1 - cx, v.y1 - cy), Math.hypot(v.x2 - cx, v.y2 - cy));
+        if (tip > CAM_CORNER_SNAP) continue;                 // al doilea perete pornește din colț
+        // bisectoarea colțului, spre INTERIOR: media direcțiilor celor două laturi, dinspre colț
+        const dir = (a: number, b: number, c: number, e: number) => {
+          const dx = (Math.hypot(a - cx, b - cy) > Math.hypot(c - cx, e - cy) ? a : c) - cx;
+          const dy = (Math.hypot(a - cx, b - cy) > Math.hypot(c - cx, e - cy) ? b : e) - cy;
+          const n = Math.hypot(dx, dy) || 1;
+          return [dx / n, dy / n];
+        };
+        const [ax, ay] = dir(w.x1, w.y1, w.x2, w.y2);
+        const [bx, by] = dir(v.x1, v.y1, v.x2, v.y2);
+        const rot = Math.atan2(ay + by, ax + bx);
+        if (!best || d < best.d) best = { x: cx, y: cy, d, rot };
+      }
+    }
+  }
+  if (best) return { x: best.x, y: best.y, rot: best.rot };
+  // 2. perete: mecanismul PRIZELOR, refolosit neschimbat. Orientare = perpendicular pe perete,
+  // spre partea unde era camera înainte de lipire (adică spre interiorul încăperii).
+  const s = snapToWall(px, py, walls);
+  if (!s.snapped) return { x: px, y: py, rot: null };
+  const rot = s.wall === "h" ? (py < s.y ? -Math.PI / 2 : Math.PI / 2)
+                             : (px < s.x ? Math.PI : 0);
+  return { x: s.x, y: s.y, rot };
+}
+
 export function csAbbr(el: { element_type: string; label?: string | null }): string {
   if (el.element_type === "camera_video")
     return String(el.label || "").toLowerCase() === "exterior" ? "CV-EXT" : "CV-INT";
@@ -1616,6 +1787,7 @@ export default function PlanEditor({
       element_type: et,
       plan_type: "curenti_slabi",
       label: et === "camera_video" ? "interior" : null,   // camera: interior/exterior în label
+      camera_tip: et === "camera_video" ? CAM_DEFAULT : null,
       room: null as string | null,
       x: (pngW > 0 ? (pngW / scale) / 2 : 100) + stagger * 26,
       y: (pngH > 0 ? (pngH / scale) / 2 : 100) + stagger * 8,
@@ -1744,6 +1916,19 @@ export default function PlanEditor({
     // y=perete; vertical -> stiva pe y cu x=perete), ordinea T.CC|INV|T.CA pastrata (pas
     // FV_SPACING), taratul ramane pe pozitia LUI din ordine. Fara perete sub prag / walls gol
     // (iluminat) -> mutare libera ca bloc (delta rigid, ca inainte).
+    // CAMERE: snap în COLȚ (prioritar — acolo se montează), altfel la PERETE (mecanismul prizelor,
+    // refolosit neschimbat). La ambele, camera se orientează automat spre interior; orientarea se
+    // scrie în `rotation`, exact ca la prize și întrerupătoare. Peste prag -> poziție liberă.
+    if (el.element_type === "camera_video") {
+      const sn = snapCamera(xPdf, yPdf, walls);
+      xPdf = sn.x; yPdf = sn.y;
+      e.target.position({ x: xPdf * scale, y: yPdf * scale });
+      const patch: Partial<PlanElement> = { x: xPdf, y: yPdf };
+      if (sn.rot !== null && camAreOrientare(el.camera_tip)) patch.rotation = sn.rot;
+      setLocalField(el.id, patch);
+      persist(el.id, patch);
+      return;
+    }
     if (isFvPanelType(el.element_type)) {
       if (walls.length) {
         const s = snapToWall(xPdf, yPdf, walls);
@@ -2060,6 +2245,27 @@ export default function PlanEditor({
             (CV-INT / CV-EXT) și rândul de legendă se derivă de acolo. */}
         {selected.element_type === "camera_video" && (
           <>
+            <label style={fieldLabel}>Tip cameră</label>
+            <select
+              className="zy-ed-field"
+              value={camSpec(selected.camera_tip).value}
+              onChange={e => {
+                setLocalField(selected.id, { camera_tip: e.target.value });
+                persist(selected.id, { camera_tip: e.target.value });
+              }}
+              style={{ ...inputStyle, marginBottom: 6 }}
+            >
+              {CAM_TIPURI.map(c => (
+                <option key={c.value} value={c.value}>
+                  {c.nume} — {c.unghi}° / {c.raza} m
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 10.5, color: "#545870", marginBottom: 8, lineHeight: 1.45 }}>
+              {camAreOrientare(selected.camera_tip)
+                ? "Trage mânerul de pe conul de acoperire ca s-o rotești. La mutare se lipește singură de perete sau de colț."
+                : "Acoperire 360° — orientarea n-are efect. La mutare se lipește de perete sau de colț."}
+            </div>
             <label style={fieldLabel}>Montaj</label>
             <select
               className="zy-ed-field"
@@ -2125,6 +2331,8 @@ export default function PlanEditor({
   // Etichetarea secvențială a curenților slabi, CALCULATĂ din elementele curente (nu din DB) —
   // aceeași regulă și aceeași ordine ca pe planșă, ca indexul din editor să fie IDENTIC cu cel tipărit.
   const csIdx = csIndexMap(elements);
+  // scara reală a planului (m/px) — pentru raza conurilor. Aceleași camere ca pe planșă.
+  const pdfScaleM = derivePdfScale(rooms, pngW / scale, pngH / scale);
 
   // un rând de element în accordion: icon + tip prietenos (+ index) + power_w + buton ștergere (× / confirm)
   const renderElementRow = (el: PlanElement, indexSuffix: string) => {
@@ -3095,6 +3303,36 @@ export default function PlanEditor({
                   );
                 })}
                 {/* Benzile LED EXISTENTE — polilinii DESCHISE turcoaz, read-only (redesenare = sterge + deseneaza). */}
+                {/* CONURILE de acoperire: PRIMELE, sub tot (sunt fundal). Raza vine din scara REALĂ
+                    a planului (m/px), aceeași derivare ca pe planșă. `pdfScaleM` null (proiect fără
+                    arii) -> cade pe scara fixă, ca backendul. */}
+                {elements.filter(e => e.element_type === "camera_video").map((el) => {
+                  const sp = camSpec(el.camera_tip);
+                  const plafon = String(el.label || "").toLowerCase() === "exterior"
+                    ? camRamaExt(rooms, pngW / scale, pngH / scale) : null;
+                  // dincolo de foaie n-are ce arăta — același plafon ca pe planșă (diagonala paginii)
+                  const rPdf = Math.min(sp.raza / (pdfScaleM || PX_TO_M_FIX),
+                                        Math.hypot(pngW / scale, pngH / scale), plafon ?? Infinity);
+                  const rPx = rPdf * scale;
+                  const rot = (el.rotation || 0) * 180 / Math.PI;
+                  const comun = { x: el.x * scale, y: el.y * scale, fill: COL_CAM_CON,
+                                  opacity: 0.10, stroke: COL_CAM_CON_EDGE, strokeWidth: 0.7,
+                                  listening: false };
+                  const con = sp.unghi >= 360
+                    ? <Circle {...comun} radius={rPx} />
+                    : <Wedge {...comun} radius={rPx} angle={sp.unghi}
+                             rotation={rot - sp.unghi / 2} />;
+                  const cl = camClip(el, rooms, pngW / scale, pngH / scale, rPdf);
+                  if (!cl) return <Fragment key={el.id}>{con}</Fragment>;
+                  return (
+                    <Group key={el.id} listening={false}
+                           clip={{ x: cl.x0 * scale, y: cl.y0 * scale,
+                                   width: (cl.x1 - cl.x0) * scale,
+                                   height: (cl.y1 - cl.y0) * scale }}>
+                      {con}
+                    </Group>
+                  );
+                })}
                 {/* TRASEE CURENȚI SLABI: culoare + stil după tipul de cablu (label) — planşa se
                     citește fără să deschizi legenda, ca pe planurile de referință. */}
                 {elements.filter(e => e.element_type === "traseu_cs").map((el) => {
@@ -3219,6 +3457,42 @@ export default function PlanEditor({
                         onClick={placeReceptorAt} onTap={placeReceptorAt}
                         onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
                 )}
+                {/* MÂNERUL DE ROTAȚIE — pe camera SELECTATĂ, doar la tipurile cu con (sub 360°).
+                    E un cerc mic pe axa conului, la 70% din rază: se trage și camera se rotește după
+                    unghiul dintre centru și cursor. Poziția nu se schimbă la rotire.
+                    ULTIMUL în strat, ca să stea DEASUPRA simbolurilor: sub ele, un element suprapus
+                    l-ar face neapucabil. */}
+                {(() => {
+                  const cam = elements.find(e => e.id === selectedId && e.element_type === "camera_video");
+                  if (!cam || !camAreOrientare(cam.camera_tip)) return null;
+                  const sp = camSpec(cam.camera_tip);
+                  const rPx = (sp.raza / (pdfScaleM || PX_TO_M_FIX)) * scale;
+                  const hR = Math.max(28, Math.min(rPx * 0.7, Math.max(pngW, pngH) * 0.28));
+                  const a0 = cam.rotation || 0;
+                  const hx = cam.x * scale + hR * Math.cos(a0);
+                  const hy = cam.y * scale + hR * Math.sin(a0);
+                  // întoarce unghiul calculat, ca onDragEnd să persiste EXACT valoarea de acum —
+                  // `elements` din closure e starea de la ultimul render, deci ar salva-o pe cea veche
+                  const roteste = (e: KonvaEventObject<DragEvent>) => {
+                    const ang = Math.atan2(e.target.y() - cam.y * scale, e.target.x() - cam.x * scale);
+                    e.target.position({ x: cam.x * scale + hR * Math.cos(ang),
+                                        y: cam.y * scale + hR * Math.sin(ang) });   // mânerul rămâne pe cerc
+                    setLocalField(cam.id, { rotation: ang });
+                    return ang;
+                  };
+                  return (
+                    <>
+                      <Line points={[cam.x * scale, cam.y * scale, hx, hy]} stroke={COL_CAM_CON_EDGE}
+                            strokeWidth={1} dash={[4, 3]} opacity={0.8} listening={false} />
+                      <Circle x={hx} y={hy} radius={7} fill="#FFFFFF" stroke={COL_CAM_CON_EDGE}
+                              strokeWidth={2} draggable
+                              onDragMove={roteste}
+                              onDragEnd={(e) => persist(cam.id, { rotation: roteste(e) })}
+                              onMouseEnter={(e) => setCursor(e, "grab")}
+                              onMouseLeave={(e) => setCursor(e, "default")} />
+                    </>
+                  );
+                })()}
               </Layer>
             </Stage>
           )}
