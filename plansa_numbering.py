@@ -7,9 +7,11 @@ Ordinea fixa (confirmata Dan):
   2. Plan iluminat etaj/nivel        (per nivel peste parter)
   3. Plan forta parter               (mereu)
   4. Plan forta etaj/nivel           (per nivel peste parter)
-  5. Schema monofilara TEG           (mereu)
-  6. Schema monofilara TES/nivel     (per nivel peste parter)
-  7. Schema monofilara TE-CT         (daca exista echipament termic)
+  5. Plan curenti slabi parter       (daca exista sistem de securitate)
+  6. Plan curenti slabi etaj/nivel   (per nivel peste parter)
+  7. Schema monofilara TEG           (mereu)
+  8. Schema monofilara TES/nivel     (per nivel peste parter)
+  9. Schema monofilara TE-CT         (daca exista echipament termic)
 
 Numerotare CONSECUTIVA fara goluri: se construieste lista planselor care EXISTA
 (sar peste cele lipsa, in ordinea de mai sus), apoi IE.1, IE.2, ... pe lista.
@@ -23,7 +25,8 @@ la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare servest
 """
 
 # tipurile de plansa, in ORDINEA fixa de prioritate
-TIPURI = ("plan_iluminat", "plan_forta", "schema_teg", "schema_tes", "schema_tect", "schema_fv")
+TIPURI = ("plan_iluminat", "plan_forta", "plan_curenti_slabi",
+          "schema_teg", "schema_tes", "schema_tect", "schema_fv")
 
 # eticheta de afisare per nivel (folosita in numele planselor)
 _NIVEL_LABEL = {
@@ -47,6 +50,8 @@ def plansa_nume(tip, nivel=None):
         return "PLAN {} INSTALAȚII ELECTRICE DE ILUMINAT".format(nl)
     if tip == "plan_forta":
         return "PLAN {} INSTALAȚII ELECTRICE DE FORȚĂ".format(nl)
+    if tip == "plan_curenti_slabi":
+        return "PLAN {} INSTALAȚII CURENȚI SLABI".format(nl)
     if tip == "schema_teg":
         return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC GENERAL"
     if tip == "schema_tes":
@@ -60,7 +65,8 @@ def plansa_nume(tip, nivel=None):
     return "PLANȘĂ"
 
 
-def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False):
+def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False,
+                             has_cs=False):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
@@ -70,6 +76,10 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     has_tes:      override; implicit = exista cel putin un nivel peste parter (o schema TES per nivel).
     has_fv:       sistem fotovoltaic selectat (extra_equipment.solar.enabled) -> schema FV = ULTIMA
                   plansa IE. Absent/False = nicio plansa FV (non-regresie proiecte fara FV).
+    has_cs:       sistem de curenti slabi (efractie + supraveghere video) -> cate o plansa per nivel,
+                  DUPA planurile de forta si INAINTEA schemelor (gruparea "planuri, apoi scheme").
+                  Spre deosebire de FV (mereu ultima), asta DEPLASEAZA schemele cu len(floors)
+                  pozitii. Absent/False = nicio plansa CS (non-regresie totala).
 
     Return: [{"nr": "IE.N", "tip": ..., "nivel": ..., "nume": ...}, ...]
     """
@@ -84,7 +94,11 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     # 3-4: TOATE planurile de forta (parter, apoi nivelurile)
     for fl in floors:
         sheets.append(("plan_forta", fl))
-    # 5: TEG (mereu)
+    # 5-6: TOATE planurile de curenti slabi (parter, apoi nivelurile) — dupa forta, inaintea schemelor
+    if has_cs:
+        for fl in floors:
+            sheets.append(("plan_curenti_slabi", fl))
+    # 7: TEG (mereu)
     sheets.append(("schema_teg", "parter"))
     # 6: TES — cate una per nivel peste parter
     if tes_on:
@@ -172,8 +186,13 @@ def pick_plan_entry(result_data, plan_type, floor):
         extra = derive_extra_floors(circuits)
 
     has_tect = bool(rd.get("has_tect")) or any((c or {}).get("panel") == "TE-CT" for c in circuits)
-    tip = "plan_forta" if str(plan_type or "").strip().lower() == "forta" else "plan_iluminat"
-    entries = [p for p in compute_plansa_numbering(extra, has_tect) if p["tip"] == tip]
+    _pt = str(plan_type or "").strip().lower()
+    tip = {"forta": "plan_forta", "curenti_slabi": "plan_curenti_slabi"}.get(_pt, "plan_iluminat")
+    # CURENTI SLABI: planşele lor stau DUPA forta, deci nu deplaseaza iluminatul/forta -> pentru
+    # acelea has_cs e irelevant. Dar cand se cere chiar planşa de curenti slabi, ea trebuie sa
+    # existe in lista, altfel n-ar avea numar. Semnalul: fie tipul cerut, fie planse deja salvate.
+    has_cs = (tip == "plan_curenti_slabi") or bool(rd.get("planse_curenti_slabi"))
+    entries = [p for p in compute_plansa_numbering(extra, has_tect, has_cs=has_cs) if p["tip"] == tip]
 
     fidx = {"parter": 0, "etaj": 1, "etaj1": 1, "etaj 1": 1,
             "mansarda": 2, "etaj2": 2, "etaj 2": 2}.get(str(floor or "parter").strip().lower(), 0)

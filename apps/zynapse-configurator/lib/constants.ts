@@ -394,6 +394,16 @@ export interface ProjectResult {
     source_plansa_nr?: string;
     regenerated?: boolean;
   }> | null;
+  // CURENTI SLABI (efractie + supraveghere video) — oglinda lui planse_forta, per etaj.
+  // Absent pe proiectele fara sistem de securitate -> hasCs=false -> numerotarea ramane cea de azi.
+  planse_curenti_slabi?: Array<{
+    type?: string;
+    name: string;
+    pdf_base64: string;
+    filename?: string;
+    source_plansa_nr?: string;
+    regenerated?: boolean;
+  }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
@@ -460,14 +470,21 @@ export function plansaTitlu(tip: string, nivel?: string | null): string {
   const nl = (nivel || "").trim().toUpperCase();
   if (tip === "plan_iluminat") return `PLAN ${nl} INSTALATII ELECTRICE DE ILUMINAT`;
   if (tip === "plan_forta") return `PLAN ${nl} INSTALATII ELECTRICE DE FORTA`;
+  if (tip === "plan_curenti_slabi") return `PLAN ${nl} INSTALATII CURENTI SLABI`;
   if (tip === "schema_teg") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC GENERAL";
   if (tip === "schema_tes") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC SECUNDAR ${nl}`;
   if (tip === "schema_tect") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC CENTRALA TERMICA";
   if (tip === "schema_fv") return "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC";
   return "PLANSA";
 }
+// OGLINDA lui compute_plansa_numbering din plansa_numbering.py — si a celor DOUA noduri n8n
+// „Numerotare Planse" (MAIN + finalize). Patru implementari ale aceleiasi ordini: daca una ramane
+// in urma, numarul TIPARIT pe plansa, cel din borderoul memoriului si cel din livrabile DIVERG.
 export function computePlansaNumbering(opts: {
   extraFloors?: string[]; hasTect?: boolean; hasTes?: boolean | null; hasFv?: boolean;
+  // curenti slabi: cate o plansa per nivel, DUPA forta si INAINTEA schemelor. Spre deosebire de FV
+  // (mereu ultima), DEPLASEAZA schemele cu len(floors) pozitii.
+  hasCs?: boolean;
 }): PlansaNumEntry[] {
   const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
   const floors = ["parter", ...extra];
@@ -475,7 +492,11 @@ export function computePlansaNumbering(opts: {
   const sheets: Array<[string, string | null]> = [];
   for (const fl of floors) sheets.push(["plan_iluminat", fl]);
   for (const fl of floors) sheets.push(["plan_forta", fl]);
-  sheets.push(["schema_teg", null]);
+  if (opts.hasCs) for (const fl of floors) sheets.push(["plan_curenti_slabi", fl]);
+  // "parter", nu null: asa pun si plansa_numbering.py si AMANDOUA nodurile n8n. Titlul TEG nu
+  // depinde de nivel, deci nu se schimba nimic vizibil — dar cele patru oglinzi devin identice
+  // camp cu camp, si testul de consecventa poate compara direct.
+  sheets.push(["schema_teg", "parter"]);
   if (tesOn) for (const fl of extra) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
   if (opts.hasFv) sheets.push(["schema_fv", null]);   // FV = MEREU ultima plansa IE
@@ -510,6 +531,8 @@ export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry
     extraFloors,
     hasTect: !!result.has_tect || tipuri.includes("schema_tect"),
     hasFv: tipuri.includes("schema_fv"),
+    // planşele de curenti slabi exista doar dupa ce inginerul a generat cel putin una
+    hasCs: (result.planse_curenti_slabi || []).some(p => p?.regenerated),
   });
 }
 // schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)
