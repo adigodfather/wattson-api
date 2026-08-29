@@ -138,7 +138,21 @@ def receptor_type_of(label):
             return t
     return None
 
-_NET_RECEPTOR_W = 150   # alimentare echipament de retea (router/switch/rack) — circuit dedicat (nu date low-voltage)
+_NET_RECEPTOR_W = 150   # BAZA: router/switch/rack — circuit dedicat (nu date low-voltage)
+
+
+def _ddcs_power(els):
+    """Puterea circuitului DDCS: 150 W baza + suma echipamentelor de CURENTI SLABI plasate pe plan
+    (decizia Dan). Cei 150 W erau dimensionati pentru router/switch; un NVR de 24 canale plus 10
+    camere ii depasesc singuri. Sirenele intra la puterea de ALARMA (worst case = exact ce trebuie
+    la dimensionare); butonul de panica si contactul magnetic sunt pasive (0 W).
+    Fara echipamente de securitate -> exact 150 W, ca inainte. Rezultatul e rotunjit IN SUS."""
+    try:
+        from draw_elements import _CS_POWER_W
+    except Exception:
+        return _NET_RECEPTOR_W            # fail-safe: comportamentul de dinainte
+    extra = sum(_CS_POWER_W.get((e or {}).get("element_type") or "", 0) for e in (els or []))
+    return int(math.ceil(_NET_RECEPTOR_W + extra))
 
 # TIP NORMALIZAT pt. DEDUP receptor plan <-> circuit formular (ordine SPECIFIC->generic; robust la
 # variatii de descriere: 'PDC aer-apa 20kW' -> pdc, NU ac). Substring lowercase. None = nemapabil.
@@ -249,7 +263,7 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
         "name": c["id"],
     }
 
-def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False):
+def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=None):
     """alimentare_receptor / receptor_internet -> circuit DEDICAT (compute_circuits nu-l grupeaza).
     Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
@@ -266,8 +280,8 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False):
         power_w, tip, ph, src = _own_w, receptor_type_of(el.get("label")), (el.get("phase") or "mono"), "element"
     else:
         power_w, tip, ph, src = receptor_power(el.get("label"), form)
-    if is_net:                                            # alimentare router/switch/rack = 150W (decizia Dan),
-        power_w, tip, src = _NET_RECEPTOR_W, "internet", "default UI"   # NU 0 (era 'date low-voltage')
+    if is_net:                                            # DDCS: 150W baza + echipamentele de securitate
+        power_w, tip, src = _ddcs_power(all_els), "internet", "150W baza + curenti slabi"
     tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
@@ -801,7 +815,8 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
             # (skip-ul vechi 'net in afara camerei tehnice -> ignorat' e ELIMINAT).
             rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
             rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
-            plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono))
+            plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono,
+                                            all_els=plan_elements))
             nextn += 1
 
         # BANDA LED: driverele etajului -> circuite DEDICATE (separate de becuri), max 4/circuit.

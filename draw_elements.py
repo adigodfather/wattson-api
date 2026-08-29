@@ -777,11 +777,210 @@ _CS_TYPES = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact
              "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs", "traseu_cs")
 
 
+# ── CURENTI SLABI: simboluri, etichete, puteri ───────────────────────────────────────────────
+# DOUA familii de culoare, dupa cele doua sisteme (planurile de referinta folosesc cate o culoare
+# per aparat, ceea ce e realist dar imposibil de tinut coerent la 13 tipuri):
+#   EFRACTIE = magenta ; VIDEO = indigo. Traseele isi iau culoarea din TIPUL DE CABLU (vezi mai jos).
+_CS_EFRACTIE = (0.761, 0.094, 0.365)    # #C2185B
+_CS_VIDEO    = (0.157, 0.208, 0.576)    # #283593
+
+# Familia fiecarui tip -> culoarea lui.
+_CS_FAMILY = {
+    "centrala_efractie": _CS_EFRACTIE, "tastatura_efractie": _CS_EFRACTIE,
+    "detector_pir": _CS_EFRACTIE, "contact_magnetic": _CS_EFRACTIE,
+    "sirena_interioara": _CS_EFRACTIE, "sirena_exterioara": _CS_EFRACTIE,
+    "buton_panica": _CS_EFRACTIE,
+    "camera_video": _CS_VIDEO, "nvr": _CS_VIDEO, "rack_9u": _CS_VIDEO,
+    "sursa_alimentare_cs": _CS_VIDEO, "doza_cs": _CS_VIDEO,
+}
+
+# Abrevierea de pe plan (eticheta scurta de langa simbol), ca pe planurile de referinta.
+_CS_ABBR = {
+    "centrala_efractie": "CE", "tastatura_efractie": "TAST", "detector_pir": "PIR",
+    "contact_magnetic": "CM", "sirena_interioara": "SI", "sirena_exterioara": "SE",
+    "buton_panica": "BP", "camera_video": "CV", "nvr": "NVR", "rack_9u": "RACK",
+    "sursa_alimentare_cs": "SA", "doza_cs": "",     # doza n-are eticheta (e prea deasa pe plan)
+}
+
+# TEXTUL DE LEGENDA — VERBATIM din planurile de referinta (Desktop\ANTI-EFRACTIE + INSTAUDITOR),
+# doar fara diacritice (fontul legendei e base14). Nu-l rescrie "mai frumos": asta e formularea pe
+# care o recunoaste inginerul si verificatorul.
+_CS_LEGEND = {
+    "centrala_efractie":  "Centrala cu tastatura control acces, montata la iesire, h= 1.2 m",
+    "tastatura_efractie": "Tastatura comanda montata in holul de la intrare",
+    "detector_pir":       "PIR : Senzor de Miscare PIR cu Infrarosu, cu montaj in interior sau "
+                          "exterior, Raza de actiune 180 grade",
+    # NU exista pe planurile de referinta (l-a cerut Dan) -> formulare noua, in acelasi registru.
+    "contact_magnetic":   "Contact magnetic pentru usa / fereastra",
+    "sirena_interioara":  "SI: Sirena interioara, montata aparent in holul de la intrare",
+    "sirena_exterioara":  "SE: Sirena exterioara",
+    "buton_panica":       "BP: Buton manual de panica, cu sticla de protectie",
+    "camera_video":       "Camere de supraveghere video IP, 1080p",
+    "nvr":                "NVR: Inregistrator video de retea, cu 24 canale",
+    "rack_9u":            "Rack 9U 600x600 (Sursa alimentare si UPS, Pach Panel)",
+    "sursa_alimentare_cs": "Sursa de alimentare instalatie monitorizare video, sir cleme pt. "
+                           "alimentare max. 10 camere, loc pt. acumulator",
+    "doza_cs":            "Doza PVC 100 X 100 mm, pentru legaturi camera",
+}
+# Numele scurt pentru lista de cantitati (BOM).
+_CS_BOM_NAME = {
+    "centrala_efractie": "Centrala de efractie cu tastatura control acces",
+    "tastatura_efractie": "Tastatura de comanda",
+    "detector_pir": "Detector de miscare PIR (180 grade)",
+    "contact_magnetic": "Contact magnetic usa/fereastra",
+    "sirena_interioara": "Sirena de interior",
+    "sirena_exterioara": "Sirena de exterior",
+    "buton_panica": "Buton manual de panica cu sticla de protectie",
+    "camera_video": "Camera supraveghere video IP 1080p",
+    "nvr": "NVR - inregistrator video de retea 24 canale",
+    "rack_9u": "Rack 9U 600x600 cu sursa, UPS si patch panel",
+    "sursa_alimentare_cs": "Sursa in comutatie 12V CC / 10,5 Ah, cutie metalica",
+    "doza_cs": "Doza PVC 100x100 mm",
+}
+# Inaltimea de montaj implicita (m) — din planurile de referinta. Editabila per element.
+_CS_HEIGHT = {
+    "centrala_efractie": 1.2, "tastatura_efractie": 1.2, "detector_pir": 2.3,
+    "contact_magnetic": 2.1, "sirena_interioara": 2.5, "sirena_exterioara": 3.0,
+    "buton_panica": 1.2, "camera_video": 3.1, "nvr": 1.5, "rack_9u": 1.5,
+    "sursa_alimentare_cs": 1.5, "doza_cs": 3.1,
+}
+# PUTERI (W) pentru dimensionarea DDCS (decizia Dan). Sirenele sunt la puterea de ALARMA — worst
+# case, care e exact ce trebuie la dimensionare. Butonul si contactul sunt pasive (0 W).
+_CS_POWER_W = {
+    "centrala_efractie": 15, "tastatura_efractie": 2, "detector_pir": 0.5,
+    "contact_magnetic": 0, "sirena_interioara": 15, "sirena_exterioara": 20,
+    "buton_panica": 0, "camera_video": 6, "nvr": 40, "rack_9u": 0,
+    "sursa_alimentare_cs": 30, "doza_cs": 0,
+}
+
+# TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
+# tablourilor FV. Culoarea si stilul difera per tip, ca planşa sa se citeasca fara sa deschizi legenda.
+_CS_CABLE = {
+    "coax":       {"nume": "Cablu coaxial RG59, alimentare camere video",
+                   "bom": "Cablu coaxial RG59", "col": (0.157, 0.208, 0.576), "dash": None},
+    "alimentare": {"nume": "Cablu alimentare 2x1 mmp",
+                   "bom": "Cablu alimentare 2x1 mmp", "col": (0.761, 0.094, 0.365), "dash": None},
+    "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
+                   "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
+                   "dash": "[3 2] 0"},
+}
+_CS_CABLE_DEFAULT = "coax"
+
+
+def _cs_cable_kind(el):
+    """Tipul de cablu al unui traseu de curenti slabi (din `label`); necunoscut -> coaxial."""
+    k = str((el or {}).get("label") or "").strip().lower()
+    return k if k in _CS_CABLE else _CS_CABLE_DEFAULT
+
+
+def _draw_traseu_cs(page, el):
+    """Traseul de curenti slabi: polilinie DESCHISA, culoare/stil dupa tipul de cablu (label).
+    Acelasi mecanism ca banda LED: puncte in cable_path, metrii ies din desen."""
+    cp = (el or {}).get("cable_path")
+    if not isinstance(cp, (list, tuple)) or len(cp) < 2:
+        return False
+    try:
+        pts = [fitz.Point(float(p[0]), float(p[1])) for p in cp]
+    except (TypeError, ValueError, IndexError):
+        return False
+    spec = _CS_CABLE[_cs_cable_kind(el)]
+    for i in range(len(pts) - 1):
+        page.draw_line(pts[i], pts[i + 1], color=spec["col"], width=1.0, dashes=spec["dash"])
+    return True
+
+
+def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
+    """Simbolul unui element de curenti slabi. O singura functie pentru toate cele 12 tipuri
+    punctuale (traseul are functia lui). `scale` < 1 pentru celula de legenda."""
+    s = scale
+    col = _CS_FAMILY.get(element_type, _CS_EFRACTIE)
+    W = (1, 1, 1)
+    R = lambda w, h: fitz.Rect(cx - w * s, cy - h * s, cx + w * s, cy + h * s)
+
+    if element_type == "detector_pir":
+        # corpul + conul de detectie de 180 grade (raza de actiune din legenda)
+        page.draw_sector(fitz.Point(cx, cy), fitz.Point(cx + 11 * s, cy), 180,
+                         color=col, width=0.9, fullSector=True)
+        page.draw_rect(R(5, 3.5), color=col, fill=col, width=0.8)
+    elif element_type == "camera_video":
+        # corp + con de vizualizare (trapez) — orientat spre dreapta
+        page.draw_rect(R(6, 4), color=col, fill=col, width=0.8)
+        page.draw_polyline([fitz.Point(cx + 6 * s, cy - 3 * s), fitz.Point(cx + 15 * s, cy - 8 * s),
+                            fitz.Point(cx + 15 * s, cy + 8 * s), fitz.Point(cx + 6 * s, cy + 3 * s)],
+                           color=col, width=0.8, closePath=True)
+    elif element_type in ("sirena_interioara", "sirena_exterioara"):
+        # triunghi: EXTERIOARA plina, INTERIOARA goala (se disting dintr-o privire)
+        p = [fitz.Point(cx - 7 * s, cy + 6 * s), fitz.Point(cx + 7 * s, cy + 6 * s),
+             fitz.Point(cx, cy - 7 * s)]
+        fill = col if element_type == "sirena_exterioara" else None
+        page.draw_polyline(p, color=col, fill=fill, width=1.0, closePath=True)
+    elif element_type == "centrala_efractie":
+        # dreptunghi + tastatura (grila de 2x3 puncte)
+        page.draw_rect(R(10, 8), color=col, width=1.0)
+        for r_ in (-3.5, 0.5):
+            for c_ in (-5, 0, 5):
+                page.draw_circle(fitz.Point(cx + c_ * s, cy + r_ * s), 1.1 * s, color=col, fill=col, width=0.5)
+    elif element_type == "tastatura_efractie":
+        page.draw_rect(R(6, 7.5), color=col, width=1.0)
+        for r_ in (-4, -0.5, 3):
+            for c_ in (-2.5, 2.5):
+                page.draw_circle(fitz.Point(cx + c_ * s, cy + r_ * s), 0.9 * s, color=col, fill=col, width=0.4)
+    elif element_type == "buton_panica":
+        # buton sub sticla: cerc plin in patrat (sticla de protectie)
+        page.draw_rect(R(7, 7), color=col, width=1.0)
+        page.draw_circle(fitz.Point(cx, cy), 3.6 * s, color=col, fill=col, width=0.8)
+    elif element_type == "contact_magnetic":
+        # doua corpuri alaturate (reed + magnet), cu spatiu intre ele
+        page.draw_rect(fitz.Rect(cx - 8 * s, cy - 4 * s, cx - 1.5 * s, cy + 4 * s), color=col, fill=col, width=0.7)
+        page.draw_rect(fitz.Rect(cx + 1.5 * s, cy - 4 * s, cx + 8 * s, cy + 4 * s), color=col, width=0.9)
+    elif element_type == "nvr":
+        # caseta plina cu text alb (ca pe planurile de referinta)
+        page.draw_rect(R(13, 6), color=col, fill=col, width=0.8)
+        page.insert_text(fitz.Point(cx - 9.5 * s, cy + 2.6 * s), "NVR", fontsize=7.2 * s,
+                         fontname="hebo", color=W)
+    elif element_type == "rack_9u":
+        # dulap: chenar + unitati (linii orizontale)
+        page.draw_rect(R(9, 11), color=col, width=1.1)
+        for k in (-7, -3.5, 0, 3.5, 7):
+            page.draw_line(fitz.Point(cx - 6.5 * s, cy + k * s), fitz.Point(cx + 6.5 * s, cy + k * s),
+                           color=col, width=0.6)
+    elif element_type == "sursa_alimentare_cs":
+        # cutie metalica + simbol de acumulator (bare lunga/scurta)
+        page.draw_rect(R(10, 7), color=col, width=1.0)
+        page.draw_line(fitz.Point(cx - 3 * s, cy - 4 * s), fitz.Point(cx - 3 * s, cy + 4 * s), color=col, width=1.4)
+        page.draw_line(fitz.Point(cx + 1 * s, cy - 2 * s), fitz.Point(cx + 1 * s, cy + 2 * s), color=col, width=1.4)
+        page.draw_line(fitz.Point(cx + 4.5 * s, cy - 4 * s), fitz.Point(cx + 4.5 * s, cy + 4 * s), color=col, width=1.4)
+    else:   # doza_cs (default): patrat mic plin — se pun multe pe plan, trebuie sa fie discret
+        page.draw_rect(R(3.5, 3.5), color=col, fill=col, width=0.6)
+
+
 def _legend_rows_cs(elements, present):
-    """Randurile de legenda ale planşei de curenti slabi. Deocamdata GOALE: elementele si simbolurile
-    lor vin la pasul urmator. Planşa goala iese fara caseta de legenda (nu cu una goala, si mai ales
-    NU cu randul de cablu de iluminat, cum ar fi cazut inainte prin `plan_type != "forta"`)."""
-    return []
+    """Randurile de legenda ale planşei de curenti slabi: DOAR tipurile prezente, in ordine
+    determinista (intai efractia, apoi videul), plus cate un rand per TIP DE CABLU desenat.
+    Textele sunt verbatim din planurile de referinta (_CS_LEGEND)."""
+    # Doua texte (PIR, sursa de alimentare) au peste 100 de caractere si faceau caseta cat trei
+    # sferturi din planşa — latimea legendei se ia din cel mai lung rand. Wrap pe 2 randuri, cu
+    # acelasi mecanism ca randurile FV (`lines` + _wrap_label_25).
+    rows = []
+    for et in _CS_TYPES:
+        if et not in present or et not in _CS_LEGEND:
+            continue
+        _t = _CS_LEGEND[et]
+        _r = {"kind": "cs", "element_type": et, "text": _t}
+        if len(_t) > 72:
+            _r["lines"] = _wrap_label_25(_t, 72)
+        rows.append(_r)
+    kinds, seen = [], set()
+    for el in (elements or []):
+        if (el or {}).get("element_type") != "traseu_cs":
+            continue
+        k = _cs_cable_kind(el)
+        if k not in seen:
+            seen.add(k)
+            kinds.append(k)
+    rows += [{"kind": "cs_cable", "cable": k, "text": _CS_CABLE[k]["nume"]}
+             for k in sorted(kinds, key=lambda x: list(_CS_CABLE).index(x))]
+    return rows
 
 
 def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None, cross_floor=None):
@@ -2228,6 +2427,12 @@ def _draw_legend(page, x, y, rows):
                        color=(_SAFETY_GREEN if r.get("kit") else None))
         elif kind == "evacuare":
             _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=0.42)
+        elif kind == "cs":
+            _draw_cs(page, cx, cy, r.get("element_type") or "doza_cs", scale=0.55)
+        elif kind == "cs_cable":
+            _spec = _CS_CABLE.get(r.get("cable") or _CS_CABLE_DEFAULT, _CS_CABLE[_CS_CABLE_DEFAULT])
+            page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
+                           color=_spec["col"], width=1.0, dashes=_spec["dash"])
         elif kind == "panel":
             # +2 vertical: conectorul tabloului urca ~8pt -> centreaza simbolul in celula
             _draw_panel(page, cx, cy + 2.0, r.get("element_type") or "", scale=0.5, with_label=False)
@@ -3711,6 +3916,25 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
+            elif et in _CS_TYPES and et != "traseu_cs":
+                # CURENTI SLABI: simbol + eticheta scurta (abrevierea de pe planurile de referinta)
+                # + inaltimea de montaj, cand e setata. Culoarea urmeaza familia (efractie/video).
+                _draw_cs(page, x, y, et)
+                _cs_ab = _CS_ABBR.get(et, "")
+                _cs_h = _fmt_height(el.get("mount_height_m"))
+                # fara abreviere (doza) -> FARA eticheta: dozele-s multe si un "h=3.1m" langa
+                # fiecare patratel e doar zgomot.
+                _cs_txt = (" ".join(t for t in (_cs_ab, ("h=%sm" % _cs_h) if _cs_h else "") if t)
+                           if _cs_ab else "")
+                if _cs_txt:
+                    _labels.append({"text": _cs_txt, "x0": x - len(_cs_txt) * 4.5 * 0.50, "y": y - 15.0,
+                                    "w": len(_cs_txt) * 4.5, "fs": 4.5, "font": "hebo",
+                                    "color": _CS_FAMILY.get(et, _CS_EFRACTIE)})
+                n_bulb += 1
+            elif et == "traseu_cs":
+                # traseul de curenti slabi: polilinie, culoare/stil dupa tipul de cablu (label)
+                if _draw_traseu_cs(page, el):
+                    n_cable += 1
             elif et == "banda_led_path":
                 # Banda LED trasata: polilinie deschisa, pe plansa de ILUMINAT (elementele sunt deja
                 # filtrate pe plan_type inainte de desen, deci nu mai e nevoie de gate aici).

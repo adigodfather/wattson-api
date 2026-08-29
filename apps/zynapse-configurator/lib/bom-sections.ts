@@ -14,6 +14,9 @@ const FIXED_AFTER_TES = [
   "PRIZA DE PAMANT - LOCUINTA",
   "SISTEM FOTOVOLTAIC",
   "PRIZA DE PAMANT - FOTOVOLTAIC",
+  // efractie + supraveghere video (planşa a treia). Fara intrarea asta randurile ar cadea pe
+  // rangul 999 ("Diverse") — ar functiona, dar ar arata neglijent.
+  "CURENTI SLABI",
 ];
 
 function isTes(sec: string): boolean {

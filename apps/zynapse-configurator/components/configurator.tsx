@@ -2937,7 +2937,11 @@ export function ZynapseConfigurator() {
                   hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
                 } else if (fazaFlux === "iluminat-gata") {
                   label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
-                } else {   // fazaFlux === "forta"
+                } else if (hasSecuritate && modeEditor !== "curenti_slabi") {
+                  // pasul nou din lant: forta -> curenti slabi. Fara bifa de securitate, lantul
+                  // ramane EXACT cel de azi (iluminat -> forta -> finalizare).
+                  label = "Editor Curenți Slabi →"; onClick = () => setModeEditor("curenti_slabi"); variant = "blue";
+                } else {   // fazaFlux === "forta" (inclusiv pe planşa de curenti slabi)
                   label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }
               } else if (modeEditor === "iluminat") {
@@ -2959,6 +2963,9 @@ export function ZynapseConfigurator() {
                   hint = `Obține planul de forță (${floorName(editorPlansaIdx)}) — butonul din editor.`;
                 } else if (nextIdx !== undefined) {
                   label = `Forță ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "forta"); variant = "blue";
+                } else if (hasSecuritate && modeEditor !== "curenti_slabi") {
+                  label = "Editor Curenți Slabi →";
+                  onClick = () => goEditorStep(editablePlanse[0].idx, "curenti_slabi"); variant = "blue";
                 } else {
                   label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }

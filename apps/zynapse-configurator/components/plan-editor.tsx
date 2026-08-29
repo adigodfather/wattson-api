@@ -250,6 +250,105 @@ function bulbSymbol(type: string, COL_BULB = COL_BULB_DEFAULT) {
   }
 }
 
+// ── CURENȚI SLABI: cele 13 tipuri, simboluri și rubrici ─────────────────────────────────────
+// Două familii de culoare, după cele două sisteme — oglinda lui _CS_EFRACTIE/_CS_VIDEO din
+// draw_elements.py (editorul și planșa arată la fel).
+const COL_CS_EFR = "#C2185B";
+const COL_CS_VID = "#283593";
+const CS_EFRACTIE = [
+  { value: "centrala_efractie",  label: "Centrală efracție", h: 1.2 },
+  { value: "tastatura_efractie", label: "Tastatură",         h: 1.2 },
+  { value: "detector_pir",       label: "Detector PIR",      h: 2.3 },
+  { value: "contact_magnetic",   label: "Contact magnetic",  h: 2.1 },
+  { value: "sirena_interioara",  label: "Sirenă interioară", h: 2.5 },
+  { value: "sirena_exterioara",  label: "Sirenă exterioară", h: 3.0 },
+  { value: "buton_panica",       label: "Buton panică",      h: 1.2 },
+] as const;
+const CS_VIDEO = [
+  { value: "camera_video",        label: "Cameră video",  h: 3.1 },
+  { value: "nvr",                 label: "NVR",           h: 1.5 },
+  { value: "rack_9u",             label: "Rack 9U",       h: 1.5 },
+  { value: "sursa_alimentare_cs", label: "Sursă 12V",     h: 1.5 },
+  { value: "doza_cs",             label: "Doză",          h: 3.1 },
+] as const;
+const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value)];
+const isCsType = (t: string) => CS_TYPES.includes(t);
+const csColor = (t: string) => (CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
+// Tipul de cablu al unui traseu stă în `label` — același tipar ca montajul tablourilor FV.
+const CS_CABLES = [
+  { value: "coax",       label: "Coaxial RG59",           col: COL_CS_VID, dash: undefined },
+  { value: "alimentare", label: "Alimentare 2x1 mmp",     col: COL_CS_EFR, dash: undefined },
+  { value: "semnal",     label: "Semnal LiY(St)Y",        col: "#00838F",  dash: [5, 3] },
+] as const;
+const csCableSpec = (lbl: string | null | undefined) =>
+  CS_CABLES.find(c => c.value === String(lbl || "").toLowerCase()) || CS_CABLES[0];
+
+// Simbolul fiecărui tip (Konva) — oglinda lui _draw_cs din draw_elements.py.
+function csSymbol(type: string) {
+  const c = csColor(type);
+  switch (type) {
+    case "detector_pir":       // corp + con de detecție 180°
+      return (<>
+        <Arc x={0} y={0} innerRadius={0} outerRadius={11} angle={180} rotation={0} stroke={c} strokeWidth={1.6} />
+        <Rect x={-5} y={-3.5} width={10} height={7} fill={c} />
+      </>);
+    case "camera_video":       // corp + con de vizualizare
+      return (<>
+        <Rect x={-6} y={-4} width={12} height={8} fill={c} />
+        <Line points={[6, -3, 15, -8, 15, 8, 6, 3]} closed stroke={c} strokeWidth={1.4} />
+      </>);
+    case "sirena_interioara":  // triunghi GOL
+      return <Line points={[-7, 6, 7, 6, 0, -7]} closed stroke={c} strokeWidth={1.8} />;
+    case "sirena_exterioara":  // triunghi PLIN
+      return <Line points={[-7, 6, 7, 6, 0, -7]} closed fill={c} stroke={c} strokeWidth={1.4} />;
+    case "centrala_efractie":  // dreptunghi + tastatură 2x3
+      return (<>
+        <Rect x={-10} y={-8} width={20} height={16} stroke={c} strokeWidth={1.6} />
+        {[-3.5, 0.5].map(r => [-5, 0, 5].map(cc =>
+          <Circle key={`${r}_${cc}`} x={cc} y={r} radius={1.1} fill={c} listening={false} />))}
+      </>);
+    case "tastatura_efractie":
+      return (<>
+        <Rect x={-6} y={-7.5} width={12} height={15} stroke={c} strokeWidth={1.6} />
+        {[-4, -0.5, 3].map(r => [-2.5, 2.5].map(cc =>
+          <Circle key={`${r}_${cc}`} x={cc} y={r} radius={0.9} fill={c} listening={false} />))}
+      </>);
+    case "buton_panica":       // buton sub sticlă
+      return (<>
+        <Rect x={-7} y={-7} width={14} height={14} stroke={c} strokeWidth={1.6} />
+        <Circle x={0} y={0} radius={3.6} fill={c} />
+      </>);
+    case "contact_magnetic":   // reed + magnet
+      return (<>
+        <Rect x={-8} y={-4} width={6.5} height={8} fill={c} />
+        <Rect x={1.5} y={-4} width={6.5} height={8} stroke={c} strokeWidth={1.4} />
+      </>);
+    case "nvr":
+      return (<>
+        <Rect x={-13} y={-6} width={26} height={12} fill={c} />
+        <Text x={-13} y={-6} width={26} height={12} align="center" verticalAlign="middle"
+              text="NVR" fontSize={7} fontStyle="bold" fill="#FFFFFF" listening={false} />
+      </>);
+    case "rack_9u":
+      return (<>
+        <Rect x={-9} y={-11} width={18} height={22} stroke={c} strokeWidth={1.6} />
+        {[-7, -3.5, 0, 3.5, 7].map(k =>
+          <Line key={k} points={[-6.5, k, 6.5, k]} stroke={c} strokeWidth={1} listening={false} />)}
+      </>);
+    case "sursa_alimentare_cs":
+      return (<>
+        <Rect x={-10} y={-7} width={20} height={14} stroke={c} strokeWidth={1.6} />
+        <Line points={[-3, -4, -3, 4]} stroke={c} strokeWidth={2} listening={false} />
+        <Line points={[1, -2, 1, 2]} stroke={c} strokeWidth={2} listening={false} />
+        <Line points={[4.5, -4, 4.5, 4]} stroke={c} strokeWidth={2} listening={false} />
+      </>);
+    default:                   // doza_cs
+      return <Rect x={-3.5} y={-3.5} width={7} height={7} fill={c} />;
+  }
+}
+// Zona de hit: dreptunghi generos, ca simbolurile fără fill să fie prinse la click/drag.
+const csHit = () => <Rect x={-14} y={-12} width={30} height={24} fill="rgba(0,0,0,0.001)" />;
+
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
 function bulbHit(type: string) {
   if (type === "banda_led") return <Rect x={-32} y={-9} width={64} height={18} cornerRadius={7} fill="rgba(0,0,0,0.001)" />;
@@ -530,6 +629,11 @@ export default function PlanEditor({
   // Banda LED trasata: acelasi mecanism (click succesiv + rubber-band + dublu-click/Enter), polilinie
   // DESCHISA min 2 puncte, pe planul de ILUMINAT. Spre deosebire de priza de pamant (una singura),
   // benzile sunt MAI MULTE per plan (living, bucatarie, hol) -> lista in rubrica, nu element unic.
+  const [drawingTraseuCs, setDrawingTraseuCs] = useState(false);
+  const [traseuCsPts, setTraseuCsPts] = useState<number[][]>([]);
+  const [traseuCsHover, setTraseuCsHover] = useState<number[] | null>(null);
+  const traseuCsPtsRef = useRef<number[][]>([]);        // sursa SINCRONA (ca la banda LED)
+  const traseuCsCabluRef = useRef<string>("coax");      // tipul de cablu ales inainte de desenare
   const [drawingBandaLed, setDrawingBandaLed] = useState(false);
   const [bandaLedPts, setBandaLedPts] = useState<number[][]>([]);
   const [bandaLedHover, setBandaLedHover] = useState<[number, number] | null>(null);
@@ -578,6 +682,17 @@ export default function PlanEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawingBandaLed]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Esc anuleaza / Enter finalizeaza traseul de curenti slabi (acelasi contract ca banda LED)
+  useEffect(() => {
+    if (!drawingTraseuCs) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") { ev.preventDefault(); cancelDrawTraseuCs(); }
+      else if (ev.key === "Enter") { ev.preventDefault(); void finishDrawTraseuCs(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawingTraseuCs]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Escape anuleaza plasarea receptorului.
   useEffect(() => {
     if (!placingReceptor) return;
@@ -1390,6 +1505,94 @@ export default function PlanEditor({
   // ── Banda LED trasata: mecanismul lantului FV (polilinie DESCHISA), pe planul de ILUMINAT. ──
   // Metrii din BOM ies din lungimea DESENATA, nu dintr-o estimare -> banda desenata inlocuieste
   // ghicitul. Alinierea ortogonala e mostenita din snapOrtho (aceleasi apeluri ca la FV/priza).
+  // ── TRASEU CURENȚI SLABI: desenat manual, ca banda LED / priza de pământ. Moștenește alinierea
+  // ortogonală [C] (snapOrtho, prag 15°, Shift dezactivează) — aceleași funcții, nu o copie.
+  // Tipul de cablu se alege ÎNAINTE de desenare și se scrie în `label` (tiparul montajului FV).
+  function startDrawTraseuCs(cablu: string) {
+    setSelectedId(null);
+    cancelDrawGround(); cancelDrawFvChain(); cancelDrawBandaLed();
+    traseuCsCabluRef.current = cablu;
+    traseuCsPtsRef.current = [];
+    setTraseuCsPts([]);
+    setTraseuCsHover(null);
+    setDrawingTraseuCs(true);
+  }
+  function cancelDrawTraseuCs() {
+    setDrawingTraseuCs(false);
+    traseuCsPtsRef.current = [];
+    setTraseuCsPts([]);
+    setTraseuCsHover(null);
+  }
+  function addTraseuCsPoint(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const prev = traseuCsPtsRef.current[traseuCsPtsRef.current.length - 1];
+    const pt = isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                              : snapOrtho(prev, pos.x / scale, pos.y / scale);
+    const next = [...traseuCsPtsRef.current, [pt[0], pt[1]]];
+    traseuCsPtsRef.current = next;
+    setTraseuCsPts(next);
+  }
+  function moveTraseuCsHover(e: KonvaEventObject<MouseEvent>) {
+    const pos = e.target.getRelativePointerPosition();
+    if (!pos) return;
+    const prev = traseuCsPtsRef.current[traseuCsPtsRef.current.length - 1];
+    setTraseuCsHover(isShiftDown(e) ? [pos.x / scale, pos.y / scale]
+                                    : snapOrtho(prev, pos.x / scale, pos.y / scale));
+  }
+  async function finishDrawTraseuCs() {
+    const raw = traseuCsPtsRef.current || [];
+    const pts: number[][] = [];
+    for (const p of raw) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.5) pts.push([p[0], p[1]]);
+    }
+    if (pts.length < 2) return;
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),
+      element_type: "traseu_cs",
+      plan_type: "curenti_slabi",
+      label: traseuCsCabluRef.current,   // tipul de cablu (coax / alimentare / semnal)
+      room: null as string | null,
+      x: pts[0][0], y: pts[0][1],        // ancora = punctul 0 (x,y sunt NOT NULL)
+      wall_mounted: false,
+      rotation: 0,
+      power_w: null as number | null,
+      cable_path: pts,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    cancelDrawTraseuCs();
+    if (error || !data) { console.error("[plan_elements] INSERT traseu_cs esuat", error?.message); return; }
+    setElements(prev => [...prev, data as PlanElement]);
+  }
+
+  // ── CURENȚI SLABI: element punctual (cele 12 tipuri). Poziție = mijlocul planului, cu decalaj
+  // la adăugări repetate; înălțimea de montaj = default-ul tipului (editabil pe element).
+  async function addCsElement(et: string, h: number) {
+    const existente = elements.filter(e => e.element_type === et);
+    const stagger = existente.length;
+    const row = {
+      project_id: projectId,
+      floor: floorCanonic(floor),
+      element_type: et,
+      plan_type: "curenti_slabi",
+      label: et === "camera_video" ? "interior" : null,   // camera: interior/exterior în label
+      room: null as string | null,
+      x: (pngW > 0 ? (pngW / scale) / 2 : 100) + stagger * 26,
+      y: (pngH > 0 ? (pngH / scale) / 2 : 100) + stagger * 8,
+      wall_mounted: true,
+      rotation: 0,
+      power_w: null as number | null,
+      mount_height_m: h,
+    };
+    const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
+    if (error || !data) { console.error("[plan_elements] INSERT curenti slabi esuat", et, error?.message); return; }
+    const created = data as PlanElement;
+    setElements(prev => [...prev, created]);
+    setSelectedId(created.id);
+  }
+
   function startDrawBandaLed(room: string | null = null) {
     setSelectedId(null);
     cancelDrawGround();              // un singur mod de desenare activ
@@ -1813,6 +2016,45 @@ export default function PlanEditor({
           </>
         )}
 
+        {/* CAMERA VIDEO: interior / exterior. UN SINGUR tip de element (simbolul e același);
+            distincția stă în `label`, exact ca montajul tablourilor FV. Eticheta de pe planșă
+            (CV-INT / CV-EXT) și rândul de legendă se derivă de acolo. */}
+        {selected.element_type === "camera_video" && (
+          <>
+            <label style={fieldLabel}>Montaj</label>
+            <select
+              className="zy-ed-field"
+              value={selected.label === "exterior" ? "exterior" : "interior"}
+              onChange={e => {
+                setLocalField(selected.id, { label: e.target.value });
+                persist(selected.id, { label: e.target.value });
+              }}
+              style={{ ...inputStyle, marginBottom: 6 }}
+            >
+              <option value="interior">Interior (CV-INT)</option>
+              <option value="exterior">Exterior (CV-EXT)</option>
+            </select>
+          </>
+        )}
+
+        {/* TRASEU CURENȚI SLABI: tipul de cablu, schimbabil după desenare. */}
+        {selected.element_type === "traseu_cs" && (
+          <>
+            <label style={fieldLabel}>Tip cablu</label>
+            <select
+              className="zy-ed-field"
+              value={csCableSpec(selected.label).value}
+              onChange={e => {
+                setLocalField(selected.id, { label: e.target.value });
+                persist(selected.id, { label: e.target.value });
+              }}
+              style={{ ...inputStyle, marginBottom: 6 }}
+            >
+              {CS_CABLES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </>
+        )}
+
         {/* KIT DE PANICĂ (iluminat antipanică, I7-2011): se echipează un corp NORMAL existent.
             Becul rămâne pe circuitul lui — se schimbă doar culoarea pe planșă (verde) și apare un
             rând de kituri în lista de cantități. Marcat automat la generare pe încăperile care-l
@@ -2132,6 +2374,67 @@ export default function PlanEditor({
           </div>
         )}
       </Rubrica>
+    );
+  };
+
+  // CURENȚI SLABI — două rubrici (efracție / video) + traseele, DOAR pe planşa lor.
+  const renderCsSection = () => {
+    if (mode !== "curenti_slabi") return null;
+    const grup = (lista: ReadonlyArray<{ value: string; label: string; h: number }>) =>
+      lista.map(b => (
+        <button key={b.value} type="button" className="zy-add-btn"
+          onClick={() => void addCsElement(b.value, b.h)}>+ {b.label}</button>
+      ));
+    const puse = elements.filter(e => isCsType(e.element_type));
+    const trasee = elements.filter(e => e.element_type === "traseu_cs");
+    return (
+      <>
+        <Rubrica title="Efracție" hint="Centrală, tastatură, detectoare, contacte, sirene, buton de panică. Se plasează manual; înălțimea de montaj e pe fiecare element.">
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_EFRACTIE)}</div>
+        </Rubrica>
+        <Rubrica title="Supraveghere video" hint="Camere, NVR, rack, sursă și doze. Camera are un singur tip — interior/exterior se alege pe element.">
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_VIDEO)}</div>
+        </Rubrica>
+        <Rubrica title="Trasee curenți slabi" hint="Cablurile se desenează; metrii din lista de cantități ies din desen. Alinierea ortogonală e activă (Shift o dezactivează).">
+          {trasee.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
+              {trasee.map((el, i) => {
+                const spec = csCableSpec(el.label);
+                return (
+                  <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: spec.col, flexShrink: 0 }} />
+                    {spec.label} #{i + 1} · {(el.cable_path || []).length} puncte
+                    <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {drawingTraseuCs ? (
+            <div style={{ paddingLeft: 2 }}>
+              <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+                {csCableSpec(traseuCsCabluRef.current).label} · <b>{traseuCsPts.length}</b> punct{traseuCsPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+              </div>
+              <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+                <button type="button" className="zy-add-btn" onClick={() => void finishDrawTraseuCs()} disabled={traseuCsPts.length < 2}>Finalizează</button>
+                <button type="button" className="zy-add-btn" onClick={cancelDrawTraseuCs}>Anulează</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+              {CS_CABLES.map(c => (
+                <button key={c.value} type="button" className="zy-add-btn"
+                  onClick={() => startDrawTraseuCs(c.value)}>+ {c.label}</button>
+              ))}
+            </div>
+          )}
+        </Rubrica>
+        {puse.length > 0 && (
+          <div style={{ fontSize: 11, color: "#545870", padding: "2px 0 6px 4px" }}>
+            {puse.length} echipament{puse.length === 1 ? "" : "e"} · {trasee.length} traseu{trasee.length === 1 ? "" : "ri"}
+          </div>
+        )}
+      </>
     );
   };
 
@@ -2472,6 +2775,7 @@ export default function PlanEditor({
           {roomKeys.map(renderRoom)}
           {mode === "iluminat" && renderPanelsSection()}
           {mode === "forta" && renderPrizaSection()}
+          {renderCsSection()}
           {renderSigurantaSection()}
           {renderBandaLedSection()}
           {renderGroundingSection()}
@@ -2547,7 +2851,7 @@ export default function PlanEditor({
                 ))}
                 {ordered.map((el) => {
                   if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
-                      || isBandaLedPathType(el.element_type)) return null;   // traseu + priza de pamant + lant FV + banda LED randate separat
+                      || isBandaLedPathType(el.element_type) || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -2558,7 +2862,9 @@ export default function PlanEditor({
                   const isInternet = isInternetType(el.element_type);   // retea internet (simbol propriu)
                   const isDriver = el.element_type === "banda_led_driver";   // sursa 24V a benzii LED
                   const isEvac = el.element_type === EVAC_TYPE;               // corp de evacuare (autonom)
-                  const col = isEvac ? COL_SAFETY
+                  const isCs = isCsType(el.element_type);                     // curenti slabi (efractie/video)
+                  const col = isCs ? csColor(el.element_type)
+                            : isEvac ? COL_SAFETY
                             : isBulb ? (el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)
                             : isInternet ? NET_EDGE : isDriver ? COL_BANDA_LED
                             : (isPriza || isReceptor) ? COL_PRIZA : COL_SWITCH;
@@ -2629,6 +2935,11 @@ export default function PlanEditor({
                               {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
                             </>
                           )}
+                        </>
+                      ) : isCs ? (
+                        <>
+                          {csHit()}
+                          {csSymbol(el.element_type)}
                         </>
                       ) : isEvac ? (
                         <>
@@ -2725,6 +3036,36 @@ export default function PlanEditor({
                   );
                 })}
                 {/* Benzile LED EXISTENTE — polilinii DESCHISE turcoaz, read-only (redesenare = sterge + deseneaza). */}
+                {/* TRASEE CURENȚI SLABI: culoare + stil după tipul de cablu (label) — planşa se
+                    citește fără să deschizi legenda, ca pe planurile de referință. */}
+                {elements.filter(e => e.element_type === "traseu_cs").map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  const spec = csCableSpec(el.label);
+                  return (
+                    <Line key={el.id} points={flat} stroke={spec.col} strokeWidth={2.2}
+                          dash={spec.dash ? [...spec.dash] : undefined}
+                          lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
+                  );
+                })}
+                {drawingTraseuCs && (() => {
+                  const previewPts = traseuCsHover ? [...traseuCsPts, traseuCsHover] : traseuCsPts;
+                  const flat = previewPts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  const spec = csCableSpec(traseuCsCabluRef.current);
+                  return (
+                    <>
+                      <Rect x={0} y={0} width={pngW} height={pngH} fill="transparent" listening
+                            onClick={addTraseuCsPoint} onTap={addTraseuCsPoint}
+                            onMouseMove={moveTraseuCsHover}
+                            onDblClick={() => void finishDrawTraseuCs()} onDblTap={() => void finishDrawTraseuCs()}
+                            onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
+                      {previewPts.length >= 2 && (
+                        <Line points={flat} stroke={spec.col} strokeWidth={2.2} dash={[6, 4]}
+                              lineCap="round" lineJoin="round" opacity={0.9} listening={false} />
+                      )}
+                    </>
+                  );
+                })()}
                 {elements.filter(e => isBandaLedPathType(e.element_type)).map((el) => {
                   const pts = (el.cable_path && el.cable_path.length >= 2) ? el.cable_path : [[el.x, el.y]];
                   const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);

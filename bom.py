@@ -694,6 +694,39 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         rows.append(_row("Becuri", "Kit emergenta 2h", "iluminat antipanica, montat pe corpul existent",
                          _n_kit, "buc", sectiune="ILUMINAT"))
 
+    # ── 4c. CURENTI SLABI (efractie + supraveghere video) — sectiune PROPRIE ──────────────────
+    # Echipamentele la bucata + traseele DESENATE la metri (ca banda LED: metrii ies din desen,
+    # nu dintr-o estimare). Fara elemente de curenti slabi -> nicio linie (non-regresie).
+    try:
+        from draw_elements import _CS_BOM_NAME, _CS_CABLE, _cs_cable_kind, _CS_TYPES
+    except Exception:
+        _CS_BOM_NAME = _CS_CABLE = None
+    if _CS_BOM_NAME:
+        _cs_cnt = {}
+        _cs_m = {}
+        for el in plan_elements:
+            et = (el.get("element_type") or "")
+            if et == "traseu_cs":
+                _cp = el.get("cable_path")
+                if not isinstance(_cp, (list, tuple)) or len(_cp) < 2:
+                    continue
+                try:
+                    _pts = [(float(p[0]), float(p[1])) for p in _cp]
+                except (TypeError, ValueError, IndexError):
+                    continue
+                _k = _cs_cable_kind(el)
+                _cs_m[_k] = _cs_m.get(_k, 0.0) + _path_len(_pts) * scale
+            elif et in _CS_BOM_NAME:
+                _cs_cnt[et] = _cs_cnt.get(et, 0) + 1
+        for et in _CS_TYPES:
+            if et in _cs_cnt:
+                rows.append(_row("Curenti slabi", _CS_BOM_NAME[et], "", _cs_cnt[et], "buc",
+                                 sectiune="CURENTI SLABI"))
+        for _k in _CS_CABLE:
+            if _cs_m.get(_k):
+                rows.append(_row("Cabluri", _CS_CABLE[_k]["bom"], "traseu desenat",
+                                 round(_cs_m[_k] * waste, 1), "m", sectiune="CURENTI SLABI"))
+
     # ── 5. TABLOURI — BUCATA 2: blocul vechi (1 buc/tablou din plan_elements) ELIMINAT, RECONCILIAT
     #     cu randurile NOI din bucata 1 ("Tablou electric <panel>", 1 buc, N randuri pe sectiunea lui).
     #     Un singur rand per tablou (buc + randuri) in loc de doua (buc vechi + randuri nou). ──
