@@ -580,6 +580,7 @@ def _circuit_section(c):
 
 
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
+              subtip=None,
               W=None, H=None, horizontal_m=None, fv_grounding=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
     compute_cables(plan_elements)[0] (cu length/kind). `scale` = m/px (derive_scale). `waste` =
@@ -739,7 +740,10 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             lbl = (el.get("label") or "receptor").strip()
             rec[lbl] = rec.get(lbl, 0) + 1
         elif et == "receptor_internet":
-            rec["Retea date / Internet (RJ45)"] = rec.get("Retea date / Internet (RJ45)", 0) + 1
+            # DDCS la locuinte, RACK la spatii comerciale — ACELASI element, doar numele difera,
+            # ca sa fie consecvent cu eticheta de pe planşa si cu randul din legenda.
+            _dn = draw_elements._DDCS_LEGEND_COM if draw_elements._e_comercial(subtip)                 else draw_elements._DDCS_LEGEND_REZ
+            rec[_dn] = rec.get(_dn, 0) + 1
     for lbl, n in sorted(rec.items()):
         den = lbl[:1].upper() + lbl[1:] if lbl else lbl
         # tech (incalzire clasa 1: PDC/pompe/BMS/distribuitor/boiler) -> TE-CT; extra (AC/cuptor/internet) -> FORTA

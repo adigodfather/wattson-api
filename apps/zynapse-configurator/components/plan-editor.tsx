@@ -255,22 +255,28 @@ function bulbSymbol(type: string, COL_BULB = COL_BULB_DEFAULT) {
 // draw_elements.py (editorul și planșa arată la fel).
 const COL_CS_EFR = "#C2185B";
 const COL_CS_VID = "#283593";
+// `h` = înălțimea de montaj IMPLICITĂ (m), editabilă pe element din panoul de proprietăți —
+// oglinda lui _CS_HEIGHT din draw_elements.py. `h: null` = tipul NU are înălțime de montaj
+// (NVR-ul se montează ÎN rack), deci nici câmp în panou, nici „h=" pe etichetă.
 const CS_EFRACTIE = [
-  { value: "centrala_efractie",  label: "Centrală efracție", h: 1.2 },
-  { value: "tastatura_efractie", label: "Tastatură",         h: 1.2 },
-  { value: "detector_pir",       label: "Detector PIR",      h: 2.3 },
+  { value: "centrala_efractie",  label: "Centrală efracție", h: 1.5 },
+  { value: "tastatura_efractie", label: "Tastatură",         h: 1.4 },
+  { value: "detector_pir",       label: "Detector PIR",      h: 2.5 },
   { value: "contact_magnetic",   label: "Contact magnetic",  h: 2.1 },
   { value: "sirena_interioara",  label: "Sirenă interioară", h: 2.5 },
   { value: "sirena_exterioara",  label: "Sirenă exterioară", h: 3.0 },
-  { value: "buton_panica",       label: "Buton panică",      h: 1.2 },
+  { value: "buton_panica",       label: "Buton panică",      h: 1.3 },
 ] as const;
 const CS_VIDEO = [
-  { value: "camera_video",        label: "Cameră video",  h: 3.1 },
-  { value: "nvr",                 label: "NVR",           h: 1.5 },
+  { value: "camera_video",        label: "Cameră video",  h: 2.5 },
+  { value: "nvr",                 label: "NVR",           h: null },   // se montează ÎN rack
   { value: "rack_9u",             label: "Rack 9U",       h: 1.5 },
   { value: "sursa_alimentare_cs", label: "Sursă 12V",     h: 1.5 },
-  { value: "doza_cs",             label: "Doză",          h: 3.1 },
+  { value: "doza_cs",             label: "Doză",          h: 2.5 },
 ] as const;
+// Tipurile care AU înălțime de montaj (toate, mai puțin NVR-ul și traseul).
+const csHasHeight = (t: string) =>
+  isCsType(t) && t !== "nvr" && t !== "traseu_cs";
 const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value)];
 const isCsType = (t: string) => CS_TYPES.includes(t);
 const csColor = (t: string) => (CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
@@ -348,6 +354,38 @@ function csSymbol(type: string) {
 }
 // Zona de hit: dreptunghi generos, ca simbolurile fără fill să fie prinse la click/drag.
 const csHit = () => <Rect x={-14} y={-12} width={30} height={24} fill="rgba(0,0,0,0.001)" />;
+
+// Abrevierea de pe planșă. Camera are DOUĂ, după montaj — oglinda lui _cs_abbr_for din backend.
+const CS_ABBR: Record<string, string> = {
+  centrala_efractie: "CE", tastatura_efractie: "TAST", detector_pir: "PIR", contact_magnetic: "CM",
+  sirena_interioara: "SI", sirena_exterioara: "SE", buton_panica: "BP",
+  nvr: "NVR", rack_9u: "RACK", sursa_alimentare_cs: "SA", doza_cs: "",
+};
+export function csAbbr(el: { element_type: string; label?: string | null }): string {
+  if (el.element_type === "camera_video")
+    return String(el.label || "").toLowerCase() === "exterior" ? "CV-EXT" : "CV-INT";
+  return CS_ABBR[el.element_type] ?? "";
+}
+// {id: index} pentru etichetarea secvențială — OGLINDA lui cs_index_map din draw_elements.py.
+// CALCULAT, nu stocat: ștergerea renumerotează singură. Ordine stabilă (sus→jos, stânga→dreapta),
+// grupare pe (etaj, abreviere) -> camerele se numără separat pe interior/exterior. Unic -> fără număr.
+export function csIndexMap(els: Array<{ id: string; element_type: string; label?: string | null;
+                                 x: number; y: number; floor?: string | null }>): Record<string, number> {
+  const grupuri = new Map<string, typeof els>();
+  for (const el of els) {
+    const ab = csAbbr(el);
+    if (!ab || !isCsType(el.element_type)) continue;
+    const k = `${el.floor || "parter"}|${ab}`;
+    const g = grupuri.get(k);
+    if (g) g.push(el); else grupuri.set(k, [el]);
+  }
+  const out: Record<string, number> = {};
+  for (const lista of grupuri.values()) {
+    if (lista.length < 2) continue;
+    [...lista].sort((a, b) => (a.y - b.y) || (a.x - b.x)).forEach((el, i) => { out[el.id] = i + 1; });
+  }
+  return out;
+}
 
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
 function bulbHit(type: string) {
@@ -1569,7 +1607,7 @@ export default function PlanEditor({
 
   // ── CURENȚI SLABI: element punctual (cele 12 tipuri). Poziție = mijlocul planului, cu decalaj
   // la adăugări repetate; înălțimea de montaj = default-ul tipului (editabil pe element).
-  async function addCsElement(et: string, h: number) {
+  async function addCsElement(et: string, h: number | null) {
     const existente = elements.filter(e => e.element_type === et);
     const stagger = existente.length;
     const row = {
@@ -1584,7 +1622,7 @@ export default function PlanEditor({
       wall_mounted: true,
       rotation: 0,
       power_w: null as number | null,
-      mount_height_m: h,
+      mount_height_m: h,      // null la NVR: nu se monteaza pe perete
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
     if (error || !data) { console.error("[plan_elements] INSERT curenti slabi esuat", et, error?.message); return; }
@@ -1957,7 +1995,8 @@ export default function PlanEditor({
 
         {/* Înălțime (mount_height_m) — prize + receptoare (alimentări/rețea); default pe tip, editabil (metri).
             Becurile NU au (pe tavan). */}
-        {(isPrizaType(selected.element_type) || isReceptorType(selected.element_type) || isInternetType(selected.element_type)) && (
+        {(isPrizaType(selected.element_type) || isReceptorType(selected.element_type)
+          || isInternetType(selected.element_type) || csHasHeight(selected.element_type)) && (
           <>
             <label style={fieldLabel}>Înălțime (m)</label>
             <input
@@ -2083,6 +2122,10 @@ export default function PlanEditor({
     );
   };
 
+  // Etichetarea secvențială a curenților slabi, CALCULATĂ din elementele curente (nu din DB) —
+  // aceeași regulă și aceeași ordine ca pe planșă, ca indexul din editor să fie IDENTIC cu cel tipărit.
+  const csIdx = csIndexMap(elements);
+
   // un rând de element în accordion: icon + tip prietenos (+ index) + power_w + buton ștergere (× / confirm)
   const renderElementRow = (el: PlanElement, indexSuffix: string) => {
     const isSel = selectedId === el.id;
@@ -2119,7 +2162,9 @@ export default function PlanEditor({
             }} />
           )}
           <span style={{ fontSize: 12, color: isSel ? "#DCEBFB" : "#C5C8D6", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {typeLabel(el.element_type)}{indexSuffix}
+            {isCsType(el.element_type)
+              ? `${csAbbr(el)}${csIdx[el.id] ? " " + csIdx[el.id] : ""}${csAbbr(el) ? "" : typeLabel(el.element_type)}`
+              : `${typeLabel(el.element_type)}${indexSuffix}`}
           </span>
           {el.power_w ? <span style={{ fontSize: 10, color: "#8B8FA8" }}>{el.power_w}W</span> : null}
         </button>
@@ -2380,7 +2425,7 @@ export default function PlanEditor({
   // CURENȚI SLABI — două rubrici (efracție / video) + traseele, DOAR pe planşa lor.
   const renderCsSection = () => {
     if (mode !== "curenti_slabi") return null;
-    const grup = (lista: ReadonlyArray<{ value: string; label: string; h: number }>) =>
+    const grup = (lista: ReadonlyArray<{ value: string; label: string; h: number | null }>) =>
       lista.map(b => (
         <button key={b.value} type="button" className="zy-add-btn"
           onClick={() => void addCsElement(b.value, b.h)}>+ {b.label}</button>
@@ -2430,9 +2475,23 @@ export default function PlanEditor({
           )}
         </Rubrica>
         {puse.length > 0 && (
-          <div style={{ fontSize: 11, color: "#545870", padding: "2px 0 6px 4px" }}>
-            {puse.length} echipament{puse.length === 1 ? "" : "e"} · {trasee.length} traseu{trasee.length === 1 ? "" : "ri"}
-          </div>
+          <Rubrica title="Echipamente plasate" hint="Eticheta e cea de pe planșă: abrevierea + numărul, calculat din poziție (sus→jos). Ștergi unul, restul se renumerotează singure.">
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 2 }}>
+              {[...puse]
+                .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+                .map(el => (
+                  <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: csColor(el.element_type), flexShrink: 0 }} />
+                    <button type="button" onClick={() => selectElement(el.id)}
+                      style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit" }}>
+                      {csAbbr(el) ? `${csAbbr(el)}${csIdx[el.id] ? " " + csIdx[el.id] : ""}` : "Doză"}
+                      {el.mount_height_m ? ` · h=${el.mount_height_m}m` : ""}
+                    </button>
+                    <button type="button" className="zy-add-btn" onClick={() => removeElement(el.id)}>Șterge</button>
+                  </div>
+                ))}
+            </div>
+          </Rubrica>
         )}
       </>
     );

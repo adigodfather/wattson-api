@@ -3621,6 +3621,7 @@ def bom_endpoint(request: BomRequest):
         # rooms (height_m) -> COBORARILE VERTICALE; power_summary -> randul de BRANSAMENT TEG;
         # W/H -> H-ul camerei tabloului (geometric, tablourile au room null).
         out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.1),
+                             subtip=(_formb.get("comercial_subtip") or None),
                              rooms=_rooms, power_summary=rd.get("power_summary") or {},
                              W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m,
                              fv_grounding=_fvg)
@@ -3931,9 +3932,21 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         _feeds.append({"type": "sub_tablou", "feeds_panel": "TES", "cable_type": "CYY-F %s6mmp" % _pref})
         except Exception as _e4:
             print("[regenerate-plan] cross-floor skip:", _e4)
+        # Sub-tipul comercial: DOAR pentru numele DDCS -> RACK pe eticheta si in legenda. Se citeste
+        # din projects.input_data pe baza lui project_id (deja aici), ca la /draw-plan-elements —
+        # contractul /regenerate-plan nu se schimba. Esec -> None = rezidential, ca inainte.
+        _subtip = None
+        try:
+            from supabase_client import supabase as _supaS
+            _pS = (_supaS.table("projects").select("input_data")
+                   .eq("id", request.project_id).single().execute().data) or {}
+            _subtip = ((_pS.get("input_data") or {}).get("comercial_subtip") or "").strip() or None
+        except Exception:
+            _subtip = None
         return draw_elements.redraw_from_plan_elements(
             request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms,
-            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs, cross_floor=_cross)
+            plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs, cross_floor=_cross,
+            subtip=_subtip)
     except Exception as e:
         return {"success": False, "error": str(e)}
 

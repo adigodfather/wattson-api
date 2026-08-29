@@ -185,6 +185,31 @@ _ACCES_ROOM = "Acces clădire"
 # eroare pe un tip necunoscut — toate cad tacut pe o ramura gresita, de-aia sunt constante aici
 # si nu literale imprastiate.
 _CS_PLAN = "curenti_slabi"
+# Marimea etichetelor de pe planşa de curenti slabi. Era 4.5 (jumatate din cea a becurilor, 9.0) —
+# prea mica pe planşe A3/A2. 6.0 = +33%: se citeste, dar ramane sub eticheta becului, ca planşa sa
+# nu se aglomereze (pe planul real sunt ~15 elemente in 58 mp). DOAR aici: iluminatul si forta
+# isi pastreaza marimile.
+_CS_LABEL_FS = 6.0
+
+# DDCS vs RACK: ACELASI element (receptor_internet), aceeasi putere, acelasi circuit, acelasi simbol
+# — se schimba DOAR numele. La spatii comerciale doza de curenti slabi e, in practica, dulapul RACK
+# (asa ii zice si lista de cantitati, "Dulap RACK"), la locuinte ramane DDCS.
+_DDCS_NAME_REZ = "DDCS"
+_DDCS_NAME_COM = "RACK"
+_DDCS_LEGEND_REZ = "DDCS - DOZA DE LEGATURA CURENTI SLABI"
+_DDCS_LEGEND_COM = "RACK - DULAP ECHIPAMENTE CURENTI SLABI"
+
+
+def _e_comercial(subtip):
+    """Proiectul e un spatiu COMERCIAL? (sub-tipul din comercial.py). Fail-safe: orice eroare ->
+    False, adica exact comportamentul rezidential de dinainte."""
+    if not subtip:
+        return False
+    try:
+        import comercial
+        return str(subtip) in comercial.SUBTIPURI
+    except Exception:
+        return False
 _CARTUS_SUFIX = {"iluminat": "DE ILUMINAT", "forta": "DE FORTA", _CS_PLAN: "CURENTI SLABI"}
 
 
@@ -656,7 +681,7 @@ def _legend_pw(pw):
         return None
 
 
-def _legend_label(kind, element_type, power_w=None, label=None, kit=False):
+def _legend_label(kind, element_type, power_w=None, label=None, kit=False, comercial=False):
     """Text DESCRIPTIV pt. LEGENDA (separat de _bulb_label, care ramane SCURT pt. etichetele de pe plan):
       - bulb / switch / panel (iluminat); prize / receptor(alimentare) / internet (forta).
       - cablul e construit direct in build_legend_rows (plan_type-aware). Putere None -> fara segment W."""
@@ -669,7 +694,8 @@ def _legend_label(kind, element_type, power_w=None, label=None, kit=False):
     if kind == "receptor":
         return "Alimentare " + (str(label).strip() if label else "receptor")
     if kind == "internet":
-        return "DDCS - DOZA DE LEGATURA CURENTI SLABI"   # decizia Dan (era "Priza date / internet (RJ45)")
+        # la comercial doza devine dulapul RACK (decizia Dan) — DOAR numele, elementul e acelasi
+        return _DDCS_LEGEND_COM if comercial else _DDCS_LEGEND_REZ
     # bulb (default)
     if kit:
         # I7-2011, iluminat antipanica. Textul include CORPUL, nu doar kitul: exista cate un rand
@@ -806,7 +832,11 @@ _CS_ABBR = {
 # doar fara diacritice (fontul legendei e base14). Nu-l rescrie "mai frumos": asta e formularea pe
 # care o recunoaste inginerul si verificatorul.
 _CS_LEGEND = {
-    "centrala_efractie":  "Centrala cu tastatura control acces, montata la iesire, h= 1.2 m",
+    # Textul de referinta continea "h= 1.2 m", dar inaltimea IMPLICITA a devenit 1,5 m si e acum
+    # editabila pe element -> planşa ar fi aratat "CE h=1.5m" langa o legenda care zice 1,2 m.
+    # Am scos clauza de inaltime din ACEST rand (inaltimea reala e oricum tiparita langa simbol);
+    # restul textului ramane verbatim. O linie de revenit, daca preferi textul original.
+    "centrala_efractie":  "Centrala cu tastatura control acces, montata la iesire",
     "tastatura_efractie": "Tastatura comanda montata in holul de la intrare",
     "detector_pir":       "PIR : Senzor de Miscare PIR cu Infrarosu, cu montaj in interior sau "
                           "exterior, Raza de actiune 180 grade",
@@ -838,11 +868,16 @@ _CS_BOM_NAME = {
     "doza_cs": "Doza PVC 100x100 mm",
 }
 # Inaltimea de montaj implicita (m) — din planurile de referinta. Editabila per element.
+# NVR-ul lipseste INTENTIONAT: se monteaza IN rack, nu pe perete -> n-are inaltime de montaj si
+# nu primeste "h=" pe eticheta. La fel traseul (nu-i element punctual).
 _CS_HEIGHT = {
-    "centrala_efractie": 1.2, "tastatura_efractie": 1.2, "detector_pir": 2.3,
-    "contact_magnetic": 2.1, "sirena_interioara": 2.5, "sirena_exterioara": 3.0,
-    "buton_panica": 1.2, "camera_video": 3.1, "nvr": 1.5, "rack_9u": 1.5,
-    "sursa_alimentare_cs": 1.5, "doza_cs": 3.1,
+    "detector_pir": 2.5, "camera_video": 2.5, "sirena_interioara": 2.5, "doza_cs": 2.5,
+    "contact_magnetic": 2.1,                    # pe rama usii, partea superioara
+    "sirena_exterioara": 3.0,                   # montaj inalt, anti-sabotaj
+    "centrala_efractie": 1.5,                   # cutie metalica, accesibila pentru service
+    "rack_9u": 1.5, "sursa_alimentare_cs": 1.5,
+    "tastatura_efractie": 1.4,                  # langa intrare, accesibila utilizatorilor
+    "buton_panica": 1.3,                        # standard 1,2-1,4 m
 }
 # PUTERI (W) pentru dimensionarea DDCS (decizia Dan). Sirenele sunt la puterea de ALARMA — worst
 # case, care e exact ce trebuie la dimensionare. Butonul si contactul sunt pasive (0 W).
@@ -871,6 +906,43 @@ def _cs_cable_kind(el):
     """Tipul de cablu al unui traseu de curenti slabi (din `label`); necunoscut -> coaxial."""
     k = str((el or {}).get("label") or "").strip().lower()
     return k if k in _CS_CABLE else _CS_CABLE_DEFAULT
+
+
+def _cs_abbr_for(el):
+    """Abrevierea de pe planşa pentru un element de curenti slabi. Camera are DOUA abrevieri, dupa
+    montaj (`label`): CV-INT / CV-EXT, exact ca pe planurile de referinta. Sir gol = fara eticheta
+    (doza: sunt multe si un numar langa fiecare patratel ar fi doar zgomot)."""
+    et = (el or {}).get("element_type") or ""
+    if et == "camera_video":
+        return "CV-EXT" if str((el or {}).get("label") or "").strip().lower() == "exterior" else "CV-INT"
+    return _CS_ABBR.get(et, "")
+
+
+def cs_index_map(elements):
+    """{id_element: index} pentru etichetarea SECVENTIALA per tip (PIR 1, PIR 2, CV-INT 1...).
+
+    CALCULAT, nu stocat: stergerea unui element renumeroteaza singura, fara gauri si fara o coloana
+    noua in plan_elements. Ordinea e STABILA (sus->jos, apoi stanga->dreapta) — aceeasi cheie de
+    sortare ca la gruparea driverelor de banda LED, ca sa nu depinda de ordinea din DB.
+
+    Grupare pe (etaj, abreviere): camerele se numeroteaza SEPARAT pe interior si exterior, fiindca
+    abrevierea difera. Un singur element de tipul lui -> FARA index: asa arata si planurile de
+    referinta (NVR, SE, SI, BP apar simple; PIR 1..3 si CV-INT 1..3 sunt numerotate).
+    """
+    grupuri = {}
+    for el in (elements or []):
+        ab = _cs_abbr_for(el)
+        if not ab or not (el or {}).get("id"):
+            continue
+        grupuri.setdefault((str((el or {}).get("floor") or "parter"), ab), []).append(el)
+    out = {}
+    for _k, lista in grupuri.items():
+        if len(lista) < 2:
+            continue                      # unic -> fara numar
+        lista.sort(key=lambda d: (float(d.get("y") or 0), float(d.get("x") or 0)))
+        for i, el in enumerate(lista, start=1):
+            out[el["id"]] = i
+    return out
 
 
 def _draw_traseu_cs(page, el):
@@ -983,7 +1055,8 @@ def _legend_rows_cs(elements, present):
     return rows
 
 
-def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None, cross_floor=None):
+def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None, cross_floor=None,
+                      subtip=None):
     """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
     Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
       ILUMINAT: becuri (pe tip+putere) + intrerupatoare (prezente) + tablouri + cablu 3x1.5.
@@ -1035,7 +1108,8 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
                      for lbl in rec_labels]
 
     # e) RETEA INTERNET (forta): daca prezenta
-    internet_rows = ([{"kind": "internet", "text": _legend_label("internet", None)}]
+    _e_com = _e_comercial(subtip)          # comercial -> doza de curenti slabi se numeste RACK
+    internet_rows = ([{"kind": "internet", "text": _legend_label("internet", None, comercial=_e_com)}]
                      if "receptor_internet" in present else [])
 
     # f) TABLOURI (ambele): doar tipurile prezente
@@ -3754,7 +3828,7 @@ def _stamp_plansa_nr(doc, page, plansa_nr):
         return False
 
 
-def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None, circuits: list = None, cross_floor: dict = None) -> dict:
+def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_type: str = "iluminat", feeds: list = None, rooms: list = None, plansa_nr: str = None, plansa_titlu: str = None, circuits: list = None, cross_floor: dict = None, subtip: str = None) -> dict:
     """SUB-PAS 1a 'Obtine plan': redeseneaza elementele EDITATE pe BAZA CURATA (planuri[].pdf_base64).
     F4: deseneaza DOAR elementele cu plan_type in (draw_plan_type, 'ambele') -> iluminat: becuri/intrer./
     tablouri/dunga/legenda; forta: prize/alimentari + tablouri (mostenite) + dunga forta, FARA becuri.
@@ -3786,6 +3860,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _accept = (_CS_PLAN,) if draw_plan_type == _CS_PLAN else (draw_plan_type, "ambele")
         elements = [el for el in (elements or [])
                     if ((el or {}).get("plan_type") or "iluminat") in _accept]
+        # Etichetarea secventiala a curentilor slabi (PIR 1, CV-INT 2...): calculata pe elementele
+        # planşei, nu citita din DB -> stergerea renumeroteaza singura.
+        _cs_idx = cs_index_map([e for e in elements if (e or {}).get("element_type") in _CS_TYPES])
+        _e_com = _e_comercial(subtip)   # comercial -> DDCS se eticheteaza RACK (doar numele)
         n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
@@ -3920,15 +3998,19 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # CURENTI SLABI: simbol + eticheta scurta (abrevierea de pe planurile de referinta)
                 # + inaltimea de montaj, cand e setata. Culoarea urmeaza familia (efractie/video).
                 _draw_cs(page, x, y, et)
-                _cs_ab = _CS_ABBR.get(et, "")
+                _cs_ab = _cs_abbr_for(el)
+                _cs_i = _cs_idx.get(el.get("id"))
+                if _cs_ab and _cs_i:
+                    _cs_ab = "%s %d" % (_cs_ab, _cs_i)     # PIR 1 / CV-INT 2 (doar cand sunt mai multe)
                 _cs_h = _fmt_height(el.get("mount_height_m"))
                 # fara abreviere (doza) -> FARA eticheta: dozele-s multe si un "h=3.1m" langa
                 # fiecare patratel e doar zgomot.
                 _cs_txt = (" ".join(t for t in (_cs_ab, ("h=%sm" % _cs_h) if _cs_h else "") if t)
                            if _cs_ab else "")
                 if _cs_txt:
-                    _labels.append({"text": _cs_txt, "x0": x - len(_cs_txt) * 4.5 * 0.50, "y": y - 15.0,
-                                    "w": len(_cs_txt) * 4.5, "fs": 4.5, "font": "hebo",
+                    _cw = len(_cs_txt) * _CS_LABEL_FS * 0.50    # aceeasi formula ca la becuri
+                    _labels.append({"text": _cs_txt, "x0": x - _cw / 2.0, "y": y - 17.0,
+                                    "w": _cw, "fs": _CS_LABEL_FS, "font": "hebo",
                                     "color": _CS_FAMILY.get(et, _CS_EFRACTIE)})
                 n_bulb += 1
             elif et == "traseu_cs":
@@ -3993,7 +4075,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
                 _nh = _fmt_height(el.get("mount_height_m"))                           # inaltime de montaj (ca la prize)
                 if _nh:
-                    _nt = "DDCS - h=%sm" % _nh          # decizia Dan: "Retea" -> "DDCS" (doza curenti slabi)
+                    _nt = "%s - h=%sm" % (_DDCS_NAME_COM if _e_com else _DDCS_NAME_REZ, _nh)
                     _nfs = 7.5
                     _nw = len(_nt) * _nfs * 0.46
                     _labels.append({"text": _nt, "x0": x - _nw / 2.0, "y": y + 22.0, "w": _nw,
@@ -4076,7 +4158,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             _leg = next((e for e in (elements or [])
                          if ((e or {}).get("element_type") or "") == "legenda"), None)
             if _leg is not None:
-                _draw_legend(page, float(_leg["x"]), float(_leg["y"]), build_legend_rows(elements, draw_plan_type, feeds, circuits, cross_floor=cross_floor))
+                _draw_legend(page, float(_leg["x"]), float(_leg["y"]),
+                         build_legend_rows(elements, draw_plan_type, feeds, circuits,
+                                           cross_floor=cross_floor, subtip=subtip))
                 n_legend = 1
         except Exception:
             n_legend = 0
