@@ -29,6 +29,7 @@ import { CREDIT_PRICING } from "@/components/CreditCalculator";
 
 // Editor vizual (react-konva) — client-only (canvas/window). Lazy + ssr:false ca să nu pice next build.
 const PlanEditor = dynamic(() => import("./plan-editor"), { ssr: false });
+import type { PlanMode } from "./plan-editor";   // tipul celor TREI planşe (sursa unica)
 
 const WEBHOOK_URL = "/api/generate";
 
@@ -1107,7 +1108,7 @@ export function ZynapseConfigurator() {
   // Auto-detect badge (populated from response)
   const [autoDetected, setAutoDetected] = useState<{ climate_zone: string; climate_source?: string; levels_string?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('circuits');
-  const [modeEditor, setModeEditor] = useState<"iluminat" | "forta">("iluminat");   // F3: comutator Iluminat/Forta in tab Editor
+  const [modeEditor, setModeEditor] = useState<PlanMode>("iluminat");   // F3: comutator Iluminat/Forta/Curenti slabi in tab Editor
   // Fundal editor FORTA = baza CURATA (randata prin /api/render-base-png), NU PNG-ul iluminat (becuri invechite).
   const [fortaBg, setFortaBg] = useState<{ png_base64: string; png_meta: { dpi?: number; scale?: number;
     pdf_width_pt?: number; pdf_height_pt?: number; png_width_px?: number; png_height_px?: number } } | null>(null);
@@ -1152,6 +1153,8 @@ export function ZynapseConfigurator() {
   const planseIluminat = result?.planse_iluminat || [];
   const editorPlansa = planseIluminat[editorPlansaIdx] || null;
   // Baza CURATĂ a planșei curente (arhitectural + cartuș, FĂRĂ becuri) = sursă pt. fundalul forței + prop backend.
+  // CURENTI SLABI: bifa din echipamente (extra_equipment type "securitate") — acelasi tipar ca FV.
+  const hasSecuritate = !!equipment.securitate?.enabled;
   const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
   // CONSECVENȚĂ nume (Dan): numerotarea REALĂ din mirror (compute_plansa_numbering) — schemele din
   // result_data au plansa_nr STALE (numerotate în universul lor: prima schemă = IE.1, coliziune cu
@@ -1211,7 +1214,7 @@ export function ZynapseConfigurator() {
   // input_data = formularul complet, result_data = planse (PNG editor + PDF) + documente, plan_elements
   // = elementele editorului (PlanEditor le citeste pe savedProjectId). Ruleaza O DATA, dupa login. ──
   const resumeTriedRef = useRef(false);
-  const resumeModeRef = useRef<"iluminat" | "forta" | null>(null);
+  const resumeModeRef = useRef<PlanMode | null>(null);
   // FIX 4 (prize automat): proiect FINALIZAT re-deschis (resume) -> editorul NU auto-genereaza
   // prize (zero scrieri automate pe proiecte inchise). Sesiunile noi raman false (finalized se
   // seteaza abia la "Finalizeaza", care navigheaza afara din configurator).
@@ -1290,15 +1293,35 @@ export function ZynapseConfigurator() {
   // iluminatFinalizat = IE.1 generat ("Obtine plan iluminat" -> regenerated=true, semnal persistent in result_data).
   const iluminatFinalizat = editorPlansa?.regenerated === true;
   // faza fluxului: iluminat fara IE.1 -> "iluminat-nedefinitivat"; cu IE.1 -> "iluminat-gata"; pe forta -> "forta".
+  // A DOUASPREZECEA ramura binara: `modeEditor === "forta" ? "forta" : "iluminat-gata"` trimitea
+  // userul aflat pe CURENTI SLABI inapoi la "Editor Plan Forță →". Curentii slabi sunt, ca forta,
+  // o planşa derivata din care se poate finaliza — deci intra pe aceeasi ramura.
   const fazaFlux: "iluminat-nedefinitivat" | "iluminat-gata" | "forta" =
-    !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor === "forta" ? "forta" : "iluminat-gata";
+    !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor !== "iluminat" ? "forta" : "iluminat-gata";
 
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
-  async function handleRegenerated(pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) {
+  async function handleRegenerated(pdfBase64: string, mode: PlanMode, plansaNr?: string) {
     if (!result || !editorPlansa || !savedProjectId) return;
     // M3: construiește result_data pe mod, apoi PERSISTĂ o singură dată în Supabase.
     let updated: ProjectResult;
-    if (mode === "forta") {
+    if (mode === "curenti_slabi") {
+      // Oglinda ramurii de forta: lista per etaj, lazy-init la prima planşa, marcheaza etajul curent.
+      const baseCs = (result.planse_curenti_slabi && result.planse_curenti_slabi.length === planseIluminat.length)
+        ? result.planse_curenti_slabi
+        : planseIluminat.map(p => ({ type: "plan_curenti_slabi",
+                                     name: `${(p.name || "PLAN").replace(/\s*—\s*ILUMINAT\s*$/, "")} — CURENȚI SLABI`,
+                                     source_plansa_nr: p.source_plansa_nr,
+                                     pdf_base64: "", regenerated: false }));
+      updated = {
+        ...result,
+        planse_curenti_slabi: baseCs.map((f, i) => i === editorPlansaIdx
+          ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_curenti_slabi",
+              name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ|CURENȚI SLABI)\s*$/, "")} — CURENȚI SLABI`,
+              ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
+              filename: `Plan_curenti_slabi_${floorCanonic(editorPlansaIdx)}.pdf` }
+          : f),
+      };
+    } else if (mode === "forta") {
       // planse_forta = oglindă planse_iluminat (per etaj). Lazy-init la prima forță; marchează etajul curent.
       // PAS 2: metadata de FORȚĂ (nu clonată de la iluminat): type=plan_forta + name „— FORȚĂ";
       // source_plansa_nr = numărul FINAL IE.N stampat de backend (fallback: cel moștenit).
@@ -2082,7 +2105,7 @@ export function ZynapseConfigurator() {
   };
 
   // M2b: navighează la (etaj, fază) în stepper-ul multi-etaj.
-  const goEditorStep = (idx: number, mode: "iluminat" | "forta") => {
+  const goEditorStep = (idx: number, mode: PlanMode) => {
     setEditorPlansaIdx(idx);
     setModeEditor(mode);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2795,9 +2818,12 @@ export function ZynapseConfigurator() {
                   )}
                   <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 10,
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                    {([["iluminat", "Iluminat"], ["forta", "Forță"]] as const).map(([m, label]) => {
+                    {([["iluminat", "Iluminat"], ["forta", "Forță"],
+                       ...(hasSecuritate ? [["curenti_slabi", "Curenți slabi"] as const] : []),
+                      ] as ReadonlyArray<readonly [PlanMode, string]>).map(([m, label]) => {
                       const on = modeEditor === m;
-                      const locked = m === "forta" && !iluminatFinalizat;   // forta blocata pana la IE.1 (coerent cu CTA)
+                      // ca si forta: planşele derivate se deblocheaza dupa ce iluminatul e obtinut
+                      const locked = m !== "iluminat" && !iluminatFinalizat;
                       return (
                         <button key={m} type="button" disabled={locked}
                           onClick={() => !locked && setModeEditor(m)}
@@ -2818,6 +2844,8 @@ export function ZynapseConfigurator() {
                   <span style={{ fontSize: 11, color: "#545870" }}>
                     {modeEditor === "iluminat"
                       ? "Becuri, întrerupătoare, tablouri"
+                      : modeEditor === "curenti_slabi"
+                      ? "Anti-efracție și supraveghere video"
                       : "Prize / alimentări · tablouri moștenite (read-only)"}
                   </span>
                 </div>
@@ -2827,9 +2855,9 @@ export function ZynapseConfigurator() {
                   // Forta: fundalul CURAT (fortaBg); daca a esuat definitiv SAU lipseste baza -> fallback pe
                   // PNG-ul iluminat (valid, scale corect) ca sa nu ramana gol/eroare; cat se incarca efectiv
                   // (baza exista, fetch in curs) -> null + spinner (bgLoading). Spinner DOAR cand chiar se incarca.
-                  pngBase64={modeEditor === "forta" ? (fortaBg?.png_base64 ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_base64 : null)) : editorPlansa.png_base64}
-                  pngMeta={modeEditor === "forta" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
-                  bgLoading={modeEditor === "forta" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
+                  pngBase64={modeEditor !== "iluminat" ? (fortaBg?.png_base64 ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_base64 : null)) : editorPlansa.png_base64}
+                  pngMeta={modeEditor !== "iluminat" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
+                  bgLoading={modeEditor !== "iluminat" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}
                   floor={floorCanonic(editorPlansaIdx)}
                   onRegenerated={handleRegenerated}

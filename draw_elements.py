@@ -180,6 +180,13 @@ def _norm_name_ro(s):
 # orice camera (gruparea e pe numele din `room`). Numele e si contractul cu frontend-ul.
 _ACCES_ROOM = "Acces clădire"
 
+# ── A TREIA PLANSA: CURENTI SLABI (anti-efractie + supraveghere video) ───────────────────────
+# Fiecare loc care intreba "e iluminat SAU forta?" trebuie sa stie si de a treia. Niciunul nu da
+# eroare pe un tip necunoscut — toate cad tacut pe o ramura gresita, de-aia sunt constante aici
+# si nu literale imprastiate.
+_CS_PLAN = "curenti_slabi"
+_CARTUS_SUFIX = {"iluminat": "DE ILUMINAT", "forta": "DE FORTA", _CS_PLAN: "CURENTI SLABI"}
+
 
 # ── SPATII COMERCIALE: tip + putere + pas de suprafata ("+1 corp la X mp") ────────────────────
 # Nivelurile normate (NP 061-2002 Anexa 2 + SR EN 12464-1): depozite 100-150 lx, vestiare 200,
@@ -695,6 +702,11 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     iluminat -> 3x1.5; forta -> 3x2.5 (prize) + sectiunile DEDICATELOR (din circuits, NU re-derivate
     din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
     circuits lipsa (proiect vechi) -> FALLBACK la re-derivarea din puteri default (comportamentul vechi)."""
+    if plan_type == _CS_PLAN:
+        # CURENTI SLABI: cablurile lui sunt de alt tip (coaxial / semnal / alimentare 2x1) si se
+        # desemneaza din traseele DESENATE, nu din circuite. Pana la elemente: niciun rand.
+        # (Fara ramura asta, planşa ar mostenit tacut randul de cablu de ILUMINAT.)
+        return []
     if plan_type != "forta":
         # iluminat: cablurile pe plan sunt ROSII (default _draw_cable) -> legenda la fel
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
@@ -758,6 +770,20 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     return out
 
 
+# Tipurile de pe planşa de CURENTI SLABI (efractie + supraveghere video). Migratia 20260829090000
+# le-a adaugat in chk_element_type; simbolurile si randurile de legenda vin la pasul urmator.
+_CS_TYPES = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
+             "sirena_interioara", "sirena_exterioara", "buton_panica",
+             "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs", "traseu_cs")
+
+
+def _legend_rows_cs(elements, present):
+    """Randurile de legenda ale planşei de curenti slabi. Deocamdata GOALE: elementele si simbolurile
+    lor vin la pasul urmator. Planşa goala iese fara caseta de legenda (nu cu una goala, si mai ales
+    NU cu randul de cablu de iluminat, cum ar fi cazut inainte prin `plan_type != "forta"`)."""
+    return []
+
+
 def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None, cross_floor=None):
     """LOGICA PURA (fara desen): randurile legendei din plan_elements, pe plan_type.
     Returneaza [{kind, element_type?/label?, power_w?, text}] cu text DESCRIPTIV (_legend_label):
@@ -766,6 +792,12 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     Ordine determinista. Doar tipurile PREZENTE pe plan. Pura: nu deseneaza, nu modifica `elements`."""
     elements = elements or []
     present = {((el or {}).get("element_type") or "") for el in elements}
+
+    # CURENTI SLABI: legenda ei se compune DOAR din tipurile ei. Ramura e explicita chiar daca azi
+    # rezultatul ar iesi gol oricum (niciun filtru de mai jos nu prinde tipurile noi) — fara ea,
+    # orice tip adaugat mai tarziu in _BULB_TYPES/_PRIZA_TYPES ar putea scapa pe planşa gresita.
+    if plan_type == _CS_PLAN:
+        return _legend_rows_cs(elements, present)
 
     # a) BECURI (iluminat): combinatii unice (element_type, power_w normalizat)
     seen = set()
@@ -2150,6 +2182,8 @@ def _draw_legend(page, x, y, rows):
     """Caseta legenda la (x,y)=colt stanga-sus. rows = build_legend_rows(...) [{kind, element_type?, text}].
     Fiecare rand: simbol mic (stanga, prin scale) + text (dreapta). Chenar + fundal alb opac."""
     rows = rows or []
+    if not rows:
+        return   # fara randuri nu desenam o caseta "LEGENDA" goala
     PAD = 7.0
     TITLE_FS = 9.5
     TITLE_H = 15.0
@@ -3533,7 +3567,7 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # comportamentul vechi (base + sufix; numarul mostenit al planului de baza). Defensiv.
         _stamped_titlu = _apply_cartus_title(doc, page, plansa_titlu) if plansa_titlu else False
         if not _stamped_titlu:
-            _apply_cartus_suffix(doc, page, "DE ILUMINAT" if draw_plan_type == "iluminat" else "DE FORTA")
+            _apply_cartus_suffix(doc, page, _CARTUS_SUFIX.get(draw_plan_type, "DE ILUMINAT"))
         _stamped_nr = _stamp_plansa_nr(doc, page, plansa_nr) if plansa_nr else False
         # ORIENTAREA prizelor: centroidul REAL al elementelor per camera, din TOATE elementele
         # planului (INAINTE de filtrarea pe plan_type: becurile/intrerupatoarele de pe iluminat
@@ -3541,8 +3575,12 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _cen_map = _room_centroids(elements)
         # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
+        # CURENTI SLABI: NUMAI elementele lui. "ambele" inseamna "si pe iluminat, si pe forta" —
+        # tablourile electrice n-au ce cauta pe planşa de efractie (nici pe cele de referinta nu-s),
+        # iar fara excluderea asta planşa "goala" ar iesi cu TEG-ul desenat pe ea.
+        _accept = (_CS_PLAN,) if draw_plan_type == _CS_PLAN else (draw_plan_type, "ambele")
         elements = [el for el in (elements or [])
-                    if ((el or {}).get("plan_type") or "iluminat") in (draw_plan_type, "ambele")]
+                    if ((el or {}).get("plan_type") or "iluminat") in _accept]
         n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).

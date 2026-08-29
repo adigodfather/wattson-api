@@ -154,6 +154,12 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
   // FV: MEREU trifazat + pachete discrete (nu putere liberă) — cardul are selector 5/10/15/20 kW.
   { type: "solar",      label: "Panouri fotovoltaice",                   icon: "☀️", default_kw: 5,   default_phase: "tri", fvPackage: true },
   { type: "ev_charger", label: "Stație încărcare mașină electrică",      icon: "🚗", default_kw: 7.4, default_phase: "mono" },
+  // CURENȚI SLABI: bifa care declanșează planșa de anti-efracție + supraveghere video. Nu e un
+  // receptor de 230V (0 kW, fără fază): sistemul se alimentează din DDCS, iar echipamentele lui
+  // sunt cele 13 tipuri de elemente. Semnalul merge la numerotare (a treia planșă) exact ca
+  // `solar` la schema FV. Nu apare ca buton în editor — butoanele vin din
+  // EQUIPMENT_RECEPTOR_BUTTONS, listă separată.
+  { type: "securitate", label: "Sistem de securitate (efracție + supraveghere video)", icon: "🔒", default_kw: 0, default_phase: "none" },
 ];
 
 // ─── Regula 10: receptoare termice plasabile pe PLAN (mod forță) ──────────────
@@ -562,9 +568,12 @@ export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlan
     if (!regenIl.length) return { planse: [], draftPending: true };   // doar ciornă Vision -> ascunde + placeholder
     const fo = result.planse_forta || [];
     const regenFo = fo.filter(p => p.regenerated);
+    const cs = result.planse_curenti_slabi || [];
+    const regenCs = cs.filter(p => p.regenerated);
     const num = plansaNumberingFromResult(result);
     const ilE = num.filter(e => e.tip === "plan_iluminat");
     const foE = num.filter(e => e.tip === "plan_forta");
+    const csE = num.filter(e => e.tip === "plan_curenti_slabi");
     const out: ShownPlansa[] = [];
     const push = (p: ShownPlansa, e: PlansaNumEntry | undefined) => {
       const disp = e ? `${e.nr} ${e.titlu}` : p.name;
@@ -576,6 +585,8 @@ export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlan
     };
     for (const p of regenIl) push(p, ilE.find(x => x.nr === p.source_plansa_nr) || ilE[il.indexOf(p)]);
     for (const p of regenFo) push(p, foE.find(x => x.nr === p.source_plansa_nr) || foE[fo.indexOf(p)]);
+    // curentii slabi vin DUPA forta, exact ca in numerotare
+    for (const p of regenCs) push(p, csE.find(x => x.nr === p.source_plansa_nr) || csE[cs.indexOf(p)]);
     return { planse: out, draftPending: false };
   }
   return { planse: result.planuri || [], draftPending: false };   // DTAC: planuri ca înainte

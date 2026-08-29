@@ -66,6 +66,15 @@ function isCameraInterioara(name: string): boolean {
   return !EXTERIOR_KW.some(k => n.includes(k));
 }
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
+// A TREIA PLANSA (curenti slabi): tipul e exportat ca sa nu ramana literale binare imprastiate —
+// fiecare `mode === "forta" ? ... : ...` era o ramura care cadea TACUT pe iluminat.
+export type PlanMode = "iluminat" | "forta" | "curenti_slabi";
+// Eticheta modului, intr-un SINGUR loc: erau trei ternare binare care scriau "iluminat" pentru
+// orice tip necunoscut (spinner, planşa negenerata, butonul de regenerare).
+const MODE_LABEL: Record<PlanMode, string> = {
+  iluminat: "iluminat", forta: "forță", curenti_slabi: "curenți slabi",
+};
+
 const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
@@ -455,7 +464,7 @@ export default function PlanEditor({
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
   comercialSubtip = null,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string, mode: "iluminat" | "forta", plansaNr?: string) => void; mode?: "iluminat" | "forta";
+     onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string) => void; mode?: PlanMode;
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
      heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[];
@@ -1597,14 +1606,14 @@ export default function PlanEditor({
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 360 }}>
         <span aria-hidden style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid rgba(55,138,221,0.22)",
           borderTopColor: "#378ADD", animation: "zy-spin 0.7s linear infinite" }} />
-        <span style={{ fontSize: 12.5, color: "#8B8FA8" }}>Se pregătește planul de {mode === "forta" ? "forță" : "iluminat"}…</span>
+        <span style={{ fontSize: 12.5, color: "#8B8FA8" }}>Se pregătește planul de {MODE_LABEL[mode]}…</span>
       </div>
     );
   }
   if (!pngBase64) {
     return (
       <p className="text-sm text-center py-8" style={{ color: "#545870" }}>
-        Această planșă nu a fost generată încă — generează planul de {mode === "forta" ? "forță" : "iluminat"} mai întâi.
+        Această planșă nu a fost generată încă — generează planul de {MODE_LABEL[mode]} mai întâi.
       </p>
     );
   }
@@ -2475,7 +2484,7 @@ export default function PlanEditor({
         {/* Obține plan (1a): regenerează PDF din plan_elements EDITAT, pe baza curată */}
         <div>
           <button type="button" className="zy-getplan" onClick={handleRegenerate} disabled={regenLoading}>
-            {regenLoading ? "Se regenerează…" : (mode === "forta" ? "Obține plan forță" : "Obține plan iluminat")}
+            {regenLoading ? "Se regenerează…" : `Obține plan ${MODE_LABEL[mode]}`}
           </button>
           {regenErr && (
             <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11.5, lineHeight: 1.45,

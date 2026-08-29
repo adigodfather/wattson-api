@@ -209,6 +209,11 @@ export async function POST(req: NextRequest) {
     // Fara acestea, clona cade pe fallback-urile in-nod (numerotarea merge; FV regen + memoriu FV stau pe has_fv).
     extra_floors: extraFloors,
     has_fv: hasFv,
+    // CURENTI SLABI: la finalize semnalul NU e bifa din formular, ci planşele CHIAR generate —
+    // altfel un proiect cu bifa dar fara planşa desenata ar primi un numar IE pentru o planşa
+    // inexistenta, si tot restul s-ar deplasa degeaba.
+    has_cs: ((rd.planse_curenti_slabi as Array<{ regenerated?: boolean }> | undefined) || [])
+      .some((p) => p?.regenerated),
     fv_kw: fvKw,
     fv_soil_type: fvSoilType,
     faza,

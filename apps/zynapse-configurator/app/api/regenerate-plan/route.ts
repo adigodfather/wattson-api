@@ -20,7 +20,12 @@ export async function POST(req: NextRequest) {
   const projectId = String(body.project_id || "");
   const floor = String(body.floor || "parter");
   const base = String(body.base_pdf_base64 || "");
-  const planType = body.plan_type === "forta" ? "forta" : "iluminat";   // F4: doar iluminat/forta
+  // Poarta era BINARA (`=== "forta" ? "forta" : "iluminat"`), deci orice tip necunoscut devenea
+  // tacut planşa de iluminat. Acum lista e explicita: ce nu-i in ea cade tot pe iluminat, dar
+  // curenti_slabi trece.
+  const PLAN_TYPES = ["iluminat", "forta", "curenti_slabi"] as const;
+  const planType = (PLAN_TYPES as readonly string[]).includes(String(body.plan_type))
+    ? String(body.plan_type) : "iluminat";
   if (!projectId || !base) {
     return NextResponse.json({ error: "project_id + base_pdf_base64 necesare" }, { status: 400 });
   }
