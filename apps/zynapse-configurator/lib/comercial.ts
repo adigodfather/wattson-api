@@ -214,7 +214,9 @@ export const REGULI: Record<string, RegulaCamera> = {
   bar:             { lx: 300, corp: "panou_led",    w: 40, pas: 10,   prize: 6, prizePas: 8 },
   // decizia Dan: se stropeste, dar NU e zona cu dus/cada -> circuit cu RCCB 30mA, priza NORMALA
   // (pragul de 10mA e rezervat zonelor 0-2 din I7, iar IP44 nu e justificat aici)
-  spalator_vase:   { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 4, prizePas: null,
+  // pas 8: o aplica de 25W tine 300 lx pana la 8 mp (100 lm/W, calcul optimist); la 10 mp cad la
+  // 250 lx, la 15 mp la 167. Un spalator de vase de restaurant trece usor de 10 mp.
+  spalator_vase:   { lx: 300, corp: "aplica_tavan", w: 25, pas: 8,    prize: 4, prizePas: null,
                      umed: "30ma" },
   zona_preparare:  { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 6, prizePas: 8 },
   // acelasi tip+putere ca terasa rezidentiala (aplica_senzor 30W) — se adauga DOAR pasul de suprafata
@@ -223,7 +225,8 @@ export const REGULI: Record<string, RegulaCamera> = {
   // — C. SERVICII PERSONALE —
   sala_lucru:      { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 6 },
   // decizia Dan: scafele NU sunt zona cu cada/dus -> priza NORMALA, dar circuit cu RCCB 30mA
-  zona_spalare:    { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null,
+  // pas 8, ca la spalatorul de vase: aceeasi aplica de 25W la acelasi target de 300 lx
+  zona_spalare:    { lx: 300, corp: "aplica_tavan", w: 25, pas: 8,    prize: 2, prizePas: null,
                      umed: "30ma" },
   manichiura:      { lx: 500, corp: "panou_led",    w: 40, pas: 8,    prize: 4, prizePas: 6 },
   cabina_trat:     { lx: 300, corp: "aplica_tavan", w: 25, pas: null, prize: 2, prizePas: null },
