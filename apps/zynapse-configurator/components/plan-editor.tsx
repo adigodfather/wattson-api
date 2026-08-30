@@ -407,13 +407,21 @@ const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x 
 const isCsType = (t: string) => CS_TYPES.includes(t);
 const csColor = (t: string) => (CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
 // Tipul de cablu al unui traseu stă în `label` — același tipar ca montajul tablourilor FV.
+// Camerele sunt IP (transmit pe rețeaua structurată către NVR) -> UTP, nu coaxial. RG59 e cablu de
+// CCTV analogic; era moștenit din planul de referință, care zicea în același timp „camere IP" și
+// „coaxial RG59". Oglinda lui _CS_CABLE din draw_elements.py.
 const CS_CABLES = [
-  { value: "coax",       label: "Coaxial RG59",           col: COL_CS_VID, dash: undefined },
+  { value: "utp",        label: "UTP cat. 5e/6",          col: COL_CS_VID, dash: undefined },
   { value: "alimentare", label: "Alimentare 2x1 mmp",     col: COL_CS_EFR, dash: undefined },
   { value: "semnal",     label: "Semnal LiY(St)Y",        col: "#00838F",  dash: [5, 3] },
 ] as const;
-const csCableSpec = (lbl: string | null | undefined) =>
-  CS_CABLES.find(c => c.value === String(lbl || "").toLowerCase()) || CS_CABLES[0];
+// traseele desenate înainte de corecție purtau "coax" (zero în baza de date la 30 aug 2026, dar
+// aliasul costă o linie și le ține valide) — oglinda lui _CS_CABLE_ALIAS
+const CS_CABLE_ALIAS: Record<string, string> = { coax: "utp" };
+const csCableSpec = (lbl: string | null | undefined) => {
+  const k = String(lbl || "").toLowerCase();
+  return CS_CABLES.find(c => c.value === (CS_CABLE_ALIAS[k] || k)) || CS_CABLES[0];
+};
 
 // Simbolul fiecărui tip (Konva) — oglinda lui _draw_cs din draw_elements.py.
 function csSymbol(type: string) {
@@ -842,7 +850,7 @@ export default function PlanEditor({
   const [traseuCsPts, setTraseuCsPts] = useState<number[][]>([]);
   const [traseuCsHover, setTraseuCsHover] = useState<number[] | null>(null);
   const traseuCsPtsRef = useRef<number[][]>([]);        // sursa SINCRONA (ca la banda LED)
-  const traseuCsCabluRef = useRef<string>("coax");      // tipul de cablu ales inainte de desenare
+  const traseuCsCabluRef = useRef<string>("utp");       // tipul de cablu ales inainte de desenare
   const [drawingBandaLed, setDrawingBandaLed] = useState(false);
   const [bandaLedPts, setBandaLedPts] = useState<number[][]>([]);
   const [bandaLedHover, setBandaLedHover] = useState<[number, number] | null>(null);
@@ -1762,7 +1770,7 @@ export default function PlanEditor({
       floor: floorCanonic(floor),
       element_type: "traseu_cs",
       plan_type: "curenti_slabi",
-      label: traseuCsCabluRef.current,   // tipul de cablu (coax / alimentare / semnal)
+      label: traseuCsCabluRef.current,   // tipul de cablu (utp / alimentare / semnal)
       room: null as string | null,
       x: pts[0][0], y: pts[0][1],        // ancora = punctul 0 (x,y sunt NOT NULL)
       wall_mounted: false,

@@ -141,6 +141,31 @@ def receptor_type_of(label):
 _NET_RECEPTOR_W = 150   # BAZA: router/switch/rack — circuit dedicat (nu date low-voltage)
 
 
+_DDCS_SRC = "150W baza + curenti slabi"   # marcheaza circuitul DDCS/RACK (purtatorul inventarului)
+
+
+def _cs_inventar(els):
+    """INVENTARUL de curenti slabi EFECTIV plasat pe plan: {element_type: numar} + camerele defalcate
+    pe tip. Traseele (traseu_cs) nu-s echipamente -> ies din inventar.
+
+    DE CE aici si nu in memoriu: memoriul si caietul primesc CIRCUITE, nu plan_elements. Inventarul
+    calatoreste pe circuitul care alimenteaza sistemul, exact ca `_evacuare_corpuri` la iluminatul de
+    siguranta — deci zero campuri noi in payload-ul n8n."""
+    try:
+        from draw_elements import _CS_TYPES, _cam_tip
+    except Exception:
+        return {}, {}                     # fail-safe: fara inventar -> capitolul nu apare
+    comp, cam = {}, {}
+    for e in (els or []):
+        et = ((e or {}).get("element_type") or "").strip()
+        if et not in _CS_TYPES or et == "traseu_cs":
+            continue
+        comp[et] = comp.get(et, 0) + 1
+        if et == "camera_video":
+            cam[_cam_tip(e)] = cam.get(_cam_tip(e), 0) + 1
+    return comp, cam
+
+
 def _ddcs_power(els):
     """Puterea circuitului DDCS: 150 W baza + suma echipamentelor de CURENTI SLABI plasate pe plan
     (decizia Dan). Cei 150 W erau dimensionati pentru router/switch; un NVR de 24 canale plus 10
@@ -289,7 +314,7 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     else:
         power_w, tip, ph, src = receptor_power(el.get("label"), form)
     if is_net:                                            # DDCS: 150W baza + echipamentele de securitate
-        power_w, tip, src = _ddcs_power(all_els), "internet", "150W baza + curenti slabi"
+        power_w, tip, src = _ddcs_power(all_els), "internet", _DDCS_SRC
     tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
@@ -933,4 +958,21 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
 
     # tri: doar circuitele planului (TE-CT/feed pastreaza faza normativa); MONO: TOATE "R" (o faza reala)
     assign_phases(out, is_mono=is_mono)
+
+    # CURENTI SLABI: inventarul REAL de pe plan calatoreste pe circuite, ca memoriul si caietul (care
+    # primesc circuite, nu plan_elements) sa poata scrie capitolul GATED PE PREZENTA. Purtatorul
+    # firesc e circuitul care alimenteaza sistemul (DDCS/RACK); daca inginerul a desenat echipamente
+    # fara sa fi pus alimentarea, inventarul urca pe primul circuit — e o proprietate a PROIECTULUI,
+    # nu a circuitului, iar cititorii o insumeaza pe toate circuitele (ca `_evacuare_corpuri`).
+    # Fara elemente de curenti slabi: niciun camp nou -> circuitele ies byte-identice ca inainte.
+    try:
+        _cs_comp, _cs_cam = _cs_inventar(plan_elements)
+        if _cs_comp:
+            _purt = next((c for c in out if (c or {}).get("_receptor_src") == _DDCS_SRC), None)                     or (out[0] if out else None)
+            if _purt is not None:
+                _purt["_cs_componente"] = _cs_comp
+                if _cs_cam:
+                    _purt["_cs_camere"] = _cs_cam
+    except Exception:
+        pass                               # fail-safe: fara inventar -> capitolul lipseste, restul intact
     return out

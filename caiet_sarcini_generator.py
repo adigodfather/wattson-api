@@ -25,6 +25,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from memoriu_generator import (
     _setup_document, _page_coperta, _add_heading, _add_para,
     _set_run_font, _set_table_fixed, set_table_borders, _is_pt,
+    _cs_din_circuite,          # inventarul de curenti slabi, insumat de pe circuite
 )
 
 # =============================================================================
@@ -518,6 +519,77 @@ def _specificatie_tablouri(doc, circuits):
         doc.add_paragraph()
 
 
+# CURENTI SLABI — cerinte de EXECUTIE. Spre deosebire de iluminatul de siguranta (text static,
+# fiindca reguli de montaj exista oricum), aici textul apare doar cand proiectul chiar are
+# echipamente: cerinta de non-regresie e ca proiectele fara curenti slabi sa iasa neschimbate.
+# Inaltimile sunt cele din proiect (aceleasi valori ca `_CS_HEIGHT` din draw_elements).
+def _cerinte_curenti_slabi(doc, comp):
+    """Blocul de executie din cap. 3. Nu scrie nimic fara echipamente pe plan."""
+    if not comp:
+        return
+    _add_heading(doc, "Instalaţii de curenţi slabi", level=2)
+    _add_para(doc, "Echipamentele de curenţi slabi (detecţie efracţie şi supraveghere video) se "
+                   "montează la înălţimile prevăzute în planşele proiectului: detectoarele de "
+                   "mişcare şi camerele de supraveghere la 2,5 m faţă de pardoseală, centrala de "
+                   "efracţie la 1,5 m, tastatura de comandă la 1,4 m, butonul de panică la 1,3 m, "
+                   "iar sirena exterioară la 3,0 m, pe faţadă, în poziţie vizibilă şi greu "
+                   "accesibilă. Poziţiile din planşe se respectă; orice modificare impusă de "
+                   "situaţia din teren se face numai cu acordul scris al proiectantului.")
+    _add_para(doc, "Circuitele de curenţi slabi se pozează separat de cele de curenţi tari, în "
+                   "tuburi de protecţie proprii sau pe trasee distincte, respectând distanţa minimă "
+                   "faţă de conductoarele de 230 V prevăzută în tabelul 3.1, art. 3.5 din "
+                   "Normativul I7-2011. Este interzisă tragerea cablurilor de semnal în acelaşi tub "
+                   "cu conductoarele de forţă sau de iluminat. Traversările inevitabile ale "
+                   "traseelor de curenţi tari se execută în unghi drept, cu păstrarea distanţei de "
+                   "izolare.")
+    # Cele trei tipuri sunt EXACT cele din `_CS_CABLE` (planşa + lista de cantitati) si descriu
+    # ACELASI sistem ca memoriul: camere IP -> UTP catre NVR. Coaxialul RG59 (CCTV analogic) a fost
+    # scos din toate locurile la corectia din 30 aug 2026.
+    _add_para(doc, "Cablurile utilizate sunt: UTP cat. 5e/6 pentru transmisia de date a camerelor "
+                   "video IP către înregistrator, cablu de alimentare 2×1 mmp pentru echipamentele "
+                   "de 12 V c.c. şi cablu de semnal ecranat 2×(LiY(St)Y) 3×2×0,6 pentru buclele de "
+                   "detecţie. Cablurile se pozează fără "
+                   "înnădiri pe traseu; legăturile se fac exclusiv în dozele prevăzute în proiect, "
+                   "cu cleme, şi rămân accesibile. Ecranele cablurilor de semnal se leagă la masă "
+                   "într-un singur punct, la centrală, pentru a nu forma bucle de masă.")
+    # PoE: decizia Dan e alimentare SEPARATA (asa e desenata si listata in BOM — sursa cu acumulator
+    # in rack + 2x1 la fiecare camera), cu PoE acceptat ca alternativa. Fraza nu schimba nici BOM-ul,
+    # nici desenul, nici puterea RACK-ului: descrie o echivalenta pe care executantul o poate folosi.
+    _add_para(doc, "Alimentarea camerelor se face din sursele cu acumulator montate în rack, prin "
+                   "cablu 2×1 mmp, conform planşei. Se acceptă ca alternativă alimentarea prin PoE, "
+                   "pe acelaşi cablu UTP de date, dacă atât camerele cât şi echipamentul de reţea "
+                   "din rack suportă acest mod; în acest caz cablul de alimentare 2×1 mmp nu mai "
+                   "este necesar la camerele respective, iar bugetul de putere al echipamentului "
+                   "PoE se verifică faţă de consumul însumat al camerelor alimentate astfel. "
+                   "Soluţia adoptată se stabileşte înainte de execuţie, cu acordul proiectantului.")
+    _add_para(doc, "După montaj, executantul realizează punerea în funcţiune şi programarea "
+                   "centralei de efracţie: definirea zonelor şi a partiţiilor, temporizările de "
+                   "intrare şi ieşire, codurile de utilizator şi codul de instalator, precum şi "
+                   "configurarea înregistratorului video — rezoluţie, cadenţă, durata de stocare şi "
+                   "declanşarea la mişcare. Parolele implicite din fabrică se schimbă obligatoriu "
+                   "înainte de predare.")
+
+
+def _receptie_curenti_slabi(doc, comp):
+    """Completarea la cap. 5 — ce se verifica la receptie pe partea de curenti slabi."""
+    if not comp:
+        return
+    _add_para(doc, "La recepţia instalaţiilor de curenţi slabi se verifică suplimentar: "
+                   "funcţionarea fiecărui detector şi a fiecărui contact magnetic, prin declanşare "
+                   "individuală şi confirmarea semnalizării la centrală; funcţionarea sirenelor "
+                   "interioară şi exterioară; funcţionarea butoanelor de panică; autonomia "
+                   "acumulatorului de rezervă, prin proba de întrerupere a alimentării de 230 V şi "
+                   "menţinerea sistemului în funcţiune pe durata declarată; calitatea imaginii "
+                   "fiecărei camere, ziua şi noaptea, cu verificarea câmpului de acoperire faţă de "
+                   "cel figurat în planşă; înregistrarea şi redarea corectă pe NVR.")
+    _add_para(doc, "La predare, executantul înmânează beneficiarului documentaţia sistemului: "
+                   "codurile de utilizator şi de instalator, manualele de utilizare ale centralei "
+                   "şi ale înregistratorului video, schema zonelor programate, certificatele de "
+                   "garanţie ale echipamentelor şi procesul-verbal de punere în funcţiune. "
+                   "Beneficiarul este instruit asupra armării şi dezarmării sistemului şi asupra "
+                   "procedurii în caz de alarmă falsă.")
+
+
 def _pagina_finala(doc, cf):
     """Ultima pagină: PROIECTANT + FIRMĂ, jos-dreapta (datele din cartuşul proiectului)."""
     doc.add_page_break()
@@ -556,6 +628,9 @@ def build_caiet_docx(data: dict) -> bytes:
     planse = data.get("planse") or []
     circuits = data.get("circuits") or []
     solar = data.get("solar") or {}
+    # CURENŢI SLABI: gate pe PREZENŢĂ REALĂ, din circuite (`_cs_componente`, pus de enrich_circuits).
+    # Fără echipamente pe plan -> caietul iese byte-identic ca înainte.
+    _cs_comp, _ = _cs_din_circuite(circuits)
 
     # Lista REALĂ de planşe (aceeaşi autoritate ca borderoul memoriului la PT):
     # planşele explicite din payload; altfel derivate din numerotare (fail-safe: cele primite).
@@ -592,6 +667,7 @@ def build_caiet_docx(data: dict) -> bytes:
         _emit_blocks(doc, _CS_NORMATIVE_FV)         # normele FV, doar cu FV
 
     _emit_blocks(doc, _CS_CAP3)                     # 3
+    _cerinte_curenti_slabi(doc, _cs_comp)           # 3.x, doar cu echipamente pe plan
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.
@@ -600,6 +676,7 @@ def build_caiet_docx(data: dict) -> bytes:
     _emit_blocks(doc, _CS_CAP4_PRINCIPII)
 
     _emit_blocks(doc, _CS_CAP5)                     # 5
+    _receptie_curenti_slabi(doc, _cs_comp)          # completarea de receptie, doar cu echipamente
     _emit_blocks(doc, _CS_CAP6)                     # 6
     _specificatie_tablouri(doc, circuits)           # 7 dinamic
 

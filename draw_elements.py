@@ -729,7 +729,7 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
     circuits lipsa (proiect vechi) -> FALLBACK la re-derivarea din puteri default (comportamentul vechi)."""
     if plan_type == _CS_PLAN:
-        # CURENTI SLABI: cablurile lui sunt de alt tip (coaxial / semnal / alimentare 2x1) si se
+        # CURENTI SLABI: cablurile lui sunt de alt tip (UTP / semnal / alimentare 2x1) si se
         # desemneaza din traseele DESENATE, nu din circuite. Pana la elemente: niciun rand.
         # (Fara ramura asta, planşa ar mostenit tacut randul de cablu de ILUMINAT.)
         return []
@@ -891,20 +891,27 @@ _CS_POWER_W = {
 # TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
 # tablourilor FV. Culoarea si stilul difera per tip, ca planşa sa se citeasca fara sa deschizi legenda.
 _CS_CABLE = {
-    "coax":       {"nume": "Cablu coaxial RG59, alimentare camere video",
-                   "bom": "Cablu coaxial RG59", "col": (0.157, 0.208, 0.576), "dash": None},
+    # Camerele proiectului sunt IP: transmit pe reteaua structurata catre NVR, deci cablul lor e UTP,
+    # nu coaxial. RG59 e cablu de CCTV ANALOGIC — era mostenit din planul de referinta, care zicea in
+    # acelasi timp "camere IP" si "coaxial RG59" (proiect analogic vechi, copiat). Decizia Dan: IP.
+    "utp":        {"nume": "Cablu UTP cat. 5e/6, transmisie date camere video IP",
+                   "bom": "Cablu UTP cat. 5e/6", "col": (0.157, 0.208, 0.576), "dash": None},
     "alimentare": {"nume": "Cablu alimentare 2x1 mmp",
                    "bom": "Cablu alimentare 2x1 mmp", "col": (0.761, 0.094, 0.365), "dash": None},
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},
 }
-_CS_CABLE_DEFAULT = "coax"
+_CS_CABLE_DEFAULT = "utp"
+# Traseele desenate INAINTE de corectie aveau cheia "coax". La 30 aug 2026 nu exista niciunul in baza
+# (verificat: zero randuri traseu_cs), dar aliasul costa o linie si scuteste o migrare daca apare unul.
+_CS_CABLE_ALIAS = {"coax": "utp"}
 
 
 def _cs_cable_kind(el):
-    """Tipul de cablu al unui traseu de curenti slabi (din `label`); necunoscut -> coaxial."""
+    """Tipul de cablu al unui traseu de curenti slabi (din `label`); necunoscut -> UTP."""
     k = str((el or {}).get("label") or "").strip().lower()
+    k = _CS_CABLE_ALIAS.get(k, k)
     return k if k in _CS_CABLE else _CS_CABLE_DEFAULT
 
 
@@ -2776,7 +2783,8 @@ def _draw_legend(page, x, y, rows):
             page.draw_polyline(_cp, color=None, fill=_CAM_CON_COLOR,
                                fill_opacity=_CAM_CON_OPACITY, width=0, closePath=True)
         elif kind == "cs_cable":
-            _spec = _CS_CABLE.get(r.get("cable") or _CS_CABLE_DEFAULT, _CS_CABLE[_CS_CABLE_DEFAULT])
+            _ck = _CS_CABLE_ALIAS.get(r.get("cable") or "", r.get("cable") or _CS_CABLE_DEFAULT)
+            _spec = _CS_CABLE.get(_ck, _CS_CABLE[_CS_CABLE_DEFAULT])
             page.draw_line(fitz.Point(x + PAD + 3.0, cy), fitz.Point(x + PAD + SYM_W - 3.0, cy),
                            color=_spec["col"], width=1.0, dashes=_spec["dash"])
         elif kind == "panel":

@@ -502,6 +502,124 @@ def _memoriu_docx_siguranta_section(doc, nr, n_evac, n_kit):
                    "exploatării.")
 
 
+# CURENTI SLABI: numele romanesti ale componentelor — (articol, singular, plural). Si articolul, si
+# pluralul stau SCRISE, nu derivate: in romana genul nu se citeste din forma cuvantului ("un
+# detector" dar "o centrala"), iar pluralul nu se face uniform.
+_CS_NUME = {
+    "centrala_efractie":   ("o", "centrală de efracție cu tastatură de control acces",
+                            "centrale de efracție cu tastatură de control acces"),
+    "tastatura_efractie":  ("o", "tastatură de comandă", "tastaturi de comandă"),
+    "detector_pir":        ("un", "detector de mișcare PIR cu infraroșu",
+                            "detectoare de mișcare PIR cu infraroșu"),
+    "contact_magnetic":    ("un", "contact magnetic de ușă/fereastră",
+                            "contacte magnetice de ușă/fereastră"),
+    "sirena_interioara":   ("o", "sirenă interioară", "sirene interioare"),
+    "sirena_exterioara":   ("o", "sirenă exterioară cu flash", "sirene exterioare cu flash"),
+    "buton_panica":        ("un", "buton manual de panică", "butoane manuale de panică"),
+    "camera_video":        ("o", "cameră de supraveghere video IP 1080p",
+                            "camere de supraveghere video IP 1080p"),
+    "nvr":                 ("un", "înregistrator video de rețea (NVR)",
+                            "înregistratoare video de rețea (NVR)"),
+    "rack_9u":             ("un", "rack 9U 600×600", "rack-uri 9U 600×600"),
+    "sursa_alimentare_cs": ("o", "sursă de alimentare cu acumulator de rezervă",
+                            "surse de alimentare cu acumulator de rezervă"),
+    "doza_cs":             ("o", "doză de legături PVC 100×100 mm", "doze de legături PVC 100×100 mm"),
+}
+# ordinea de enumerare: intai efractia (in ordinea lantului: centrala -> comanda -> detectie ->
+# semnalizare), apoi partea video, apoi infrastructura comuna
+_CS_ORDINE = ["centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
+              "buton_panica", "sirena_interioara", "sirena_exterioara",
+              "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs"]
+_CS_EFRACTIE = {"centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
+                "buton_panica", "sirena_interioara", "sirena_exterioara"}
+_CS_VIDEO = {"camera_video", "nvr"}
+
+
+def _cs_din_circuite(circuits):
+    """Inventarul de curenti slabi, insumat de pe TOATE circuitele (ca `_evacuare_corpuri`).
+    enrich_circuits il pune pe circuitul care alimenteaza sistemul; memoriul nu presupune pe care."""
+    comp, cam = {}, {}
+    for c in (circuits or []):
+        for k, v in ((c or {}).get("_cs_componente") or {}).items():
+            try:
+                comp[k] = comp.get(k, 0) + int(v)
+            except (TypeError, ValueError):
+                continue
+        for k, v in ((c or {}).get("_cs_camere") or {}).items():
+            try:
+                cam[k] = cam.get(k, 0) + int(v)
+            except (TypeError, ValueError):
+                continue
+    return comp, cam
+
+
+def _cs_enumerare(comp):
+    """'o centrala de efractie, 8 detectoare de miscare PIR si 2 sirene' — din ce e EFECTIV pe plan."""
+    buc = []
+    for k in _CS_ORDINE:
+        n = int(comp.get(k) or 0)
+        if n <= 0:
+            continue
+        art, sg, pl = _CS_NUME[k]
+        buc.append("%s %s" % (art, sg) if n == 1 else "%d %s" % (n, pl))
+    if not buc:
+        return ""
+    return buc[0] if len(buc) == 1 else ", ".join(buc[:-1]) + " și " + buc[-1]
+
+
+def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
+    """Capitolul de CURENTI SLABI (efractie + supraveghere video). Se scrie DOAR daca proiectul chiar
+    are echipamente plasate pe plan, ca la FV si la iluminatul de siguranta. `nr` = numarul
+    capitolului, calculat de apelant in functie de ce capitole optionale il preced."""
+    _add_heading(doc, "%s. Instalații de curenți slabi" % nr, level=2)
+    _has_efr = any(comp.get(k) for k in _CS_EFRACTIE)
+    _has_vid = any(comp.get(k) for k in _CS_VIDEO)
+    if _has_efr and _has_vid:
+        _sist = ("un sistem de detecție și semnalizare a efracției și un sistem de supraveghere "
+                 "video")
+    elif _has_vid:
+        _sist = "un sistem de supraveghere video"
+    else:
+        _sist = "un sistem de detecție și semnalizare a efracției"
+    _add_para(doc, "Pe lângă instalațiile de curenți tari, proiectul prevede %s, cu traseele și "
+                   "amplasamentele din planșa de instalații de curenți slabi. Sistemele sunt "
+                   "independente funcțional de instalația de forță și iluminat și se execută pe "
+                   "trasee proprii." % _sist)
+    if _has_efr:
+        _add_para(doc, "Sistemul de detecție a efracției este organizat în jurul centralei de "
+                       "efracție, care preia semnalele detectoarelor și ale contactelor magnetice "
+                       "și comandă semnalizarea acustică și optică. Armarea și dezarmarea se fac de "
+                       "la tastatura montată la intrare, cu cod de utilizator.")
+    if _has_vid:
+        _add_para(doc, "Sistemul de supraveghere video este de tip IP: camerele transmit fluxul pe "
+                       "rețeaua structurată, cu cablu UTP cat. 5e/6, către înregistratorul video de "
+                       "rețea (NVR), unde imaginile se stochează local. Unghiurile de acoperire ale "
+                       "camerelor sunt cele figurate pe planșă, pentru fiecare tip de cameră în "
+                       "parte.")
+    _enum = _cs_enumerare(comp)
+    if _enum:
+        _add_para(doc, "Echipamentele prevăzute sunt: %s." % _enum)
+    if cam:
+        _tip_nume = {"bullet": "Bullet", "dome": "Dome", "turret": "Turret", "ptz": "PTZ",
+                     "fisheye180": "Fisheye 180°", "fisheye360": "Fisheye 360°", "termica": "termică"}
+        _cb = ["%d %s" % (v, _tip_nume.get(k, k)) for k, v in
+               sorted(cam.items(), key=lambda x: (-x[1], x[0]))]
+        _add_para(doc, "Camerele se defalcă pe tipuri astfel: %s, alese după unghiul de acoperire "
+                       "necesar fiecărei zone." % (", ".join(_cb[:-1]) + " și " + _cb[-1]
+                                                   if len(_cb) > 1 else _cb[0]))
+    _add_para(doc, "Alimentarea echipamentelor se face în joasă tensiune, 12 V curent continuu, din "
+                   "sursele montate în rack, alimentate la rândul lor dintr-un circuit dedicat de "
+                   "230 V din tabloul electric. Sursele sunt prevăzute cu acumulator de rezervă, "
+                   "care asigură funcționarea sistemului la întreruperea alimentării de la rețea. "
+                   "Traseele de curenți slabi se pozează separat de cele de curenți tari, în tuburi "
+                   "de protecție proprii.")
+    _add_para(doc, "La proiectarea și executarea instalațiilor de curenți slabi se respectă "
+                   "Normativul I18/1-2001 pentru instalațiile de curenți slabi aferente clădirilor, "
+                   "seria de standarde SR EN 50131 pentru sistemele de alarmă la efracție și seria "
+                   "SR EN 62676 pentru sistemele de supraveghere video. Alimentarea de 230 V a "
+                   "surselor respectă prevederile Normativului I7-2011.")
+
+
 def _memoriu_docx_fv_sections(doc, solar, is_pt=False):
     """G3: capitolele FV în memoriul DOCX — [B] descrierea sistemului (identică pe faze) + [C]
     priza de pământ DEDICATĂ, RAMIFICATĂ pe fază (fix Dan): PT -> breviarul complet pe pattern-ul
@@ -703,18 +821,27 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
     _n_evac = sum(int((c or {}).get("_evacuare_corpuri") or 0) for c in circuits)
     _n_kit = sum(int((c or {}).get("kit_panica") or 0) for c in circuits)
     _has_safety = bool(_n_evac or _n_kit)
+    # CURENTI SLABI: acelasi tipar — gate pe PREZENTA REALA, din CIRCUITE. enrich_circuits urca
+    # inventarul de pe plan pe circuitul care alimenteaza sistemul (`_cs_componente`), tocmai ca
+    # memoriul sa nu aiba nevoie de plan_elements. Fara echipamente -> capitolul nu apare.
+    _cs_comp, _cs_cam = _cs_din_circuite(circuits)
+    _has_cs = bool(_cs_comp)
     # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
     _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
+    # cate capitole optionale se insereaza inaintea PROTECTIEI -> si numarul ei, si referinta
+    # incrucisata ies din ACEEASI suma (nu se pot desincroniza)
+    _n_optionale = (1 if _has_fv else 0) + (1 if _has_safety else 0) + (1 if _has_cs else 0)
     _skip_li = False   # activ dupa lista TEG dinamica: sare li-urile STATICE inlocuite
     for kind, text in _MEMORIU_BLOCKS:
         if _skip_li:
             if kind == "li":
                 continue
             _skip_li = False
-        if kind == "h2" and text.startswith("2.8. PROTEC") and (_has_fv or _has_safety):
-            # ORDINEA (decizia Dan): FV ramane 2.8, siguranta vine dupa ea. Cu ambele prezente:
-            # 2.8 FV · 2.9 siguranta · 2.10 PROTECTIA. Cu una singura, ea ia 2.8 si PROTECTIA 2.9.
+        if kind == "h2" and text.startswith("2.8. PROTEC") and _n_optionale:
+            # ORDINEA (decizia Dan): FV ramane 2.8, siguranta dupa el, curentii slabi dupa ea.
+            # Cu toate trei: 2.8 FV · 2.9 siguranta · 2.10 curenti slabi · 2.11 PROTECTIA.
+            # Fiecare capitol absent isi cedeaza numarul urmatorului — PROTECTIA inchide mereu sirul.
             _nr_next = 8
             if _has_fv:
                 _memoriu_docx_fv_sections(doc, solar, is_pt=_is_pt(cp.get("faza")))
@@ -722,10 +849,13 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
             if _has_safety:
                 _memoriu_docx_siguranta_section(doc, "2.%d" % _nr_next, _n_evac, _n_kit)
                 _nr_next += 1
-            text = "2.%d. " % _nr_next + text[len("2.8. "):]                      # PROTECTIA -> 2.9/2.10
-        elif (_has_fv or _has_safety) and kind == "li" and "paragrafului 2.8." in text:
-            text = text.replace("paragrafului 2.8.",
-                                "paragrafului 2.%d." % (8 + (1 if _has_fv else 0) + (1 if _has_safety else 0)))
+            if _has_cs:
+                _memoriu_docx_curenti_slabi_section(doc, "2.%d" % _nr_next, _cs_comp, _cs_cam)
+                _nr_next += 1
+            text = "2.%d. " % _nr_next + text[len("2.8. "):]                # PROTECTIA -> 2.9 .. 2.11
+        elif _n_optionale and kind == "li" and "paragrafului 2.8." in text:
+            # referinta incrucisata catre PROTECTIA: acelasi numar, calculat din ACEEASI suma
+            text = text.replace("paragrafului 2.8.", "paragrafului 2.%d." % (8 + _n_optionale))
         if kind == "h1":
             _add_heading(doc, text, level=1)
         elif kind == "h2":
