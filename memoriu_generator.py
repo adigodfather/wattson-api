@@ -608,6 +608,78 @@ def _cs_enumerare(comp):
     return buc[0] if len(buc) == 1 else ", ".join(buc[:-1]) + " și " + buc[-1]
 
 
+def _video_echipament(comp):
+    """Fraza despre înregistrator, DIMENSIONAT din numărul de camere plasate, plus modul lor de
+    alimentare. PoE-ul devine soluția de BAZĂ (decizia Dan): camerele se alimentează prin același
+    cablu UTP pe care transmit, direct din porturile NVR-ului — deci nu mai au nevoie de cablul de
+    2×1 mmp de la sursa cu acumulator, care rămâne a instalației de efracție.
+    Când NVR-ul nu le acoperă pe toate (peste 16 camere, ori peste bugetul PoE), fraza o spune."""
+    try:
+        from draw_elements import cs_nvr, cs_nvr_alerta
+    except Exception:
+        return ""                          # fail-safe: fraza lipsește, restul capitolului rămâne
+    n_cam = int((comp or {}).get("camera_video") or 0)
+    if not n_cam or not (comp or {}).get("nvr"):
+        return ""
+    t = cs_nvr(n_cam)
+    if not t["poe"]:
+        # peste 32 de camere nu mai există PoE integrat — se schimbă soluția, nu doar mărimea
+        return ("Înregistratorul este dimensionat pentru %d canale, corespunzător celor %d camere "
+                "prevăzute. La această mărime înregistratorul nu mai dispune de alimentare PoE "
+                "integrată, astfel încât camerele se alimentează prin comutatoare PoE montate în "
+                "rack, pe același cablu de date." % (t["canale"], n_cam))
+    _t = ("Înregistratorul este dimensionat pentru %d canale, corespunzător celor %d camere "
+          "prevăzute, și dispune de alimentare PoE integrată: camerele se alimentează prin același "
+          "cablu UTP pe care transmit imaginea, direct din porturile înregistratorului. Nu sunt "
+          "necesare circuite separate de alimentare la camere." % (t["canale"], n_cam))
+    # `comp` e un inventar (tip -> numar), nu elemente: alerta de porturi se poate calcula din el,
+    # cea de buget nu (depinde de TIPUL fiecarei camere) -> aici se semnaleaza doar porturile.
+    _fara = max(0, n_cam - t["poe"])
+    if _fara:
+        _t += (" Înregistratorul dispune de %d porturi PoE, astfel încât %d camere se alimentează "
+               "dintr-un comutator PoE suplimentar montat în rack, pe același circuit."
+               % (t["poe"], _fara))
+    return _t
+
+
+def _dtv_echipament(comp):
+    """Fraza despre echipamentul de distribuție, DIMENSIONAT din numărul de prize plasate.
+    Dimensionarea nu se rescrie aici: vine din `draw_elements` (aceeași sursă ca lista de cantități
+    și ca schema), iar priza mixtă se numără la ambele — o singură regulă, un singur loc.
+    Fără prize de date -> fără switch; cu o singură priză TV -> fără splitter (se leagă direct)."""
+    try:
+        from draw_elements import cs_prize_dtv, cs_switch_porturi, cs_splitter_bom
+    except Exception:
+        return ""                          # fail-safe: fraza lipsește, restul capitolului rămâne
+    n_date, n_tv = cs_prize_dtv(comp)
+    porturi, spl = cs_switch_porturi(n_date), cs_splitter_bom(n_tv)
+    buc = []
+    if porturi:
+        buc.append("un switch cu %d porturi pentru rețeaua de date" % porturi)
+    if spl:
+        if sum(n for _, n in spl) == 1:
+            buc.append("un splitter pasiv cu %d ieșiri pentru semnalul TV" % spl[0][0])
+        else:
+            # peste 12 prize TV atenuarea unui singur pasiv devine prea mare -> două trepte
+            buc.append("splittere pasive montate în cascadă pe două trepte (%s), pentru semnalul TV"
+                       % ", ".join("%d bucăți cu %d ieșiri" % (n, i) if n > 1
+                                   else "una cu %d ieșiri" % i for i, n in spl))
+    if not buc:
+        return ""
+    # acordul participiului: „montat" doar cand e UN singur aparat (un switch, ori un splitter)
+    _multe = len(buc) > 1 or sum(n for _, n in spl) > 1
+    _t = "Distribuția se realizează prin %s, %s în rack." % (
+        " și ".join(buc), "montate" if _multe else "montat")
+    if porturi:
+        _t += (" Switch-ul se alimentează din circuitul dedicat de 230 V al punctului de "
+               "distribuție; puterea lui este cuprinsă în bilanțul acestui circuit.")
+    if spl:
+        _t += (" Splitterele sunt pasive și nu necesită alimentare."
+               if sum(n for _, n in spl) > 1 else
+               " Splitterul este pasiv și nu necesită alimentare.")
+    return _t
+
+
 def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
     """Capitolul de CURENTI SLABI (efractie + supraveghere video). Se scrie DOAR daca proiectul chiar
     are echipamente plasate pe plan, ca la FV si la iluminatul de siguranta. `nr` = numarul
@@ -639,12 +711,18 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
                        "rețea (NVR), unde imaginile se stochează local. Unghiurile de acoperire ale "
                        "camerelor sunt cele figurate pe planșă, pentru fiecare tip de cameră în "
                        "parte.")
+        _v = _video_echipament(comp)
+        if _v:
+            _add_para(doc, _v)
     if _has_dtv:
         _add_para(doc, "Distribuția de date și televiziune se realizează cu prize montate în doze "
                        "proprii, legate radial la punctul de distribuție (rack): prizele de date pe "
                        "cablu UTP cat. 5e/6, iar cele de televiziune pe cablu coaxial de 75 Ω. "
                        "Prizele sunt pasive — nu consumă energie și nu încarcă circuitul de "
                        "alimentare al punctului de distribuție.")
+        _e = _dtv_echipament(comp)
+        if _e:
+            _add_para(doc, _e)
     _enum = _cs_enumerare(comp)
     if _enum:
         _add_para(doc, "Echipamentele prevăzute sunt: %s." % _enum)
@@ -666,12 +744,21 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
                        "clădirilor, iar rețeaua de date se realizează conform SR EN 50173 pentru "
                        "cablarea structurată.")
         return
-    _add_para(doc, "Alimentarea echipamentelor se face în joasă tensiune, 12 V curent continuu, din "
-                   "sursele montate în rack, alimentate la rândul lor dintr-un circuit dedicat de "
-                   "230 V din tabloul electric. Sursele sunt prevăzute cu acumulator de rezervă, "
-                   "care asigură funcționarea sistemului la întreruperea alimentării de la rețea. "
-                   "Traseele de curenți slabi se pozează separat de cele de curenți tari, în tuburi "
-                   "de protecție proprii.")
+    # Alimentarea are DOUA cai de cand camerele merg pe PoE: sursa cu acumulator ramane a efractiei,
+    # iar camerele se alimenteaza din inregistrator. Fraza spune doar ce exista in proiect.
+    _al = ("Echipamentele de detecție a efracției se alimentează în joasă tensiune, 12 V curent "
+           "continuu, din sursele montate în rack" if _has_efr else "")
+    if _has_efr and _has_vid:
+        _al += ", iar camerele de supraveghere prin PoE, din înregistrator"
+    elif _has_vid and not _has_efr:
+        _al = ("Camerele de supraveghere se alimentează prin PoE, din înregistratorul montat în rack")
+    _add_para(doc, "%s. Alimentarea de bază provine dintr-un circuit dedicat de 230 V din tabloul "
+                   "electric.%s Traseele de curenți slabi se pozează separat de cele de curenți "
+                   "tari, în tuburi de protecție proprii." % (
+                       _al,
+                       " Sursele sunt prevăzute cu acumulator de rezervă, care asigură funcționarea "
+                       "sistemului de efracție la întreruperea alimentării de la rețea." if _has_efr
+                       else ""))
     _add_para(doc, "La proiectarea și executarea instalațiilor de curenți slabi se respectă "
                    "Normativul I18/1-2001 pentru instalațiile de curenți slabi aferente clădirilor, "
                    "seria de standarde SR EN 50131 pentru sistemele de alarmă la efracție și seria "

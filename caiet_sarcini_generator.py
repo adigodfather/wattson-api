@@ -533,6 +533,84 @@ _CS_ACTIVE = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contac
               "sirena_interioara", "sirena_exterioara", "buton_panica", "camera_video", "nvr")
 
 
+def _video_alimentare_cerinte(comp):
+    """Cerinţele de alimentare a camerelor. PoE-ul e soluţia de BAZĂ (decizia Dan): înregistratorul
+    se specifică cu PoE integrat, dimensionat pe camerele plasate. Cablul separat de 2×1 mmp la
+    camere nu mai este necesar; sursa cu acumulator rămâne a instalaţiei de efracţie."""
+    try:
+        from draw_elements import cs_nvr
+    except Exception:                      # fail-safe: cerinţa generică, fără dimensionare
+        return ("Alimentarea camerelor se face prin PoE, din înregistratorul montat în rack, pe "
+                "acelaşi cablu UTP pe care transmit imaginea.")
+    n_cam = int((comp or {}).get("camera_video") or 0)
+    t = cs_nvr(n_cam)
+    if not n_cam:
+        return ("Alimentarea camerelor se face prin PoE, din înregistratorul montat în rack, pe "
+                "acelaşi cablu UTP pe care transmit imaginea.")
+    if not t["poe"]:
+        return ("Înregistratorul se prevede cu %d canale, pentru cele %d camere din proiect. La "
+                "această mărime înregistratoarele nu dispun de alimentare PoE integrată, astfel "
+                "încât alimentarea camerelor se face prin comutatoare PoE montate în rack, pe "
+                "acelaşi cablu UTP pe care camerele transmit imaginea. Bugetul de putere al "
+                "comutatoarelor se verifică faţă de consumul însumat al camerelor alimentate, cu "
+                "o rezervă de minimum 20%%. Camerele PTZ se alimentează pe porturi PoE+ (IEEE "
+                "802.3at), care asigură 30 W pe port." % (t["canale"], n_cam))
+    _t = ("Înregistratorul se prevede cu %d canale şi cu alimentare PoE integrată, pentru cele %d "
+          "camere din proiect. Alimentarea camerelor se face prin PoE, pe acelaşi cablu UTP pe care "
+          "transmit imaginea, direct din porturile înregistratorului; nu se prevăd circuite "
+          "separate de alimentare la camere. Camerele PTZ se alimentează pe porturi PoE+ (IEEE "
+          "802.3at, 30 W pe port), celelalte pe PoE standard (IEEE 802.3af, 15,4 W pe port). "
+          "Bugetul PoE al înregistratorului se verifică faţă de consumul însumat al camerelor "
+          "alimentate, cu o rezervă de minimum 20%%." % (t["canale"], n_cam))
+    _fara = max(0, n_cam - t["poe"])
+    if _fara:
+        _t += (" Înregistratorul dispune de %d porturi PoE; cele %d camere rămase se alimentează "
+               "dintr-un comutator PoE suplimentar, montat în rack şi alimentat din acelaşi "
+               "circuit de 230 V." % (t["poe"], _fara))
+    _t += (" Sursa cu acumulator din rack rămâne destinată instalaţiei de efracţie şi se "
+           "dimensionează numai pe consumul acesteia.")
+    return _t
+
+
+def _dtv_echipament_cerinte(comp):
+    """Cerinţele pentru echipamentul de distribuţie, DIMENSIONAT din numărul de prize plasate.
+    Dimensionarea vine din `draw_elements` — aceeaşi sursă ca lista de cantităţi, memoriul şi schema."""
+    try:
+        from draw_elements import cs_prize_dtv, cs_switch_porturi, cs_splitter_bom
+    except Exception:
+        return ""                          # fail-safe: cerinţa lipseşte, restul blocului rămâne
+    n_date, n_tv = cs_prize_dtv(comp)
+    porturi, spl = cs_switch_porturi(n_date), cs_splitter_bom(n_tv)
+    if not porturi and not spl:
+        return ""
+    _t = "În rack se montează "
+    _b = []
+    if porturi:
+        _b.append("switch-ul de date cu %d porturi, dimensionat pentru cele %d prize de date "
+                  "deservite plus portul de legătură către router" % (porturi, n_date))
+    if spl:
+        if sum(n for _, n in spl) == 1:
+            _b.append("splitterul TV pasiv cu %d ieşiri, pentru cele %d prize de televiziune"
+                      % (spl[0][0], n_tv))
+        else:
+            _b.append("splitterele TV pasive montate în cascadă (%s), pentru cele %d prize de "
+                      "televiziune" % (", ".join("%d bucăţi cu %d ieşiri" % (n, i) if n > 1
+                                                 else "unul cu %d ieşiri" % i for i, n in spl), n_tv))
+    _t += " şi ".join(_b) + ". "
+    if porturi:
+        _t += ("Switch-ul se alimentează din circuitul dedicat de 230 V al punctului de "
+               "distribuţie. ")
+    if spl:
+        # cerinta reala de montaj la pasive: iesirile libere nemarcate dezadapteaza linia si intorc
+        # semnal in retea (unde reflexiile se vad ca „fantome" pe imagine)
+        _t += ("Splitterele sunt pasive şi nu se alimentează; la montaj se respectă sensul "
+               "intrare/ieşiri marcat pe carcasă, iar ieşirile neutilizate se închid cu sarcină de "
+               "75 ohm. ")
+    _t += ("Echipamentele se montează în rack cu acces frontal la conectori şi se etichetează, "
+           "fiecare port fiind marcat cu identificatorul prizei pe care o deserveşte.")
+    return _t
+
+
 def _cerinte_curenti_slabi(doc, comp):
     """Blocul de executie din cap. 3. Nu scrie nimic fara echipamente pe plan.
     Cerintele de montaj/PIF privesc echipamentele ACTIVE (efractie + video); la o casa cu doar prize
@@ -554,6 +632,9 @@ def _cerinte_curenti_slabi(doc, comp):
                        "coaxial de 75 ohm, cu conectori F. La recepţie se verifică fiecare priză "
                        "prin testare de continuitate şi de perechi, iar prizele TV prin măsurarea "
                        "nivelului de semnal.")
+        _e = _dtv_echipament_cerinte(comp)
+        if _e:
+            _add_para(doc, _e)
     if not _activ:
         return
     
@@ -574,23 +655,19 @@ def _cerinte_curenti_slabi(doc, comp):
     # Cele trei tipuri sunt EXACT cele din `_CS_CABLE` (planşa + lista de cantitati) si descriu
     # ACELASI sistem ca memoriul: camere IP -> UTP catre NVR. Coaxialul RG59 (CCTV analogic) a fost
     # scos din toate locurile la corectia din 30 aug 2026.
-    _add_para(doc, "Cablurile utilizate sunt: UTP cat. 5e/6 pentru transmisia de date a camerelor "
-                   "video IP către înregistrator, cablu de alimentare 2×1 mmp pentru echipamentele "
-                   "de 12 V c.c. şi cablu de semnal ecranat 2×(LiY(St)Y) 3×2×0,6 pentru buclele de "
+    _add_para(doc, "Cablurile utilizate sunt: UTP cat. 5e/6 pentru transmisia de date şi pentru "
+                   "alimentarea PoE a camerelor video IP către înregistrator, cablu de alimentare "
+                   "2×1 mmp pentru echipamentele de efracţie alimentate în 12 V c.c. şi cablu de "
+                   "semnal ecranat 2×(LiY(St)Y) 3×2×0,6 pentru buclele de "
                    "detecţie. Cablurile se pozează fără "
                    "înnădiri pe traseu; legăturile se fac exclusiv în dozele prevăzute în proiect, "
                    "cu cleme, şi rămân accesibile. Ecranele cablurilor de semnal se leagă la masă "
                    "într-un singur punct, la centrală, pentru a nu forma bucle de masă.")
-    # PoE: decizia Dan e alimentare SEPARATA (asa e desenata si listata in BOM — sursa cu acumulator
-    # in rack + 2x1 la fiecare camera), cu PoE acceptat ca alternativa. Fraza nu schimba nici BOM-ul,
-    # nici desenul, nici puterea RACK-ului: descrie o echivalenta pe care executantul o poate folosi.
-    _add_para(doc, "Alimentarea camerelor se face din sursele cu acumulator montate în rack, prin "
-                   "cablu 2×1 mmp, conform planşei. Se acceptă ca alternativă alimentarea prin PoE, "
-                   "pe acelaşi cablu UTP de date, dacă atât camerele cât şi echipamentul de reţea "
-                   "din rack suportă acest mod; în acest caz cablul de alimentare 2×1 mmp nu mai "
-                   "este necesar la camerele respective, iar bugetul de putere al echipamentului "
-                   "PoE se verifică faţă de consumul însumat al camerelor alimentate astfel. "
-                   "Soluţia adoptată se stabileşte înainte de execuţie, cu acordul proiectantului.")
+    # PoE INVERSAT (decizia Dan): era alternativa, devine solutia de BAZA. Inregistratorul se
+    # specifica cu PoE integrat si dimensionat pe camere, deci cablul separat de 2x1 mmp la camere
+    # dispare. Sursa cu acumulator RAMANE, dar a efractiei — de-aia si randul ei de legenda s-a
+    # schimbat de la „instalatie monitorizare video, max. 10 camere".
+    _add_para(doc, _video_alimentare_cerinte(comp))
     _add_para(doc, "După montaj, executantul realizează punerea în funcţiune şi programarea "
                    "centralei de efracţie: definirea zonelor şi a partiţiilor, temporizările de "
                    "intrare şi ieşire, codurile de utilizator şi codul de instalator, precum şi "

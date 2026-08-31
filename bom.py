@@ -736,10 +736,54 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                 _cs_cnt[("camera_video", _k, _mo)] = _cs_cnt.get(("camera_video", _k, _mo), 0) + 1
             elif et in _CS_BOM_NAME:
                 _cs_cnt[et] = _cs_cnt.get(et, 0) + 1
+        # camerele plasate dau treapta NVR-ului (canale + PoE) si eventualele avertismente
+        _n_cam = sum(v for k, v in _cs_cnt.items()
+                     if isinstance(k, tuple) and k[0] == "camera_video")
+        _cam_els = [e for e in plan_elements if (e.get("element_type") or "") == "camera_video"]
+        _al_nvr = draw_elements.cs_nvr_alerta(_cam_els)
         for et in _CS_TYPES:
             if et in _cs_cnt:
+                if et == "nvr":
+                    # dimensionat pe camerele CHIAR plasate, nu „24 canale" fix
+                    _av = []
+                    if _al_nvr["fara_canal"]:
+                        _av.append("%d camere peste capacitatea de inregistrare - necesita al "
+                                   "doilea inregistrator" % _al_nvr["fara_canal"])
+                    if _al_nvr["fara_port"]:
+                        _av.append("%d camere peste porturile PoE - necesita switch PoE separat"
+                                   % _al_nvr["fara_port"])
+                    if _al_nvr["peste_buget"] > 0:
+                        _av.append("buget PoE depasit cu %d W - necesita alimentare suplimentara"
+                                   % int(math.ceil(_al_nvr["peste_buget"])))
+                    rows.append(_row("Curenti slabi",
+                                     "NVR - inregistrator video de retea %s"
+                                     % draw_elements.cs_nvr_nume(_n_cam),
+                                     "; ".join(["%d camere deservite" % _n_cam] + _av)
+                                     if _n_cam else "",
+                                     _cs_cnt[et], "buc", sectiune="CURENTI SLABI"))
+                    continue
                 rows.append(_row("Curenti slabi", _CS_BOM_NAME[et], "", _cs_cnt[et], "buc",
                                  sectiune="CURENTI SLABI"))
+        # ECHIPAMENTUL DE DISTRIBUTIE, propus automat din numarul de prize (cererea Dan). Nu-i element
+        # de plan — se DERIVA, deci nu poate lipsi din greseala si nu poate fi plasat de doua ori.
+        # Priza mixta se numara la AMBELE, prin `cs_prize_dtv` (regula sta intr-un singur loc).
+        _n_date, _n_tv = draw_elements.cs_prize_dtv(_cs_cnt)
+        _porturi = draw_elements.cs_switch_porturi(_n_date)
+        if _porturi:
+            rows.append(_row("Curenti slabi", "Switch %d porturi" % _porturi,
+                             "distributie date, %d prize deservite" % _n_date, 1, "buc",
+                             sectiune="CURENTI SLABI"))
+        _spl = draw_elements.cs_splitter_bom(_n_tv)
+        _casc = sum(n for _, n in _spl) > 1        # peste 12 prize: doua trepte, nu un singur pasiv
+        # peste 144 de prize doua trepte de pasiv nu mai acopera; se SCRIE pe lista, nu se tace
+        _lipsa = _spl and draw_elements.cs_splitter_acopera(_n_tv) < _n_tv
+        for _ies, _buc in _spl:
+            rows.append(_row("Curenti slabi", "Splitter TV pasiv %d iesiri" % _ies,
+                             "distributie semnal TV%s, %d prize deservite%s"
+                             % (" in cascada" if _casc else "", _n_tv,
+                                " - distributie pasiva insuficienta, necesita amplificare"
+                                if _lipsa else ""), _buc, "buc",
+                             sectiune="CURENTI SLABI"))
         for _k in draw_elements._CAM_TIPURI:
             for _mo in ("interior", "exterior"):
                 _n = _cs_cnt.get(("camera_video", _k, _mo))

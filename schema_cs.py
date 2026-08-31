@@ -67,7 +67,9 @@ _SCURT = {
     "sirena_interioara": "sirenă interioară",
     "sirena_exterioara": "sirenă exterioară",
     "centrala_efractie": "centrală de efracție",
-    "nvr": "înregistrator video (NVR)",
+    # fara „(NVR)" in text: eticheta de planşa scrie deja NVR chiar in fata randului, iar latimea
+    # castigata tine treapta de canale pe acelasi rand („64 canale (fără PoE)" se rupea altfel)
+    "nvr": "înregistrator video",
     "rack_9u": "rack 9U 600×600",
     "sursa_alimentare_cs": "sursă cu acumulator",
     "priza_date": "priză de date RJ45 cat. 5e/6",
@@ -158,6 +160,26 @@ def _peste_coloane(page, x_bus, y_bus, x_cutie, y_cutie, y_sus, kind, eticheta):
     _cablu(page, x_mij, y_cutie, x_cutie, y_cutie, kind)
     spec = _CS_CABLE.get(kind) or _CS_CABLE[DE._CS_CABLE_DEFAULT]
     _text(page, x_bus + 8, y_sus - 3.5, eticheta, fs=5.6, col=spec["col"])
+
+
+def _incape_in_cutie(linii, lat):
+    """Rupe randurile mai late decat cutia. Latimea se MASOARA cu fontul real, nu se estimeaza —
+    prima varianta a randului de cascada („splittere TV pasive in cascada: 2 iesiri, 2 x 8 iesiri")
+    iesea pur si simplu peste chenarul cutiei. Randurile care incap raman NEATINSE, deci cutiile de
+    pana acum arata identic; garda pazeste si randurile care s-ar adauga de acum inainte."""
+    out = []
+    for ln in linii:
+        cur = ""
+        for cuv in _ascii(ln).split(" "):
+            _t = ("%s %s" % (cur, cuv)).strip()
+            if cur and fitz.get_text_length(_t, fontname="helv", fontsize=6.8) > lat:
+                out.append(cur)
+                cur = "   %s" % cuv          # continuarea, indentata sub randul ei
+            else:
+                cur = _t
+        if cur:
+            out.append(cur)
+    return out
 
 
 def _bloc(page, r, titlu, linii, col=_NEGRU):
@@ -369,9 +391,23 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     # Fraza de 12 V c.c. e ADEVARATA doar cand exista echipamente alimentate. Prizele de date si TV
     # sunt PASIVE: pe o schema numai cu ele n-ar exista nici sursa cu acumulator, nici consum — deci
     # nota s-ar contrazice cu propriul desen. Acelasi gate ca in memoriu si in caietul de sarcini.
-    _activ = any(gr["cheie"] in ("efractie", "video") for gr in m["grupuri"])
-    _nota = ("Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu acumulator "
-             "montate în rack. " if _activ else "")
+    _efr = any(gr["cheie"] == "efractie" for gr in m["grupuri"])
+    _vid = any(gr["cheie"] == "video" for gr in m["grupuri"])
+    # De cand camerele merg pe PoE din inregistrator, „echipamentele" nu mai stau toate pe 12 V:
+    # doar efractia. Cu AMBELE sisteme pe foaie fraza trebuie sa le desparta, altfel schema ar
+    # sustine ca si camerele sunt alimentate din sursele cu acumulator — ceea ce contrazice
+    # magistrala UTP desenata deasupra ei. Cu DOAR efractie, textul ramane cel dinainte, cuvant cu
+    # cuvant: acolo „echipamentele" inseamna fara echivoc echipamentele de efractie.
+    if _efr and _vid:
+        _nota = ("Echipamentele de efracție sunt alimentate în joasă tensiune, 12 V c.c., din "
+                 "sursele cu acumulator montate în rack, iar camerele prin PoE, din înregistrator. ")
+    elif _efr:
+        _nota = ("Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu "
+                 "acumulator montate în rack. ")
+    elif _vid:
+        _nota = "Camerele sunt alimentate prin PoE, din înregistratorul montat în rack. "
+    else:
+        _nota = ""
     _text(page, X_LEG, Y_LEG - 8.0,
           _nota + "Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
           fs=6.2, col=(0.35, 0.35, 0.35))
@@ -433,12 +469,39 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         _t = el.get("element_type") or ""
         nume = _SCURT.get(_t, _t)
         if _t == "nvr":
-            nume += ", 24 canale"
+            # dimensionat pe camerele plasate — aceeasi sursa ca legenda si ca lista de cantitati.
+            # Forma SCURTA: in cutie incap ~40 de caractere, iar textul lung al legendei ar fi rupt
+            # randul in doua fara sa adauge nimic (detaliile stau oricum in legenda).
+            _tn = DE.cs_nvr(len(g["video"]))
+            nume += ", %d canale%s" % (_tn["canale"], " PoE" if _tn["poe"] else " (fără PoE)")
         # eticheta de pe planşa (NVR, RACK, SA) sta PRIMA, ca pe planşa: acelasi obiect, acelasi
         # nume in ambele documente — cine citeste schema regaseste elementul pe desen dupa eticheta
         rack_lin.append("%s — %s" % (et, nume) if et else nume)
     if not rack_lin:
         rack_lin = ["punct de distribuție (rack / patch panel)"]
+    # ECHIPAMENTUL DE DISTRIBUTIE derivat din prize (switch + splitter): nu-s elemente de plan, dar
+    # stau FIZIC in rack — deci se citesc din cutia lui, acolo unde inginerul ii cauta. Fara eticheta
+    # de planşa in fata (n-au una: nu-s desenate pe plan).
+    _comp = {}
+    for _e in g["toate"]:
+        _t = (_e or {}).get("element_type") or ""
+        _comp[_t] = _comp.get(_t, 0) + 1
+    _n_date, _n_tv = DE.cs_prize_dtv(_comp)
+    _porturi = DE.cs_switch_porturi(_n_date)
+    if _porturi:
+        rack_lin.append("switch %d porturi — distribuție date" % _porturi)
+    _spl = DE.cs_splitter_bom(_n_tv)
+    if _spl:
+        if sum(n for _, n in _spl) == 1:
+            rack_lin.append("splitter TV pasiv %d ieșiri" % _spl[0][0])
+        else:
+            # cascada (peste 12 prize) pe DOUA randuri, nu pe unul singur: intr-unul singur textul
+            # depasea chenarul cu ~4 pt. `_spl` vine sortat crescator -> primul e capul de cascada.
+            _cap, _ram = _spl[0], _spl[-1]
+            rack_lin.append("splittere TV pasive, în cascadă:")
+            rack_lin.append("   %d ieșiri (cap) + %d × %d ieșiri (ramuri)"
+                            % (_cap[0], _ram[1], _ram[0]))
+    rack_lin = _incape_in_cutie(rack_lin, _HUB_W - 12.0)
     rack_h = 24.0 + 10.0 * len(rack_lin)
     _g0 = _spre_rack[0] if _spre_rack else None
     y_rack = ((_g0["geom"][1] + _g0["geom"][2]) / 2.0 - rack_h / 2.0 + 4) if _g0 else Y0 + 14.0
@@ -465,6 +528,7 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
                                _nr(len(g["iesiri"]), "ieșire de alarmă", "ieșiri de alarmă"),
                                _nr(len(g["comanda"]), "organ de comandă", "organe de comandă"),
                                "acumulator de rezervă") if x_]
+        c_lin = _incape_in_cutie(c_lin, _HUB_W - 12.0)
         c_h = 24.0 + 10.0 * len(c_lin)
         _ge = _spre_centrala[0]["geom"] if _spre_centrala else None
         y_c = max(r_rack.y1 + 30.0,

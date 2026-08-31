@@ -168,23 +168,40 @@ def _cs_inventar(els):
 
 def _ddcs_power(els):
     """Puterea circuitului DDCS: 150 W baza + suma echipamentelor de CURENTI SLABI plasate pe plan
-    (decizia Dan). Cei 150 W erau dimensionati pentru router/switch; un NVR de 24 canale plus 10
-    camere ii depasesc singuri. Sirenele intra la puterea de ALARMA (worst case = exact ce trebuie
-    la dimensionare); butonul de panica si contactul magnetic sunt pasive (0 W).
+    (decizia Dan). Cei 150 W erau dimensionati pentru router/switch; un NVR plus 10 camere ii
+    depasesc singuri. Sirenele intra la puterea de ALARMA (worst case = exact ce trebuie la
+    dimensionare); butonul de panica si contactul magnetic sunt pasive (0 W).
     Fara echipamente de securitate -> exact 150 W, ca inainte. Rezultatul e rotunjit IN SUS."""
     try:
-        from draw_elements import _CS_POWER_W, _CAM_TIPURI, _cam_tip
+        from draw_elements import (_CS_POWER_W, _CAM_TIPURI, _cam_tip,
+                                   cs_prize_dtv, cs_switch_power_w, cs_nvr, cs_camere_poe_w)
     except Exception:
         return _NET_RECEPTOR_W            # fail-safe: comportamentul de dinainte
     extra = 0.0
+    _comp = {}
     for e in (els or []):
         et = (e or {}).get("element_type") or ""
-        if et == "camera_video":
-            # puterea depinde de TIP: PTZ-ul are motoare de rotire + zoom motorizat, camera termica
-            # are senzor racit/stabilizat. Restul raman la 6 W.
-            extra += _CAM_TIPURI[_cam_tip(e)]["w"]
-        else:
-            extra += _CS_POWER_W.get(et, 0)
+        _comp[et] = _comp.get(et, 0) + 1
+        if et in ("camera_video", "nvr"):
+            continue                      # amandoua se contabilizeaza dupa bucla (vezi mai jos)
+        extra += _CS_POWER_W.get(et, 0)
+    # ── CAMERELE + NVR-ul: o SINGURA data fiecare ────────────────────────────────────────────
+    # Cu PoE integrat, NVR-ul ALIMENTEAZA camerele. Daca i-am da NVR-ului o putere „de treapta"
+    # care include si PoE-ul (60/90/150/250 W), iar camerele ar ramane numarate separat, energia
+    # lor ar intra de DOUA ori in bilant. De-aia NVR-ul intra aici cu consumul lui PROPRIU
+    # (electronica + HDD), iar camerele raman contabilizate o data, la puterea lor.
+    # Modelul e corect si cand NVR-ul NU le acopera pe toate (peste 16 camere, sau peste bugetul
+    # PoE): camerele ramase se alimenteaza dintr-un switch PoE, tot de pe ACELASI circuit de 230 V,
+    # deci totalul de pe circuit nu se schimba — se schimba doar aparatul prin care trec.
+    # Puterea camerelor se ia VAZUTA DINSPRE SURSA (pierderea pe cablul PoE inclusa).
+    extra += cs_camere_poe_w(els)
+    _n_cam = _comp.get("camera_video", 0)
+    extra += cs_nvr(_n_cam)["propriu_w"] * _comp.get("nvr", 0)
+    # SWITCH-ul de date: nu-i element de plan, dar se alimenteaza si el din acelasi circuit, deci
+    # intra la dimensionare (prizele raman 0 W — sunt pasive; splitterul pasiv, la fel).
+    # Cei 150 W de baza erau descrisi ca fiind "pentru router/switch", deci exista o suprapunere
+    # partiala; o pastram DELIBERAT — la dimensionare se merge pe worst case, exact ca la sirene.
+    extra += cs_switch_power_w(cs_prize_dtv(_comp)[0])
     return int(math.ceil(_NET_RECEPTOR_W + extra))
 
 # TIP NORMALIZAT pt. DEDUP receptor plan <-> circuit formular (ordine SPECIFIC->generic; robust la

@@ -862,10 +862,15 @@ _CS_LEGEND = {
     "sirena_exterioara":  "SE: Sirena exterioara",
     "buton_panica":       "BP: Buton manual de panica, cu sticla de protectie",
     "camera_video":       "Camere de supraveghere video IP, 1080p",
-    "nvr":                "NVR: Inregistrator video de retea, cu 24 canale",
+    # Numarul de canale NU mai e fix: se dimensioneaza pe camerele plasate, iar randul de legenda se
+    # compune in `_legend_rows_cs`. Textul de aici e doar fallback-ul (plan fara camere).
+    "nvr":                "NVR: Inregistrator video de retea, cu PoE integrat",
     "rack_9u":            "Rack 9U 600x600 (Sursa alimentare si UPS, Pach Panel)",
-    "sursa_alimentare_cs": "Sursa de alimentare instalatie monitorizare video, sir cleme pt. "
-                           "alimentare max. 10 camere, loc pt. acumulator",
+    # Textul de referinta zicea „instalatie monitorizare video, max. 10 camere". De cand camerele se
+    # alimenteaza prin PoE din NVR, sursa cu acumulator ramane a EFRACTIEI — a lasa vechiul text ar fi
+    # insemnat o legenda care contrazice pe aceeasi foaie modul de alimentare desenat.
+    "sursa_alimentare_cs": "Sursa de alimentare sistem efractie, sir cleme, loc pt. acumulator "
+                           "de rezerva",
     "doza_cs":            "Doza PVC 100 X 100 mm, pentru legaturi camera",
     # DISTRIBUTIE DATE SI TV (tipuri noi, formulare in acelasi registru ca restul legendei)
     "priza_date":         "PD: Priza de date RJ45, cat. 5e/6",
@@ -882,7 +887,9 @@ _CS_BOM_NAME = {
     "sirena_exterioara": "Sirena de exterior",
     "buton_panica": "Buton manual de panica cu sticla de protectie",
     # camera_video: NU are rand generic — BOM-ul scrie cate un rand per TIP + MONTAJ (bom.py)
-    "nvr": "NVR - inregistrator video de retea 24 canale",
+    # Numarul de canale se dimensioneaza pe camere: numele complet se compune in bom.py, prin
+    # `cs_nvr_nume`. Randul de aici e fallback-ul, deci NU mai poate purta un numar fix.
+    "nvr": "NVR - inregistrator video de retea",
     "rack_9u": "Rack 9U 600x600 cu sursa, UPS si patch panel",
     "sursa_alimentare_cs": "Sursa in comutatie 12V CC / 10,5 Ah, cutie metalica",
     "doza_cs": "Doza PVC 100x100 mm",
@@ -910,11 +917,196 @@ _CS_HEIGHT = {
 _CS_POWER_W = {
     "centrala_efractie": 15, "tastatura_efractie": 2, "detector_pir": 0.5,
     "contact_magnetic": 0, "sirena_interioara": 15, "sirena_exterioara": 20,
+    # camera_video si nvr NU se mai citesc de aici: camerele au putere pe TIP (`_CAM_TIPURI`), iar
+    # NVR-ul o are pe TREAPTA (`_NVR_TREPTE`, doar consumul propriu — camerele lui se numara o
+    # singura data, separat). Valorile raman ca reper istoric al dimensionarii de dinainte de PoE.
     "buton_panica": 0, "camera_video": 6, "nvr": 40, "rack_9u": 0,
     "sursa_alimentare_cs": 30, "doza_cs": 0,
     # Prizele de date si TV sunt PASIVE: nu consuma nimic, deci nu urca puterea DDCS-ului.
+    # Echipamentul care le deserveste (switch-ul) NU e element de plan: vezi `cs_switch_porturi`.
     "priza_date": 0, "priza_tv": 0, "priza_mixta": 0,
 }
+
+
+# ── DISTRIBUTIA DE DATE SI TV: echipamentul din rack, DERIVAT din numarul de prize ───────────────
+# NU sunt tipuri de element: nu se plaseaza pe planşa, n-au simbol, n-au migratie. Sunt o CONSECINTA
+# a prizelor — cererea a fost ca lista de cantitati sa PROPUNA singura echipamentul, dimensionat din
+# numarul de prize plasate. Un element plasabil manual ar fi permis stari absurde (switch fara nicio
+# priza de date, doua switch-uri pe acelasi rack) si ar fi cerut o actiune care nu aduce nicio
+# informatie in plus fata de ce se poate NUMARA de pe plan.
+# Din tiparul NVR-ului se pastreaza partea care conteaza: echipament care sta IN RACK -> fara
+# inaltime de montaj si fara simbol pe plan; apare in lista de cantitati si in cutia RACK de pe schema.
+#
+# PRIZA MIXTA se numara la AMBELE: contine si RJ45, si coaxial, deci ocupa si un port de switch, si
+# o iesire de splitter. Regula sta AICI, intr-un singur loc — bom.py, schema_cs.py, memoriul si
+# caietul o cheama, nu o rescriu (altfel ar diverge tacut, ca la cele patru oglinzi de numerotare).
+def cs_prize_dtv(comp):
+    """(prize_date_total, prize_tv_total) din inventarul {element_type: numar}."""
+    _m = int((comp or {}).get("priza_mixta") or 0)
+    return (int((comp or {}).get("priza_date") or 0) + _m,
+            int((comp or {}).get("priza_tv") or 0) + _m)
+
+
+# Consumul switch-ului (W), pe marime — valori de catalog pentru switch-uri NEGESTIONATE, fara PoE.
+# Fara PoE e esential: un switch PoE de 24 de porturi are buget de 200-400 W, adica alt ordin de
+# marime. Camerele proiectului se alimenteaza separat (sursa cu acumulator + 2x1 mmp), deci switch-ul
+# de date nu trebuie sa alimenteze nimic.
+_SWITCH_POWER_W = {5: 5, 8: 8, 16: 12, 24: 20, 48: 35}
+
+
+def cs_switch_porturi(n_date):
+    """Numarul de porturi al switch-ului, din numarul de prize de date DESERVITE (decizia Dan):
+        1-3 -> 5 · 4-6 -> 8 · 7-14 -> 16 · 15+ -> 24
+    MOTIVUL pragurilor: switch-ul are nevoie de un port in plus pentru uplink (router/NVR), plus unul
+    de rezerva. Pragurile de mai sus sunt exact „cea mai mica marime standard >= prize + 2": 3->5,
+    6->8, 14->16, 22->24. Fara prize de date -> fara switch.
+
+    PESTE 22 DE PRIZE regula lui Dan se rupe singura: la 23 de prize un switch de 24 de porturi ar fi
+    plin la refuz (23 + uplink), iar la 24 n-ar mai incapea. Am prelungit tabelul cu urmatoarea
+    marime standard, 48, dupa ACEEASI regula — de confirmat cu Dan; e o singura linie de schimbat."""
+    n = int(n_date or 0)
+    if n <= 0:
+        return None
+    if n <= 3:
+        return 5
+    if n <= 6:
+        return 8
+    if n <= 14:
+        return 16
+    if n <= 22:
+        return 24
+    return 48
+
+
+def cs_switch_power_w(n_date):
+    """Consumul switch-ului dimensionat pentru `n_date` prize. Fara prize de date -> 0 W."""
+    _p = cs_switch_porturi(n_date)
+    return _SWITCH_POWER_W.get(_p, 0) if _p else 0
+
+
+_SPLITTER_IESIRI = (2, 3, 4, 6, 8, 12)     # marimile standard de splitter pasiv
+
+
+def _splitter_snap(n):
+    """Cea mai mica marime standard cu cel putin `n` iesiri; None daca nu exista una destul de mare."""
+    return next((s for s in _SPLITTER_IESIRI if n <= s), None)
+
+
+def cs_splitter_iesiri(n_tv):
+    """Splitterele TV PASIVE (decizia Dan), ca lista de marimi — o priza singura n-are splitter, se
+    leaga direct la coloana. Tabelul cerut iese exact din „cea mai mica marime standard >= prize":
+        1 -> [] · 2/3/4 -> exact · 5-6 -> [6] · 7-8 -> [8]
+
+    PESTE 8 (Dan a cerut o propunere de la 9 in sus): 9-12 prize -> UN splitter de 12 iesiri; peste
+    12 -> CASCADA pe DOUA trepte, un splitter de cap si ramuri de cel mult 12 iesiri fiecare.
+    MOTIVUL e bugetul de nivel: atenuarea unui pasiv creste cu numarul de iesiri (~3,5 dB la 2,
+    ~12-14 dB la 8, ~16 dB la 12 — valori de catalog), iar peste 12 iesiri dintr-un singur punct
+    semnalul ajunge sub pragul receptoarelor. Cascada imparte pierderea pe doua trepte in loc s-o
+    concentreze intr-una. DOUA trepte, niciodata mai multe: a treia ar aduna atenuarea inapoi la loc.
+    Splitterul ACTIV ar rezolva atenuarea, dar cere priza de 230 V si a fost EXCLUS explicit de Dan —
+    la sisteme mari solutia corecta ramane amplificarea, deci de la ~13 prize in sus schema merita
+    verificata pe nivel, nu doar pe numar de iesiri."""
+    n = int(n_tv or 0)
+    if n <= 1:
+        return []
+    _s = _splitter_snap(n)
+    if _s:
+        return [_s]                        # incape intr-unul singur (pana la 12 prize)
+    _cap = _splitter_snap(int(math.ceil(n / 12.0))) or max(_SPLITTER_IESIRI)
+    _ram = _splitter_snap(int(math.ceil(n / float(_cap)))) or max(_SPLITTER_IESIRI)
+    return [_cap] + [_ram] * _cap
+
+
+def cs_splitter_bom(n_tv):
+    """Splitterele grupate pe marime, pentru lista de cantitati: [(iesiri, bucati), ...]."""
+    _c = {}
+    for _i in cs_splitter_iesiri(n_tv):
+        _c[_i] = _c.get(_i, 0) + 1
+    return sorted(_c.items())
+
+
+# ── NVR CU PoE INTEGRAT, dimensionat pe numarul de CAMERE (decizia Dan, varianta A) ─────────────
+# Camerele se leaga DIRECT in porturile PoE din spatele NVR-ului, deci NU consuma porturi din
+# switch-ul de date — acesta ramane dimensionat exclusiv pe prizele de date.
+# „Canale" NU inseamna „porturi": canalele spun cate fluxuri poate INREGISTRA, porturile PoE spun
+# cate camere poate ALIMENTA. La treapta de 32 de canale cele doua diverg (16 porturi, limitare de
+# spatiu si de putere in carcasa), iar peste 32 NVR-urile nu mai au PoE integrat deloc.
+#   canale · porturi PoE · bugetul PoE al sursei interne (W) · consumul PROPRIU, fara camere (W)
+_NVR_TREPTE = (
+    {"canale": 4,  "poe": 4,  "buget_w": 50,  "propriu_w": 12},
+    {"canale": 8,  "poe": 8,  "buget_w": 120, "propriu_w": 18},
+    {"canale": 16, "poe": 16, "buget_w": 200, "propriu_w": 25},
+    {"canale": 32, "poe": 16, "buget_w": 200, "propriu_w": 35},
+    {"canale": 64, "poe": 0,  "buget_w": 0,   "propriu_w": 50},
+)
+
+# Camera consuma la BORNA ei, dar circuitul plateste si pierderea pe cablul PoE plus randamentul
+# injectorului — de-aia standardul da 15,4 W la port si garanteaza doar 12,95 W la aparat. Factorul
+# aduce cei 6 W ai unei camere fixe la ~6,9 W ceruti de la sursa, exact ordinul de marime din
+# estimarea „4 camere x ~7 W".
+_POE_RANDAMENT = 1.15
+
+
+def cs_nvr(n_cam):
+    """Treapta de NVR pentru `n_cam` camere plasate (decizia Dan):
+        1-4 -> 4 canale · 5-8 -> 8 · 9-16 -> 16 · 17-32 -> 32
+    PESTE 32 (Dan a cerut o propunere) treapta e de 64 de canale, DAR fara PoE integrat: la marimea
+    asta inregistratoarele sunt unitati de rack care asteapta switch-uri PoE externe. Nu-i o
+    prelungire cosmetica a tabelului — se schimba SOLUTIA, deci e de confirmat.
+    Un NVR pe un plan fara camere primeste treapta minima (4): nu exista NVR mai mic."""
+    n = int(n_cam or 0)
+    return next((t for t in _NVR_TREPTE if n <= t["canale"]), _NVR_TREPTE[-1])
+
+
+def cs_camere_poe_w(elements):
+    """Puterea ceruta de camerele plasate, VAZUTA DINSPRE SURSA (cu pierderea PoE inclusa)."""
+    _s = sum(_CAM_TIPURI[_cam_tip(e)]["w"] for e in (elements or [])
+             if ((e or {}).get("element_type") or "") == "camera_video")
+    return _s * _POE_RANDAMENT
+
+
+def cs_nvr_alerta(elements):
+    """Ce NU acopera NVR-ul dimensionat, ca sa se scrie pe hartie in loc sa se treaca sub tacere.
+    TREI limite diferite, toate reale:
+      - PORTURI: la 32 de canale exista doar 16 porturi PoE, deci peste 16 camere o parte trebuie
+        alimentata din alta parte (switch PoE separat); peste 32 nu mai exista PoE deloc;
+      - BUGET: chiar cu porturi destule, sursa interna are un plafon — 16 camere PTZ cer de cateva
+        ori bugetul unui NVR de 16 canale;
+      - CANALE: peste 64 de camere nu le mai poate INREGISTRA un singur aparat.
+    Intoarce {fara_port, peste_buget, fara_canal}."""
+    _cam = [e for e in (elements or [])
+            if ((e or {}).get("element_type") or "") == "camera_video"]
+    n = len(_cam)
+    if not n:
+        return {"fara_port": 0, "peste_buget": 0.0, "fara_canal": 0}
+    t = cs_nvr(n)
+    # bugetul se compara pe camerele pe care NVR-ul chiar le-ar alimenta. Care anume ajung pe
+    # porturile lui nu se stie la proiectare -> se ia cazul cel mai defavorabil, adica cele mai
+    # mari consumatoare (o PTZ pe port cere de trei ori cat o camera fixa).
+    _w = sorted((_CAM_TIPURI[_cam_tip(e)]["w"] for e in _cam), reverse=True)
+    _cer = sum(_w[:t["poe"]]) * _POE_RANDAMENT
+    return {"fara_port": max(0, n - t["poe"]),
+            "peste_buget": max(0.0, _cer - t["buget_w"]),
+            "fara_canal": max(0, n - t["canale"])}
+
+
+def cs_nvr_nume(n_cam, lung=False):
+    """Numele NVR-ului dimensionat, pentru legenda / lista de cantitati / schema."""
+    t = cs_nvr(n_cam)
+    _poe = "cu PoE integrat" if t["poe"] else "fara PoE integrat (cere switch-uri PoE externe)"
+    return ("Inregistrator video de retea, %d canale, %s" % (t["canale"], _poe) if lung
+            else "%d canale, %s" % (t["canale"], _poe))
+
+
+def cs_splitter_acopera(n_tv):
+    """Cate prize acopera EFECTIV configuratia propusa. La cascada conteaza iesirile RAMURILOR (cele
+    ale splitterului de cap sunt consumate de ramuri, nu de prize).
+    Doua trepte de pasiv se opresc la 12x12 = 144 de prize; peste atat distributia pur pasiva nu mai
+    are cum sa acopere, iar apelantul trebuie s-o spuna pe hartie in loc s-o treaca sub tacere."""
+    _l = cs_splitter_iesiri(n_tv)
+    if not _l:
+        return 0
+    return _l[0] if len(_l) == 1 else sum(_l[1:])
 
 # TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
 # tablourilor FV. Culoarea si stilul difera per tip, ca planşa sa se citeasca fara sa deschizi legenda.
@@ -1372,6 +1564,17 @@ def _legend_rows_cs(elements, present):
                     _rc["lines"] = _wrap_label_25(_tc, 72)
                 rows.append(_rc)
             rows.append({"kind": "cam_con", "text": "Zona de acoperire camera (unghi si raza dupa tip)"})
+            continue
+        if et == "nvr":
+            # numarul de canale iese din camerele CHIAR plasate, ca sa nu scrie legenda „24 canale"
+            # pe o planşa cu trei camere; aceeasi sursa ca lista de cantitati si ca schema
+            _nc = sum(1 for _e in (elements or [])
+                      if (_e or {}).get("element_type") == "camera_video")
+            _tn = "NVR: %s" % cs_nvr_nume(_nc, True)
+            _rn = {"kind": "cs", "element_type": et, "text": _tn}
+            if len(_tn) > 72:                       # treapta de 64 duce textul peste o linie
+                _rn["lines"] = _wrap_label_25(_tn, 72)
+            rows.append(_rn)
             continue
         _t = _CS_LEGEND[et]
         _r = {"kind": "cs", "element_type": et, "text": _t}
