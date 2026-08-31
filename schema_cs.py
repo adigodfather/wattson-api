@@ -140,6 +140,19 @@ def _spre_cutie(page, x_bus, y_bus, x_cutie, y_cutie, kind, eticheta):
     _text(page, x_bus + 8, y_bus - 3.5, eticheta, fs=5.6, col=spec["col"])
 
 
+def _peste_coloane(page, x_bus, y_bus, x_cutie, y_cutie, y_sus, kind, eticheta):
+    """Legatura coloanei DIN STANGA spre cutie, rutata PE DEASUPRA celeilalte coloane: sus din
+    magistrala, orizontal peste capul coloanei vecine, apoi jos in cutie. Ruta directa ar fi trecut
+    ORIZONTAL prin randurile coloanei din dreapta, taind prin etichete."""
+    x_mij = x_cutie - 22.0
+    _cablu(page, x_bus, y_bus, x_bus, y_sus, kind)
+    _cablu(page, x_bus, y_sus, x_mij, y_sus, kind)
+    _cablu(page, x_mij, y_sus, x_mij, y_cutie, kind)
+    _cablu(page, x_mij, y_cutie, x_cutie, y_cutie, kind)
+    spec = _CS_CABLE.get(kind) or _CS_CABLE[DE._CS_CABLE_DEFAULT]
+    _text(page, x_bus + 8, y_sus - 3.5, eticheta, fs=5.6, col=spec["col"])
+
+
 def _bloc(page, r, titlu, linii, col=_NEGRU):
     """Cutie cu titlu bold + linii de text (RACK, centrala)."""
     page.draw_rect(r, color=col, fill=(1, 1, 1), width=1.1)
@@ -179,24 +192,102 @@ _HUB_W = 155.0         # latimea cutiilor RACK / centrala
 _COL_GAP = 26.0        # spatiu intre coloane
 
 
+def _legenda_split(rows):
+    """Imparte randurile de legenda in DOUA coloane, pe inaltime egala. CONTINUTUL nu se atinge —
+    se cheama `_draw_legend` de doua ori, cu jumatati. Treapta asta se foloseste DOAR cand
+    echipamentele nu incap deasupra unei legende pe o singura coloana."""
+    def _h(r):
+        return _LEG_ROW_H + (len(r.get("lines") or [r.get("text") or ""]) - 1) * _LEG_LINE_H
+    total = sum(_h(r) for r in rows)
+    acc, taie = 0.0, len(rows)
+    for i, r in enumerate(rows):
+        acc += _h(r)
+        if acc >= total / 2.0:
+            taie = i + 1
+            break
+    return rows[:taie], rows[taie:]
+
+
+def _lat_grup(perechi, descriere):
+    """Cea mai lata linie dintr-un grup: eticheta (bold) + descrierea (normal)."""
+    lat = 0.0
+    for el, et in perechi:
+        lat = max(lat, _lat_linie(et, descriere(el)))
+    return lat
+
+
 def _masoara(g):
-    """Latimea/inaltimea de care are nevoie desenul, INAINTE de a alege formatul."""
+    """Masuratorile pe care se aseaza layout-ul.
+
+    LEGENDA sta JOS-STANGA (decizia Dan), ca zona de sus sa ramana libera pentru echipamente. Latimea
+    castigata se investeste in DOUA COLOANE de echipamente (video | efractie), una langa alta in loc
+    de una sub alta: inaltimea devine max(video, efractie), nu suma lor. Fara asta, cu legenda jos,
+    un sistem de 35 de elemente s-ar fi suprapus peste ea (589 pt necesari, 402 disponibili)."""
     rows = build_legend_rows(g["toate"], "curenti_slabi")
     leg_w, leg_h = _legenda_dim(rows)
-    # cea mai lata linie de echipament: eticheta (bold) + descrierea
-    lat = 0.0
-    for el, et in g["video"]:
-        sp = _CAM_TIPURI[_cam_tip(el)]
-        lat = max(lat, _lat_linie(et, "%s · %d° · %d m" % (sp["nume"], sp["unghi"], sp["raza_m"])))
-    for el, et in g["intrari"] + g["comanda"] + g["iesiri"]:
-        _t = (el.get("element_type") or "")
-        lat = max(lat, _lat_linie(et, "%s — ieșire de alarmă" % _SCURT.get(_t, _t)))
-    ech_w = 16.0 + lat + 18.0            # simbol + text + spatiu pana la magistrala
-    n = len(g["video"]) + len(g["intrari"]) + len(g["comanda"]) + len(g["iesiri"])
-    cont_h = 34.0 + n * _ROW_H + (14.0 if g["video"] else 0) + (14.0 if n > len(g["video"]) else 0)
-    return {"rows": rows, "leg_w": leg_w, "leg_h": leg_h, "ech_w": ech_w,
-            "w": leg_w + _COL_GAP + ech_w + _gap_hub() + _HUB_W,
-            "h": max(leg_h, cont_h)}
+    w_vid = _lat_grup(g["video"], lambda el: "%s · %d° · %d m" % (
+        _CAM_TIPURI[_cam_tip(el)]["nume"], _CAM_TIPURI[_cam_tip(el)]["unghi"],
+        _CAM_TIPURI[_cam_tip(el)]["raza_m"]))
+    w_efr = _lat_grup(g["intrari"] + g["comanda"] + g["iesiri"],
+                      lambda el: "%s — comandă (armare/dezarmare)"
+                      % _SCURT.get(el.get("element_type") or "", ""))
+    # 29 = simbol (x+8) pana la inceputul textului (x+23), plus cei 6 pt de dupa text de unde
+    # PORNESTE ramura de cablu. Cu 16 (valoarea de dinainte), la randul CEL MAI LAT ramura pornea
+    # DUPA magistrala si se desena inapoi, peste ultimele litere.
+    _lat_col_vid = (29.0 + w_vid + 18.0) if g["video"] else 0.0
+    n_efr = len(g["intrari"]) + len(g["comanda"]) + len(g["iesiri"])
+    _lat_col_efr = (29.0 + w_efr + 18.0) if n_efr else 0.0
+    n_vid = len(g["video"])
+    # TREAPTA 3: daca o coloana e prea inalta, grupul ei se imparte in SUB-COLOANE alaturate.
+    # Fara asta, un sistem foarte mare (peste ~57 de elemente) ar calca peste legenda.
+    _H = 297.0 * MMPT
+    _buget = (_H - _PAD_MM * MMPT - 12.0) - (_PAD_MM * MMPT + 62.0) - 20.0 - 28.0
+    def _sub(n, buget):
+        """Cate sub-coloane trebuie ca grupul de `n` randuri sa incapa in `buget` pe inaltime."""
+        if n <= 0:
+            return 1
+        for k in (1, 2, 3):
+            if math.ceil(n / float(k)) * _ROW_H <= buget:
+                return k
+        return 3               # peste 3 se strica latimea; apelantul semnaleaza ca nu incape
+    # bugetul preliminar presupune legenda pe o coloana; dupa impartirea ei se recalculeaza mai jos
+    s_vid = _sub(n_vid, _buget - leg_h)
+    s_efr = _sub(n_efr, _buget - leg_h)
+    # inaltimea = cea mai lunga coloana (nu suma), plus randul de titlu al sectiunii
+    cont_h = 14.0 + max(math.ceil(n_vid / float(s_vid)),
+                        math.ceil(n_efr / float(s_efr))) * _ROW_H + 14.0
+    # TREAPTA 2 (doar daca e nevoie): legenda pe DOUA coloane, ca sa scada inaltimea si sa incapa
+    # echipamentele deasupra. Peste ~44 de elemente, o legenda pe o coloana nu mai lasa loc.
+    _H = 297.0 * MMPT
+    _spatiu = (_H - _PAD_MM * MMPT - 12.0) - (_PAD_MM * MMPT + 62.0) - 20.0
+    leg2 = None
+    if cont_h > _spatiu - leg_h:
+        a_, b_ = _legenda_split(rows)
+        if a_ and b_:
+            w1, h1 = _legenda_dim(a_)
+            w2, h2 = _legenda_dim(b_)
+            leg2 = {"a": a_, "b": b_, "w1": w1, "w": w1 + 14.0 + w2, "h": max(h1, h2)}
+            leg_h = leg2["h"]
+            leg_w = leg2["w"]
+    if leg2:                                   # legenda mai joasa -> poate scad sub-coloanele
+        s_vid = _sub(n_vid, _buget - leg_h)
+        s_efr = _sub(n_efr, _buget - leg_h)
+        cont_h = 14.0 + max(math.ceil(n_vid / float(s_vid)),
+                            math.ceil(n_efr / float(s_efr))) * _ROW_H + 14.0
+    col_vid = _lat_col_vid * s_vid + _COL_GAP * (s_vid - 1) if _lat_col_vid else 0.0
+    col_efr = _lat_col_efr * s_efr + _COL_GAP * (s_efr - 1) if _lat_col_efr else 0.0
+    return {"rows": rows, "leg_w": leg_w, "leg_h": leg_h, "leg2": leg2,
+            "col_vid": col_vid, "col_efr": col_efr,
+            "lat_vid": _lat_col_vid, "lat_efr": _lat_col_efr, "s_vid": s_vid, "s_efr": s_efr,
+            # Semnaleaza daca nu incape — pe INALTIME (nici cu 3 sub-coloane) SAU pe LATIME
+            # (sub-coloanele latesc desenul). Apelantul scrie o nota vizibila pe planşa; nu se
+            # lasa niciodata o suprapunere tacuta.
+            "incape": (cont_h <= _buget - leg_h
+                       and col_vid + (_COL_GAP if col_vid and col_efr else 0) + col_efr
+                           + _gap_hub() + _HUB_W <= 420.0 * MMPT - 2 * _PAD_MM * MMPT - 24.0),
+            "w": col_vid + (_COL_GAP if col_vid and col_efr else 0) + col_efr
+                 + _gap_hub() + _HUB_W,
+            "h": cont_h}
 
 
 def _gap_hub():
@@ -243,69 +334,86 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     _text(page, W / 2.0, PAD + 38, "efracție și supraveghere video — schemă funcțională",
           fs=7.5, col=(0.35, 0.35, 0.35), anchor="center")
 
-    # ── COLOANELE, asezate pe latimile MASURATE (legenda nu mai calca peste echipamente) ──────
-    # Pe A3 fix, un sistem mic ar lasa desenul ingramadit sus-stanga -> blocul se CENTREAZA pe
-    # spatiul liber: orizontal pe latimea masurata, vertical intre titlu si banda cartusului.
-    _SUS = PAD + 50.0                                   # sub titlu + subtitlu
-    _JOS = H - PAD - _CARTUS_H_MM * MMPT - 18.0         # deasupra notei si a cartusului
-    X_LEG = max(PAD + 12.0, (W - m["w"]) / 2.0)
+    # ── LEGENDA: JOS-STANGA (decizia Dan) ────────────────────────────────────────────────────
+    # Sta la STANGA cartusului (care-i ancorat dreapta-jos), deci nu se bat pe acelasi loc. Zona de
+    # sus ramane in intregime a echipamentelor.
+    X_LEG = PAD + 12.0
+    Y_LEG = H - PAD - 12.0 - m["leg_h"]
+    if m["leg2"]:
+        _draw_legend(page, X_LEG, Y_LEG, m["leg2"]["a"])
+        _draw_legend(page, X_LEG + m["leg2"]["w1"] + 14.0, Y_LEG, m["leg2"]["b"])
+    else:
+        _draw_legend(page, X_LEG, Y_LEG, m["rows"])
+    _text(page, X_LEG, Y_LEG - 8.0,
+          "Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu acumulator "
+          "montate în rack. Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
+          fs=6.2, col=(0.35, 0.35, 0.35))
+
+    # ── ECHIPAMENTELE: sus, pe toata latimea, in DOUA coloane (video | efractie) ──────────────
+    _SUS = PAD + 62.0                       # sub titlu + subtitlu
+    _JOS = Y_LEG - 20.0                     # deasupra notei si a legendei
+    X0 = max(PAD + 12.0, (W - m["w"]) / 2.0)
     Y0 = max(_SUS, _SUS + ((_JOS - _SUS) - m["h"]) / 2.0)
-    _draw_legend(page, X_LEG, Y0, m["rows"])
-    X_ECH = X_LEG + m["leg_w"] + _COL_GAP          # coloana echipamentelor
-    X_BUS = X_ECH + m["ech_w"]                     # magistrala verticala, DUPA text
-    X_HUB = min(X_BUS + _gap_hub(), W - PAD - 12.0 - _HUB_W)
 
-    def _linie(el, et, descriere, y):
-        """Un echipament: simbol, eticheta de pe planşa, descriere scurta. Intoarce x-ul unde se
-        TERMINA textul — ramura de cablu porneste de-acolo, ca sa nu taie prin litere."""
-        _draw_cs(page, X_ECH, y + 4, (el.get("element_type") or "doza_cs"), scale=0.62)
-        w = _text(page, X_ECH + 15, y + 6.5, et, fs=7.2, bold=True)
-        w2 = _text(page, X_ECH + 15 + w + 5, y + 6.5, descriere, fs=6.4, col=(0.35, 0.35, 0.35))
-        return X_ECH + 15 + w + 5 + w2 + 6.0
+    def _coloana(x, titlu, culoare, randuri, kind, y_start, n_sub, lat_sub):
+        """Un grup de echipamente, in `n_sub` sub-coloane alaturate. Fiecare sub-coloana are
+        magistrala ei; magistralele se unesc pe o linie orizontala la mijloc, de unde pleaca
+        legatura spre cutie. Intoarce (x_magistrala_dreapta, y_prim, y_ultim) sau None."""
+        if not randuri:
+            return None
+        _text(page, x, y_start, titlu, fs=8.0, bold=True, col=culoare)
+        per = int(math.ceil(len(randuri) / float(n_sub)))
+        y_prim = y_start + 14.0
+        y_ultim = y_prim
+        buses = []
+        for k in range(n_sub):
+            felie = randuri[k * per:(k + 1) * per]
+            if not felie:
+                continue
+            xk = x + k * (lat_sub + _COL_GAP)
+            x_bus = xk + lat_sub - 18.0
+            y = y_prim
+            for el, et, descriere in felie:
+                _draw_cs(page, xk + 8, y + 4, (el.get("element_type") or "doza_cs"), scale=0.62)
+                w1 = _text(page, xk + 23, y + 6.5, et, fs=7.2, bold=True)
+                w2 = _text(page, xk + 23 + w1 + 5, y + 6.5, descriere, fs=6.4,
+                           col=(0.35, 0.35, 0.35))
+                _cablu(page, xk + 23 + w1 + 5 + w2 + 6.0, y + 4, x_bus, y + 4, kind)
+                y += _ROW_H
+            _cablu(page, x_bus, y_prim + 4, x_bus, y - _ROW_H + 4, kind)
+            buses.append(x_bus)
+            y_ultim = max(y_ultim, y - _ROW_H)
+        if len(buses) > 1:      # colector orizontal intre magistralele sub-coloanelor
+            _cablu(page, buses[0], (y_prim + y_ultim) / 2.0 + 4, buses[-1],
+                   (y_prim + y_ultim) / 2.0 + 4, kind)
+        return buses[-1], y_prim, y_ultim
 
-    y = Y0 + 8.0
+    _r_vid = [(el, et, "%s · %d° · %d m" % (_CAM_TIPURI[_cam_tip(el)]["nume"],
+                                            _CAM_TIPURI[_cam_tip(el)]["unghi"],
+                                            _CAM_TIPURI[_cam_tip(el)]["raza_m"]))
+              for el, et in g["video"]]
+    _r_efr = ([(el, et, "%s — zonă" % _SCURT.get(el.get("element_type") or "", "")) 
+               for el, et in g["intrari"]]
+              + [(el, et, "%s — comandă (armare/dezarmare)"
+                  % _SCURT.get(el.get("element_type") or "", "")) for el, et in g["comanda"]]
+              + [(el, et, "%s — ieșire de alarmă" % _SCURT.get(el.get("element_type") or "", ""))
+                 for el, et in g["iesiri"]])
 
-    # ── SUPRAVEGHERE VIDEO ───────────────────────────────────────────────────────────────────
-    y_cam0 = y_cam1 = None
-    if g["video"]:
-        _text(page, X_ECH - 14, y, "SUPRAVEGHERE VIDEO", fs=8.0, bold=True, col=DE._CS_VIDEO)
-        y += 14.0
-        y_cam0 = y
-        for el, et in g["video"]:
-            sp = _CAM_TIPURI[_cam_tip(el)]
-            _xe = _linie(el, et, "%s · %d° · %d m" % (sp["nume"], sp["unghi"], sp["raza_m"]), y)
-            _cablu(page, _xe, y + 4, X_BUS, y + 4, "utp")            # ramura, DUPA text
-            y += _ROW_H
-        y_cam1 = y - _ROW_H
-        _cablu(page, X_BUS, y_cam0 + 4, X_BUS, y_cam1 + 4, "utp")    # magistrala verticala
-        y += 12.0
+    _cv = _coloana(X0, "SUPRAVEGHERE VIDEO", DE._CS_VIDEO, _r_vid, "utp", Y0,
+                   m["s_vid"], m["lat_vid"])
+    _x_efr = X0 + (m["col_vid"] + _COL_GAP if m["col_vid"] else 0)
+    _ce = _coloana(_x_efr, "DETECȚIE EFRACȚIE", DE._CS_EFRACTIE, _r_efr, "semnal", Y0,
+                   m["s_efr"], m["lat_efr"])
+    if not m["incape"]:
+        # nu se ascunde o suprapunere: se scrie pe planşa ca sistemul depaseste ce incape pe A3
+        _text(page, X0, Y0 - 14.0,
+              "ATENȚIE: sistemul depășește ce încape pe o planșă A3 — se recomandă împărțirea pe "
+              "planșe separate (efracție / video).", fs=6.6, col=(0.80, 0.15, 0.15))
 
-    # ── DETECTIE EFRACTIE ────────────────────────────────────────────────────────────────────
-    y_z0 = y_z1 = None
-    n_efr = len(g["intrari"]) + len(g["comanda"]) + len(g["iesiri"])
-    if n_efr:
-        _text(page, X_ECH - 14, y, "DETECȚIE EFRACȚIE", fs=8.0, bold=True, col=DE._CS_EFRACTIE)
-        y += 14.0
-        y_z0 = y
-        for el, et in g["intrari"]:
-            _t = el.get("element_type") or ""
-            _xe = _linie(el, et, "%s — zonă" % _SCURT.get(_t, _t), y)
-            _cablu(page, _xe, y + 4, X_BUS, y + 4, "semnal")
-            y += _ROW_H
-        for el, et in g["comanda"]:
-            _t = el.get("element_type") or ""
-            _xe = _linie(el, et, "%s — comandă (armare/dezarmare)" % _SCURT.get(_t, _t), y)
-            _cablu(page, _xe, y + 4, X_BUS, y + 4, "semnal")
-            y += _ROW_H
-        for el, et in g["iesiri"]:
-            _t = el.get("element_type") or ""
-            _xe = _linie(el, et, "%s — ieșire de alarmă" % _SCURT.get(_t, _t), y)
-            _cablu(page, _xe, y + 4, X_BUS, y + 4, "semnal")
-            y += _ROW_H
-        y_z1 = y - _ROW_H
-        _cablu(page, X_BUS, y_z0 + 4, X_BUS, y_z1 + 4, "semnal")
+    X_HUB = min(X0 + m["col_vid"] + (_COL_GAP if m["col_vid"] and m["col_efr"] else 0)
+                + m["col_efr"] + _gap_hub(), W - PAD - 12.0 - _HUB_W)
 
-    # ── RACK (dreapta), in dreptul camerelor ─────────────────────────────────────────────────
+    # ── RACK (dreapta), in dreptul coloanei video ────────────────────────────────────────────
     rack_lin = []
     for el, et in g["rack"]:
         _t = el.get("element_type") or ""
@@ -316,20 +424,22 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         # nume in ambele documente — cine citeste schema regaseste elementul pe desen dupa eticheta
         rack_lin.append("%s — %s" % (et, nume) if et else nume)
     if not rack_lin:
-        rack_lin = ["• echipamentele de rețea"]
+        rack_lin = ["echipamentele de rețea"]
     rack_h = 24.0 + 10.0 * len(rack_lin)
-    y_rack = ((y_cam0 + y_cam1) / 2.0 - rack_h / 2.0 + 4) if g["video"] else Y0 + 22.0
+    y_rack = ((_cv[1] + _cv[2]) / 2.0 - rack_h / 2.0 + 4) if _cv else Y0 + 14.0
     r_rack = fitz.Rect(X_HUB, y_rack, X_HUB + _HUB_W, y_rack + rack_h)
     _bloc(page, r_rack, DE._DDCS_NAME_COM if DE._e_comercial(subtip) else DE._DDCS_NAME_REZ,
           rack_lin, col=DE._CS_VIDEO)
-    if g["video"]:
-        _spre_cutie(page, X_BUS, (y_cam0 + y_cam1) / 2.0 + 4, X_HUB, r_rack.y0 + rack_h / 2.0,
-                    "utp", _CS_CABLE["utp"]["bom"])
+    if _cv:
+        if _ce:      # exista o coloana de efractie la dreapta -> ocolim pe deasupra ei
+            _peste_coloane(page, _cv[0], (_cv[1] + _cv[2]) / 2.0 + 4, X_HUB,
+                           r_rack.y0 + rack_h / 2.0, Y0 - 8.0, "utp", _CS_CABLE["utp"]["bom"])
+        else:
+            _spre_cutie(page, _cv[0], (_cv[1] + _cv[2]) / 2.0 + 4, X_HUB,
+                        r_rack.y0 + rack_h / 2.0, "utp", _CS_CABLE["utp"]["bom"])
 
-    # ── CENTRALA DE EFRACTIE (sub rack), in dreptul zonelor ──────────────────────────────────
-    r_c = None
-    if n_efr or g["centrala"]:
-        # randurile cu ZERO nu se tiparesc: "0 organe de comandă" nu spune nimic despre proiect
+    # ── CENTRALA DE EFRACTIE (sub rack), in dreptul coloanei de efractie ─────────────────────
+    if _ce or g["centrala"]:
         def _nr(n, sg, pl):
             return None if not n else ("%d %s" % (n, sg if n == 1 else pl))
         c_lin = [x for x in (_nr(len(g["intrari"]), "zonă de detecție", "zone de detecție"),
@@ -338,15 +448,13 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
                              "acumulator de rezervă") if x]
         c_h = 24.0 + 10.0 * len(c_lin)
         y_c = max(r_rack.y1 + 30.0,
-                  ((y_z0 + y_z1) / 2.0 - c_h / 2.0 + 4) if n_efr else r_rack.y1 + 30.0)
+                  ((_ce[1] + _ce[2]) / 2.0 - c_h / 2.0 + 4) if _ce else r_rack.y1 + 30.0)
         r_c = fitz.Rect(X_HUB, y_c, X_HUB + _HUB_W, y_c + c_h)
-        # titlul poarta eticheta de pe planşa (CE), ca sa se regaseasca elementul pe desen
         _et_ce = (g["centrala"][0][1] if g["centrala"] else "CE") or "CE"
         _bloc(page, r_c, "%s — CENTRALĂ EFRACȚIE" % _et_ce, c_lin, col=DE._CS_EFRACTIE)
-        if n_efr:
-            _spre_cutie(page, X_BUS, (y_z0 + y_z1) / 2.0 + 4, X_HUB, r_c.y0 + c_h / 2.0,
+        if _ce:
+            _spre_cutie(page, _ce[0], (_ce[1] + _ce[2]) / 2.0 + 4, X_HUB, r_c.y0 + c_h / 2.0,
                         "semnal", _CS_CABLE["semnal"]["bom"])
-        # 12 V c.c. din sursa din rack -> centrala
         _cablu(page, r_rack.x0 + _HUB_W / 2.0, r_rack.y1, r_c.x0 + _HUB_W / 2.0, r_c.y0,
                "alimentare")
         _text(page, r_rack.x0 + _HUB_W / 2.0 + 6, (r_rack.y1 + r_c.y0) / 2.0,
@@ -362,12 +470,6 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
                  fitz.Point(X_HUB + _HUB_W / 2.0, r_rack.y0))
     sh.finish(color=_NEGRU, width=1.2)
     sh.commit()
-
-    # ── NOTA de subsol (deasupra cartusului) ─────────────────────────────────────────────────
-    _text(page, PAD + 12, H - PAD - _CARTUS_H_MM * MMPT - 10,
-          "Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu acumulator "
-          "montate în rack. Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
-          fs=6.2, col=(0.35, 0.35, 0.35))
 
     # ── CARTUS UNIFICAT + numarul REAL al planşei (acelasi lant ca schema FV) ────────────────
     raw = doc.tobytes(deflate=True)
