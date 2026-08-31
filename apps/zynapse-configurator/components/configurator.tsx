@@ -9,7 +9,7 @@ import {
   INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
   plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName, schemaTipFor,
-  defaultTechRoom,
+  defaultTechRoom, ALIMENTARE_OPTIONS, defaultAlimentare,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -1644,6 +1644,8 @@ export function ZynapseConfigurator() {
         // /regenerate-plan, unde payload-ul are doar project_id (contractul lui nu se schimba).
         ...(form.building_type === "spatiu_comercial_bloc"
           ? { comercial_subtip: form.comercial_subtip || SUBTIP_DEFAULT } : {}),
+        // REZOLVAT aici, nu in backend: ce s-a vazut in formular e ce ajunge in documente.
+        alimentare: form.alimentare || defaultAlimentare(form.building_type),
       };
 
       console.log("PAYLOAD TRIMIS:", JSON.stringify({
@@ -2276,6 +2278,18 @@ export function ZynapseConfigurator() {
           {/* 5. Alimentare electrică */}
           <SectionLabel>Alimentare electrică</SectionLabel>
           <PowerPhaseSelector value={form.power_phase} onChange={v => update("power_phase", v)} suggestTri={suggestTri} />
+          {/* De unde vine energia: racord NOU la rețea, sau punct de distribuție care există deja.
+              Întrebarea e ortogonală pe tipul clădirii (o casă poate fi legată la un racord existent),
+              de-aia e câmp propriu, cu default derivat doar ca sugestie. Schimbă textele din memoriu,
+              caiet și schemă, plus rândul de alimentare din lista de cantități. */}
+          <SelectField label="Sursa de alimentare"
+            value={form.alimentare || defaultAlimentare(form.building_type)}
+            onChange={v => update("alimentare", v)}
+            options={ALIMENTARE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
+          <p className="text-[11px] leading-snug -mt-2 mb-3.5" style={{ color: "#8B8FA8" }}>
+            {ALIMENTARE_OPTIONS.find(o => o.value ===
+              (form.alimentare || defaultAlimentare(form.building_type)))?.desc}
+          </p>
 
           {/* 6. Nivel izolație */}
           <SectionLabel>Izolație termică</SectionLabel>

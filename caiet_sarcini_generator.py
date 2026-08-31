@@ -26,6 +26,7 @@ from memoriu_generator import (
     _setup_document, _page_coperta, _add_heading, _add_para,
     _set_run_font, _set_table_fixed, set_table_borders, _is_pt,
     _cs_din_circuite,          # inventarul de curenti slabi, insumat de pe circuite
+    _alim_din_firida,          # alimentare din firida blocului (vs bransament propriu)
 )
 
 # =============================================================================
@@ -47,7 +48,7 @@ _CS_CAP1 = [
           "lucrării executate. Instalaţiile electrice se vor executa cu respectarea normelor şi "
           "reglementărilor în vigoare şi având avizul tehnic de racordare al furnizorului de energie "
           "electrică. Lucrările referitoare la branşamentul obiectivului sunt cuprinse în proiectul "
-          "elaborat de furnizorul de energie electrică."),
+          "elaborat de furnizorul de energie electrică."),   # ancora _ALIM_CAIET (alimentare din firidă)
     ("p", "Antreprenorul are obligaţia de a executa lucrările conform proiectului, condiţiilor "
           "contractuale şi prescripţiilor tehnice în vigoare. În timpul execuţiei, orice modificări "
           "sau completări ale proiectului se fac numai cu respectarea dispoziţiilor legale şi cu "
@@ -404,8 +405,12 @@ def _mentiune_fv(solar):
         return None
 
 
-def _emit_blocks(doc, blocks):
+def _emit_blocks(doc, blocks, alimentare=None):
+    _firida = _alim_din_firida(alimentare)
     for kind, text in blocks:
+        # alimentare din firidă -> fraza de branşament se înlocuieşte (ancorată pe începutul ei)
+        if _firida and kind == "p" and text.startswith(_ALIM_CAIET_ANCORA):
+            text = _ALIM_CAIET_TEXT
         if kind == "h1":
             _add_heading(doc, text, level=1)
         elif kind == "h2":
@@ -590,6 +595,21 @@ def _receptie_curenti_slabi(doc, comp):
                    "procedurii în caz de alarmă falsă.")
 
 
+# ALIMENTARE DIN FIRIDĂ: la un spaţiu dintr-un imobil existent nu există branşament al obiectivului
+# şi nici proiect al furnizorului — racordul din firidă ţine de administratorul imobilului. Fraza se
+# înlocuieşte, ancorată pe începutul ei. Fără câmpul `alimentare` -> caietul iese identic cu HEAD.
+_ALIM_CAIET_ANCORA = "Instalaţiile electrice de utilizare se vor executa numai de către firme"
+_ALIM_CAIET_TEXT = (
+    "Instalaţiile electrice de utilizare se vor executa numai de către firme atestate şi/sau "
+    "electricieni autorizaţi conform ordinelor ANRE, având gradul de competenţă corespunzător "
+    "lucrării executate. Instalaţiile electrice se vor executa cu respectarea normelor şi "
+    "reglementărilor în vigoare. Spaţiul se alimentează din firida de distribuţie a imobilului, "
+    "printr-un racord care ţine de instalaţia existentă a acestuia; execuţia lui se face cu acordul "
+    "administratorului imobilului, iar puterea instalată rezultată din proiect se declară acestuia "
+    "şi furnizorului de energie, pentru verificarea disponibilităţii pe coloana existentă."
+)
+
+
 def _pagina_finala(doc, cf):
     """Ultima pagină: PROIECTANT + FIRMĂ, jos-dreapta (datele din cartuşul proiectului)."""
     doc.add_page_break()
@@ -631,6 +651,8 @@ def build_caiet_docx(data: dict) -> bytes:
     # CURENŢI SLABI: gate pe PREZENŢĂ REALĂ, din circuite (`_cs_componente`, pus de enrich_circuits).
     # Fără echipamente pe plan -> caietul iese byte-identic ca înainte.
     _cs_comp, _ = _cs_din_circuite(circuits)
+    # ALIMENTAREA: "din_firida" -> fraza de racord din firidă; altfel (inclusiv absent) -> ca azi.
+    alimentare = data.get("alimentare") or ""
 
     # Lista REALĂ de planşe (aceeaşi autoritate ca borderoul memoriului la PT):
     # planşele explicite din payload; altfel derivate din numerotare (fail-safe: cele primite).
@@ -654,7 +676,7 @@ def build_caiet_docx(data: dict) -> bytes:
 
     _add_heading(doc, "CAIET DE SARCINI INSTALAŢII ELECTRICE", level=1)
 
-    _emit_blocks(doc, _CS_CAP1)
+    _emit_blocks(doc, _CS_CAP1, alimentare)
     _nominalizari_planse(doc, planse)               # 1.4 dinamic
     _emit_blocks(doc, _CS_SARCINI)                  # 1.5 + 1.6
     fv_txt = _mentiune_fv(solar)

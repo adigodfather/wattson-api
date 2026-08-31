@@ -12,6 +12,8 @@ Ordinea fixa (confirmata Dan):
   7. Schema monofilara TEG           (mereu)
   8. Schema monofilara TES/nivel     (per nivel peste parter)
   9. Schema monofilara TE-CT         (daca exista echipament termic)
+ 10. Schema sistem curenti slabi    (daca exista echipamente de curenti slabi)
+ 11. Schema monofilara sistem FV    (MEREU ultima, daca exista FV)
 
 Numerotare CONSECUTIVA fara goluri: se construieste lista planselor care EXISTA
 (sar peste cele lipsa, in ordinea de mai sus), apoi IE.1, IE.2, ... pe lista.
@@ -26,7 +28,7 @@ la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare servest
 
 # tipurile de plansa, in ORDINEA fixa de prioritate
 TIPURI = ("plan_iluminat", "plan_forta", "plan_curenti_slabi",
-          "schema_teg", "schema_tes", "schema_tect", "schema_fv")
+          "schema_teg", "schema_tes", "schema_tect", "schema_cs", "schema_fv")
 
 # eticheta de afisare per nivel (folosita in numele planselor)
 _NIVEL_LABEL = {
@@ -58,6 +60,9 @@ def plansa_nume(tip, nivel=None):
         return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC SECUNDAR {}".format(nl)
     if tip == "schema_tect":
         return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC CENTRALĂ TERMICĂ"
+    if tip == "schema_cs":
+        # = titlul mare desenat pe schema (schema_cs.TITLU). Sistem, nu tablou -> nu-i "monofilara".
+        return "SCHEMA SISTEM CURENȚI SLABI"
     if tip == "schema_fv":
         # = titlul mare desenat pe plansa (schema_fv.py); cartusul ei zice "... - SISTEM FOTOVOLTAIC"
         # (formatul comun draw_cartouche, aceeasi relatie ca TEG/TES/TE-CT cu numele lor canonice)
@@ -66,7 +71,7 @@ def plansa_nume(tip, nivel=None):
 
 
 def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False,
-                             has_cs=False):
+                             has_cs=False, has_schema_cs=None):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
@@ -107,7 +112,12 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     # 7: TE-CT (daca exista)
     if has_tect:
         sheets.append(("schema_tect", None))
-    # 8: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
+    # 8: schema sistemului de curenti slabi — DUPA schemele de tablou, INAINTEA FV (care ramane
+    # ultima, decizia Dan). Implicit urmeaza planşa de curenti slabi (has_cs): daca exista planşa,
+    # exista si schema. `has_schema_cs` permite decuplarea lor (ex. planşa desenata dar goala).
+    if has_cs if has_schema_cs is None else has_schema_cs:
+        sheets.append(("schema_cs", None))
+    # 9: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
     if has_fv:
         sheets.append(("schema_fv", None))
 

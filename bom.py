@@ -580,7 +580,7 @@ def _circuit_section(c):
 
 
 def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, power_summary=None,
-              subtip=None,
+              subtip=None, alimentare=None,
               W=None, H=None, horizontal_m=None, fv_grounding=None):
     """Lista de cantitati (7 categorii) din circuitele UNIFICATE + plan_elements. `cables` =
     compute_cables(plan_elements)[0] (cu length/kind). `scale` = m/px (derive_scale). `waste` =
@@ -652,12 +652,23 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         n = circ_by_sec_cable.get((sec, ct), 0)
         spec = "%d circuite" % n if n else "coloana/feed"
         rows.append(_row("Cabluri", ct, spec, (round(m, 1) if m else 0), "m", sectiune=sec))
-    # BRANSAMENT TEG (coloana generala): tip dimensionat ca in monofilara (power_summary),
-    # 20 m FIX (marja Dan — deja acopera, NU intra sub waste; nici la tuburi: pozare separata).
+    # ALIMENTAREA TABLOULUI GENERAL: tip dimensionat ca in monofilara (power_summary).
+    #  - bransament propriu (default): 20 m FIX (marja Dan — deja acopera, NU intra sub waste; nici
+    #    la tuburi: pozare separata);
+    #  - din firida blocului: FARA metri. Firida nu-i pe planşa spatiului, deci lungimea nu poate fi
+    #    masurata; a o inventa ar fi mai rau decat a o lasa in seama situatiei din teren. Tipul si
+    #    sectiunea raman ale noastre, dimensionate din aceeasi formula.
     bransament_ct = _bransament_cable(power_summary)
-    bransament_m = _BRANSAMENT_M if bransament_ct else 0.0
+    _din_firida = str(alimentare or "").strip().lower() == "din_firida"
+    bransament_m = 0.0 if (_din_firida or not bransament_ct) else _BRANSAMENT_M
     if bransament_ct:
-        rows.append(_row("Cabluri", bransament_ct, "bransament TEG (fix)", round(bransament_m, 1), "m", sectiune="TEG"))
+        if _din_firida:
+            rows.append(_row("Cabluri", bransament_ct,
+                             "alimentare din firida blocului - lungime conform situatiei din teren",
+                             None, "m", sectiune="TEG"))
+        else:
+            rows.append(_row("Cabluri", bransament_ct, "bransament TEG (fix)",
+                             round(bransament_m, 1), "m", sectiune="TEG"))
 
     # ── 3. PRIZE (plan_elements, pe tip) ──
     prz = {}

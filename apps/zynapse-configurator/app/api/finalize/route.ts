@@ -218,6 +218,10 @@ export async function POST(req: NextRequest) {
     fv_soil_type: fvSoilType,
     faza,
     phase,
+    // ALIMENTAREA (branșament propriu / din firida blocului): din formularul proiectului, ca
+    // sub-tipul comercial. Nodurile n8n o pasează mai departe la memoriu, caiet și schemă.
+    // Absentă (proiecte de dinainte) -> string gol -> backendul se poartă exact ca azi.
+    alimentare: String(inputData.alimentare || ""),
     cartus_firma: firma,
     circuits_source: circuitsSource,   // "plan (enrich)" | "vision (fallback)" — traceabilitate Faza 2
     bom_cables: bomCables,             // randurile-cablu /bom -> memoriul (nodul Generate Memoriu le paseaza)

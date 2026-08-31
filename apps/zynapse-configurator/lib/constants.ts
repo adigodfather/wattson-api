@@ -55,6 +55,23 @@ export function isPhasePT(faza: string | null | undefined): boolean {
 // vizibile DOAR lui in productie, dar codul lor ramane functional (nu-l stergem).
 export const ADMIN_USER_ID = "1ff11302-b070-43b2-95bc-9f880388e87b";
 
+// ─── Alimentarea (branșament propriu vs punct de distribuție existent) ────────
+// Un spațiu comercial dintr-un bloc NU are branșament propriu: se alimentează din firida blocului,
+// iar puterea instalată se declară către administrator. Un branșament nou (BMPT la limita de
+// proprietate) e altă lucrare, cu alt proiect. Restul textelor (memoriu, caiet, schemă, BOM) se
+// schimbă după această alegere, nu după tipul clădirii.
+export const ALIMENTARE_OPTIONS = [
+  { value: "bransament_propriu", label: "Branșament propriu (BMPT)",
+    desc: "Racord nou la rețeaua furnizorului, cu bloc de măsură la limita de proprietate." },
+  { value: "din_firida",         label: "Din firida blocului",
+    desc: "Punct de distribuție existent al imobilului; puterea se declară administratorului." },
+] as const;
+
+// Default derivat din tipul clădirii — PROXY, nu adevăr: se poate suprascrie oricând.
+export function defaultAlimentare(buildingType: string | null | undefined): string {
+  return String(buildingType || "") === "spatiu_comercial_bloc" ? "din_firida" : "bransament_propriu";
+}
+
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [
@@ -255,6 +272,12 @@ export interface FormData {
   // Sub-tipul COMERCIAL (categorie -> sub-tip), doar cand building_type = "spatiu_comercial_bloc".
   // Da intelesul numelor generice de camere („Sala" = aparate pe fitness, servire pe restaurant).
   comercial_subtip: string;
+  // ALIMENTAREA: proiectul include un racord NOU la rețea, sau se leagă la un punct de distribuție
+  // care există deja? Întrebarea e ORTOGONALĂ pe tipul clădirii — o casă poate fi alimentată dintr-un
+  // racord existent, iar un spațiu comercial la stradă poate avea branșament propriu. Default derivat
+  // din building_type (vezi `defaultAlimentare`), dar inginerul îl poate suprascrie.
+  // Gol = necompletat -> backendul se poartă ca înainte (branșament propriu).
+  alimentare: string;           // "" | "bransament_propriu" | "din_firida"
   surface_mp: number;           // suprafață construită declarată (mp), pentru calcul Z-Coins
   power_phase: string;          // "mono" | "tri"
   insulation_level: string;
@@ -285,6 +308,7 @@ export const INITIAL_FORM: FormData = {
   building_category: "",
   building_type: "",
   comercial_subtip: "",
+  alimentare: "",
   surface_mp: 0,
   power_phase: "mono",
   insulation_level: "",
@@ -480,6 +504,7 @@ export function plansaTitlu(tip: string, nivel?: string | null): string {
   if (tip === "schema_teg") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC GENERAL";
   if (tip === "schema_tes") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC SECUNDAR ${nl}`;
   if (tip === "schema_tect") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC CENTRALA TERMICA";
+  if (tip === "schema_cs") return "SCHEMA SISTEM CURENTI SLABI";
   if (tip === "schema_fv") return "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC";
   return "PLANSA";
 }
@@ -491,6 +516,9 @@ export function computePlansaNumbering(opts: {
   // curenti slabi: cate o plansa per nivel, DUPA forta si INAINTEA schemelor. Spre deosebire de FV
   // (mereu ultima), DEPLASEAZA schemele cu len(floors) pozitii.
   hasCs?: boolean;
+  // schema sistemului de curenti slabi: DUPA schemele de tablou, INAINTEA FV (care ramane ultima).
+  // Implicit urmeaza planşa (hasCs); se poate decupla explicit.
+  hasSchemaCs?: boolean;
 }): PlansaNumEntry[] {
   const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
   const floors = ["parter", ...extra];
@@ -505,6 +533,7 @@ export function computePlansaNumbering(opts: {
   sheets.push(["schema_teg", "parter"]);
   if (tesOn) for (const fl of extra) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
+  if (opts.hasSchemaCs == null ? !!opts.hasCs : !!opts.hasSchemaCs) sheets.push(["schema_cs", null]);
   if (opts.hasFv) sheets.push(["schema_fv", null]);   // FV = MEREU ultima plansa IE
   return sheets.map(([tip, nivel], i) => ({
     nr: `IE.${i + 1}`, tip, nivel, titlu: plansaTitlu(tip, nivel),
@@ -515,11 +544,14 @@ export const sanitizePdfName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").rep
 
 // tipul unei intrari schemas[] (name/description/filename, insensibil la diacritice/majuscule)
 export function schemaTipFor(s: { name?: string | null; description?: string | null; filename?: string | null }):
-  "schema_teg" | "schema_tes" | "schema_tect" | "schema_fv" | null {
+  "schema_teg" | "schema_tes" | "schema_tect" | "schema_cs" | "schema_fv" | null {
   const t = `${s?.name || ""} ${s?.description || ""} ${s?.filename || ""}`.toLowerCase()
     .replace(/[ăâ]/g, "a").replace(/î/g, "i").replace(/[șş]/g, "s").replace(/[țţ]/g, "t")
     .replace(/[_\-.]/g, " ");
   if (t.includes("fotovoltaic") || /(^|\s)fv(\s|$)/.test(t)) return "schema_fv";
+  // INAINTEA lui "teg"/"general": titlul schemei de curenti slabi nu contine niciunul, dar ordinea
+  // ramane explicita ca sa nu depinda de asta daca titlul se schimba vreodata.
+  if (t.includes("curenti slabi")) return "schema_cs";
   if (t.includes("te ct") || t.includes("tect") || t.includes("centrala termica")) return "schema_tect";
   if (t.includes("tes")) return "schema_tes";
   if (t.includes("teg") || t.includes("general")) return "schema_teg";
@@ -539,6 +571,9 @@ export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry
     hasFv: tipuri.includes("schema_fv"),
     // planşele de curenti slabi exista doar dupa ce inginerul a generat cel putin una
     hasCs: (result.planse_curenti_slabi || []).some(p => p?.regenerated),
+    // schema de curenti slabi: din schemele CHIAR primite (ca la FV), nu din bifa — un proiect cu
+    // planşa desenata dar fara echipamente n-are schema.
+    hasSchemaCs: tipuri.includes("schema_cs"),
   });
 }
 // schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)

@@ -3171,6 +3171,58 @@ def generate_schema_fv_b64(request: FvSchemaRequest):
         return {"success": False, "error": str(e)}
 
 
+# -------------------------------------------------
+#  SCHEMA CURENTI SLABI (POST /generate-schema-cs-b64) — schema FUNCTIONALA a sistemului de
+#  efractie + supraveghere video, generata din elementele EFECTIV plasate pe planşa.
+# -------------------------------------------------
+
+class CsSchemaRequest(BaseModel):
+    project_id: str = ""              # elementele se citesc din DB (ca la /bom) — sursa UNICA
+    plan_elements: List[dict] = []    # SAU explicit (teste / apelanti care le au deja)
+    cartus_firma: Optional[dict] = None
+    cartus_proiect: Optional[dict] = None
+    plansa_nr: str = ""               # numarul REAL din numerotare (n8n il trimite)
+    comercial_subtip: str = ""        # gol -> se citeste din DB (doar numele RACK-ului depinde de el)
+
+
+@app.post("/generate-schema-cs-b64")
+def generate_schema_cs_b64(request: CsSchemaRequest):
+    """Schema sistemului de curenti slabi (base64, pentru n8n).
+
+    ELEMENTELE: din `plan_elements` daca-s trimise, altfel din DB pe `project_id` — acelasi tipar ca
+    /bom. Asa etichetele (PIR 1, CV-INT 2) ies din ACELEASI randuri pe care le deseneaza planşa.
+    GATE pe PREZENTA: fara echipamente de curenti slabi -> success cu skipped=True si FARA pdf, ca
+    apelantul sa treaca mai departe (exact ca gate-ul de faza al caietului de sarcini)."""
+    try:
+        from schema_cs import build_cs_schema
+        rows = list(request.plan_elements or [])
+        subtip = (request.comercial_subtip or "").strip()
+        if not rows and request.project_id:
+            from supabase_client import supabase as _supa
+            rows = (_supa.table("plan_elements").select("*")
+                    .eq("project_id", request.project_id).execute().data) or []
+            if not subtip:
+                try:
+                    _p = (_supa.table("projects").select("input_data")
+                          .eq("id", request.project_id).single().execute().data) or {}
+                    subtip = ((_p.get("input_data") or {}).get("comercial_subtip") or "")
+                except Exception:
+                    subtip = ""
+        pdf_bytes = build_cs_schema(rows, request.cartus_firma or {}, request.cartus_proiect or {},
+                                    request.plansa_nr or None, subtip or None)
+        if not pdf_bytes:
+            return {"success": True, "skipped": True,
+                    "reason": "fara echipamente de curenti slabi pe plan"}
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+            "filename": "schema_curenti_slabi.pdf",
+            "size_bytes": len(pdf_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/generate-schema/test")
 def generate_schema_test():
     """
@@ -3332,6 +3384,9 @@ class GenerateMemoriuRequest(BaseModel):
     # 2026-07-24: randurile-cablu din /bom ({item, sectiune}), trimise de finalize prin n8n ->
     # fraza 2.6 + lista TEG dinamice. Gol/absent -> texte statice byte-identice (MAIN neatins).
     bom_cables: List[dict] = []
+    # ALIMENTAREA: "din_firida" (spatiu intr-un imobil existent) sau "bransament_propriu" / gol.
+    # Absent = proiectele de dinainte -> bransament propriu, memoriu byte-identic.
+    alimentare: str = ""
 
 
 class GenerateCaietSarciniRequest(BaseModel):
@@ -3344,6 +3399,7 @@ class GenerateCaietSarciniRequest(BaseModel):
     solar: dict = {}                     # menţiunea FV + normele FV (gol -> fără)
     extra_floors: Optional[list] = None  # numerotarea planşelor (aceeaşi autoritate ca memoriul)
     has_tect: Optional[bool] = None
+    alimentare: str = ""                 # "din_firida" -> racordul din firida; gol -> ca azi
 
 
 @app.post("/generate-caiet-sarcini")
@@ -3570,6 +3626,9 @@ def bom_endpoint(request: BomRequest):
         # callerul nu-l trimite, dar project_id e deja aici -> BOM-ul vede aceleasi circuite ca schema
         _formb = dict(request.form or {})
         _formb.setdefault("comercial_subtip", (proj.get("input_data") or {}).get("comercial_subtip") or "")
+        # ALIMENTAREA (bransament propriu / din firida): tot din DB, ca sub-tipul — contractul
+        # endpoint-ului NU se schimba. Absenta (proiecte vechi) -> bransament propriu, ca azi.
+        _formb.setdefault("alimentare", (proj.get("input_data") or {}).get("alimentare") or "")
         circuits = _ec.enrich_circuits(rows, _formb, base_circuits=base_circuits)
         # FOLLOW-UP FIX-C1: geometria camerelor (pereti reali) PER ETAJ din bazele curate
         # (rd.planuri[i].pdf_base64, aceeasi sursa ca redraw; ordinea = parter/etaj/mansarda) ->
@@ -3622,6 +3681,7 @@ def bom_endpoint(request: BomRequest):
         # W/H -> H-ul camerei tabloului (geometric, tablourile au room null).
         out = _bom.build_bom(rows, circuits, cables, scale, waste=float(request.waste or 1.1),
                              subtip=(_formb.get("comercial_subtip") or None),
+                             alimentare=(_formb.get("alimentare") or None),
                              rooms=_rooms, power_summary=rd.get("power_summary") or {},
                              W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m,
                              fv_grounding=_fvg)

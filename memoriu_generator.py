@@ -535,6 +535,42 @@ _CS_EFRACTIE = {"centrala_efractie", "tastatura_efractie", "detector_pir", "cont
 _CS_VIDEO = {"camera_video", "nvr"}
 
 
+# ── ALIMENTAREA: bransament propriu (default) vs punct de distributie existent ────────────────
+# Un spatiu comercial dintr-un bloc nu are branşament propriu: se alimenteaza din firida imobilului,
+# iar puterea instalata se DECLARA administratorului — nu se dimensioneaza un racord nou. Textele de
+# mai jos inlocuiesc paragrafele de BMPT, ancorate pe inceputul lor (ca restul injectiilor dinamice).
+# Fara campul `alimentare` (proiecte de dinainte) -> nimic nu se schimba.
+_ALIM_FIRIDA = "din_firida"
+_ALIM_ANCORE = {
+    # ancora (inceputul paragrafului static)          -> textul pentru alimentarea din firida
+    "Clădirea se va alimenta cu energie electrică":
+        "Spațiul se alimentează cu energie electrică din firida de distribuție a imobilului, "
+        "printr-un circuit propriu prevăzut cu protecție și cu contorizare separată. De aici se "
+        "alimentează tabloul electric general al spațiului, prin cablu de tipul și secțiunea "
+        "rezultate din breviarul de calcul; traseul se pozează îngropat sub tencuială, protejat în "
+        "tuburi IPEY, iar lungimea lui se stabilește la execuție, după poziția reală a firidei.",
+    # Al TREILEA loc cu BMPT (nu era in inventarul initial): DDR-ul general de 300 mA. Fara BMPT,
+    # dispozitivul sta la ORIGINEA instalatiei pe care o proiectam — adica in tabloul spatiului.
+    # Cerinta normativa (I7-2011 art. 4.2.2.8) ramane, doar locul se muta. DE CONFIRMAT cu Dan.
+    "Pentru diminuarea riscului de incendiu":
+        "Pentru diminuarea riscului de incendiu, conform art. 4.2.2.8 din I7-2011, la originea "
+        "instalaţiei — în tabloul electric general al spaţiului — se va monta un dispozitiv de "
+        "protecţie la curent diferenţial rezidual (DDR) cu curentul nominal de funcţionare de "
+        "300 mA. Toţi consumatorii sunt alimentaţi la tensiunea 400/230V, 50Hz.",
+    "Se propune dotarea obiectivului cu un branşament":
+        "Alimentarea se face din instalația electrică existentă a imobilului, din firida de "
+        "distribuție, fără branșament nou. Puterea instalată rezultată din prezentul proiect se "
+        "declară administratorului imobilului și furnizorului de energie, pentru verificarea "
+        "disponibilității pe coloana existentă; racordul din firidă până la tabloul spațiului se "
+        "execută cu acordul acestora.",
+}
+
+
+def _alim_din_firida(alimentare):
+    """True doar cand proiectul e declarat ca alimentat dintr-un punct de distributie existent."""
+    return str(alimentare or "").strip().lower() == _ALIM_FIRIDA
+
+
 def _cs_din_circuite(circuits):
     """Inventarul de curenti slabi, insumat de pe TOATE circuitele (ca `_evacuare_corpuri`).
     enrich_circuits il pune pe circuitul care alimenteaza sistemul; memoriul nu presupune pe care."""
@@ -792,7 +828,7 @@ def _teg_feeds_ro(circuits, solar=None):
         return []
 
 
-def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
+def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alimentare=None):
     _add_heading(doc, "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE", level=1)
     _add_heading(doc, "1. DATE GENERALE", level=2)
 
@@ -826,6 +862,7 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
     # memoriul sa nu aiba nevoie de plan_elements. Fara echipamente -> capitolul nu apare.
     _cs_comp, _cs_cam = _cs_din_circuite(circuits)
     _has_cs = bool(_cs_comp)
+    _din_firida = _alim_din_firida(alimentare)
     # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
     _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
@@ -838,6 +875,13 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None):
             if kind == "li":
                 continue
             _skip_li = False
+        # ALIMENTAREA din firida: cele doua paragrafe de BMPT se inlocuiesc, ancorate pe inceputul
+        # lor. Fara campul `alimentare` -> ancorele nu se potrivesc si textul iese identic ca inainte.
+        if _din_firida and kind == "p":
+            for _anc, _nou in _ALIM_ANCORE.items():
+                if text.startswith(_anc):
+                    text = _nou
+                    break
         if kind == "h2" and text.startswith("2.8. PROTEC") and _n_optionale:
             # ORDINEA (decizia Dan): FV ramane 2.8, siguranta dupa el, curentii slabi dupa ea.
             # Cu toate trei: 2.8 FV · 2.9 siguranta · 2.10 curenti slabi · 2.11 PROTECTIA.
@@ -963,20 +1007,30 @@ _BREVIAR_FORMULE_DU = [
 
 
 def _brevier_du_block(doc, titlu, ic_a, l_m, s_ro, du_pct):
-    """Un bloc 'Tablou X' din secţiunea Căderea de tensiune (TEG / TE-CT)."""
+    """Un bloc 'Tablou X' din secţiunea Căderea de tensiune (TEG / TE-CT).
+    `l_m=None` (alimentare din firidă): lungimea NU se cunoaşte la proiectare — firida nu-i pe planşa
+    spaţiului. Fără L nu există nici ΔU, iar a tipări un procent calculat dintr-o lungime inventată ar
+    fi mai rău decât a spune limpede că verificarea se face la execuţie. Ic şi S rămân ale noastre."""
     _add_para(doc, titlu, bold=True)
     _add_para(doc, "Un = tensiunea de alimentare = 400 V")
     _add_para(doc, "Ic = curentul electric de calcul = {:.2f} A".format(ic_a))
-    _add_para(doc, "L = lungimea cablului = {:.0f} m".format(l_m))
+    if l_m is None:
+        _add_para(doc, "L = lungimea cablului = se stabileşte la execuţie, după poziţia reală a firidei")
+    else:
+        _add_para(doc, "L = lungimea cablului = {:.0f} m".format(l_m))
     _add_para(doc, "cosφ = factorul de putere = 0,92")
     _add_para(doc, "S = secţiunea cablului = {} mmp".format(s_ro))
     _add_para(doc, "γ = conductibilitate cupru = 59,6 Ω·mmp/m")
-    verdict = "< 5%" if du_pct < 5.0 else "≥ 5% (ATENȚIE: depăşeşte limita admisă!)"
-    _add_para(doc, "ΔU = {:.2f}% {}".format(du_pct, verdict))
+    if l_m is None:
+        _add_para(doc, "ΔU se verifică la execuţie, cu lungimea reală a traseului; secţiunea de mai "
+                       "sus se majorează dacă ΔU depăşeşte 5%.")
+    else:
+        verdict = "< 5%" if du_pct < 5.0 else "≥ 5% (ATENȚIE: depăşeşte limita admisă!)"
+        _add_para(doc, "ΔU = {:.2f}% {}".format(du_pct, verdict))
     _blank(doc, 1)
 
 
-def _page_brevier(doc, cp, cf, circuits, power_summary):
+def _page_brevier(doc, cp, cf, circuits, power_summary, alimentare=None):
     """V. BREVIAR DE CALCUL — DOAR la PT (gate is_pt). Formule standard (transcrise din
     exemplul PT) + exemple lucrate cu numere REALE din circuits/power_summary (M5-A):
       - Lumină: circuitul de iluminat cel mai încărcat (power_w maxim) -> Pi real.
@@ -1018,8 +1072,11 @@ def _page_brevier(doc, cp, cf, circuits, power_summary):
     except (TypeError, ValueError):
         mb = 0.0
     s_teg = _cable_for_current(mb if mb > 0 else ic_teg * 1.25)
-    l_teg = 20.0                                    # L = 20 m FIX (decizie Dan; intenţionat NU 40 m din exemplu)
-    du_teg = _du_trifazat_pct(ic_teg, l_teg, s_teg)
+    # L = 20 m FIX (decizie Dan; intenţionat NU 40 m din exemplu). Alimentare din firidă -> lungimea
+    # nu se cunoaşte la proiectare, deci nici ΔU: blocul o spune, în loc s-o calculeze dintr-o cifră
+    # inventată. TE-CT rămâne pe valorile standard (e tabloul NOSTRU, în interiorul clădirii).
+    l_teg = None if _alim_din_firida(alimentare) else 20.0
+    du_teg = 0.0 if l_teg is None else _du_trifazat_pct(ic_teg, l_teg, s_teg)
 
     # --- TE-CT: standard reprezentativ (nu există date TE-CT în payload-ul memoriului) ---
     ic_tect, l_tect, s_tect = 22.95, 20.0, "4"
@@ -1219,6 +1276,9 @@ def build_memoriu_docx(data: dict) -> bytes:
     power_summary = data.get("power_summary") or {} # M5-A: current_a (Ic TEG), main_breaker_a
     solar = data.get("solar") or {}                # G3: pachetul FV + solul (n8n; gol -> fara capitole FV)
     bom_cables = data.get("bom_cables") or []      # randurile-cablu /bom (finalize) -> 2.6 + lista TEG dinamice
+    # ALIMENTAREA: "din_firida" -> textele de racord din firida; orice altceva (inclusiv absenta,
+    # adica proiectele de dinainte) -> bransament propriu, byte-identic cu HEAD.
+    alimentare = data.get("alimentare") or ""
     is_pt = _is_pt(cp.get("faza"))   # PT -> borderou extins + secțiuni noi (M2-M5); DTAC -> NESCHIMBAT
 
     # PT: lista REALĂ de planșe (planuri per nivel + scheme monofilare care EXISTĂ), numerotată
@@ -1247,10 +1307,11 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_coperta(doc, cp, cf)
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse, is_pt=is_pt)
-    _page_memoriu(doc, cp, cf, solar=solar, bom_cables=bom_cables, circuits=circuits)
+    _page_memoriu(doc, cp, cf, solar=solar, bom_cables=bom_cables, circuits=circuits,
+                  alimentare=alimentare)
     if is_pt:
         # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
-        _page_brevier(doc, cp, cf, circuits, power_summary)
+        _page_brevier(doc, cp, cf, circuits, power_summary, alimentare=alimentare)
         _page_faze_determinante(doc, cp, cf)
         _page_program_control(doc, cp, cf)
 
