@@ -608,6 +608,27 @@ def _cs_enumerare(comp):
     return buc[0] if len(buc) == 1 else ", ".join(buc[:-1]) + " și " + buc[-1]
 
 
+def _topologie_stea(comp):
+    """Fraza despre topologia rețelei. Cablarea structurată e în STEA (SR EN 50173 / EIA-TIA 568):
+    fiecare priză și fiecare cameră au cablul lor propriu până la panoul de conexiuni din rack, nu o
+    magistrală comună. Se scrie doar când există ceva cablat cu UTP."""
+    try:
+        from draw_elements import cs_utp_cabluri, cs_patch_bom
+    except Exception:
+        return ""                          # fail-safe: fraza lipsește, restul capitolului rămâne
+    n = cs_utp_cabluri(comp)
+    if not n:
+        return ""
+    _pp = cs_patch_bom(n)
+    _p = (", ".join("%d panouri de %d porturi" % (b, p) if b > 1 else "un panou de %d porturi" % p
+                    for p, b in _pp))
+    return ("Rețeaua de date se realizează în topologie de stea, conform SR EN 50173: fiecare priză "
+            "și fiecare cameră se leagă cu cablu propriu, fără înnădiri, până la panoul de conexiuni "
+            "(patch panel) montat în rack, iar de acolo la echipamentul activ prin cordoane scurte. "
+            "Rezultă %d legături, terminate pe %s. Lungimea unei legături orizontale nu depășește "
+            "90 m, conform aceluiași standard." % (n, _p))
+
+
 def _video_echipament(comp):
     """Fraza despre înregistrator, DIMENSIONAT din numărul de camere plasate, plus modul lor de
     alimentare. PoE-ul devine soluția de BAZĂ (decizia Dan): camerele se alimentează prin același
@@ -723,6 +744,9 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
         _e = _dtv_echipament(comp)
         if _e:
             _add_para(doc, _e)
+    _top = _topologie_stea(comp)
+    if _top:
+        _add_para(doc, _top)
     _enum = _cs_enumerare(comp)
     if _enum:
         _add_para(doc, "Echipamentele prevăzute sunt: %s." % _enum)

@@ -865,7 +865,10 @@ _CS_LEGEND = {
     # Numarul de canale NU mai e fix: se dimensioneaza pe camerele plasate, iar randul de legenda se
     # compune in `_legend_rows_cs`. Textul de aici e doar fallback-ul (plan fara camere).
     "nvr":                "NVR: Inregistrator video de retea, cu PoE integrat",
-    "rack_9u":            "Rack 9U 600x600 (Sursa alimentare si UPS, Pach Panel)",
+    # Textul de referinta enumera si „Pach Panel" printre continuturile rack-ului. De cand panoul de
+    # conexiuni e o pozitie PROPRIE in lista de cantitati, dimensionata pe cablurile UTP, mentiunea
+    # ar fi facut acelasi obiect sa fie numarat de doua ori de catre devizier -> scoasa din ambele.
+    "rack_9u":            "Rack 9U 600x600 (Sursa alimentare si UPS)",
     # Textul de referinta zicea „instalatie monitorizare video, max. 10 camere". De cand camerele se
     # alimenteaza prin PoE din NVR, sursa cu acumulator ramane a EFRACTIEI — a lasa vechiul text ar fi
     # insemnat o legenda care contrazice pe aceeasi foaie modul de alimentare desenat.
@@ -890,7 +893,8 @@ _CS_BOM_NAME = {
     # Numarul de canale se dimensioneaza pe camere: numele complet se compune in bom.py, prin
     # `cs_nvr_nume`. Randul de aici e fallback-ul, deci NU mai poate purta un numar fix.
     "nvr": "NVR - inregistrator video de retea",
-    "rack_9u": "Rack 9U 600x600 cu sursa, UPS si patch panel",
+    # fara „si patch panel": panoul e rand separat, dimensionat (altfel s-ar deconta de doua ori)
+    "rack_9u": "Rack 9U 600x600 cu sursa si UPS",
     "sursa_alimentare_cs": "Sursa in comutatie 12V CC / 10,5 Ah, cutie metalica",
     "doza_cs": "Doza PVC 100x100 mm",
     "priza_date": "Priza de date RJ45 cat. 5e/6",
@@ -1096,6 +1100,59 @@ def cs_nvr_nume(n_cam, lung=False):
     _poe = "cu PoE integrat" if t["poe"] else "fara PoE integrat (cere switch-uri PoE externe)"
     return ("Inregistrator video de retea, %d canale, %s" % (t["canale"], _poe) if lung
             else "%d canale, %s" % (t["canale"], _poe))
+
+
+# ── CABLARE IN STEA: ce elemente deserveste fiecare tip de cablu ────────────────────────────────
+# Cablarea structurata e in STEA (EN 50173 / EIA-TIA 568): fiecare priza si fiecare camera au cablul
+# LOR propriu pana la punctul central, nu o magistrala comuna. Pe planşa se deseneaza DRUMUL FIZIC o
+# singura data (toate cablurile merg oricum in acelasi tub), iar lista de cantitati inmulteste
+# lungimea cu numarul de elemente deservite — decizia Dan, varianta B.
+_CS_CABLE_SERVESTE = {
+    "utp":        ("camera_video", "priza_date", "priza_mixta"),
+    "coax_tv":    ("priza_tv", "priza_mixta"),
+    # fiecare detector/contact/buton merge pe ZONA LUI la centrala, deci si el are cablu propriu
+    "semnal":     ("detector_pir", "contact_magnetic", "buton_panica", "tastatura_efractie",
+                   "sirena_interioara", "sirena_exterioara"),
+    # 12 V c.c.: echipamentele de efractie. Camerele NU mai sunt aici — merg pe PoE din inregistrator
+    "alimentare": ("detector_pir", "tastatura_efractie", "sirena_interioara", "sirena_exterioara",
+                   "centrala_efractie"),
+}
+
+
+def cs_utp_cabluri(comp):
+    """Cate cabluri UTP se termina in punctul central: camerele + prizele de date (mixta are si ea
+    un RJ45). Numarul asta dimensioneaza patch panel-ul."""
+    return (int((comp or {}).get("camera_video") or 0)
+            + cs_prize_dtv(comp)[0])
+
+
+_PATCH_PORTURI = (12, 16, 24, 48)          # treptele standard de patch panel
+
+
+def cs_patch_panel(n_utp):
+    """Patch panel-urile, ca lista de marimi: cea mai mica treapta >= numarul de cabluri UTP.
+        1-12 -> [12] · 13-16 -> [16] · 17-24 -> [24] · 25-48 -> [48]
+    Peste 48 se monteaza mai multe panouri (un panel de 1U are fizic maximum 48 de porturi): se umple
+    cu panouri de 48 si ultimul se ia la treapta care acopera restul. Fara cabluri UTP -> niciunul."""
+    n = int(n_utp or 0)
+    out = []
+    while n > 0:
+        _t = next((p for p in _PATCH_PORTURI if n <= p), None)
+        if _t is None:
+            out.append(_PATCH_PORTURI[-1])
+            n -= _PATCH_PORTURI[-1]
+        else:
+            out.append(_t)
+            n = 0
+    return out
+
+
+def cs_patch_bom(n_utp):
+    """Patch panel-urile grupate pe marime, pentru lista de cantitati: [(porturi, bucati), ...]."""
+    _c = {}
+    for _p in cs_patch_panel(n_utp):
+        _c[_p] = _c.get(_p, 0) + 1
+    return sorted(_c.items())
 
 
 def cs_splitter_acopera(n_tv):

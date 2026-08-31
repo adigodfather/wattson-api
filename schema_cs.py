@@ -149,6 +149,95 @@ def _spre_cutie(page, x_bus, y_bus, x_cutie, y_cutie, kind, eticheta):
     _text(page, x_bus + 8, y_bus - 3.5, eticheta, fs=5.6, col=spec["col"])
 
 
+_PAS_STEA = 2.6        # distanta intre liniile paralele ale unei stele (linia are 1,0 pt)
+# Spatiul dintre benzile a doua fascicule vecine. Nu-i ornament: acolo se scrie eticheta „N x Cablu
+# ...", asa ca trebuie sa incapa un rand de 5,6 pt plus aer — la 6 pt eticheta unui fascicul ajungea
+# peste banda celui de deasupra.
+_GAP_FASC = 13.0
+_PAS_STEA_MIN = 1.5    # sub atat liniile se lipesc si banda nu se mai citeste ca fire distincte
+
+
+def _pas_stea(n, spatiu):
+    """Pasul dintre liniile stelei: cel nominal, stramtat daca N linii n-ar incapea in `spatiu`."""
+    if n <= 1:
+        return _PAS_STEA
+    return max(_PAS_STEA_MIN, min(_PAS_STEA, spatiu / float(n - 1)))
+
+
+def _rezerva_fascicule(benzi):
+    """Inaltimea ceruta DEASUPRA coloanelor de benzile fasciculelor care trec peste vecini.
+    Se calculeaza intr-un singur loc fiindca intra si in bugetul de inaltime, si in asezare: cand
+    lipsea din buget, banda de jos coborea peste caseta de legenda si taia randuri de text."""
+    _t = 0.0
+    for _banda in benzi:
+        _tot_f = sum(gr["s"] for gr in _banda)
+        _k = 0
+        for gr in _banda:
+            _nf = int(math.ceil(gr["n"] / float(gr["s"])))
+            for _ in range(gr["s"]):
+                _k += 1
+                if _k < _tot_f:            # ultimul fascicul al benzii pleaca direct la dreapta
+                    _t += _pas_stea(_nf, 46.0) * _nf + _GAP_FASC
+    return _t
+
+
+def _intrari_cutie(r, n, ocupate=0, total=None):
+    """Punctele de intrare in cutie, cate unul per cablu — asa arata un patch panel: N porturi, nu
+    o singura bornă. Se imparte inaltimea utila a cutiei; `ocupate`/`total` permit doua grupuri
+    (video + date) sa intre in ACEEASI cutie fara sa se calce."""
+    _t = total or n
+    _h = r.height - 10.0
+    return [r.y0 + 5.0 + _h * (ocupate + i + 1) / float(_t + 1) for i in range(n)]
+
+
+def _stea(page, puncte, x_cutie, intrari, kind, eticheta, y_sus=None, x_lane=None,
+          off=0):
+    """CABLARE IN STEA: cate o linie PROPRIE de la fiecare element pana in cutie.
+
+    `puncte` = [(x_capat_text, y)] de sus in jos; `intrari` = ordonatele de intrare in cutie.
+    Ordinea lanelor nu-i cosmetica — e ALEASA ca liniile sa nu se taie intre ele:
+      · coborarea spre cutie: randul de SUS pica cel mai APROAPE de cutie (x_mij scade cu indexul),
+        asa orizontala fiecarui rand se opreste inainte de verticalele randurilor de deasupra;
+      · ruta PE DEASUPRA coloanelor vecine (grupurile care nu-s ultimul): randul de sus ia laneul
+        cel mai din interior si banda cea mai de sus, iar cele de sub el ies pe rand spre exterior.
+    Verificat pe desen, nu pe rationament: un test numara intersectiile segmentelor."""
+    n = len(puncte)
+    if not n:
+        return
+    _sp = _pas_stea(n, 46.0)
+    if y_sus is None:
+        # ORDINEA COBORARILOR, aleasa ca liniile sa nu se taie: cine are de mers cel mai mult pe
+        # verticala pica cel mai APROAPE de cutie. Randurile de deasupra cutiei coboara, cele de sub
+        # ea urca, iar orizontala unui rand trece PESTE toate laneurile din stanga ei — de-aia nu
+        # merge o ordine simpla dupa indice (prima varianta avea 68 de incrucisari la 20 de camere).
+        _ord = sorted(range(n), key=lambda i: -abs(puncte[i][1] - intrari[i]))
+        _x_mij = [0.0] * n
+        for _r, _i in enumerate(_ord):
+            _x_mij[_i] = x_cutie - 14.0 - (off + _r) * _sp
+    else:
+        # ruta peste coloane: toate liniile vin de sus, din banda, deci coboara toate — ordinea
+        # simpla dupa indice e cea corecta aici
+        _x_mij = [x_cutie - 14.0 - (off + i) * _sp for i in range(n)]
+    if y_sus is None:
+        for i, ((xe, y), y_in) in enumerate(zip(puncte, intrari)):
+            _cablu(page, xe, y, _x_mij[i], y, kind)
+            _cablu(page, _x_mij[i], y, _x_mij[i], y_in, kind)
+            _cablu(page, _x_mij[i], y_in, x_cutie, y_in, kind)
+    else:
+        _lane = [(x_lane or puncte[0][0]) + i * _sp for i in range(n)]
+        _band = [y_sus - (n - 1 - i) * _sp for i in range(n)]
+        for i, ((xe, y), y_in) in enumerate(zip(puncte, intrari)):
+            _cablu(page, xe, y, _lane[i], y, kind)
+            _cablu(page, _lane[i], y, _lane[i], _band[i], kind)
+            _cablu(page, _lane[i], _band[i], _x_mij[i], _band[i], kind)
+            _cablu(page, _x_mij[i], _band[i], _x_mij[i], y_in, kind)
+            _cablu(page, _x_mij[i], y_in, x_cutie, y_in, kind)
+    if eticheta:
+        spec = _CS_CABLE.get(kind) or _CS_CABLE[DE._CS_CABLE_DEFAULT]
+        _y = (y_sus - (n - 1) * _sp - 4.0) if y_sus is not None else (puncte[0][1] - 5.0)
+        _text(page, puncte[0][0] + 8, _y, "%d × %s" % (n, eticheta), fs=5.6, col=spec["col"])
+
+
 def _peste_coloane(page, x_bus, y_bus, x_cutie, y_cutie, y_sus, kind, eticheta):
     """Legatura coloanei DIN STANGA spre cutie, rutata PE DEASUPRA celeilalte coloane: sus din
     magistrala, orizontal peste capul coloanei vecine, apoi jos in cutie. Ruta directa ar fi trecut
@@ -298,9 +387,30 @@ def _masoara(g):
     rows = build_legend_rows(g["toate"], "curenti_slabi")
     leg_w, leg_h = _legenda_dim(rows)
     grupuri = _grupuri(g)
+    # DOUA BENZI, dupa cutia in care intra grupul: sus cele care merg la rack (video, date/TV), jos
+    # efractia, care isi duce fasciculul pe sub celelalte pana la centrala. Asa fiecare fascicul
+    # ajunge la cutia lui fara sa traverseze alt grup — inainte, toate stateau pe acelasi rand si
+    # liniile treceau peste textul vecinilor.
     for gr in grupuri:
-        gr["lat"] = 29.0 + _lat_grup(gr["randuri"]) + 18.0
         gr["n"] = len(gr["randuri"])
+    _sus, _jos = [], []
+
+    def _benzi(doua):
+        """Imparte grupurile pe benzi si recalculeaza latimile (laneurile depind de rutare)."""
+        del _sus[:], _jos[:]
+        if doua:
+            _sus.extend(gr for gr in grupuri if gr["cutie"] == "rack")
+            _jos.extend(gr for gr in grupuri if gr["cutie"] != "rack")
+        else:
+            _sus.extend(grupuri)            # o singura banda: toate coloanele pe acelasi rand
+        for _b in (_sus, _jos):
+            for gr in _b:
+                gr["banda"] = "sus" if _b is _sus else "jos"
+                # ULTIMUL grup din banda pleaca direct la dreapta, spre cutia lui; cele dinaintea
+                # lui se ruteaza pe deasupra si au nevoie de laneuri in marginea coloanei.
+                gr["direct"] = gr is _b[-1]
+                _lane = 0.0 if gr["direct"] else _pas_stea(gr["n"], 46.0) * gr["n"]
+                gr["lat"] = 29.0 + _lat_grup(gr["randuri"]) + 18.0 + _lane
 
     _H = 297.0 * MMPT
     _LAT_MAX = 420.0 * MMPT - 2 * _PAD_MM * MMPT - 24.0
@@ -315,14 +425,68 @@ def _masoara(g):
                 return k
         return 3               # peste 3 se strica latimea; apelantul semnaleaza ca nu incape
 
-    def _asaza(bug):
-        for gr in grupuri:
-            gr["s"] = _sub(gr["n"], bug)
-        h = 14.0 + max([math.ceil(gr["n"] / float(gr["s"])) for gr in grupuri] or [0]) * _ROW_H + 14.0
-        w = sum(gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) for gr in grupuri)             + _COL_GAP * max(0, len(grupuri) - 1) + _gap_hub() + _HUB_W
-        return h, w
+    _GAP_BENZI = 30.0                   # minimul dintre banda de sus si cea de jos
 
-    cont_h, cont_w = _asaza(_buget - leg_h)
+    _pas = [_ROW_H]                     # pasul pe verticala, adaptiv (vezi mai jos)
+
+    def _rb(_banda):
+        return max([math.ceil(gr["n"] / float(gr["s"])) for gr in _banda]) if _banda else 0
+
+    def _hb(_banda):
+        return 28.0 + _rb(_banda) * _pas[0] if _banda else 0.0
+
+    def _wb():
+        # `default=0` nu-i decorativ: un plan care are DOAR rack si NVR (fara camere, prize sau
+        # detectoare) n-are niciun grup, deci ambele benzi sunt goale — si atunci max() crapa.
+        return max([sum(gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) for gr in _banda)
+                    + _COL_GAP * max(0, len(_banda) - 1) for _banda in (_sus, _jos) if _banda],
+                   default=0.0)
+
+    def _asaza(bug):
+        """Inaltimea si latimea continutului, pe cele doua benzi.
+
+        SUB-COLOANELE sunt ULTIMA solutie, nu prima: se pornea de la un buget impartit intre benzi,
+        iar asta le declansa degeaba — o coloana de 20 de camere ajungea pe doua sub-coloane desi
+        incapea intreaga, si atunci banda depasea latimea foii. Acum se incearca intai o singura
+        sub-coloana peste tot, iar daca inaltimea nu ajunge se sparge DOAR grupul cel mai inalt, si
+        numai cat timp latimea o permite."""
+        _gap = _GAP_BENZI if (_sus and _jos) else 0.0
+        _lat_col = _LAT_MAX - _gap_hub() - _HUB_W
+        for gr in grupuri:
+            gr["s"] = 1
+        while _hb(_sus) + _hb(_jos) + _gap > bug:
+            _cand = max([gr for gr in grupuri if gr["s"] < 3],
+                        key=lambda z: math.ceil(z["n"] / float(z["s"])), default=None)
+            if _cand is None:
+                break
+            _cand["s"] += 1
+            if _wb() > _lat_col:            # nu incape pe latime -> se revine si se semnaleaza
+                _cand["s"] -= 1
+                break
+        # RASFIRAREA: daca a ramas loc pe inaltime, randurile se departeaza intre ele in loc sa
+        # lase foaia goala la mijloc. Plafonat la 1,55x — peste atat eticheta si simbolul raman
+        # mici intr-un rand prea inalt si desenul se rareste fara sa castige nimic.
+        _pas[0] = _ROW_H
+        _r = _rb(_sus) + _rb(_jos)
+        if _r:
+            _sp = bug - (_hb(_sus) + _hb(_jos) + _gap + _rezerva_fascicule((_sus, _jos)))
+            _pas[0] = max(_ROW_H, min(_ROW_H * 1.55, _ROW_H + _sp * 0.55 / _r))
+        h_sus, h_jos = _hb(_sus), _hb(_jos)
+        return (h_sus + h_jos + _gap + _rezerva_fascicule((_sus, _jos)),
+                _wb() + _gap_hub() + _HUB_W, h_sus, h_jos)
+
+    def _incearca(bug):
+        """DOUA benzi daca incap; altfel toate coloanele pe UN rand, ca inainte. Doua benzi asaza
+        mai frumos (fiecare fascicul are culoarul lui), dar cer mai multa inaltime — la un sistem de
+        peste 40 de elemente inaltimea e exact ce lipseste, si atunci un rand e alegerea corecta."""
+        _benzi(True)
+        _r = _asaza(bug)
+        if _r[0] > bug:
+            _benzi(False)
+            _r = _asaza(bug)
+        return _r
+
+    cont_h, cont_w, h_sus, h_jos = _incearca(_buget - leg_h)
     # TREAPTA 2: legenda pe doua coloane, daca echipamentele nu incap deasupra ei
     leg2 = None
     if cont_h > _buget - leg_h:
@@ -332,8 +496,10 @@ def _masoara(g):
             w2, h2 = _legenda_dim(b_)
             leg2 = {"a": a_, "b": b_, "w1": w1, "w": w1 + 14.0 + w2, "h": max(h1, h2)}
             leg_h, leg_w = leg2["h"], leg2["w"]
-            cont_h, cont_w = _asaza(_buget - leg_h)
+            cont_h, cont_w, h_sus, h_jos = _incearca(_buget - leg_h)
     return {"rows": rows, "leg_w": leg_w, "leg_h": leg_h, "leg2": leg2, "grupuri": grupuri,
+            "sus": _sus, "jos": _jos, "h_sus": h_sus, "h_jos": h_jos, "gap_benzi": _GAP_BENZI,
+            "pas": _pas[0],
             # Semnaleaza daca nu incape — pe INALTIME (nici cu 3 sub-coloane) SAU pe LATIME.
             # Apelantul scrie o nota vizibila pe planşa; nu se lasa niciodata suprapunere tacuta.
             "incape": cont_h <= _buget - leg_h and cont_w <= _LAT_MAX,
@@ -412,56 +578,97 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
           _nota + "Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
           fs=6.2, col=(0.35, 0.35, 0.35))
 
-    # ── ECHIPAMENTELE: sus, pe toata latimea, in COLOANE ALATURATE (una per grup) ────────────
+    # ── ECHIPAMENTELE: pe TOATA foaia, in doua benzi ────────────────────────────────────────
+    # Continutul nu se mai inghesuie centrat: cutiile stau lipite de marginea din dreapta, coloanele
+    # pleaca de la marginea din stanga, iar spatiul ramas se imparte in golurile dintre ele. Banda de
+    # SUS duce la rack (video, date/TV), cea de JOS la centrala (efractia) — asa fasciculele nu se
+    # mai intalnesc, fiindca fiecare are propriul culoar pe verticala.
     _SUS = PAD + 62.0                       # sub titlu + subtitlu
     _JOS = Y_LEG - 20.0                     # deasupra notei si a legendei
-    X0 = max(PAD + 12.0, (W - m["w"]) / 2.0)
-    Y0 = max(_SUS, _SUS + ((_JOS - _SUS) - m["h"]) / 2.0)
+    X0 = PAD + 12.0
+    X_HUB = W - PAD - 12.0 - _HUB_W
+    _LAT_DISP = X_HUB - _gap_hub() - X0
+    # rezerva pe verticala pentru fasciculele care trec PE DEASUPRA coloanelor vecine (doar in banda
+    # in care exista mai multe grupuri); fiecare grup are banda LUI, stivuita peste a celui dinainte
+    _rez = _rezerva_fascicule((m["sus"], m["jos"]))
+    _liber = max(0.0, (_JOS - _SUS) - _rez - m["h_sus"] - m["h_jos"])
+    if m["sus"] and m["jos"]:
+        # Doua benzi: golul dintre ele ia jumatate din spatiul ramas, dar PLAFONAT — la un sistem
+        # mic un gol proportional ar fi devenit o prapastie de jumatate de foaie intre trei camere
+        # sus si trei detectoare jos. Restul se imparte egal sus si jos, deci ansamblul ramane
+        # echilibrat pe inaltime.
+        _g = min(_liber * 0.5, 150.0)
+        Y_SUS = _SUS + _rez + (_liber - _g) / 2.0
+        Y_JOS = Y_SUS + m["h_sus"] + _g
+    else:
+        # o singura banda: se CENTREAZA pe inaltime, ca la sistemele mici sa nu ramana un gol ciudat
+        Y_SUS = Y_JOS = _SUS + _rez + _liber / 2.0
+    Y0 = Y_SUS
     if not m["incape"]:
         # nu se ascunde o suprapunere: se scrie pe planşa ca sistemul depaseste ce incape pe A3
-        _text(page, X0, Y0 - 14.0,
+        _text(page, X0, _SUS - 6.0,
               "ATENȚIE: sistemul depășește ce încape pe o planșă A3 — se recomandă împărțirea pe "
               "planșe separate (efracție / video / date).", fs=6.6, col=(0.80, 0.15, 0.15))
 
     def _coloana(x, gr, y_start):
-        """Un grup, in `gr['s']` sub-coloane alaturate. Fiecare sub-coloana are magistrala ei;
-        magistralele se unesc pe o linie orizontala la mijloc, de unde pleaca legatura spre cutie.
-        Intoarce (x_magistrala_dreapta, y_prim, y_ultim)."""
+        """Un grup, in `gr['s']` sub-coloane alaturate. NU mai deseneaza nicio magistrala: cablarea
+        structurata e in STEA, deci fiecare element pleaca cu linia LUI (desenata de `_stea`).
+        Intoarce (fascicule, x_dreapta, y_prim, y_ultim), unde `fascicule` are cate o intrare per
+        SUB-COLOANA. Sub-coloanele trebuie rutate separat: liniile primei sub-coloane treceau peste
+        textul celei de-a doua (10 etichete taiate la o coloana de 20 de camere)."""
         _text(page, x, y_start, gr["titlu"], fs=8.0, bold=True, col=gr["col"])
         per = int(math.ceil(gr["n"] / float(gr["s"])))
         y_prim = y_start + 14.0
         y_ultim = y_prim
-        buses = []
+        fasc, x_dr = [], x
         for k in range(gr["s"]):
             felie = gr["randuri"][k * per:(k + 1) * per]
             if not felie:
                 continue
+            _sub = []
             xk = x + k * (gr["lat"] + _COL_GAP)
-            x_bus = xk + gr["lat"] - 18.0
             y = y_prim
             for el, et, descriere in felie:
                 _draw_cs(page, xk + 8, y + 4, (el.get("element_type") or "doza_cs"), scale=0.62)
                 w1 = _text(page, xk + 23, y + 6.5, et, fs=7.2, bold=True)
                 w2 = _text(page, xk + 23 + w1 + 5, y + 6.5, descriere, fs=6.4,
                            col=(0.35, 0.35, 0.35))
-                _cablu(page, xk + 23 + w1 + 5 + w2 + 6.0, y + 4, x_bus, y + 4, gr["kind"])
-                y += _ROW_H
-            _cablu(page, x_bus, y_prim + 4, x_bus, y - _ROW_H + 4, gr["kind"])
-            buses.append(x_bus)
-            y_ultim = max(y_ultim, y - _ROW_H)
-        if len(buses) > 1:      # colector orizontal intre magistralele sub-coloanelor
-            _cablu(page, buses[0], (y_prim + y_ultim) / 2.0 + 4, buses[-1],
-                   (y_prim + y_ultim) / 2.0 + 4, gr["kind"])
-        return buses[-1], y_prim, y_ultim
+                _sub.append((xk + 23 + w1 + 5 + w2 + 6.0, y + 4))
+                y += m["pas"]
+            fasc.append({"gr": gr, "pct": _sub, "x_dr": xk + gr["lat"]})
+            x_dr = max(x_dr, xk + gr["lat"])
+            y_ultim = max(y_ultim, y - m["pas"])
+        return fasc, x_dr, y_prim, y_ultim
 
-    x = X0
-    for gr in m["grupuri"]:
-        gr["geom"] = _coloana(x, gr, Y0)
-        x += gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) + _COL_GAP
-    X_HUB = min(x - _COL_GAP + _gap_hub(), W - PAD - 12.0 - _HUB_W)
+    _banda_fasc = []
+    for _banda, _y_banda_top in ((m["sus"], Y_SUS), (m["jos"], Y_JOS)):
+        if not _banda:
+            _banda_fasc.append([])
+            continue
+        # SPATIUL RAMAS se imparte in golurile dintre coloane si in cel dinaintea cutiei: coloanele
+        # se intind pe toata latimea, in loc sa stea lipite una de alta in mijlocul foii.
+        _ocupat = sum(gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) for gr in _banda)
+        _gol = max(_COL_GAP, _COL_GAP + (_LAT_DISP - _ocupat) / float(len(_banda)))
+        x = X0
+        for gr in _banda:
+            gr["geom"] = _coloana(x, gr, _y_banda_top)
+            x += gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) + _gol
+        # FASCICULELE benzii, de la stanga la dreapta: ultimul pleaca direct spre cutie, restul se
+        # ruteaza pe deasupra, fiecare cu banda LUI stivuita peste a celui dinainte
+        _f = [fa for gr in _banda for fa in gr["geom"][0]]
+        for _idx, fa in enumerate(_f):
+            fa["direct"] = _idx == len(_f) - 1
+        # Banda cea mai de SUS ii revine fasciculului cel mai din STANGA, si tot asa coborand spre
+        # dreapta. Invers (cum era intai) fasciculul din stanga trecea pe sub benzile vecinilor si
+        # le taia laneurile verticale — 200 de incrucisari la o schema cu trei fascicule.
+        _acc = 0.0
+        for fa in reversed([x for x in _f if not x["direct"]]):
+            fa["y_sus"] = _y_banda_top - 8.0 - _acc
+            _acc += _pas_stea(len(fa["pct"]), 46.0) * len(fa["pct"]) + _GAP_FASC
+        _banda_fasc.append(_f)
 
-    _spre_rack = [gr for gr in m["grupuri"] if gr["cutie"] == "rack"]
-    _spre_centrala = [gr for gr in m["grupuri"] if gr["cutie"] == "centrala"]
+    _spre_rack = list(m["sus"])
+    _spre_centrala = list(m["jos"])
 
     # ── RACK (dreapta), in dreptul primului grup care se leaga la el ─────────────────────────
     rack_lin = []
@@ -487,6 +694,11 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         _t = (_e or {}).get("element_type") or ""
         _comp[_t] = _comp.get(_t, 0) + 1
     _n_date, _n_tv = DE.cs_prize_dtv(_comp)
+    # PATCH PANEL: toate cablurile UTP (camere + prize de date) se termina pe el — e chiar punctul
+    # central al stelei, deci apare inaintea switch-ului, in ordinea in care circula semnalul
+    for _pp, _bp in DE.cs_patch_bom(DE.cs_utp_cabluri(_comp)):
+        rack_lin.append("%spatch panel %d porturi cat. 5e/6"
+                        % ("%d × " % _bp if _bp > 1 else "", _pp))
     _porturi = DE.cs_switch_porturi(_n_date)
     if _porturi:
         rack_lin.append("switch %d porturi — distribuție date" % _porturi)
@@ -503,21 +715,29 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
                             % (_cap[0], _ram[1], _ram[0]))
     rack_lin = _incape_in_cutie(rack_lin, _HUB_W - 12.0)
     rack_h = 24.0 + 10.0 * len(rack_lin)
-    _g0 = _spre_rack[0] if _spre_rack else None
-    y_rack = ((_g0["geom"][1] + _g0["geom"][2]) / 2.0 - rack_h / 2.0 + 4) if _g0 else Y0 + 14.0
+    # cutia trebuie sa fie destul de INALTA cat sa primeasca fiecare cablu pe intrarea lui: cu N
+    # cabluri si o cutie de 60 pt, intrarile s-ar lipi. Se creste, nu se ingramadesc.
+    _n_rack = sum(len(fa["pct"]) for fa in _banda_fasc[0])
+    rack_h = max(rack_h, 20.0 + _n_rack * 3.2)
+    # cutia se CENTREAZA pe banda ei, nu pe primul grup: asa fasciculul intra drept, iar cutia nu
+    # ajunge in dreptul altei benzi. Ramane loc deasupra pentru sageata de 230 V.
+    y_rack = max(_SUS + 26.0, Y_SUS + m["h_sus"] / 2.0 - rack_h / 2.0)
     r_rack = fitz.Rect(X_HUB, y_rack, X_HUB + _HUB_W, y_rack + rack_h)
     _bloc(page, r_rack, DE._DDCS_NAME_COM if DE._e_comercial(subtip) else DE._DDCS_NAME_REZ,
           rack_lin, col=DE._CS_VIDEO)
-    for gr in _spre_rack:
-        _bx, _y1, _y2 = gr["geom"]
-        _ultim = gr is m["grupuri"][-1]
-        _f = _spre_cutie if _ultim else _peste_coloane
-        if _ultim:
-            _f(page, _bx, (_y1 + _y2) / 2.0 + 4, X_HUB, r_rack.y0 + rack_h / 2.0,
-               gr["kind"], _CS_CABLE[gr["kind"]]["bom"])
+    _ocupate = 0
+    for fa in _banda_fasc[0]:
+        gr, _pct, _bx = fa["gr"], fa["pct"], fa["x_dr"]
+        _intr = _intrari_cutie(r_rack, len(_pct), _ocupate, _n_rack)
+        # DOUA grupuri in aceeasi cutie (video + date) trebuie sa aiba laneuri de coborare DISJUNCTE
+        # — cu acelasi interval, coborarile unuia taiau orizontalele celuilalt (278 incrucisari).
+        if fa["direct"]:
+            _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
+                  off=_ocupate)
         else:
-            _f(page, _bx, (_y1 + _y2) / 2.0 + 4, X_HUB, r_rack.y0 + rack_h / 2.0, Y0 - 8.0,
-               gr["kind"], _CS_CABLE[gr["kind"]]["bom"])
+            _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
+                  y_sus=fa["y_sus"], x_lane=_bx - 14.0, off=_ocupate)
+        _ocupate += len(_pct)
 
     # ── CENTRALA DE EFRACTIE (sub rack) ──────────────────────────────────────────────────────
     r_c = None
@@ -529,27 +749,35 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
                                _nr(len(g["comanda"]), "organ de comandă", "organe de comandă"),
                                "acumulator de rezervă") if x_]
         c_lin = _incape_in_cutie(c_lin, _HUB_W - 12.0)
-        c_h = 24.0 + 10.0 * len(c_lin)
-        _ge = _spre_centrala[0]["geom"] if _spre_centrala else None
-        y_c = max(r_rack.y1 + 30.0,
-                  ((_ge[1] + _ge[2]) / 2.0 - c_h / 2.0 + 4) if _ge else r_rack.y1 + 30.0)
+        # fiecare detector/contact/buton intra pe ZONA LUI, deci si aici cutia trebuie sa aiba loc
+        # de cate o intrare per element — exact ce spune si randul „N zone de detectie" din ea
+        _n_ce = sum(len(fa["pct"]) for fa in _banda_fasc[1])
+        c_h = max(24.0 + 10.0 * len(c_lin), 20.0 + _n_ce * 3.2)
+        # centrala se centreaza pe banda de JOS (unde sta efractia); fara banda proprie (centrala
+        # plasata dar fara detectoare) ramane sub rack, ca pana acum
+        y_c = (max(r_rack.y1 + 20.0, Y_JOS + m["h_jos"] / 2.0 - c_h / 2.0) if _spre_centrala
+               else r_rack.y1 + 30.0)
         r_c = fitz.Rect(X_HUB, y_c, X_HUB + _HUB_W, y_c + c_h)
         _et_ce = (g["centrala"][0][1] if g["centrala"] else "CE") or "CE"
         _bloc(page, r_c, "%s — CENTRALĂ EFRACȚIE" % _et_ce, c_lin, col=DE._CS_EFRACTIE)
-        for gr in _spre_centrala:
-            _bx, _y1, _y2 = gr["geom"]
-            _ultim = gr is m["grupuri"][-1]
-            if _ultim:
-                _spre_cutie(page, _bx, (_y1 + _y2) / 2.0 + 4, X_HUB, r_c.y0 + c_h / 2.0,
-                            gr["kind"], _CS_CABLE[gr["kind"]]["bom"])
+        _ocup_c = 0
+        for fa in _banda_fasc[1]:
+            gr, _pct, _bx = fa["gr"], fa["pct"], fa["x_dr"]
+            _intr = _intrari_cutie(r_c, len(_pct), _ocup_c, _n_ce)
+            if fa["direct"]:
+                _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
+                      off=_ocup_c)
             else:
-                _peste_coloane(page, _bx, (_y1 + _y2) / 2.0 + 4, X_HUB, r_c.y0 + c_h / 2.0,
-                               Y0 - 8.0, gr["kind"], _CS_CABLE[gr["kind"]]["bom"])
+                _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
+                      y_sus=fa["y_sus"], x_lane=_bx - 14.0, off=_ocup_c)
+            _ocup_c += len(_pct)
         _cablu(page, r_rack.x0 + _HUB_W / 2.0, r_rack.y1, r_c.x0 + _HUB_W / 2.0, r_c.y0,
                "alimentare")
-        _text(page, r_rack.x0 + _HUB_W / 2.0 + 6, (r_rack.y1 + r_c.y0) / 2.0,
+        # eticheta sta la STANGA firului, aliniata la dreapta: cutiile sunt acum lipite de marginea
+        # din dreapta a foii, iar in dreapta firului textul iesea din chenar
+        _text(page, r_rack.x0 + _HUB_W / 2.0 - 6, (r_rack.y1 + r_c.y0) / 2.0,
               "%s · 12 V c.c." % _CS_CABLE["alimentare"]["bom"], fs=5.6,
-              col=_CS_CABLE["alimentare"]["col"])
+              col=_CS_CABLE["alimentare"]["col"], anchor="right")
 
     # ── ALIMENTAREA 230 V: circuitul dedicat din tabloul electric ────────────────────────────
     y_al = r_rack.y0 - 24.0

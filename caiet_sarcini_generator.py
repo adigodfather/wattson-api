@@ -533,6 +533,28 @@ _CS_ACTIVE = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contac
               "sirena_interioara", "sirena_exterioara", "buton_panica", "camera_video", "nvr")
 
 
+def _topologie_stea_cerinte(comp):
+    """Cerinţele de topologie: stea, panou de conexiuni, limita de 90 m pe legătura orizontală."""
+    try:
+        from draw_elements import cs_utp_cabluri, cs_patch_bom
+    except Exception:
+        return ""
+    n = cs_utp_cabluri(comp)
+    if not n:
+        return ""
+    _pp = cs_patch_bom(n)
+    _p = ", ".join("%d panouri de %d porturi" % (b, p) if b > 1 else "un panou de %d porturi" % p
+                   for p, b in _pp)
+    return ("Cablarea se execută în topologie de stea, conform SR EN 50173: de la fiecare priză de "
+            "date şi de la fiecare cameră se trage un cablu propriu, continuu, până la panoul de "
+            "conexiuni din rack — fără înnădiri şi fără derivaţii pe traseu. Se prevăd %d legături "
+            "şi %s, cu porturile numerotate şi etichetate corespunzător prizei deservite. Lungimea "
+            "unei legături orizontale nu depăşeşte 90 m; peste această lungime soluţia se "
+            "reproiectează cu un punct de distribuţie intermediar. Legătura dintre panoul de "
+            "conexiuni şi echipamentul activ se face cu cordoane de echipare (patch cord) de "
+            "aceeaşi categorie cu cablul instalat." % (n, _p))
+
+
 def _video_alimentare_cerinte(comp):
     """Cerinţele de alimentare a camerelor. PoE-ul e soluţia de BAZĂ (decizia Dan): înregistratorul
     se specifică cu PoE integrat, dimensionat pe camerele plasate. Cablul separat de 2×1 mmp la
@@ -621,6 +643,9 @@ def _cerinte_curenti_slabi(doc, comp):
     _activ = any(comp.get(k) for k in _CS_ACTIVE)
     _dtv = any(comp.get(k) for k in _CS_DATE_TV)
     _add_heading(doc, "Instalaţii de curenţi slabi", level=2)
+    _top = _topologie_stea_cerinte(comp)
+    if _top:
+        _add_para(doc, _top)
     if _dtv:
         _add_para(doc, "Prizele de date şi de televiziune se montează în doze proprii, la "
                        "înălţimile din planşele proiectului: prizele de date la 0,30 m faţă de "

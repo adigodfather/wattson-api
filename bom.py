@@ -706,6 +706,27 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         rows.append(_row("Becuri", "Kit emergenta 2h", "iluminat antipanica, montat pe corpul existent",
                          _n_kit, "buc", sectiune="ILUMINAT"))
 
+    # ── CABLARE IN STEA: cate elemente deserveste fiecare traseu DESENAT ──────────────────────
+    # Pe planşa se deseneaza DRUMUL FIZIC o singura data (toate cablurile intra oricum in acelasi
+    # tub); in realitate pe el merg N cabluri, cate unul per element. Lista de cantitati inmulteste.
+    # CUM se afla N: fiecare element se atribuie traseului CEL MAI APROPIAT de tipul lui de cablu, pe
+    # ACELASI etaj. Cu un singur traseu (cazul obisnuit) toate ii revin lui — adica exact „toate
+    # elementele de pe etaj", varianta simpla. Cu mai multe trasee (rack-ul pleaca in doua directii)
+    # nu se mai numara toate de doua ori, ci se imparte dupa distanta. Fara traseu -> zero metri,
+    # ca pana acum.
+    def _cs_etaj(el):
+        return str((el or {}).get("floor") or "parter")
+
+    def _dist_pct_traseu(p, pts):
+        """Distanta de la punct la polilinie (minimul pe segmente)."""
+        _d = float("inf")
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            _dx, _dy = x2 - x1, y2 - y1
+            _l2 = _dx * _dx + _dy * _dy
+            _t = 0.0 if _l2 <= 0 else max(0.0, min(1.0, ((p[0] - x1) * _dx + (p[1] - y1) * _dy) / _l2))
+            _d = min(_d, math.hypot(p[0] - (x1 + _t * _dx), p[1] - (y1 + _t * _dy)))
+        return _d
+
     # ── 4c. CURENTI SLABI (efractie + supraveghere video) — sectiune PROPRIE ──────────────────
     # Echipamentele la bucata + traseele DESENATE la metri (ca banda LED: metrii ies din desen,
     # nu dintr-o estimare). Fara elemente de curenti slabi -> nicio linie (non-regresie).
@@ -716,6 +737,7 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     if _CS_BOM_NAME:
         _cs_cnt = {}
         _cs_m = {}
+        _trasee = []                       # (kind, metri, puncte, etaj) — pentru multiplicare
         for el in plan_elements:
             et = (el.get("element_type") or "")
             if et == "traseu_cs":
@@ -727,7 +749,8 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                 except (TypeError, ValueError, IndexError):
                     continue
                 _k = _cs_cable_kind(el)
-                _cs_m[_k] = _cs_m.get(_k, 0.0) + _path_len(_pts) * scale
+                _trasee.append({"kind": _k, "m": _path_len(_pts) * scale, "pts": _pts,
+                                "etaj": _cs_etaj(el), "n": 0})
             elif et == "camera_video":
                 # rand separat per TIP + MONTAJ: o Bullet de exterior si o Dome de interior sunt
                 # produse diferite (IP66/IP67, distanta IR), nu doua bucati din acelasi articol.
@@ -793,10 +816,38 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                                      "Camera supraveghere video IP 1080p tip %s" % _sp["nume"],
                                      "montaj %s, unghi %d grade, raza %d m" % (_mo, _sp["unghi"], _sp["raza_m"]),
                                      _n, "buc", sectiune="CURENTI SLABI"))
+        # ATRIBUIREA: fiecare element merge la traseul cel mai apropiat DE TIPUL LUI, de pe etajul lui
+        for el in plan_elements:
+            _et = (el.get("element_type") or "")
+            for _k, _tipuri in draw_elements._CS_CABLE_SERVESTE.items():
+                if _et not in _tipuri:
+                    continue
+                _cand = [t for t in _trasee if t["kind"] == _k and t["etaj"] == _cs_etaj(el)]
+                if not _cand:
+                    continue
+                try:
+                    _p = (float(el.get("x") or 0), float(el.get("y") or 0))
+                except (TypeError, ValueError):
+                    _p = (0.0, 0.0)
+                min(_cand, key=lambda t: _dist_pct_traseu(_p, t["pts"]))["n"] += 1
+        for _t in _trasee:
+            # un traseu care nu deserveste nimic ramane la lungimea desenata (un singur cablu):
+            # inginerul l-a desenat cu un rost, iar zero metri ar fi o pierdere tacuta
+            _cs_m[_t["kind"]] = _cs_m.get(_t["kind"], 0.0) + _t["m"] * max(1, _t["n"])
         for _k in _CS_CABLE:
             if _cs_m.get(_k):
-                rows.append(_row("Cabluri", _CS_CABLE[_k]["bom"], "traseu desenat",
+                _n_serv = sum(t["n"] for t in _trasee if t["kind"] == _k)
+                rows.append(_row("Cabluri", _CS_CABLE[_k]["bom"],
+                                 "traseu desenat x %d elemente deservite (cablare in stea)" % _n_serv
+                                 if _n_serv else "traseu desenat",
                                  round(_cs_m[_k] * waste, 1), "m", sectiune="CURENTI SLABI"))
+        # PATCH PANEL: toate cablurile UTP (camere + prize de date) se termina pe el, in rack
+        for _p, _b in draw_elements.cs_patch_bom(draw_elements.cs_utp_cabluri(
+                dict(_cs_cnt, camera_video=_n_cam))):
+            rows.append(_row("Curenti slabi", "Patch panel %d porturi cat. 5e/6" % _p,
+                             "terminarea cablurilor de date in rack, %d cabluri UTP"
+                             % draw_elements.cs_utp_cabluri(dict(_cs_cnt, camera_video=_n_cam)),
+                             _b, "buc", sectiune="CURENTI SLABI"))
 
     # ── 5. TABLOURI — BUCATA 2: blocul vechi (1 buc/tablou din plan_elements) ELIMINAT, RECONCILIAT
     #     cu randurile NOI din bucata 1 ("Tablou electric <panel>", 1 buc, N randuri pe sectiunea lui).
