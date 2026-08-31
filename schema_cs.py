@@ -366,9 +366,14 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         _draw_legend(page, X_LEG + m["leg2"]["w1"] + 14.0, Y_LEG, m["leg2"]["b"])
     else:
         _draw_legend(page, X_LEG, Y_LEG, m["rows"])
+    # Fraza de 12 V c.c. e ADEVARATA doar cand exista echipamente alimentate. Prizele de date si TV
+    # sunt PASIVE: pe o schema numai cu ele n-ar exista nici sursa cu acumulator, nici consum — deci
+    # nota s-ar contrazice cu propriul desen. Acelasi gate ca in memoriu si in caietul de sarcini.
+    _activ = any(gr["cheie"] in ("efractie", "video") for gr in m["grupuri"])
+    _nota = ("Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu acumulator "
+             "montate în rack. " if _activ else "")
     _text(page, X_LEG, Y_LEG - 8.0,
-          "Echipamentele sunt alimentate în joasă tensiune, 12 V c.c., din sursele cu acumulator "
-          "montate în rack. Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
+          _nota + "Numerele de pe schemă sunt cele de pe planșa de curenți slabi.",
           fs=6.2, col=(0.35, 0.35, 0.35))
 
     # ── ECHIPAMENTELE: sus, pe toata latimea, in COLOANE ALATURATE (una per grup) ────────────
