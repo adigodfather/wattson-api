@@ -400,12 +400,29 @@ const CS_VIDEO = [
   { value: "sursa_alimentare_cs", label: "Sursă 12V",     h: 1.5 },
   { value: "doza_cs",             label: "Doză",          h: 2.5 },
 ] as const;
+// A TREIA familie: distribuția de date și TV. Disponibilă și la case, nu doar la spații comerciale.
+// Înălțimile (decizia Dan): priza de date la 0,3 m, lângă cea de 230 V; cea TV (și cea mixtă, care o
+// include) la 1,2 m, în spatele televizorului montat pe perete. Editabile per element, ca restul.
+const CS_DATE_TV = [
+  { value: "priza_date",  label: "Priză date RJ45", h: 0.3 },
+  { value: "priza_tv",    label: "Priză TV",        h: 1.2 },
+  { value: "priza_mixta", label: "Priză mixtă",     h: 1.2 },
+] as const;
 // Tipurile care AU înălțime de montaj (toate, mai puțin NVR-ul și traseul).
 const csHasHeight = (t: string) =>
   isCsType(t) && t !== "nvr" && t !== "traseu_cs";
-const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value)];
+const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value),
+                            ...CS_DATE_TV.map(x => x.value)];
+const CS_DATE_TV_TYPES: string[] = CS_DATE_TV.map(x => x.value);
 const isCsType = (t: string) => CS_TYPES.includes(t);
-const csColor = (t: string) => (CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
+// A treia familie, DOUĂ culori (oglinda lui _CS_DATE / _CS_TV din backend): date = roz, TV =
+// turcoaz. Nuanțele sunt alese la distanță perceptuală maximă de magenta efracției (dE 38) și de
+// teal-ul cablului de semnal (dE 33) — orice roz mai saturat ar coborî sub 20, adică s-ar confunda.
+const COL_CS_DATE = "#F48FB1";
+const COL_CS_TV   = "#00BFA5";
+const csColor = (t: string) => (t === "priza_tv" ? COL_CS_TV
+                                : t === "priza_date" || t === "priza_mixta" ? COL_CS_DATE
+                                : CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
 // Tipul de cablu al unui traseu stă în `label` — același tipar ca montajul tablourilor FV.
 // Camerele sunt IP (transmit pe rețeaua structurată către NVR) -> UTP, nu coaxial. RG59 e cablu de
 // CCTV analogic; era moștenit din planul de referință, care zicea în același timp „camere IP" și
@@ -413,6 +430,7 @@ const csColor = (t: string) => (CS_VIDEO.some(x => x.value === t) ? COL_CS_VID :
 const CS_CABLES = [
   { value: "utp",        label: "UTP cat. 5e/6",          col: COL_CS_VID, dash: undefined },
   { value: "alimentare", label: "Alimentare 2x1 mmp",     col: COL_CS_EFR, dash: undefined },
+  { value: "coax_tv",    label: "Coaxial RG6 (TV)",       col: COL_CS_TV,  dash: undefined },
   { value: "semnal",     label: "Semnal LiY(St)Y",        col: "#00838F",  dash: [5, 3] },
 ] as const;
 // traseele desenate înainte de corecție purtau "coax" (zero în baza de date la 30 aug 2026, dar
@@ -482,6 +500,30 @@ function csSymbol(type: string) {
         <Line points={[1, -2, 1, 2]} stroke={c} strokeWidth={2} listening={false} />
         <Line points={[4.5, -4, 4.5, 4]} stroke={c} strokeWidth={2} listening={false} />
       </>);
+    // PRIZE DATE / TV: FĂRĂ chenar — forma e semnalul principal (mufă RJ45 / antenă Y), culoarea
+    // al doilea. Linie groasă: nuanțele sunt deschise. Oglinda lui `_draw_cs` din draw_elements.py.
+    case "priza_date":
+      return (<>
+        <Rect x={-5} y={-3.6} width={10} height={5.6} stroke={COL_CS_DATE} strokeWidth={1.7} />
+        <Line points={[-2, 2, -2, 5]} stroke={COL_CS_DATE} strokeWidth={1.7} listening={false} />
+        <Line points={[2, 2, 2, 5]} stroke={COL_CS_DATE} strokeWidth={1.7} listening={false} />
+      </>);
+    case "priza_tv":
+      return (<>
+        <Line points={[0, 5, 0, -0.6]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+        <Line points={[0, -0.6, -4.4, -4.4]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+        <Line points={[0, -0.6, 4.4, -4.4]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+      </>);
+    case "priza_mixta":
+      // fiecare funcție în culoarea ei: doza spune singură ce conține
+      return (<>
+        <Rect x={-5} y={-8} width={10} height={5.6} stroke={COL_CS_DATE} strokeWidth={1.7} />
+        <Line points={[-2, -2.4, -2, 0.6]} stroke={COL_CS_DATE} strokeWidth={1.7} listening={false} />
+        <Line points={[2, -2.4, 2, 0.6]} stroke={COL_CS_DATE} strokeWidth={1.7} listening={false} />
+        <Line points={[0, 8.4, 0, 2.8]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+        <Line points={[0, 2.8, -4.4, -1]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+        <Line points={[0, 2.8, 4.4, -1]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
+      </>);
     default:                   // doza_cs
       return <Rect x={-3.5} y={-3.5} width={7} height={7} fill={c} />;
   }
@@ -494,6 +536,7 @@ const CS_ABBR: Record<string, string> = {
   centrala_efractie: "CE", tastatura_efractie: "TAST", detector_pir: "PIR", contact_magnetic: "CM",
   sirena_interioara: "SI", sirena_exterioara: "SE", buton_panica: "BP",
   nvr: "NVR", rack_9u: "RACK", sursa_alimentare_cs: "SA", doza_cs: "",
+  priza_date: "PD", priza_tv: "PTV", priza_mixta: "PM",
 };
 // ── SNAP ÎN COLȚ — camerele se montează de obicei în colț, ca să acopere maximum.
 // Colțurile = capetele de perete din care pornește un al doilea perete PERPENDICULAR. Dacă un colț e
@@ -2655,6 +2698,9 @@ export default function PlanEditor({
         </Rubrica>
         <Rubrica title="Supraveghere video" hint="Camere, NVR, rack, sursă și doze. Camera are un singur tip — interior/exterior se alege pe element.">
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_VIDEO)}</div>
+        </Rubrica>
+        <Rubrica title="Distribuție date și TV" hint="Prize de date RJ45, TV coaxiale și mixte. Se plasează manual, ca restul; înălțimea implicită e 0,3 m la date și 1,2 m la TV (editabilă pe element).">
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_DATE_TV)}</div>
         </Rubrica>
         <Rubrica title="Trasee curenți slabi" hint="Cablurile se desenează; metrii din lista de cantități ies din desen. Alinierea ortogonală e activă (Shift o dezactivează).">
           {trasee.length > 0 && (

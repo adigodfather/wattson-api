@@ -1153,8 +1153,12 @@ export function ZynapseConfigurator() {
   const planseIluminat = result?.planse_iluminat || [];
   const editorPlansa = planseIluminat[editorPlansaIdx] || null;
   // Baza CURATĂ a planșei curente (arhitectural + cartuș, FĂRĂ becuri) = sursă pt. fundalul forței + prop backend.
-  // CURENTI SLABI: bifa din echipamente (extra_equipment type "securitate") — acelasi tipar ca FV.
+  // CURENTI SLABI: planşa se deschide pe DOUA porti — sistemul de securitate SAU prizele de date
+  // si TV. A doua exista ca sa fie disponibila si la case, unde nu se pune efractie, dar se pun
+  // prize de retea. Ambele sunt bife din extra_equipment, acelasi tipar ca `solar` la FV.
   const hasSecuritate = !!equipment.securitate?.enabled;
+  const hasDateTv = !!equipment.date_tv?.enabled;
+  const hasCurentiSlabi = hasSecuritate || hasDateTv;
   const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
   // CONSECVENȚĂ nume (Dan): numerotarea REALĂ din mirror (compute_plansa_numbering) — schemele din
   // result_data au plansa_nr STALE (numerotate în universul lor: prima schemă = IE.1, coliziune cu
@@ -2833,7 +2837,7 @@ export function ZynapseConfigurator() {
                   <div style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: 10,
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     {([["iluminat", "Iluminat"], ["forta", "Forță"],
-                       ...(hasSecuritate ? [["curenti_slabi", "Curenți slabi"] as const] : []),
+                       ...(hasCurentiSlabi ? [["curenti_slabi", "Curenți slabi"] as const] : []),
                       ] as ReadonlyArray<readonly [PlanMode, string]>).map(([m, label]) => {
                       const on = modeEditor === m;
                       // ca si forta: planşele derivate se deblocheaza dupa ce iluminatul e obtinut
@@ -2951,7 +2955,7 @@ export function ZynapseConfigurator() {
                   hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
                 } else if (fazaFlux === "iluminat-gata") {
                   label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
-                } else if (hasSecuritate && modeEditor !== "curenti_slabi") {
+                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi") {
                   // pasul nou din lant: forta -> curenti slabi. Fara bifa de securitate, lantul
                   // ramane EXACT cel de azi (iluminat -> forta -> finalizare).
                   label = "Editor Curenți Slabi →"; onClick = () => setModeEditor("curenti_slabi"); variant = "blue";
@@ -2977,7 +2981,7 @@ export function ZynapseConfigurator() {
                   hint = `Obține planul de forță (${floorName(editorPlansaIdx)}) — butonul din editor.`;
                 } else if (nextIdx !== undefined) {
                   label = `Forță ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "forta"); variant = "blue";
-                } else if (hasSecuritate && modeEditor !== "curenti_slabi") {
+                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi") {
                   label = "Editor Curenți Slabi →";
                   onClick = () => goEditorStep(editablePlanse[0].idx, "curenti_slabi"); variant = "blue";
                 } else {

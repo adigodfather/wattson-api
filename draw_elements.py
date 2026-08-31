@@ -800,7 +800,8 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
 # le-a adaugat in chk_element_type; simbolurile si randurile de legenda vin la pasul urmator.
 _CS_TYPES = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
              "sirena_interioara", "sirena_exterioara", "buton_panica",
-             "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs", "traseu_cs")
+             "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs", "traseu_cs",
+             "priza_date", "priza_tv", "priza_mixta")
 
 
 # ── CURENTI SLABI: simboluri, etichete, puteri ───────────────────────────────────────────────
@@ -809,6 +810,18 @@ _CS_TYPES = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact
 #   EFRACTIE = magenta ; VIDEO = indigo. Traseele isi iau culoarea din TIPUL DE CABLU (vezi mai jos).
 _CS_EFRACTIE = (0.761, 0.094, 0.365)    # #C2185B
 _CS_VIDEO    = (0.157, 0.208, 0.576)    # #283593
+# A TREIA familie: distributia de date si TV. DOUA culori, una per functie (decizia Dan):
+#   date  = ROZ #F48FB1 · TV = TURCOAZ #00BFA5
+# CONFLICTUL, masurat si asumat: rozul e vecin cu magenta efractiei (#C2185B), iar turcoazul cu
+# teal-ul cablului de semnal (#00838F). Nuantele sunt alese la distanta PERCEPTUALA maxima din
+# familia ceruta — dE(roz, magenta) = 38 si dE(turcoaz, teal) = 33 (CIE76); orice roz mai saturat
+# scade sub 20, adica se confunda. In plus turcoazul e VERZUI, iar teal-ul semnalului albastrui:
+# se despart si pe directia nuantei, nu doar pe luminozitate.
+# Fiind nuante deschise (contrast ~2,2:1 pe alb), simbolurile se deseneaza cu linie mai GROASA —
+# altfel s-ar spala la tiparire. Formele fara chenar (mufa RJ45, antena Y) raman semnalul principal.
+_CS_DATE     = (0.957, 0.561, 0.694)    # #F48FB1 — roz, prize de date
+_CS_TV       = (0.000, 0.749, 0.647)    # #00BFA5 — turcoaz, prize TV
+_CS_DATE_TV  = _CS_DATE                 # familia (culoarea etichetei); mixta poarta ambele in simbol
 
 # Familia fiecarui tip -> culoarea lui.
 _CS_FAMILY = {
@@ -818,6 +831,7 @@ _CS_FAMILY = {
     "buton_panica": _CS_EFRACTIE,
     "camera_video": _CS_VIDEO, "nvr": _CS_VIDEO, "rack_9u": _CS_VIDEO,
     "sursa_alimentare_cs": _CS_VIDEO, "doza_cs": _CS_VIDEO,
+    "priza_date": _CS_DATE, "priza_tv": _CS_TV, "priza_mixta": _CS_DATE,
 }
 
 # Abrevierea de pe plan (eticheta scurta de langa simbol), ca pe planurile de referinta.
@@ -826,6 +840,8 @@ _CS_ABBR = {
     "contact_magnetic": "CM", "sirena_interioara": "SI", "sirena_exterioara": "SE",
     "buton_panica": "BP", "camera_video": "CV", "nvr": "NVR", "rack_9u": "RACK",
     "sursa_alimentare_cs": "SA", "doza_cs": "",     # doza n-are eticheta (e prea deasa pe plan)
+    # PD/PTV/PM — scurte si distincte intre ele; nu se lovesc de nimic din setul existent
+    "priza_date": "PD", "priza_tv": "PTV", "priza_mixta": "PM",
 }
 
 # TEXTUL DE LEGENDA — VERBATIM din planurile de referinta (Desktop\ANTI-EFRACTIE + INSTAUDITOR),
@@ -851,6 +867,10 @@ _CS_LEGEND = {
     "sursa_alimentare_cs": "Sursa de alimentare instalatie monitorizare video, sir cleme pt. "
                            "alimentare max. 10 camere, loc pt. acumulator",
     "doza_cs":            "Doza PVC 100 X 100 mm, pentru legaturi camera",
+    # DISTRIBUTIE DATE SI TV (tipuri noi, formulare in acelasi registru ca restul legendei)
+    "priza_date":         "PD: Priza de date RJ45, cat. 5e/6",
+    "priza_tv":           "PTV: Priza TV coaxiala, 75 ohm",
+    "priza_mixta":        "PM: Priza mixta date RJ45 + TV coaxiala, in aceeasi doza",
 }
 # Numele scurt pentru lista de cantitati (BOM).
 _CS_BOM_NAME = {
@@ -866,6 +886,9 @@ _CS_BOM_NAME = {
     "rack_9u": "Rack 9U 600x600 cu sursa, UPS si patch panel",
     "sursa_alimentare_cs": "Sursa in comutatie 12V CC / 10,5 Ah, cutie metalica",
     "doza_cs": "Doza PVC 100x100 mm",
+    "priza_date": "Priza de date RJ45 cat. 5e/6",
+    "priza_tv": "Priza TV coaxiala 75 ohm",
+    "priza_mixta": "Priza mixta RJ45 + TV coaxiala",
 }
 # Inaltimea de montaj implicita (m) — din planurile de referinta. Editabila per element.
 # NVR-ul lipseste INTENTIONAT: se monteaza IN rack, nu pe perete -> n-are inaltime de montaj si
@@ -878,6 +901,9 @@ _CS_HEIGHT = {
     "rack_9u": 1.5, "sursa_alimentare_cs": 1.5,
     "tastatura_efractie": 1.4,                  # langa intrare, accesibila utilizatorilor
     "buton_panica": 1.3,                        # standard 1,2-1,4 m
+    # PRIZE DE DATE SI TV (decizia Dan): priza de date sta langa cea de 230 V, la nivelul placii;
+    # cea TV (si cea mixta, care o include) urca la 1,2 m, in spatele televizorului montat pe perete.
+    "priza_date": 0.3, "priza_tv": 1.2, "priza_mixta": 1.2,
 }
 # PUTERI (W) pentru dimensionarea DDCS (decizia Dan). Sirenele sunt la puterea de ALARMA — worst
 # case, care e exact ce trebuie la dimensionare. Butonul si contactul sunt pasive (0 W).
@@ -886,6 +912,8 @@ _CS_POWER_W = {
     "contact_magnetic": 0, "sirena_interioara": 15, "sirena_exterioara": 20,
     "buton_panica": 0, "camera_video": 6, "nvr": 40, "rack_9u": 0,
     "sursa_alimentare_cs": 30, "doza_cs": 0,
+    # Prizele de date si TV sunt PASIVE: nu consuma nimic, deci nu urca puterea DDCS-ului.
+    "priza_date": 0, "priza_tv": 0, "priza_mixta": 0,
 }
 
 # TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
@@ -898,6 +926,12 @@ _CS_CABLE = {
                    "bom": "Cablu UTP cat. 5e/6", "col": (0.157, 0.208, 0.576), "dash": None},
     "alimentare": {"nume": "Cablu alimentare 2x1 mmp",
                    "bom": "Cablu alimentare 2x1 mmp", "col": (0.761, 0.094, 0.365), "dash": None},
+    # TV: coaxialul revine LEGITIM. La camere l-am scos fiindca sunt IP, dar televiziunea chiar
+    # merge pe coax. RG6 (75 ohm), NU RG59: RG6 e standardul de distributie TV/satelit — atenuare
+    # mai mica la frecventele inalte ale semnalului de televiziune; RG59 e cablu vechi de CCTV.
+    "coax_tv":    {"nume": "Cablu coaxial RG6 75 ohm, distributie TV",
+                   # aceeasi culoare ca priza TV: cablul si aparatul lui se citesc impreuna
+                   "bom": "Cablu coaxial RG6 75 ohm", "col": _CS_TV, "dash": None},
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},
@@ -1279,6 +1313,34 @@ def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
         page.draw_line(fitz.Point(cx - 3 * s, cy - 4 * s), fitz.Point(cx - 3 * s, cy + 4 * s), color=col, width=1.4)
         page.draw_line(fitz.Point(cx + 1 * s, cy - 2 * s), fitz.Point(cx + 1 * s, cy + 2 * s), color=col, width=1.4)
         page.draw_line(fitz.Point(cx + 4.5 * s, cy - 4 * s), fitz.Point(cx + 4.5 * s, cy + 4 * s), color=col, width=1.4)
+    elif element_type in ("priza_date", "priza_tv", "priza_mixta"):
+        # PRIZE DE DATE / TV: FARA chenar (decizia Dan) — forma e semnalul principal, culoarea al
+        # doilea. Mufa RJ45 = dreptunghi cu doi pini; antena TV = un pin cu doua brate oblice.
+        # Linie mai groasa decat la restul simbolurilor: nuantele sunt deschise si s-ar spala.
+        _GR = 1.7
+        _rj45 = lambda cc, dy: (
+            page.draw_rect(fitz.Rect(cx - 5.0 * s, cy + (dy - 3.6) * s,
+                                     cx + 5.0 * s, cy + (dy + 2.0) * s), color=cc, width=_GR),
+            page.draw_line(fitz.Point(cx - 2.0 * s, cy + (dy + 2.0) * s),
+                           fitz.Point(cx - 2.0 * s, cy + (dy + 5.0) * s), color=cc, width=_GR),
+            page.draw_line(fitz.Point(cx + 2.0 * s, cy + (dy + 2.0) * s),
+                           fitz.Point(cx + 2.0 * s, cy + (dy + 5.0) * s), color=cc, width=_GR))
+        _antena = lambda cc, dy: (
+            page.draw_line(fitz.Point(cx, cy + (dy + 5.0) * s), fitz.Point(cx, cy + (dy - 0.6) * s),
+                           color=cc, width=_GR),
+            page.draw_line(fitz.Point(cx, cy + (dy - 0.6) * s),
+                           fitz.Point(cx - 4.4 * s, cy + (dy - 4.4) * s), color=cc, width=_GR),
+            page.draw_line(fitz.Point(cx, cy + (dy - 0.6) * s),
+                           fitz.Point(cx + 4.4 * s, cy + (dy - 4.4) * s), color=cc, width=_GR))
+        if element_type == "priza_date":
+            _rj45(_CS_DATE, 0.0)
+        elif element_type == "priza_tv":
+            _antena(_CS_TV, 0.0)
+        else:
+            # MIXTA: fiecare functie in culoarea ei — simbolul spune singur ce contine doza si nu se
+            # confunda cu niciuna dintre prizele simple.
+            _rj45(_CS_DATE, -4.4)
+            _antena(_CS_TV, 3.4)
     else:   # doza_cs (default): patrat mic plin — se pun multe pe plan, trebuie sa fie discret
         page.draw_rect(R(3.5, 3.5), color=col, fill=col, width=0.6)
 

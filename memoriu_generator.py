@@ -524,15 +524,20 @@ _CS_NUME = {
     "sursa_alimentare_cs": ("o", "sursă de alimentare cu acumulator de rezervă",
                             "surse de alimentare cu acumulator de rezervă"),
     "doza_cs":             ("o", "doză de legături PVC 100×100 mm", "doze de legături PVC 100×100 mm"),
+    "priza_date":          ("o", "priză de date RJ45 cat. 5e/6", "prize de date RJ45 cat. 5e/6"),
+    "priza_tv":            ("o", "priză TV coaxială", "prize TV coaxiale"),
+    "priza_mixta":         ("o", "priză mixtă date + TV", "prize mixte date + TV"),
 }
 # ordinea de enumerare: intai efractia (in ordinea lantului: centrala -> comanda -> detectie ->
 # semnalizare), apoi partea video, apoi infrastructura comuna
 _CS_ORDINE = ["centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
               "buton_panica", "sirena_interioara", "sirena_exterioara",
-              "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs"]
+              "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs",
+              "priza_date", "priza_tv", "priza_mixta"]
 _CS_EFRACTIE = {"centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
                 "buton_panica", "sirena_interioara", "sirena_exterioara"}
 _CS_VIDEO = {"camera_video", "nvr"}
+_CS_DATE_TV = {"priza_date", "priza_tv", "priza_mixta"}
 
 
 # ── ALIMENTAREA: bransament propriu (default) vs punct de distributie existent ────────────────
@@ -610,13 +615,15 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
     _add_heading(doc, "%s. Instalații de curenți slabi" % nr, level=2)
     _has_efr = any(comp.get(k) for k in _CS_EFRACTIE)
     _has_vid = any(comp.get(k) for k in _CS_VIDEO)
-    if _has_efr and _has_vid:
-        _sist = ("un sistem de detecție și semnalizare a efracției și un sistem de supraveghere "
-                 "video")
-    elif _has_vid:
-        _sist = "un sistem de supraveghere video"
-    else:
-        _sist = "un sistem de detecție și semnalizare a efracției"
+    _has_dtv = any(comp.get(k) for k in _CS_DATE_TV)
+    # Fraza de deschidere enumera DOAR sistemele care exista. La o casa cu prize de date si TV dar
+    # fara efractie, capitolul nu mai anunta un sistem de alarma inexistent.
+    _p = [x for x in (("un sistem de detecție și semnalizare a efracției" if _has_efr else None),
+                      ("un sistem de supraveghere video" if _has_vid else None),
+                      ("o instalație de distribuție de date și televiziune" if _has_dtv else None))
+          if x]
+    _sist = (" și ".join([", ".join(_p[:-1]), _p[-1]]) if len(_p) > 1
+             else (_p[0] if _p else "instalații de curenți slabi"))
     _add_para(doc, "Pe lângă instalațiile de curenți tari, proiectul prevede %s, cu traseele și "
                    "amplasamentele din planșa de instalații de curenți slabi. Sistemele sunt "
                    "independente funcțional de instalația de forță și iluminat și se execută pe "
@@ -632,6 +639,12 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
                        "rețea (NVR), unde imaginile se stochează local. Unghiurile de acoperire ale "
                        "camerelor sunt cele figurate pe planșă, pentru fiecare tip de cameră în "
                        "parte.")
+    if _has_dtv:
+        _add_para(doc, "Distribuția de date și televiziune se realizează cu prize montate în doze "
+                       "proprii, legate radial la punctul de distribuție (rack): prizele de date pe "
+                       "cablu UTP cat. 5e/6, iar cele de televiziune pe cablu coaxial de 75 Ω. "
+                       "Prizele sunt pasive — nu consumă energie și nu încarcă circuitul de "
+                       "alimentare al punctului de distribuție.")
     _enum = _cs_enumerare(comp)
     if _enum:
         _add_para(doc, "Echipamentele prevăzute sunt: %s." % _enum)
@@ -643,6 +656,16 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
         _add_para(doc, "Camerele se defalcă pe tipuri astfel: %s, alese după unghiul de acoperire "
                        "necesar fiecărei zone." % (", ".join(_cb[:-1]) + " și " + _cb[-1]
                                                    if len(_cb) > 1 else _cb[0]))
+    if not (_has_efr or _has_vid):
+        # doar prize: nu exista echipament activ de alimentat, deci fraza de 12 V c.c. n-are obiect
+        _add_para(doc, "Instalația nu cuprinde echipamente active alimentate; prizele se leagă la "
+                       "punctul de distribuție al locuinței, alimentat dintr-un circuit dedicat de "
+                       "230 V din tabloul electric.")
+        _add_para(doc, "La proiectarea și executarea instalațiilor de curenți slabi se respectă "
+                       "Normativul I18/1-2001 pentru instalațiile de curenți slabi aferente "
+                       "clădirilor, iar rețeaua de date se realizează conform SR EN 50173 pentru "
+                       "cablarea structurată.")
+        return
     _add_para(doc, "Alimentarea echipamentelor se face în joasă tensiune, 12 V curent continuu, din "
                    "sursele montate în rack, alimentate la rândul lor dintr-un circuit dedicat de "
                    "230 V din tabloul electric. Sursele sunt prevăzute cu acumulator de rezervă, "

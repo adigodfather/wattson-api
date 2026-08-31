@@ -177,6 +177,11 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
   // `solar` la schema FV. Nu apare ca buton în editor — butoanele vin din
   // EQUIPMENT_RECEPTOR_BUTTONS, listă separată.
   { type: "securitate", label: "Sistem de securitate (efracție + supraveghere video)", icon: "🔒", default_kw: 0, default_phase: "none" },
+  // PRIZE DE DATE ȘI TV — a doua poartă spre planșa de curenți slabi, disponibilă ȘI LA CASE.
+  // De ce o bifă și nu „prize plasate": la GENERARE nu există încă niciun element pe plan, deci
+  // prezența nu poate fi semnal acolo (oul și găina). La finalizare semnalul rămâne cel de azi —
+  // planșa chiar generată. Prizele sunt PASIVE: nu urcă puterea DDCS-ului.
+  { type: "date_tv", label: "Prize de date și TV (RJ45 / coaxial)", icon: "🔌", default_kw: 0, default_phase: "none" },
 ];
 
 // ─── Regula 10: receptoare termice plasabile pe PLAN (mod forță) ──────────────

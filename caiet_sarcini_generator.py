@@ -528,11 +528,35 @@ def _specificatie_tablouri(doc, circuits):
 # fiindca reguli de montaj exista oricum), aici textul apare doar cand proiectul chiar are
 # echipamente: cerinta de non-regresie e ca proiectele fara curenti slabi sa iasa neschimbate.
 # Inaltimile sunt cele din proiect (aceleasi valori ca `_CS_HEIGHT` din draw_elements).
+_CS_DATE_TV = ("priza_date", "priza_tv", "priza_mixta")
+_CS_ACTIVE = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
+              "sirena_interioara", "sirena_exterioara", "buton_panica", "camera_video", "nvr")
+
+
 def _cerinte_curenti_slabi(doc, comp):
-    """Blocul de executie din cap. 3. Nu scrie nimic fara echipamente pe plan."""
+    """Blocul de executie din cap. 3. Nu scrie nimic fara echipamente pe plan.
+    Cerintele de montaj/PIF privesc echipamentele ACTIVE (efractie + video); la o casa cu doar prize
+    de date si TV se scrie doar ce se aplica lor — nu inaltimi de sirene si nu programare de
+    centrala, care n-ar avea obiect."""
     if not comp:
         return
+    _activ = any(comp.get(k) for k in _CS_ACTIVE)
+    _dtv = any(comp.get(k) for k in _CS_DATE_TV)
     _add_heading(doc, "Instalaţii de curenţi slabi", level=2)
+    if _dtv:
+        _add_para(doc, "Prizele de date şi de televiziune se montează în doze proprii, la "
+                       "înălţimile din planşele proiectului: prizele de date la 0,30 m faţă de "
+                       "pardoseală, alături de prizele de 230 V, iar cele de televiziune la 1,20 m, "
+                       "în spatele televizorului. Legăturile se fac radial, câte un cablu de la "
+                       "fiecare priză până la punctul de distribuţie — fără înnădiri şi fără "
+                       "derivaţii pe traseu. Cablul de date este UTP cat. 5e/6, terminat pe "
+                       "conectori RJ45 după schema T568B la ambele capete; cel de televiziune este "
+                       "coaxial de 75 ohm, cu conectori F. La recepţie se verifică fiecare priză "
+                       "prin testare de continuitate şi de perechi, iar prizele TV prin măsurarea "
+                       "nivelului de semnal.")
+    if not _activ:
+        return
+    
     _add_para(doc, "Echipamentele de curenţi slabi (detecţie efracţie şi supraveghere video) se "
                    "montează la înălţimile prevăzute în planşele proiectului: detectoarele de "
                    "mişcare şi camerele de supraveghere la 2,5 m faţă de pardoseală, centrala de "
@@ -576,8 +600,10 @@ def _cerinte_curenti_slabi(doc, comp):
 
 
 def _receptie_curenti_slabi(doc, comp):
-    """Completarea la cap. 5 — ce se verifica la receptie pe partea de curenti slabi."""
-    if not comp:
+    """Completarea la cap. 5 — ce se verifica la receptie pe partea de curenti slabi.
+    Verificarile de mai jos privesc echipamentele ACTIVE; verificarea prizelor de date/TV (test de
+    perechi, nivel de semnal) e in blocul de executie, langa cerintele lor."""
+    if not comp or not any(comp.get(k) for k in _CS_ACTIVE):
         return
     _add_para(doc, "La recepţia instalaţiilor de curenţi slabi se verifică suplimentar: "
                    "funcţionarea fiecărui detector şi a fiecărui contact magnetic, prin declanşare "
