@@ -17,6 +17,8 @@ const FIXED_AFTER_TES = [
   // efractie + supraveghere video (planşa a treia). Fara intrarea asta randurile ar cadea pe
   // rangul 999 ("Diverse") — ar functiona, dar ar arata neglijent.
   "CURENTI SLABI",
+  // a patra planşa. Fara intrarea asta randurile ar cadea tot pe rangul 999 ("Diverse").
+  "DETECTIE INCENDIU SI DESFUMARE",
 ];
 
 function isTes(sec: string): boolean {

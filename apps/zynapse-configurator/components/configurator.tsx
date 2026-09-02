@@ -1159,6 +1159,11 @@ export function ZynapseConfigurator() {
   const hasSecuritate = !!equipment.securitate?.enabled;
   const hasDateTv = !!equipment.date_tv?.enabled;
   const hasCurentiSlabi = hasSecuritate || hasDateTv;
+  // DETECȚIE INCENDIU ȘI DESFUMARE: a patra planșă, o singură poartă — bifa din extra_equipment,
+  // același tipar ca `securitate` și `date_tv`. La generare nu există încă niciun element plasat,
+  // deci prezența nu poate fi semnal aici (oul și găina); la finalizare semnalul devine planșele
+  // chiar generate (finalize/route.ts → has_det).
+  const hasDetectie = !!equipment.detectie_incendiu?.enabled;
   const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
   // CONSECVENȚĂ nume (Dan): numerotarea REALĂ din mirror (compute_plansa_numbering) — schemele din
   // result_data au plansa_nr STALE (numerotate în universul lor: prima schemă = IE.1, coliziune cu
@@ -1308,7 +1313,24 @@ export function ZynapseConfigurator() {
     if (!result || !editorPlansa || !savedProjectId) return;
     // M3: construiește result_data pe mod, apoi PERSISTĂ o singură dată în Supabase.
     let updated: ProjectResult;
-    if (mode === "curenti_slabi") {
+    if (mode === "detectie_incendiu") {
+      // Oglinda ramurii de curenți slabi: listă per etaj, lazy-init la prima planșă.
+      const baseDet = (result.planse_detectie && result.planse_detectie.length === planseIluminat.length)
+        ? result.planse_detectie
+        : planseIluminat.map(p => ({ type: "plan_detectie_incendiu",
+                                     name: `${(p.name || "PLAN").replace(/\s*—\s*ILUMINAT\s*$/, "")} — DETECȚIE INCENDIU`,
+                                     source_plansa_nr: p.source_plansa_nr,
+                                     pdf_base64: "", regenerated: false }));
+      updated = {
+        ...result,
+        planse_detectie: baseDet.map((f, i) => i === editorPlansaIdx
+          ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_detectie_incendiu",
+              name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ|CURENȚI SLABI|DETECȚIE INCENDIU)\s*$/, "")} — DETECȚIE INCENDIU`,
+              ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
+              filename: `Plan_detectie_incendiu_${floorCanonic(editorPlansaIdx)}.pdf` }
+          : f),
+      };
+    } else if (mode === "curenti_slabi") {
       // Oglinda ramurii de forta: lista per etaj, lazy-init la prima planşa, marcheaza etajul curent.
       const baseCs = (result.planse_curenti_slabi && result.planse_curenti_slabi.length === planseIluminat.length)
         ? result.planse_curenti_slabi
@@ -2838,6 +2860,7 @@ export function ZynapseConfigurator() {
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     {([["iluminat", "Iluminat"], ["forta", "Forță"],
                        ...(hasCurentiSlabi ? [["curenti_slabi", "Curenți slabi"] as const] : []),
+                       ...(hasDetectie ? [["detectie_incendiu", "Detecție incendiu"] as const] : []),
                       ] as ReadonlyArray<readonly [PlanMode, string]>).map(([m, label]) => {
                       const on = modeEditor === m;
                       // ca si forta: planşele derivate se deblocheaza dupa ce iluminatul e obtinut
@@ -2864,6 +2887,8 @@ export function ZynapseConfigurator() {
                       ? "Becuri, întrerupătoare, tablouri"
                       : modeEditor === "curenti_slabi"
                       ? "Anti-efracție și supraveghere video"
+                      : modeEditor === "detectie_incendiu"
+                      ? "Detecție incendiu și desfumare"
                       : "Prize / alimentări · tablouri moștenite (read-only)"}
                   </span>
                 </div>
@@ -2955,11 +2980,17 @@ export function ZynapseConfigurator() {
                   hint = "Obține planul de iluminat întâi (butonul 'Obține plan iluminat').";
                 } else if (fazaFlux === "iluminat-gata") {
                   label = "Editor Plan Forță →"; onClick = handleGoForta; variant = "blue";
-                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi") {
+                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi"
+                           && modeEditor !== "detectie_incendiu") {
                   // pasul nou din lant: forta -> curenti slabi. Fara bifa de securitate, lantul
                   // ramane EXACT cel de azi (iluminat -> forta -> finalizare).
                   label = "Editor Curenți Slabi →"; onClick = () => setModeEditor("curenti_slabi"); variant = "blue";
-                } else {   // fazaFlux === "forta" (inclusiv pe planşa de curenti slabi)
+                } else if (hasDetectie && modeEditor !== "detectie_incendiu") {
+                  // a patra veriga: (curenti slabi ->) detectie incendiu. Fara bifa, lantul ramane
+                  // exact cel de dinainte — inclusiv cand exista curenti slabi dar nu si detectie.
+                  label = "Editor Detecție Incendiu →";
+                  onClick = () => setModeEditor("detectie_incendiu"); variant = "blue";
+                } else {   // fazaFlux === "forta" (inclusiv pe planşele de sistem)
                   label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }
               } else if (modeEditor === "iluminat") {
@@ -2981,9 +3012,13 @@ export function ZynapseConfigurator() {
                   hint = `Obține planul de forță (${floorName(editorPlansaIdx)}) — butonul din editor.`;
                 } else if (nextIdx !== undefined) {
                   label = `Forță ${floorName(nextIdx)} →`; onClick = () => goEditorStep(nextIdx, "forta"); variant = "blue";
-                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi") {
+                } else if (hasCurentiSlabi && modeEditor !== "curenti_slabi"
+                           && modeEditor !== "detectie_incendiu") {
                   label = "Editor Curenți Slabi →";
                   onClick = () => goEditorStep(editablePlanse[0].idx, "curenti_slabi"); variant = "blue";
+                } else if (hasDetectie && modeEditor !== "detectie_incendiu") {
+                  label = "Editor Detecție Incendiu →";
+                  onClick = () => goEditorStep(editablePlanse[0].idx, "detectie_incendiu"); variant = "blue";
                 } else {
                   label = "Finalizare proiect →"; onClick = handleFinalizeDocs; variant = "green";
                 }

@@ -214,6 +214,9 @@ export async function POST(req: NextRequest) {
     // inexistenta, si tot restul s-ar deplasa degeaba.
     has_cs: ((rd.planse_curenti_slabi as Array<{ regenerated?: boolean }> | undefined) || [])
       .some((p) => p?.regenerated),
+    // DETECȚIE INCENDIU: același semnal ca la curenți slabi — planșele chiar generate, nu bifa.
+    has_det: ((rd.planse_detectie as Array<{ regenerated?: boolean }> | undefined) || [])
+      .some((p) => p?.regenerated),
     fv_kw: fvKw,
     fv_soil_type: fvSoilType,
     faza,

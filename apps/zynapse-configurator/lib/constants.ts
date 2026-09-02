@@ -182,6 +182,10 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
   // prezența nu poate fi semnal acolo (oul și găina). La finalizare semnalul rămâne cel de azi —
   // planșa chiar generată. Prizele sunt PASIVE: nu urcă puterea DDCS-ului.
   { type: "date_tv", label: "Prize de date și TV (RJ45 / coaxial)", icon: "🔌", default_kw: 0, default_phase: "none" },
+  // DETECȚIE INCENDIU ȘI DESFUMARE — poarta celei de-a patra planșe. 0 kW / fără fază: e un SEMNAL,
+  // nu un receptor (ca `securitate` și `date_tv`). Puterile reale ale desfumării (ventilatoare,
+  // trape motorizate) vin din elementele plasate, la pasul următor.
+  { type: "detectie_incendiu", label: "Detecție incendiu și desfumare", icon: "🔥", default_kw: 0, default_phase: "none" },
 ];
 
 // ─── Regula 10: receptoare termice plasabile pe PLAN (mod forță) ──────────────
@@ -439,6 +443,16 @@ export interface ProjectResult {
     source_plansa_nr?: string;
     regenerated?: boolean;
   }> | null;
+  // DETECTIE INCENDIU SI DESFUMARE — a patra planşa, aceeasi forma. Absenta pe proiectele fara
+  // sistem de detectie -> hasDet=false -> numerotarea ramane exact cea de azi.
+  planse_detectie?: Array<{
+    type?: string;
+    name: string;
+    pdf_base64: string;
+    filename?: string;
+    source_plansa_nr?: string;
+    regenerated?: boolean;
+  }> | null;
   has_planse_iluminat?: boolean;
   // Memoriu tehnic (.docx) generat de FastAPI /generate-memoriu prin n8n
   memoriu_docx_base64?: string | null;
@@ -506,6 +520,7 @@ export function plansaTitlu(tip: string, nivel?: string | null): string {
   if (tip === "plan_iluminat") return `PLAN ${nl} INSTALATII ELECTRICE DE ILUMINAT`;
   if (tip === "plan_forta") return `PLAN ${nl} INSTALATII ELECTRICE DE FORTA`;
   if (tip === "plan_curenti_slabi") return `PLAN ${nl} INSTALATII CURENTI SLABI`;
+  if (tip === "plan_detectie_incendiu") return `PLAN ${nl} INSTALATII DETECTIE INCENDIU SI DESFUMARE`;
   if (tip === "schema_teg") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC GENERAL";
   if (tip === "schema_tes") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC SECUNDAR ${nl}`;
   if (tip === "schema_tect") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC CENTRALA TERMICA";
@@ -524,6 +539,9 @@ export function computePlansaNumbering(opts: {
   // schema sistemului de curenti slabi: DUPA schemele de tablou, INAINTEA FV (care ramane ultima).
   // Implicit urmeaza planşa (hasCs); se poate decupla explicit.
   hasSchemaCs?: boolean;
+  // detectie incendiu + desfumare: cate o plansa per nivel, DUPA curenti slabi si INAINTEA
+  // schemelor. Ca si CS, deplaseaza schemele cu len(floors) pozitii.
+  hasDet?: boolean;
 }): PlansaNumEntry[] {
   const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
   const floors = ["parter", ...extra];
@@ -532,6 +550,7 @@ export function computePlansaNumbering(opts: {
   for (const fl of floors) sheets.push(["plan_iluminat", fl]);
   for (const fl of floors) sheets.push(["plan_forta", fl]);
   if (opts.hasCs) for (const fl of floors) sheets.push(["plan_curenti_slabi", fl]);
+  if (opts.hasDet) for (const fl of floors) sheets.push(["plan_detectie_incendiu", fl]);
   // "parter", nu null: asa pun si plansa_numbering.py si AMANDOUA nodurile n8n. Titlul TEG nu
   // depinde de nivel, deci nu se schimba nimic vizibil — dar cele patru oglinzi devin identice
   // camp cu camp, si testul de consecventa poate compara direct.
@@ -579,6 +598,8 @@ export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry
     // schema de curenti slabi: din schemele CHIAR primite (ca la FV), nu din bifa — un proiect cu
     // planşa desenata dar fara echipamente n-are schema.
     hasSchemaCs: tipuri.includes("schema_cs"),
+    // detectia: acelasi semnal ca la curenti slabi — planşele CHIAR generate, nu bifa
+    hasDet: (result.planse_detectie || []).some(p => p?.regenerated),
   });
 }
 // schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)
@@ -610,10 +631,13 @@ export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlan
     const regenFo = fo.filter(p => p.regenerated);
     const cs = result.planse_curenti_slabi || [];
     const regenCs = cs.filter(p => p.regenerated);
+    const det = result.planse_detectie || [];
+    const regenDet = det.filter(p => p.regenerated);
     const num = plansaNumberingFromResult(result);
     const ilE = num.filter(e => e.tip === "plan_iluminat");
     const foE = num.filter(e => e.tip === "plan_forta");
     const csE = num.filter(e => e.tip === "plan_curenti_slabi");
+    const detE = num.filter(e => e.tip === "plan_detectie_incendiu");
     const out: ShownPlansa[] = [];
     const push = (p: ShownPlansa, e: PlansaNumEntry | undefined) => {
       const disp = e ? `${e.nr} ${e.titlu}` : p.name;
@@ -627,6 +651,8 @@ export function iluminatPlanseToShow(result: ProjectResult): { planse: ShownPlan
     for (const p of regenFo) push(p, foE.find(x => x.nr === p.source_plansa_nr) || foE[fo.indexOf(p)]);
     // curentii slabi vin DUPA forta, exact ca in numerotare
     for (const p of regenCs) push(p, csE.find(x => x.nr === p.source_plansa_nr) || csE[cs.indexOf(p)]);
+    // detectia incendiu vine DUPA curentii slabi, tot ca in numerotare
+    for (const p of regenDet) push(p, detE.find(x => x.nr === p.source_plansa_nr) || detE[det.indexOf(p)]);
     return { planse: out, draftPending: false };
   }
   return { planse: result.planuri || [], draftPending: false };   // DTAC: planuri ca înainte

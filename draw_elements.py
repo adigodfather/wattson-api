@@ -180,11 +180,39 @@ def _norm_name_ro(s):
 # orice camera (gruparea e pe numele din `room`). Numele e si contractul cu frontend-ul.
 _ACCES_ROOM = "Acces clădire"
 
-# ── A TREIA PLANSA: CURENTI SLABI (anti-efractie + supraveghere video) ───────────────────────
-# Fiecare loc care intreba "e iluminat SAU forta?" trebuie sa stie si de a treia. Niciunul nu da
-# eroare pe un tip necunoscut — toate cad tacut pe o ramura gresita, de-aia sunt constante aici
-# si nu literale imprastiate.
+# ── PLANSELE: un TABEL, nu if-uri in lant ────────────────────────────────────────────────────
+# Fiecare loc care intreba "e iluminat SAU forta?" trebuie sa stie de TOATE planşele. Niciunul nu da
+# eroare pe un tip necunoscut — toate cad tacut pe o ramura gresita.
+#
+# CURENTII SLABI n-au generalizat ramurile: au primit RETURURI DEVREME inaintea lor. De aceea a
+# patra planşa ar fi cazut EXACT la fel, in trei locuri — ar fi mostenit randul de cablu de
+# ILUMINAT (`_legend_cable_rows`), ar fi cazut pe becuri/intrerupatoare (`build_legend_rows`) si ar
+# fi primit TEG-ul desenat pe ea (`_accept`, bugul reparat la CS). Tabelul de mai jos inlocuieste
+# cele trei lanturi de if-uri.
+#
+# IMPLICITUL PENTRU O CHEIE LIPSA NU E "iluminat", CI IZOLAREA: doar tipurile proprii, fara randuri
+# de legenda mostenite. O a cincea planşa care uita sa se inregistreze aici iese GOALA — vizibil —
+# in loc sa iasa gresita fara ca nimeni sa observe.
+_ILUMINAT_PLAN = "iluminat"
+_FORTA_PLAN = "forta"
 _CS_PLAN = "curenti_slabi"
+_DET_PLAN = "detectie_incendiu"          # a PATRA: detectie incendiu + desfumare
+
+_PLAN_SPEC = {
+    # accepta: ce plan_type de element se deseneaza pe ea ('ambele' = tablourile, care apar si pe
+    #          iluminat si pe forta — pe planşele de sistem n-au ce cauta)
+    # legenda: ce fel de randuri de legenda primeste
+    _ILUMINAT_PLAN: {"accepta": (_ILUMINAT_PLAN, "ambele"), "legenda": "iluminat"},
+    _FORTA_PLAN:    {"accepta": (_FORTA_PLAN, "ambele"),    "legenda": "forta"},
+    _CS_PLAN:       {"accepta": (_CS_PLAN,),                "legenda": "cs"},
+    _DET_PLAN:      {"accepta": (_DET_PLAN,),               "legenda": "detectie"},
+}
+
+
+def _plan_spec(plan_type):
+    """Comportamentul planşei. Tip necunoscut -> IZOLAT (doar el insusi, legenda goala)."""
+    pt = str(plan_type or _ILUMINAT_PLAN)
+    return _PLAN_SPEC.get(pt) or {"accepta": (pt,), "legenda": "izolat"}
 # Marimea etichetelor de pe planşa de curenti slabi. Era 4.5 (jumatate din cea a becurilor, 9.0) —
 # prea mica pe planşe A3/A2. 6.0 = +33%: se citeste, dar ramane sub eticheta becului, ca planşa sa
 # nu se aglomereze (pe planul real sunt ~15 elemente in 58 mp). DOAR aici: iluminatul si forta
@@ -210,7 +238,12 @@ def _e_comercial(subtip):
         return str(subtip) in comercial.SUBTIPURI
     except Exception:
         return False
-_CARTUS_SUFIX = {"iluminat": "DE ILUMINAT", "forta": "DE FORTA", _CS_PLAN: "CURENTI SLABI"}
+# Sufixul de rezerva al cartusului, cand nu vine titlul COMPLET din autoritatea de numerotare.
+# Implicitul "DE ILUMINAT" e ultima ramura binara din lantul asta: o planşa noua fara intrare aici
+# ar fi purtat sufixul de iluminat. Se pastreaza (proiectele vechi depind de el), dar tabelul e
+# acum complet — cheile vin din `_PLAN_SPEC`.
+_CARTUS_SUFIX = {"iluminat": "DE ILUMINAT", "forta": "DE FORTA", _CS_PLAN: "CURENTI SLABI",
+                 _DET_PLAN: "DETECTIE INCENDIU SI DESFUMARE"}
 
 
 # ── SPATII COMERCIALE: tip + putere + pas de suprafata ("+1 corp la X mp") ────────────────────
@@ -728,14 +761,15 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     iluminat -> 3x1.5; forta -> 3x2.5 (prize) + sectiunile DEDICATELOR (din circuits, NU re-derivate
     din puteri default) daca difera de 2.5 + COLOANE (feed sub_tablou TEG->TE-CT/TES, teal).
     circuits lipsa (proiect vechi) -> FALLBACK la re-derivarea din puteri default (comportamentul vechi)."""
-    if plan_type == _CS_PLAN:
-        # CURENTI SLABI: cablurile lui sunt de alt tip (UTP / semnal / alimentare 2x1) si se
-        # desemneaza din traseele DESENATE, nu din circuite. Pana la elemente: niciun rand.
-        # (Fara ramura asta, planşa ar mostenit tacut randul de cablu de ILUMINAT.)
-        return []
-    if plan_type != "forta":
-        # iluminat: cablurile pe plan sunt ROSII (default _draw_cable) -> legenda la fel
+    _leg = _plan_spec(plan_type)["legenda"]
+    if _leg == "iluminat":
+        # cablurile pe plan sunt ROSII (default _draw_cable) -> legenda la fel
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
+    if _leg != "forta":
+        # PLANSELE DE SISTEM (curenti slabi, detectie incendiu, orice alta de aici inainte):
+        # cablurile lor sunt de alt tip si se deduc din traseele DESENATE, nu din circuite.
+        # Randul de iluminat NU se mosteneste — asta era capcana.
+        return []
     texts = []
     if present & _PRIZA_TYPES:
         texts.append(_LEGEND_CABLE_FORTA)                           # 2.5 prize (normativ fix)
@@ -1661,11 +1695,16 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     elements = elements or []
     present = {((el or {}).get("element_type") or "") for el in elements}
 
-    # CURENTI SLABI: legenda ei se compune DOAR din tipurile ei. Ramura e explicita chiar daca azi
-    # rezultatul ar iesi gol oricum (niciun filtru de mai jos nu prinde tipurile noi) — fara ea,
-    # orice tip adaugat mai tarziu in _BULB_TYPES/_PRIZA_TYPES ar putea scapa pe planşa gresita.
-    if plan_type == _CS_PLAN:
+    # PLANSELE DE SISTEM isi compun legenda DOAR din tipurile lor. Ramura e explicita chiar cand
+    # rezultatul ar iesi gol oricum — fara ea, orice tip adaugat mai tarziu in _BULB_TYPES /
+    # _PRIZA_TYPES ar putea scapa pe planşa gresita.
+    _leg = _plan_spec(plan_type)["legenda"]
+    if _leg == "cs":
         return _legend_rows_cs(elements, present)
+    if _leg not in ("iluminat", "forta"):
+        # detectie incendiu (registrul ei de simboluri vine la pasul urmator) sau planşa
+        # neinregistrata in `_PLAN_SPEC`: legenda GOALA, nu becuri si intrerupatoare.
+        return []
 
     # a) BECURI (iluminat): combinatii unice (element_type, power_w normalizat)
     seen = set()
@@ -4456,10 +4495,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _cen_map = _room_centroids(elements)
         # F4: filtreaza ce DESENAM pe plan_type (numerotarea s-a facut deja pe toate elementele).
         # iluminat -> iluminat+ambele(tablouri); forta -> forta+ambele. Cablurile/legenda urmeaza subsetul.
-        # CURENTI SLABI: NUMAI elementele lui. "ambele" inseamna "si pe iluminat, si pe forta" —
-        # tablourile electrice n-au ce cauta pe planşa de efractie (nici pe cele de referinta nu-s),
-        # iar fara excluderea asta planşa "goala" ar iesi cu TEG-ul desenat pe ea.
-        _accept = (_CS_PLAN,) if draw_plan_type == _CS_PLAN else (draw_plan_type, "ambele")
+        # PLANSELE DE SISTEM: NUMAI elementele lor. "ambele" inseamna "si pe iluminat, si pe forta"
+        # — tablourile electrice n-au ce cauta pe planşa de efractie sau pe cea de incendiu (nici pe
+        # planurile de referinta nu-s), iar fara excluderea asta planşa "goala" ar iesi cu TEG-ul
+        # desenat pe ea. Vine din tabel, nu dintr-un if pe un singur tip.
+        _accept = _plan_spec(draw_plan_type)["accepta"]
         elements = [el for el in (elements or [])
                     if ((el or {}).get("plan_type") or "iluminat") in _accept]
         # Etichetarea secventiala a curentilor slabi (PIR 1, CV-INT 2...): calculata pe elementele

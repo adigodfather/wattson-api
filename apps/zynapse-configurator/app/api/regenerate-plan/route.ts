@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   // Poarta era BINARA (`=== "forta" ? "forta" : "iluminat"`), deci orice tip necunoscut devenea
   // tacut planşa de iluminat. Acum lista e explicita: ce nu-i in ea cade tot pe iluminat, dar
   // curenti_slabi trece.
-  const PLAN_TYPES = ["iluminat", "forta", "curenti_slabi"] as const;
+  const PLAN_TYPES = ["iluminat", "forta", "curenti_slabi", "detectie_incendiu"] as const;
   const planType = (PLAN_TYPES as readonly string[]).includes(String(body.plan_type))
     ? String(body.plan_type) : "iluminat";
   if (!projectId || !base) {

@@ -69,11 +69,12 @@ function isCameraInterioara(name: string): boolean {
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
 // A TREIA PLANSA (curenti slabi): tipul e exportat ca sa nu ramana literale binare imprastiate —
 // fiecare `mode === "forta" ? ... : ...` era o ramura care cadea TACUT pe iluminat.
-export type PlanMode = "iluminat" | "forta" | "curenti_slabi";
+export type PlanMode = "iluminat" | "forta" | "curenti_slabi" | "detectie_incendiu";
 // Eticheta modului, intr-un SINGUR loc: erau trei ternare binare care scriau "iluminat" pentru
 // orice tip necunoscut (spinner, planşa negenerata, butonul de regenerare).
 const MODE_LABEL: Record<PlanMode, string> = {
   iluminat: "iluminat", forta: "forță", curenti_slabi: "curenți slabi",
+  detectie_incendiu: "detecție incendiu",
 };
 
 const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip";
@@ -2681,6 +2682,22 @@ export default function PlanEditor({
     );
   };
 
+  // DETECȚIE INCENDIU ȘI DESFUMARE — a patra planșă. La pasul ăsta planșa se obține GOALĂ (fundal
+  // curat + cartuș + numerotare); cele zece tipuri de element vin la pasul următor, iar rubricile
+  // lor se adaugă aici. Rubrica există de pe acum ca modul al patrulea să aibă un sidebar coerent:
+  // fără ea ar arăta becuri și prize, exact ramura pe care tocmai am generalizat-o.
+  const renderDetectieSection = () => {
+    if (mode !== "detectie_incendiu") return null;
+    return (
+      <Rubrica title="Detecție incendiu și desfumare"
+               hint="Planșa se generează goală. Detectoarele, centrala, butoanele și echipamentele de desfumare se adaugă la pasul următor.">
+        <div style={{ paddingLeft: 2, fontSize: 11, color: "#545870" }}>
+          Nu există încă elemente de plasat pe această planșă.
+        </div>
+      </Rubrica>
+    );
+  };
+
   // CURENȚI SLABI — două rubrici (efracție / video) + traseele, DOAR pe planşa lor.
   const renderCsSection = () => {
     if (mode !== "curenti_slabi") return null;
@@ -3097,6 +3114,7 @@ export default function PlanEditor({
           {mode === "iluminat" && renderPanelsSection()}
           {mode === "forta" && renderPrizaSection()}
           {renderCsSection()}
+          {renderDetectieSection()}
           {renderSigurantaSection()}
           {renderBandaLedSection()}
           {renderGroundingSection()}
