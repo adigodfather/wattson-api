@@ -701,6 +701,62 @@ def _cerinte_curenti_slabi(doc, comp):
                    "înainte de predare.")
 
 
+_DET_TOATE = ("detector_fum", "detector_caldura", "centrala_detectie", "buton_incendiu",
+              "sirena_incendiu", "panou_repetor", "trapa_desfumare", "ventilator_desfumare",
+              "clapeta_antifoc", "grila_admisie")
+_DET_DESF = ("trapa_desfumare", "ventilator_desfumare", "clapeta_antifoc", "grila_admisie")
+
+
+def _cerinte_detectie(doc, comp):
+    """Cerinţele de execuţie pentru detecţia incendiului şi desfumare. Nimic fără echipamente pe
+    plan — proiectele fără detecţie ies byte-identice."""
+    if not comp or not any(comp.get(k) for k in _DET_TOATE):
+        return
+    _n_det = sum(int(comp.get(k) or 0) for k in ("detector_fum", "detector_caldura"))
+    _add_heading(doc, "Instalaţii de detecţie a incendiului şi de desfumare", level=2)
+    if _n_det:
+        _add_para(doc, "Detectoarele se montează pe tavan, în punctul cel mai înalt al acestuia, la "
+                       "minimum 0,50 m faţă de orice perete — în colţuri se formează zone de aer "
+                       "stagnant, în care fumul ajunge cu întârziere. Aria acoperită de fiecare "
+                       "detector este cea din planşă, aleasă din treptele tabelului 3.4 al "
+                       "Normativului P118/3-2015. Valorile din proiect corespund tavanelor cu "
+                       "înclinare de până la 20°; la tavane mai înclinate distanţele maxime se "
+                       "recalculează după coloana corespunzătoare a aceluiaşi tabel, cu acordul "
+                       "proiectantului. Pe coridoare, distanţa dintre două detectoare de fum nu "
+                       "depăşeşte 15 m, iar între detectoarele termice 10 m. Fiecare încăpere "
+                       "închisă primeşte cel puţin un detector.")
+        _add_para(doc, "Declanşatoarele manuale de alarmă se montează la 1,50 m faţă de pardoseală, "
+                       "pe căile de evacuare, astfel încât distanţa de parcurs până la cel mai "
+                       "apropiat declanşator să nu depăşească 30 m. Buclele de detecţie se execută cu "
+                       "cablu rezistent la foc E30, pozat separat de instalaţiile de curenţi tari "
+                       "şi de cele de curenţi slabi, fără înnădiri pe traseu; legăturile se fac "
+                       "exclusiv în doze accesibile. Centrala se alimentează dintr-un circuit "
+                       "dedicat de 230 V şi este prevăzută cu acumulator de rezervă.")
+    if any(comp.get(k) for k in _DET_DESF):
+        # MENŢIUNEA OBLIGATORIE (decizia Dan): se scrie EXPLICIT că alimentarea e pe tabloul
+        # general şi unde se opreşte soluţia. Executantul şi verificatorul trebuie să vadă limita,
+        # nu s-o deducă din absenţa unei fraze.
+        _add_para(doc, "Echipamentele de desfumare se alimentează prin circuite dedicate din "
+                       "tabloul electric general, dimensionate pe puterea fiecărui echipament; "
+                       "ventilatoarele mari se racordează trifazat. Trapele cu acţionare pneumatică "
+                       "nu necesită alimentare electrică. ATENŢIE: la clădirile pentru care "
+                       "reglementările impun ca instalaţia de desfumare să fie alimentată dintr-un "
+                       "circuit de siguranţă, racordat înaintea separatorului general — astfel "
+                       "încât evacuarea fumului să funcţioneze şi după întreruperea alimentării "
+                       "clădirii — soluţia din prezentul proiect NU acoperă această cerinţă şi se "
+                       "completează separat, cu acordul proiectantului general.")
+        _add_para(doc, "Clapetele antifoc se montează în tubulatură, în dreptul pereţilor de "
+                       "compartimentare, cu servomotorul accesibil pentru verificare. Grilele "
+                       "motorizate de admisie a aerului de compensare se montează în partea de jos "
+                       "a încăperii, sub stratul de fum, şi se deschid la comanda centralei; "
+                       "servomotorul lor se alimentează prin circuit dedicat, ca al clapetelor.")
+    _add_para(doc, "La punerea în funcţiune se verifică fiecare detector prin declanşare "
+                   "individuală, cu confirmarea semnalizării la centrală şi la panourile "
+                   "repetoare, fiecare declanşator manual, funcţionarea sirenelor, autonomia "
+                   "acumulatorului de rezervă şi, la desfumare, pornirea ventilatoarelor şi "
+                   "deschiderea trapelor la comanda centralei.")
+
+
 def _receptie_curenti_slabi(doc, comp):
     """Completarea la cap. 5 — ce se verifica la receptie pe partea de curenti slabi.
     Verificarile de mai jos privesc echipamentele ACTIVE; verificarea prizelor de date/TV (test de
@@ -818,6 +874,7 @@ def build_caiet_docx(data: dict) -> bytes:
 
     _emit_blocks(doc, _CS_CAP3)                     # 3
     _cerinte_curenti_slabi(doc, _cs_comp)           # 3.x, doar cu echipamente pe plan
+    _cerinte_detectie(doc, _cs_comp)                # detectie incendiu + desfumare, acelasi gate
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.

@@ -835,12 +835,57 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             # inginerul l-a desenat cu un rost, iar zero metri ar fi o pierdere tacuta
             _cs_m[_t["kind"]] = _cs_m.get(_t["kind"], 0.0) + _t["m"] * max(1, _t["n"])
         for _k in _CS_CABLE:
+            if _k == "e30":
+                continue                   # cablul de incendiu se listeaza in sectiunea LUI (mai jos)
             if _cs_m.get(_k):
                 _n_serv = sum(t["n"] for t in _trasee if t["kind"] == _k)
                 rows.append(_row("Cabluri", _CS_CABLE[_k]["bom"],
                                  "traseu desenat x %d elemente deservite (cablare in stea)" % _n_serv
                                  if _n_serv else "traseu desenat",
                                  round(_cs_m[_k] * waste, 1), "m", sectiune="CURENTI SLABI"))
+        # ── DETECTIE INCENDIU SI DESFUMARE: sectiune PROPRIE ────────────────────────────────
+        # Aceleasi doua bucle ca la curenti slabi (echipamente la bucata, cablu la metri din desen),
+        # dar cu registrele familiei de incendiu si cu sectiunea ei. Cablul E30 iese din bucla de mai
+        # jos si intra AICI, ca sa nu apara sub „CURENTI SLABI" un cablu care e al altei planşe.
+        _det_cnt = {}
+        for el in plan_elements:
+            _et = (el.get("element_type") or "")
+            if _et in draw_elements._DET_BOM_NAME:
+                _det_cnt[_et] = _det_cnt.get(_et, 0) + 1
+        for _et in draw_elements._DET_TYPES:
+            if _et in _det_cnt:
+                _spec = ""
+                if _et in ("detector_fum", "detector_caldura"):
+                    # aria aleasa pe element: daca s-au pus mai multe trepte, se scriu toate — un
+                    # singur rand cu „60 mp" ar minti despre jumatate dintre ele
+                    _arii = sorted({draw_elements.det_arie(e) for e in plan_elements
+                                    if (e.get("element_type") or "") == _et})
+                    _spec = "arie acoperita %s mp" % " / ".join(str(a2) for a2 in _arii if a2)
+                elif _et == "trapa_desfumare":
+                    _n_pn = sum(1 for e in plan_elements
+                                if (e.get("element_type") or "") == _et
+                                and str(e.get("label") or "").strip().lower() == "pneumatica")
+                    _spec = ("%d motorizate, %d pneumatice" % (_det_cnt[_et] - _n_pn, _n_pn)
+                             if _n_pn else "actionare motorizata")
+                elif _et == "grila_admisie":
+                    # MOTORIZATA: pozitia poarta puterea servomotorului, ca sa nu fie citita drept
+                    # grila fixa. Puterea vine din `det_putere_receptor` (deci si un `power_w` pus pe
+                    # element se vede aici); mai multe valori -> se scriu toate, ca la ariile
+                    # detectoarelor — un singur numar ar minti despre restul.
+                    _pw = sorted({draw_elements.det_putere_receptor(e) for e in plan_elements
+                                  if (e.get("element_type") or "") == _et})
+                    _spec = "motorizata, servomotor %s W" % " / ".join(str(w) for w in _pw if w)
+                rows.append(_row("Detectie incendiu", draw_elements._DET_BOM_NAME[_et], _spec,
+                                 _det_cnt[_et], "buc", sectiune="DETECTIE INCENDIU SI DESFUMARE"))
+
+        if _cs_m.get("e30"):
+            _n_e30 = sum(t["n"] for t in _trasee if t["kind"] == "e30")
+            rows.append(_row("Cabluri", _CS_CABLE["e30"]["bom"],
+                             "traseu desenat x %d elemente deservite (bucle de detectie)" % _n_e30
+                             if _n_e30 else "traseu desenat",
+                             round(_cs_m["e30"] * waste, 1), "m",
+                             sectiune="DETECTIE INCENDIU SI DESFUMARE"))
+
         # PATCH PANEL: toate cablurile UTP (camere + prize de date) se termina pe el, in rack
         for _p, _b in draw_elements.cs_patch_bom(draw_elements.cs_utp_cabluri(
                 dict(_cs_cnt, camera_video=_n_cam))):

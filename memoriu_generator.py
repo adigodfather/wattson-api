@@ -701,6 +701,82 @@ def _dtv_echipament(comp):
     return _t
 
 
+_DET_NUME = {
+    "detector_fum": ("un", "detector optic de fum", "detectoare optice de fum"),
+    "detector_caldura": ("un", "detector termic", "detectoare termice"),
+    "centrala_detectie": ("o", "centrală de semnalizare a incendiului",
+                          "centrale de semnalizare a incendiului"),
+    "buton_incendiu": ("un", "declanșator manual de alarmă",
+                       "declanșatoare manuale de alarmă"),
+    "sirena_incendiu": ("o", "sirenă de avertizare", "sirene de avertizare"),
+    "panou_repetor": ("un", "panou repetor de semnalizare", "panouri repetoare de semnalizare"),
+    "trapa_desfumare": ("o", "trapă de evacuare a fumului", "trape de evacuare a fumului"),
+    "ventilator_desfumare": ("un", "ventilator de evacuare a fumului",
+                             "ventilatoare de evacuare a fumului"),
+    "clapeta_antifoc": ("o", "clapetă antifoc", "clapete antifoc"),
+    "grila_admisie": ("o", "grilă motorizată de admisie a aerului",
+                      "grile motorizate de admisie a aerului"),
+}
+_DET_ORDINE = ["centrala_detectie", "detector_fum", "detector_caldura", "buton_incendiu",
+               "sirena_incendiu", "panou_repetor",
+               "trapa_desfumare", "ventilator_desfumare", "clapeta_antifoc", "grila_admisie"]
+_DET_DESFUMARE = {"trapa_desfumare", "ventilator_desfumare", "clapeta_antifoc", "grila_admisie"}
+
+
+def _memoriu_docx_detectie_section(doc, nr, comp):
+    """Capitolul de DETECȚIE INCENDIU ȘI DESFUMARE. Se scrie DOAR dacă proiectul chiar are
+    echipamente plasate pe planșă, ca la FV, iluminatul de siguranță și curenții slabi."""
+    _add_heading(doc, "%s. Instalații de detecție a incendiului și de desfumare" % nr, level=2)
+    _n_det = sum(int(comp.get(k) or 0) for k in ("detector_fum", "detector_caldura"))
+    _has_desf = any(comp.get(k) for k in _DET_DESFUMARE)
+    _p = [x for x in (("un sistem de detecție și semnalizare a incendiului" if comp.get("centrala_detectie")
+                       or _n_det else None),
+                      ("o instalație de evacuare a fumului" if _has_desf else None)) if x]
+    _add_para(doc, "Proiectul prevede %s, cu amplasamentele și traseele din planșa de instalații de "
+                   "detecție a incendiului și desfumare." % (" și ".join(_p) if _p
+                                                             else "instalații de detecție a incendiului"))
+    if _n_det:
+        _add_para(doc, "Detectoarele se montează pe tavan, în punctul cel mai înalt, la minimum "
+                       "0,50 m față de orice perete, pentru a evita zonele de aer stagnant din "
+                       "colțuri. Aria acoperită de fiecare detector este cea figurată pe planșă, "
+                       "aleasă din treptele normativului P118/3-2015, tabelul 3.4, pentru tavane cu "
+                       "înclinare de până la 20°. Detectoarele termice se prevăd acolo unde fumul "
+                       "nu constituie un indiciu utilizabil — bucătării și spații cu praf.")
+        _add_para(doc, "Legăturile dintre echipamentele de detecție și centrală se realizează cu "
+                       "cablu rezistent la foc E30, pozat separat de restul instalațiilor. Centrala "
+                       "este prevăzută cu acumulator de rezervă, care asigură funcționarea la "
+                       "întreruperea alimentării de la rețea, și se alimentează dintr-un circuit "
+                       "dedicat de 230 V din tabloul electric.")
+    if _has_desf:
+        # MENȚIUNEA OBLIGATORIE (decizia Dan): alimentarea desfumării e pe tabloul general, iar
+        # limita soluției se scrie EXPLICIT — nu se lasă cititorul să presupună că e circuit de
+        # siguranță. Fără fraza asta, un verificator ar putea citi planșa ca fiind conformă acolo
+        # unde normativul cere altceva.
+        _add_para(doc, "Echipamentele de desfumare — ventilatoare, trape, clapete antifoc și "
+                       "grile motorizate de admisie — se "
+                       "alimentează prin circuite dedicate din tabloul electric general, "
+                       "dimensionate pe puterea fiecărui echipament. La clădirile pentru care "
+                       "reglementările impun alimentarea instalației de desfumare dintr-un circuit "
+                       "de siguranță, racordat înaintea separatorului general, astfel încât "
+                       "evacuarea fumului să rămână în funcțiune la întreruperea alimentării "
+                       "clădirii, această cerință se tratează separat, printr-o soluție de "
+                       "alimentare stabilită împreună cu proiectantul general.")
+    _buc = []
+    for k in _DET_ORDINE:
+        n = int(comp.get(k) or 0)
+        if n <= 0:
+            continue
+        art, sg, pl = _DET_NUME[k]
+        _buc.append("%s %s" % (art, sg) if n == 1 else "%d %s" % (n, pl))
+    if _buc:
+        _add_para(doc, "Echipamentele prevăzute sunt: %s." % (
+            _buc[0] if len(_buc) == 1 else ", ".join(_buc[:-1]) + " și " + _buc[-1]))
+    _add_para(doc, "La proiectarea și executarea instalațiilor de detecție a incendiului și de "
+                   "desfumare se respectă Normativul P118/3-2015 pentru sistemele de detectare, "
+                   "semnalizare și avertizare incendiu, Normativul P118/2-2013 pentru instalațiile "
+                   "de stingere și evacuare a fumului, precum și seria de standarde SR EN 54.")
+
+
 def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
     """Capitolul de CURENTI SLABI (efractie + supraveghere video). Se scrie DOAR daca proiectul chiar
     are echipamente plasate pe plan, ca la FV si la iluminatul de siguranta. `nr` = numarul
@@ -1002,7 +1078,9 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
     # cate capitole optionale se insereaza inaintea PROTECTIEI -> si numarul ei, si referinta
     # incrucisata ies din ACEEASI suma (nu se pot desincroniza)
-    _n_optionale = (1 if _has_fv else 0) + (1 if _has_safety else 0) + (1 if _has_cs else 0)
+    _has_det = any(_cs_comp.get(k) for k in _DET_NUME) if _cs_comp else False
+    _n_optionale = ((1 if _has_fv else 0) + (1 if _has_safety else 0) + (1 if _has_cs else 0)
+                    + (1 if _has_det else 0))
     _skip_li = False   # activ dupa lista TEG dinamica: sare li-urile STATICE inlocuite
     for kind, text in _MEMORIU_BLOCKS:
         if _skip_li:
@@ -1029,6 +1107,9 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
                 _nr_next += 1
             if _has_cs:
                 _memoriu_docx_curenti_slabi_section(doc, "2.%d" % _nr_next, _cs_comp, _cs_cam)
+                _nr_next += 1
+            if _has_det:
+                _memoriu_docx_detectie_section(doc, "2.%d" % _nr_next, _cs_comp)
                 _nr_next += 1
             text = "2.%d. " % _nr_next + text[len("2.8. "):]                # PROTECTIA -> 2.9 .. 2.11
         elif _n_optionale and kind == "li" and "paragrafului 2.8." in text:

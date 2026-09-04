@@ -1147,6 +1147,11 @@ _CS_CABLE_SERVESTE = {
     # fiecare detector/contact/buton merge pe ZONA LUI la centrala, deci si el are cablu propriu
     "semnal":     ("detector_pir", "contact_magnetic", "buton_panica", "tastatura_efractie",
                    "sirena_interioara", "sirena_exterioara"),
+    # Detectoarele, butoanele si sirenele merg fiecare pe bucla LUI la centrala, exact ca detectoarele
+    # de efractie pe zonele lor -> aceeasi inmultire a metrilor. Desfumarea NU e aici: motoarele ei
+    # sunt receptoare pe 230/400 V, nu echipamente de bucla.
+    "e30":        ("detector_fum", "detector_caldura", "buton_incendiu", "sirena_incendiu",
+                   "panou_repetor"),
     # 12 V c.c.: echipamentele de efractie. Camerele NU mai sunt aici — merg pe PoE din inregistrator
     "alimentare": ("detector_pir", "tastatura_efractie", "sirena_interioara", "sirena_exterioara",
                    "centrala_efractie"),
@@ -1199,6 +1204,142 @@ def cs_splitter_acopera(n_tv):
         return 0
     return _l[0] if len(_l) == 1 else sum(_l[1:])
 
+# ══ DETECTIE INCENDIU SI DESFUMARE: a patra familie ═════════════════════════════════════════
+# CULOAREA: rosu, ca la orice instalatie de incendiu. Nuanta NU e aleasa din ochi — masurata cu
+# distanta perceptuala CIE76 fata de toate familiile existente. #E53935 e cel mai DEPARTAT rosu de
+# magenta efractiei: dE = 38, exact pragul acceptat la prizele roz. Rosurile mai inchise
+# (#C62828, #B71C1C) coboara la 34-36 si se apropie de magenta.
+# CE NU S-A PUTUT EVITA, si de ce nu conteaza: dE fata de rosul cablului de ILUMINAT e 7 — practic
+# aceeasi culoare. Dar cele doua nu apar NICIODATA pe aceeasi foaie: iluminatul isi are planşa lui,
+# detectia pe a ei. Confuzia se poate naste doar intre lucruri care se vad impreuna.
+_DET_FAMILIE = (0.898, 0.224, 0.208)     # #E53935
+
+_DET_TYPES = ("detector_fum", "detector_caldura", "centrala_detectie", "buton_incendiu",
+              "sirena_incendiu", "panou_repetor",
+              "trapa_desfumare", "ventilator_desfumare", "clapeta_antifoc", "grila_admisie")
+
+# ARIA ACOPERITA -> distanta maxima orizontala (P118/3-2015, tabelul 3.4, tavan sub 20 grade).
+# Peste 20 de grade tabelul da alte valori; decizia Dan e sa presupunem sub 20 si sa notam in caiet,
+# deci nu exista camp de inclinatie si nici a doua coloana aici.
+_DET_ARIE_DH = {20: 3.3, 40: 4.7, 60: 5.7, 80: 6.6, 100: 7.4}
+# Implicitul pe TIP, cand elementul n-are `arie_acoperire_mp` (coloana e NULL, ca la `camera_tip`):
+# fumul acopera cel putin 60 mp, caldura cel putin 20 — caldura se pune unde fumul nu merge
+# (bucatarii, zone cu praf), deci acopera mai putin.
+_DET_ARIE_DEFAULT = {"detector_fum": 60, "detector_caldura": 20}
+
+
+def det_arie(el):
+    """Aria acoperita a unui detector (mp). Valoare din afara treptelor sau lipsa -> implicitul
+    tipului; tip care nu-i detector -> None."""
+    _t = (el or {}).get("element_type") or ""
+    if _t not in _DET_ARIE_DEFAULT:
+        return None
+    try:
+        _a = int((el or {}).get("arie_acoperire_mp"))
+    except (TypeError, ValueError):
+        _a = None
+    return _a if _a in _DET_ARIE_DH else _DET_ARIE_DEFAULT[_t]
+
+
+def det_raza_m(el):
+    """Raza cercului de acoperire (m) = distanta maxima orizontala a treptei. None daca nu-i detector."""
+    _a = det_arie(el)
+    return _DET_ARIE_DH[_a] if _a else None
+
+
+# Abrevierile de pe planşa. VERIFICATE sa nu se loveasca de cele de curenti slabi: chiar daca cele
+# doua familii nu apar pe aceeasi foaie, `cs_index_map` grupeaza pe (etaj, abreviere) si o coliziune
+# ar numerota impreuna doua tipuri diferite.
+_DET_ABBR = {
+    "detector_fum": "DF", "detector_caldura": "DT",      # DT = detector termic (termenul din P118)
+    "centrala_detectie": "CSI",                          # centrala de semnalizare a incendiului
+    # DM = declansator manual, termenul din P118/3. „BI" era o prescurtare interna, pe care
+    # verificatorul n-o cauta pe planşa. DF / DT / DM raman trei litere D distincte.
+    "buton_incendiu": "DM", "sirena_incendiu": "SIN", "panou_repetor": "PR",
+    "trapa_desfumare": "TD", "ventilator_desfumare": "VD",
+    "clapeta_antifoc": "CA", "grila_admisie": "GA",
+}
+
+_DET_LEGEND = {
+    "detector_fum": "DF: Detector optic de fum, montaj pe tavan",
+    "detector_caldura": "DT: Detector termic (de caldura), pentru bucatarii si zone cu praf",
+    "centrala_detectie": "CSI: Centrala de semnalizare incendiu, cu acumulator de rezerva",
+    "buton_incendiu": "DM: Declansator manual de alarma, cu geam frangibil",
+    "sirena_incendiu": "SIN: Sirena acustica de avertizare incendiu",
+    "panou_repetor": "PR: Panou repetor de semnalizare",
+    "trapa_desfumare": "TD: Trapa de evacuare a fumului",
+    "ventilator_desfumare": "VD: Ventilator de evacuare a fumului",
+    "clapeta_antifoc": "CA: Clapeta antifoc cu servomotor, pe tubulatura",
+    "grila_admisie": "GA: Grila motorizata de admisie a aerului de compensare, cu servomotor",
+}
+
+_DET_BOM_NAME = {
+    "detector_fum": "Detector optic de fum",
+    "detector_caldura": "Detector termic (de caldura)",
+    "centrala_detectie": "Centrala de semnalizare incendiu, cu acumulator de rezerva",
+    "buton_incendiu": "Declansator manual de alarma, cu geam frangibil",
+    "sirena_incendiu": "Sirena acustica de avertizare incendiu",
+    "panou_repetor": "Panou repetor de semnalizare",
+    "trapa_desfumare": "Trapa de evacuare a fumului",
+    "ventilator_desfumare": "Ventilator de evacuare a fumului",
+    "clapeta_antifoc": "Clapeta antifoc cu servomotor",
+    "grila_admisie": "Grila motorizata de admisie a aerului de compensare, cu servomotor",
+}
+
+# INALTIMEA de montaj. Cele care se monteaza pe TAVAN, in tubulatura sau pe acoperis LIPSESC
+# intentionat, ca NVR-ul: n-au o cota de perete, iar regula lor („in punctul cel mai inalt al
+# tavanului", „minimum 0,5 m fata de orice perete") sta in caietul de sarcini, unde poate fi
+# citita ca cerinta — nu intr-un numar pe fiecare element.
+_DET_HEIGHT = {
+    "centrala_detectie": 1.5,            # cutie accesibila pentru service si operare
+    "buton_incendiu": 1.5,               # cota din P118 pentru declansatoarele manuale
+    "sirena_incendiu": 2.5,              # sus, deasupra zonei de circulatie
+    "panou_repetor": 1.5,
+    "grila_admisie": 0.3,                # aerul de compensare intra JOS, sub stratul de fum
+}
+
+# PUTERI (W). Detectia e in joasa tensiune, din centrala; DESFUMAREA are motoare pe 230/400 V si
+# NU intra in bilantul centralei — vezi `_DET_RECEPTOR`.
+_DET_POWER_W = {
+    "detector_fum": 0.5, "detector_caldura": 0.5,        # ca detectorul PIR
+    "centrala_detectie": 15, "sirena_incendiu": 15, "panou_repetor": 5,
+    "buton_incendiu": 0,                                 # contact pasiv
+    # desfumarea: puterea reala a motoarelor, folosita ca receptor dedicat, nu ca sarcina a centralei
+    "ventilator_desfumare": 1500, "clapeta_antifoc": 30, "trapa_desfumare": 100,
+    # grila de admisie e MOTORIZATA (confirmarea lui Dan): acelasi servomotor mic de 24/230 V ca al
+    # clapetei antifoc, deci aceeasi putere — se deschide la comanda centralei, nu e o grila fixa.
+    "grila_admisie": 30,
+}
+
+# ECHIPAMENTELE DE DESFUMARE care primesc CIRCUIT DEDICAT pe tabloul general (decizia Dan).
+# NOTA de proiectare, dusa mai departe in memoriu si in caiet: normativ, desfumarea ar trebui
+# alimentata dintr-un circuit de siguranta racordat INAINTEA separatorului general, ca evacuarea
+# fumului sa supravietuiasca taierii curentului pe cladire. Modelul de tablouri n-are notiunea
+# „inaintea generalului", iar decizia asumata e varianta simpla — de-aia mentiunea e OBLIGATORIE in
+# documente, nu optionala.
+_DET_RECEPTOR = ("ventilator_desfumare", "clapeta_antifoc", "trapa_desfumare", "grila_admisie")
+# Trapa are DOUA variante, alese per element prin `label` (tiparul montajului camerelor): motorizata
+# consuma, pneumatica (butelie CO2) nu se alimenteaza deloc.
+_TRAPA_PNEUMATICA = "pneumatica"
+
+
+def det_putere_receptor(el):
+    """Puterea unui echipament de desfumare, ca receptor. Trapa PNEUMATICA -> 0 W (nu se alimenteaza).
+    `power_w` explicit pe element are prioritate, ca la restul receptoarelor."""
+    _t = (el or {}).get("element_type") or ""
+    if _t not in _DET_RECEPTOR:
+        return 0
+    if _t == "trapa_desfumare" and str((el or {}).get("label") or "").strip().lower() == _TRAPA_PNEUMATICA:
+        return 0
+    try:
+        _w = int((el or {}).get("power_w"))
+        if _w > 0:
+            return _w
+    except (TypeError, ValueError):
+        pass
+    return _DET_POWER_W.get(_t, 0)
+
+
 # TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
 # tablourilor FV. Culoarea si stilul difera per tip, ca planşa sa se citeasca fara sa deschizi legenda.
 _CS_CABLE = {
@@ -1215,6 +1356,13 @@ _CS_CABLE = {
     "coax_tv":    {"nume": "Cablu coaxial RG6 75 ohm, distributie TV",
                    # aceeasi culoare ca priza TV: cablul si aparatul lui se citesc impreuna
                    "bom": "Cablu coaxial RG6 75 ohm", "col": _CS_TV, "dash": None},
+    # DETECTIE INCENDIU: cablu REZISTENT LA FOC. E30 = 30 de minute de functionare in foc, E90 = 90;
+    # pentru cladiri civile obisnuite E30 e cerinta uzuala, iar sectiunea 2x2x0,8 (doua perechi
+    # ecranate, 0,8 mm) e formatul standard al buclelor de detectie. Traseul lui se deseneaza
+    # MANUAL, ca la curenti slabi (`traseu_cs` cu label „e30"), deci nu cere niciun tip nou de
+    # element si nicio migratie in plus.
+    "e30":        {"nume": "Cablu rezistent la foc E30 2x2x0,8 mm, bucle de detectie",
+                   "bom": "Cablu rezistent la foc E30 2x2x0,8 mm", "col": _DET_FAMILIE, "dash": None},
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},
@@ -1471,15 +1619,54 @@ def _draw_con_camera(page, el, scale_m_per_px, page_rect, clip_rect=None, fallba
     return _fill_con(page, _cam_taie(pts, clip_rect, fallback_rect))
 
 
-def _fill_con(page, pts):
+def _fill_con(page, pts, fill=None, edge=None, op=None):
     """Umplutura foarte transparenta + contur mai saturat. Conturul e cel care se citeste; fara el,
-    la 10%% opacitate conul aproape ca dispare pe planşele aglomerate."""
+    la 10%% opacitate conul aproape ca dispare pe planşele aglomerate.
+    Culorile sunt parametri cu valori IMPLICITE cele ale camerelor: cercul de acoperire al
+    detectoarelor refoloseste exact aceeasi umplere, doar in rosu — camerele ies byte-identice."""
     if len(pts) < 3:
         return False
-    page.draw_polyline(pts, color=_CAM_CON_EDGE, fill=_CAM_CON_COLOR,
-                       fill_opacity=_CAM_CON_OPACITY, stroke_opacity=_CAM_CON_EDGE_OPACITY,
-                       width=0.7, closePath=True)
+    page.draw_polyline(pts, color=edge or _CAM_CON_EDGE, fill=fill or _CAM_CON_COLOR,
+                       fill_opacity=_CAM_CON_OPACITY if op is None else op,
+                       stroke_opacity=_CAM_CON_EDGE_OPACITY, width=0.7, closePath=True)
     return True
+
+
+# CERCUL DE ACOPERIRE al detectoarelor. Rosu mai deschis pentru umplutura decat pentru contur, la
+# fel ca la camere. Opacitatea ramane 0,10: rosul e mai saturat decat albastrul, iar peste 0,10
+# planşa capata o tenta roz pe toata suprafata acoperita.
+_DET_CERC_FILL = (0.937, 0.412, 0.400)   # #EF6969
+_DET_CERC_EDGE = (0.776, 0.157, 0.157)   # #C62828 — conturul, mai inchis, ca sa se vada limita
+
+
+def _draw_cerc_detector(page, el, scale_m_per_px, page_rect, clip_rect=None, fallback_rect=None):
+    """Cercul de acoperire al unui detector, la scara REALA a planului.
+
+    REFOLOSESTE integral mecanismul conului de camera: aproximarea cu poligon (ca sa poata fi
+    decupat), `_cam_taie` (decupare la incapere, cu revenire la conturul cladirii) si `_fill_con`.
+    Ce difera: raza vine din ELEMENT (aria aleasa -> distanta maxima orizontala din P118/3), nu din
+    tipul aparatului; culoarea e rosie; nu exista rotatie (cercul e complet) si nici plafon de raza
+    (acela era pentru camerele de fatada, care se uita in afara cladirii).
+
+    DECUPAREA LA INCAPERE nu-i cosmetica, e fizica — si e mai importanta decat la camere: fumul se
+    opreste la pereti, iar norma cere detector in FIECARE incapere inchisa. Un cerc care se revarsa
+    in camera vecina ar sugera o acoperire care nu exista acolo.
+    Intoarce True daca a desenat."""
+    _r_m = det_raza_m(el)
+    if not _r_m:
+        return False
+    try:
+        x = float(el["x"]); y = float(el["y"])
+    except (TypeError, ValueError, KeyError):
+        return False
+    sc = float(scale_m_per_px or 0) or _PX_TO_M
+    r = min(_r_m / sc, math.hypot(page_rect.width, page_rect.height))
+    if r <= 1:
+        return False
+    pts = [fitz.Point(x + r * math.cos(math.radians(a)), y + r * math.sin(math.radians(a)))
+           for a in range(0, 360, 6)]
+    return _fill_con(page, _cam_taie(pts, clip_rect, fallback_rect),
+                     fill=_DET_CERC_FILL, edge=_DET_CERC_EDGE)
 
 
 def _cs_abbr_for(el):
@@ -1489,7 +1676,9 @@ def _cs_abbr_for(el):
     et = (el or {}).get("element_type") or ""
     if et == "camera_video":
         return "CV-EXT" if str((el or {}).get("label") or "").strip().lower() == "exterior" else "CV-INT"
-    return _CS_ABBR.get(et, "")
+    # detectia incendiu foloseste ACEEASI functie, deci si aceeasi numerotare secventiala
+    # (`cs_index_map` grupeaza pe (etaj, abreviere)) — zero cod nou pentru DF 1, DF 2, BI 1...
+    return _CS_ABBR.get(et) or _DET_ABBR.get(et, "")
 
 
 def cs_index_map(elements):
@@ -1539,7 +1728,10 @@ def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
     """Simbolul unui element de curenti slabi. O singura functie pentru toate cele 12 tipuri
     punctuale (traseul are functia lui). `scale` < 1 pentru celula de legenda."""
     s = scale
-    col = _CS_FAMILY.get(element_type, _CS_EFRACTIE)
+    # familia de culoare: curenti slabi din `_CS_FAMILY`, detectia incendiu ROSIE. Cautarea e in
+    # DOUA dictionare, nu unul singur, ca fiecare familie sa-si tina culorile la ea.
+    col = (_DET_FAMILIE if element_type in _DET_TYPES
+           else _CS_FAMILY.get(element_type, _CS_EFRACTIE))
     W = (1, 1, 1)
     R = lambda w, h: fitz.Rect(cx - w * s, cy - h * s, cx + w * s, cy + h * s)
 
@@ -1590,6 +1782,87 @@ def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
         for k in (-7, -3.5, 0, 3.5, 7):
             page.draw_line(fitz.Point(cx - 6.5 * s, cy + k * s), fitz.Point(cx + 6.5 * s, cy + k * s),
                            color=col, width=0.6)
+    # ── DETECTIE INCENDIU (6) ─────────────────────────────────────────────────────────────
+    elif element_type in ("detector_fum", "detector_caldura"):
+        # Cerc — forma consacrata a detectorului punctual. Cele doua se disting prin INTERIOR, nu
+        # prin contur: fumul are doua unde (curgerea aerului), caldura un triunghi plin (termic).
+        # Forma e semnalul principal, culoarea al doilea — aceeasi regula ca la prizele de date.
+        page.draw_circle(fitz.Point(cx, cy), 8 * s, color=col, width=1.1)
+        if element_type == "detector_fum":
+            for dy in (-2.2, 1.6):
+                page.draw_bezier(fitz.Point(cx - 4.5 * s, cy + dy * s),
+                                 fitz.Point(cx - 1.5 * s, cy + (dy - 2.6) * s),
+                                 fitz.Point(cx + 1.5 * s, cy + (dy + 2.6) * s),
+                                 fitz.Point(cx + 4.5 * s, cy + dy * s), color=col, width=1.0)
+        else:
+            page.draw_polyline([fitz.Point(cx - 4.2 * s, cy + 3.2 * s),
+                                fitz.Point(cx + 4.2 * s, cy + 3.2 * s),
+                                fitz.Point(cx, cy - 4.4 * s)],
+                               color=col, fill=col, width=0.8, closePath=True)
+    elif element_type == "centrala_detectie":
+        # dreptunghi cu banda de semnalizare sus (led-urile de stare) — ruda cu centrala de efractie,
+        # dar fara tastatura: aici comanda se da de la panoul frontal
+        page.draw_rect(R(11, 8), color=col, width=1.2)
+        page.draw_rect(fitz.Rect(cx - 8 * s, cy - 5.5 * s, cx + 8 * s, cy - 2.5 * s),
+                       color=col, fill=col, width=0.6)
+        for c_ in (-4, 0, 4):
+            page.draw_circle(fitz.Point(cx + c_ * s, cy + 3 * s), 1.3 * s, color=col, width=0.7)
+    elif element_type == "buton_incendiu":
+        # patrat cu diagonala frangibila: geamul care se sparge. Se deosebeste de butonul de PANICA
+        # (cerc plin in patrat) tocmai prin diagonala, nu doar prin culoare.
+        page.draw_rect(R(7.5, 7.5), color=col, width=1.2)
+        page.draw_line(fitz.Point(cx - 7.5 * s, cy + 7.5 * s), fitz.Point(cx + 7.5 * s, cy - 7.5 * s),
+                       color=col, width=1.0)
+        page.draw_circle(fitz.Point(cx, cy), 2.4 * s, color=col, fill=col, width=0.6)
+    elif element_type == "sirena_incendiu":
+        # triunghi PLIN cu unde acustice — familia de sirene, dar rosie si cu unde: sirena de
+        # efractie n-are unde, deci nu se confunda nici alb-negru
+        page.draw_polyline([fitz.Point(cx - 7 * s, cy + 6 * s), fitz.Point(cx + 5 * s, cy + 6 * s),
+                            fitz.Point(cx - 1 * s, cy - 7 * s)],
+                           color=col, fill=col, width=1.0, closePath=True)
+        for r_ in (4.0, 7.0):
+            page.draw_sector(fitz.Point(cx + 5 * s, cy - 1 * s), fitz.Point(cx + 5 * s, cy - (1 + r_) * s),
+                             -120, color=col, width=0.8)
+    elif element_type == "panou_repetor":
+        # dreptunghi MIC cu ecran: repeta ce arata centrala, deci e o centrala „in mic"
+        page.draw_rect(R(8, 5.5), color=col, width=1.0)
+        page.draw_rect(fitz.Rect(cx - 5.5 * s, cy - 3 * s, cx + 5.5 * s, cy + 1 * s), color=col, width=0.6)
+    # ── DESFUMARE (4) ─────────────────────────────────────────────────────────────────────
+    elif element_type == "trapa_desfumare":
+        # dreptunghi cu capac deschis (linia inclinata) + sageata in sus: fumul IESE
+        page.draw_rect(R(9, 6), color=col, width=1.1)
+        page.draw_line(fitz.Point(cx - 9 * s, cy - 6 * s), fitz.Point(cx + 2 * s, cy - 11 * s),
+                       color=col, width=1.2)
+        page.draw_line(fitz.Point(cx + 6 * s, cy + 2 * s), fitz.Point(cx + 6 * s, cy - 8 * s),
+                       color=col, width=1.0)
+        page.draw_polyline([fitz.Point(cx + 3.6 * s, cy - 6 * s), fitz.Point(cx + 8.4 * s, cy - 6 * s),
+                            fitz.Point(cx + 6 * s, cy - 10 * s)], color=col, fill=col, width=0.6,
+                           closePath=True)
+    elif element_type == "ventilator_desfumare":
+        # cerc cu trei pale — simbolul consacrat al ventilatorului
+        page.draw_circle(fitz.Point(cx, cy), 9 * s, color=col, width=1.1)
+        for k in (0, 1, 2):
+            a0 = math.radians(90 + k * 120)
+            page.draw_polyline([fitz.Point(cx, cy),
+                                fitz.Point(cx + 7 * s * math.cos(a0 - 0.42),
+                                           cy + 7 * s * math.sin(a0 - 0.42)),
+                                fitz.Point(cx + 7 * s * math.cos(a0 + 0.42),
+                                           cy + 7 * s * math.sin(a0 + 0.42))],
+                               color=col, fill=col, width=0.5, closePath=True)
+    elif element_type == "clapeta_antifoc":
+        # tubulatura (doua linii) cu clapeta inclinata intre ele — pozitia inchisa
+        page.draw_line(fitz.Point(cx - 9 * s, cy - 6 * s), fitz.Point(cx + 9 * s, cy - 6 * s),
+                       color=col, width=1.1)
+        page.draw_line(fitz.Point(cx - 9 * s, cy + 6 * s), fitz.Point(cx + 9 * s, cy + 6 * s),
+                       color=col, width=1.1)
+        page.draw_line(fitz.Point(cx - 4.5 * s, cy + 5 * s), fitz.Point(cx + 4.5 * s, cy - 5 * s),
+                       color=col, width=1.6)
+    elif element_type == "grila_admisie":
+        # dreptunghi cu lamele orizontale — grila, fara nimic in plus (e pasiva)
+        page.draw_rect(R(9, 6), color=col, width=1.1)
+        for k in (-3, 0, 3):
+            page.draw_line(fitz.Point(cx - 7 * s, cy + k * s), fitz.Point(cx + 7 * s, cy + k * s),
+                           color=col, width=0.7)
     elif element_type == "sursa_alimentare_cs":
         # cutie metalica + simbol de acumulator (bare lunga/scurta)
         page.draw_rect(R(10, 7), color=col, width=1.0)
@@ -1626,6 +1899,29 @@ def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
             _antena(_CS_TV, 3.4)
     else:   # doza_cs (default): patrat mic plin — se pun multe pe plan, trebuie sa fie discret
         page.draw_rect(R(3.5, 3.5), color=col, fill=col, width=0.6)
+
+
+def _legend_rows_det(elements, present):
+    """Randurile de legenda ale planşei de detectie incendiu: DOAR tipurile prezente, in ordinea
+    din `_DET_TYPES` (intai detectia, apoi desfumarea), plus cate un rand per TIP DE CABLU desenat.
+    Aceeasi structura ca la curenti slabi — `_draw_legend` deseneaza ambele fara sa stie diferenta."""
+    rows = []
+    for et in _DET_TYPES:
+        if et not in present or et not in _DET_LEGEND:
+            continue
+        _t = _DET_LEGEND[et]
+        _r = {"kind": "cs", "element_type": et, "text": _t}
+        if len(_t) > 72:
+            _r["lines"] = _wrap_label_25(_t, 72)
+        rows.append(_r)
+    # `cs_cable`, nu `cable`: primul deseneaza mostra cu CULOAREA si STILUL cablului real, al doilea
+    # e randul generic (linie intrerupta, fixa) al iluminatului. Cu `cable`, E30-ul aparea intrerupt
+    # in legenda si continuu pe planşa — aceeasi legatura, doua desene diferite.
+    _k = {_cs_cable_kind(el) for el in (elements or [])
+          if (el or {}).get("element_type") == "traseu_cs"}
+    rows += [{"kind": "cs_cable", "cable": _c, "text": _CS_CABLE[_c]["nume"]}
+             for _c in _CS_CABLE if _c in _k]
+    return rows
 
 
 def _legend_rows_cs(elements, present):
@@ -1701,6 +1997,8 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     _leg = _plan_spec(plan_type)["legenda"]
     if _leg == "cs":
         return _legend_rows_cs(elements, present)
+    if _leg == "detectie":
+        return _legend_rows_det(elements, present)
     if _leg not in ("iluminat", "forta"):
         # detectie incendiu (registrul ei de simboluri vine la pasul urmator) sau planşa
         # neinregistrata in `_PLAN_SPEC`: legenda GOALA, nu becuri si intrerupatoare.
@@ -4504,7 +4802,12 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     if ((el or {}).get("plan_type") or "iluminat") in _accept]
         # Etichetarea secventiala a curentilor slabi (PIR 1, CV-INT 2...): calculata pe elementele
         # planşei, nu citita din DB -> stergerea renumeroteaza singura.
-        _cs_idx = cs_index_map([e for e in elements if (e or {}).get("element_type") in _CS_TYPES])
+        # AMBELE familii: `cs_index_map` grupeaza pe (etaj, abreviere), iar abrevierile de incendiu
+        # sunt distincte de cele de curenti slabi — deci numerotarea lor e independenta, dar CODUL e
+        # acelasi. Fara `_DET_TYPES` aici, detectoarele ieseau toate „DF", fara numar.
+        _cs_idx = cs_index_map([e for e in elements
+                                if (e or {}).get("element_type") in _CS_TYPES
+                                or (e or {}).get("element_type") in _DET_TYPES])
         _e_com = _e_comercial(subtip)   # comercial -> DDCS se eticheteaza RACK (doar numele)
         n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
         # CONURILE de acoperire ale camerelor: PRIMELE de tot, sub cabluri si sub simboluri —
@@ -4536,6 +4839,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                                          or _cam_clip, _cam_clip)
                 except Exception:
                     pass          # conul e decorativ: orice eroare NU strica planşa
+            elif (_el or {}).get("element_type") in _DET_ARIE_DEFAULT:
+                # CERCUL detectorului: aceeasi scara reala, acelasi decupaj la incapere. Detectoarele
+                # stau mereu INAUNTRU (pe tavan), deci nu exista cazul „se uita in afara" al camerelor
+                # de fatada — fallback-ul ramane conturul cladirii, ca la camerele de interior.
+                try:
+                    _draw_cerc_detector(page, _el, _cam_scale, page.rect,
+                                        _cam_camera_rect(_el, rooms,
+                                                         page.rect.width, page.rect.height)
+                                        or _cam_clip, _cam_clip)
+                except Exception:
+                    pass          # cercul e decorativ: orice eroare NU strica planşa
 
         # PAS 3b: CABLURI dedesubt (compute_cables -> _draw_cable), INAINTE de simboluri.
         # Defensiv: orice eroare la cabluri NU strica regenerarea (becurile/etc. se deseneaza oricum).
@@ -4666,9 +4980,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
-            elif et in _CS_TYPES and et != "traseu_cs":
-                # CURENTI SLABI: simbol + eticheta scurta (abrevierea de pe planurile de referinta)
-                # + inaltimea de montaj, cand e setata. Culoarea urmeaza familia (efractie/video).
+            elif (et in _CS_TYPES or et in _DET_TYPES) and et != "traseu_cs":
+                # CURENTI SLABI + DETECTIE INCENDIU: simbol + eticheta scurta (abrevierea de pe
+                # planurile de referinta) + inaltimea de montaj, cand e setata. Culoarea urmeaza
+                # familia (efractie / video / date-TV / incendiu). Aceeasi ramura pentru amandoua:
+                # eticheta, numerotarea si inaltimea functioneaza la fel, deci nu se dubleaza codul.
                 _draw_cs(page, x, y, et)
                 _cs_ab = _cs_abbr_for(el)
                 _cs_i = _cs_idx.get(el.get("id"))
@@ -4688,7 +5004,8 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     _cw = len(_cs_txt) * _CS_LABEL_FS * 0.50    # aceeasi formula ca la becuri
                     _labels.append({"text": _cs_txt, "x0": x - _cw / 2.0, "y": y - 17.0,
                                     "w": _cw, "fs": _CS_LABEL_FS, "font": "hebo",
-                                    "color": _CS_FAMILY.get(et, _CS_EFRACTIE)})
+                                    "color": (_DET_FAMILIE if et in _DET_TYPES
+                                              else _CS_FAMILY.get(et, _CS_EFRACTIE))})
                 n_bulb += 1
             elif et == "traseu_cs":
                 # traseul de curenti slabi: polilinie, culoare/stil dupa tipul de cablu (label)

@@ -42,6 +42,7 @@ type PlanElement = {
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
   kit_panica?: boolean | null;      // bec normal echipat cu kit de emergenta 2h (iluminat antipanica)
   camera_tip?: string | null;       // doar camera_video: bullet/dome/turret/ptz/fisheye180/360/termica
+  arie_acoperire_mp?: number | null;  // doar detectoarele de incendiu: 20/40/60/80/100 (P118/3 tab. 3.4)
 };
 
 const COL_BULB_DEFAULT = "#1E63D6";   // albastrul normal al corpurilor de iluminat
@@ -77,7 +78,7 @@ const MODE_LABEL: Record<PlanMode, string> = {
   detectie_incendiu: "detecție incendiu",
 };
 
-const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip, arie_acoperire_mp";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -409,9 +410,41 @@ const CS_DATE_TV = [
   { value: "priza_tv",    label: "Priză TV",        h: 1.2 },
   { value: "priza_mixta", label: "Priză mixtă",     h: 1.2 },
 ] as const;
+// A PATRA familie: DETECȚIE INCENDIU ȘI DESFUMARE. Înălțimile lipsă (null) sunt intenționate, ca
+// la NVR: detectoarele stau pe TAVAN, iar trapa, ventilatorul și clapeta în acoperiș sau în
+// tubulatură — n-au o cotă de perete. Regula lor („în punctul cel mai înalt al tavanului", „minimum
+// 0,5 m față de orice perete") stă în caietul de sarcini, unde se citește ca cerință de execuție.
+const DET_DETECTIE = [
+  { value: "detector_fum",      label: "Detector fum",     h: null },
+  { value: "detector_caldura",  label: "Detector căldură", h: null },
+  { value: "centrala_detectie", label: "Centrală",         h: 1.5 },
+  { value: "buton_incendiu",    label: "Declanșator manual", h: 1.5 },
+  { value: "sirena_incendiu",   label: "Sirenă",           h: 2.5 },
+  { value: "panou_repetor",     label: "Panou repetor",    h: 1.5 },
+] as const;
+const DET_DESFUMARE = [
+  { value: "trapa_desfumare",      label: "Trapă",      h: null },
+  { value: "ventilator_desfumare", label: "Ventilator", h: null },
+  { value: "clapeta_antifoc",      label: "Clapetă antifoc", h: null },
+  { value: "grila_admisie",        label: "Grilă admisie",   h: 0.3 },   // motorizată
+] as const;
+const DET_TYPES: string[] = [...DET_DETECTIE.map(x => x.value), ...DET_DESFUMARE.map(x => x.value)];
+const isDetType = (t: string) => DET_TYPES.includes(t);
+// DETECTOARELE au arie de acoperire, aleasă din treptele P118/3-2015 (tabelul 3.4, tavan sub 20°).
+// Listă ÎNCHISĂ: greșeala „am scris 55" e imposibilă, iar coloana din bază are același CHECK.
+const DET_ARII = [20, 40, 60, 80, 100] as const;
+const DET_ARIE_DH: Record<number, number> = { 20: 3.3, 40: 4.7, 60: 5.7, 80: 6.6, 100: 7.4 };
+const DET_ARIE_DEFAULT: Record<string, number> = { detector_fum: 60, detector_caldura: 20 };
+const hasArie = (t: string) => t in DET_ARIE_DEFAULT;
+// ROȘU, oglinda lui _DET_FAMILIE din backend. Nuanța e cea mai depărtată de magenta efracției
+// dintre roșurile posibile (dE 38, CIE76) — aceeași măsurătoare ca la prizele roz.
+const COL_DET = "#E53935";
+
 // Tipurile care AU înălțime de montaj (toate, mai puțin NVR-ul și traseul).
+const DET_FARA_H = new Set(["detector_fum", "detector_caldura", "trapa_desfumare",
+                            "ventilator_desfumare", "clapeta_antifoc"]);
 const csHasHeight = (t: string) =>
-  isCsType(t) && t !== "nvr" && t !== "traseu_cs";
+  (isCsType(t) && t !== "nvr" && t !== "traseu_cs") || (isDetType(t) && !DET_FARA_H.has(t));
 const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value),
                             ...CS_DATE_TV.map(x => x.value)];
 const CS_DATE_TV_TYPES: string[] = CS_DATE_TV.map(x => x.value);
@@ -421,7 +454,8 @@ const isCsType = (t: string) => CS_TYPES.includes(t);
 // teal-ul cablului de semnal (dE 33) — orice roz mai saturat ar coborî sub 20, adică s-ar confunda.
 const COL_CS_DATE = "#F48FB1";
 const COL_CS_TV   = "#00BFA5";
-const csColor = (t: string) => (t === "priza_tv" ? COL_CS_TV
+const csColor = (t: string) => (isDetType(t) ? COL_DET
+                                : t === "priza_tv" ? COL_CS_TV
                                 : t === "priza_date" || t === "priza_mixta" ? COL_CS_DATE
                                 : CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
 // Tipul de cablu al unui traseu stă în `label` — același tipar ca montajul tablourilor FV.
@@ -1837,9 +1871,14 @@ export default function PlanEditor({
       project_id: projectId,
       floor: floorCanonic(floor),
       element_type: et,
-      plan_type: "curenti_slabi",
-      label: et === "camera_video" ? "interior" : null,   // camera: interior/exterior în label
+      // aceeași funcție plasează ambele familii; planșa se alege după tip, nu după un al doilea
+      // parametru care s-ar putea uita la un apel
+      plan_type: isDetType(et) ? "detectie_incendiu" : "curenti_slabi",
+      // trapa are DOUĂ variante în `label`, ca montajul camerei: motorizată (consumă) / pneumatică
+      label: et === "camera_video" ? "interior"
+             : et === "trapa_desfumare" ? "motorizata" : null,
       camera_tip: et === "camera_video" ? CAM_DEFAULT : null,
+      arie_acoperire_mp: DET_ARIE_DEFAULT[et] ?? null,
       room: null as string | null,
       x: (pngW > 0 ? (pngW / scale) / 2 : 100) + stagger * 26,
       y: (pngH > 0 ? (pngH / scale) / 2 : 100) + stagger * 8,
@@ -2227,6 +2266,49 @@ export default function PlanEditor({
                 </select>
               </>
             )}
+          </>
+        )}
+
+        {/* ARIA de acoperire — doar detectoarele. LISTĂ ÎNCHISĂ: treptele din P118/3-2015 tab. 3.4,
+            cu distanța maximă orizontală afișată alături, ca inginerul să vadă raza pe care o alege.
+            Coloana din bază are ACELAȘI CHECK, deci o valoare din afara listei e imposibilă. */}
+        {hasArie(selected.element_type) && (
+          <>
+            <label style={fieldLabel}>Arie acoperită (mp)</label>
+            <select
+              className="zy-ed-field"
+              value={selected.arie_acoperire_mp ?? DET_ARIE_DEFAULT[selected.element_type] ?? 60}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                setLocalField(selected.id, { arie_acoperire_mp: n });
+                persist(selected.id, { arie_acoperire_mp: n });
+              }}
+              style={inputStyle}
+            >
+              {DET_ARII.map(a2 => (
+                <option key={a2} value={a2}>{a2} mp · rază {String(DET_ARIE_DH[a2]).replace(".", ",")} m</option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {/* Trapa de desfumare: MOTORIZATĂ (consumă, primește circuit) sau PNEUMATICĂ (butelie, 0 W).
+            Același tipar ca montajul camerei: varianta stă în `label`, nu într-un tip nou. */}
+        {selected.element_type === "trapa_desfumare" && (
+          <>
+            <label style={fieldLabel}>Acționare</label>
+            <select
+              className="zy-ed-field"
+              value={selected.label || "motorizata"}
+              onChange={(e) => {
+                setLocalField(selected.id, { label: e.target.value });
+                persist(selected.id, { label: e.target.value });
+              }}
+              style={inputStyle}
+            >
+              <option value="motorizata">Motorizată (circuit dedicat)</option>
+              <option value="pneumatica">Pneumatică (butelie CO₂, fără alimentare)</option>
+            </select>
           </>
         )}
 
@@ -2688,13 +2770,22 @@ export default function PlanEditor({
   // fără ea ar arăta becuri și prize, exact ramura pe care tocmai am generalizat-o.
   const renderDetectieSection = () => {
     if (mode !== "detectie_incendiu") return null;
+    const grup = (lista: ReadonlyArray<{ value: string; label: string; h: number | null }>) =>
+      lista.map(b => (
+        <button key={b.value} type="button" className="zy-add-btn"
+          onClick={() => void addCsElement(b.value, b.h)}>+ {b.label}</button>
+      ));
     return (
-      <Rubrica title="Detecție incendiu și desfumare"
-               hint="Planșa se generează goală. Detectoarele, centrala, butoanele și echipamentele de desfumare se adaugă la pasul următor.">
-        <div style={{ paddingLeft: 2, fontSize: 11, color: "#545870" }}>
-          Nu există încă elemente de plasat pe această planșă.
-        </div>
-      </Rubrica>
+      <>
+        <Rubrica title="Detecție incendiu"
+                 hint="Detectoare, centrală, declanșator manual, sirenă, panou repetor. Detectoarele au cerc de acoperire: aria se alege pe fiecare element, din treptele normativului.">
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(DET_DETECTIE)}</div>
+        </Rubrica>
+        <Rubrica title="Desfumare"
+                 hint="Trapă, ventilator, clapetă antifoc, grilă motorizată de admisie. Toate primesc circuit dedicat pe tabloul general, mai puțin trapa pneumatică.">
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(DET_DESFUMARE)}</div>
+        </Rubrica>
+      </>
     );
   };
 

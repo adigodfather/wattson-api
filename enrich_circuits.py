@@ -10,6 +10,20 @@ import re
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
+# DETECTIE INCENDIU: elementele care primesc CIRCUIT DEDICAT, ca receptoarele. Centrala isi
+# alimenteaza bucla in joasa tensiune (ca DDCS-ul), iar desfumarea are motoare pe 230/400 V.
+_DET_CIRCUIT = ("centrala_detectie", "ventilator_desfumare", "clapeta_antifoc", "trapa_desfumare",
+                "grila_admisie")
+
+
+def _det_are_circuit(el):
+    """Un element de detectie/desfumare chiar cere circuit? Trapa PNEUMATICA nu — nu se alimenteaza."""
+    try:
+        from draw_elements import det_putere_receptor
+    except Exception:
+        return True
+    _t = (el or {}).get("element_type") or ""
+    return _t == "centrala_detectie" or det_putere_receptor(el) > 0
 
 # ── Regula 3: scara breaker + Ia ─────────────────────────────────────────────
 _BREAKER_LADDER = [6, 10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200]
@@ -152,18 +166,41 @@ def _cs_inventar(els):
     calatoreste pe circuitul care alimenteaza sistemul, exact ca `_evacuare_corpuri` la iluminatul de
     siguranta — deci zero campuri noi in payload-ul n8n."""
     try:
-        from draw_elements import _CS_TYPES, _cam_tip
+        from draw_elements import _CS_TYPES, _DET_TYPES, _cam_tip
     except Exception:
         return {}, {}                     # fail-safe: fara inventar -> capitolul nu apare
     comp, cam = {}, {}
     for e in (els or []):
         et = ((e or {}).get("element_type") or "").strip()
-        if et not in _CS_TYPES or et == "traseu_cs":
+        # ACELASI inventar poarta si detectia incendiu: memoriul si caietul primesc CIRCUITE, nu
+        # plan_elements, iar inventarul calatoreste pe circuitul care alimenteaza sistemul. Fara
+        # asta, capitolul de incendiu n-ar avea de unde sti ce s-a plasat pe planşa.
+        if (et not in _CS_TYPES and et not in _DET_TYPES) or et == "traseu_cs":
             continue
         comp[et] = comp.get(et, 0) + 1
         if et == "camera_video":
             cam[_cam_tip(e)] = cam.get(_cam_tip(e), 0) + 1
     return comp, cam
+
+
+_CSI_SRC = "centrala detectie + echipamentele de bucla"   # marcheaza circuitul centralei
+
+
+def _csi_power(els):
+    """Puterea circuitului centralei de semnalizare incendiu: centrala + tot ce alimenteaza ea
+    (detectoare, sirene, panouri repetoare, butoane). Acelasi tipar ca DDCS-ul — o suma peste ce e
+    EFECTIV pe plan, nu o valoare fixa care ar minti la primul proiect mai mare.
+    DESFUMAREA nu intra aici: motoarele ei sunt pe 230/400 V, ca receptoare dedicate."""
+    try:
+        from draw_elements import _DET_POWER_W, _DET_RECEPTOR
+    except Exception:
+        return 15                                   # fail-safe: doar centrala
+    _w = 0.0
+    for e in (els or []):
+        _t = (e or {}).get("element_type") or ""
+        if _t in _DET_POWER_W and _t not in _DET_RECEPTOR:
+            _w += _DET_POWER_W[_t]
+    return int(math.ceil(_w)) or 15
 
 
 def _ddcs_power(els):
@@ -318,7 +355,12 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
     is_mono (bransament MONOFAZAT): forteaza mono — nu exista receptor trifazat pe o singura faza."""
-    is_net = (el.get("element_type") or "") == "receptor_internet"
+    _et = (el.get("element_type") or "")
+    is_net = _et == "receptor_internet"
+    # DETECTIE INCENDIU: centrala isi ia puterea din inventarul buclei (ca DDCS-ul din al lui);
+    # desfumarea din puterea aparatului, cu `power_w` explicit prioritar, ca la orice receptor.
+    is_csi = _et == "centrala_detectie"
+    is_desf = _et in ("ventilator_desfumare", "clapeta_antifoc", "trapa_desfumare", "grila_admisie")
     # ALIMENTARE PROPRIE (custom): daca elementul are power_w explicit (>0) -> onoram puterea + faza LUI
     # (nume liber -> receptor_power ar da 0W "tip necunoscut"). Altfel = comportamentul VECHI (label cunoscut
     # -> formular/default UI). Receptoarele din catalog se plaseaza cu power_w=null -> cad pe else = IDENTIC azi.
@@ -332,12 +374,28 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
         power_w, tip, ph, src = receptor_power(el.get("label"), form)
     if is_net:                                            # DDCS: 150W baza + echipamentele de securitate
         power_w, tip, src = _ddcs_power(all_els), "internet", _DDCS_SRC
+    elif is_csi:
+        power_w, tip, src = _csi_power(all_els), "detectie", _CSI_SRC
+    elif is_desf:
+        try:
+            from draw_elements import det_putere_receptor
+            power_w = det_putere_receptor(el)
+        except Exception:
+            power_w = 0
+        tip, src = "desfumare", "element"
+        ph = (el.get("phase") or "mono")              # ventilatorul mare poate fi TRIFAZAT
     tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     room = el.get("room")
     bt = ("MCB-3P-C" if tri else "MCB-1P-C")
-    desc = "Alimentare retea/date" if is_net else ("Alimentare " + (el.get("label") or tip or "receptor"))
+    _DESC_DET = {"centrala_detectie": "Alimentare centrala de semnalizare incendiu",
+                 "ventilator_desfumare": "Alimentare ventilator de desfumare",
+                 "clapeta_antifoc": "Alimentare clapeta antifoc",
+                 "trapa_desfumare": "Alimentare trapa de desfumare",
+                 "grila_admisie": "Alimentare grila de admisie a aerului"}
+    desc = ("Alimentare retea/date" if is_net else _DESC_DET.get(_et)
+            or ("Alimentare " + (el.get("label") or tip or "receptor")))
     return {
         "id": cid, "fasa": None, "room": room, "type": "dedicat", "floor": floor_idx,
         "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
@@ -345,7 +403,8 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
         "description": desc,
         "is_bathroom": False, "is_exterior": False, "breaker_type": bt,
         "pi_normalized": False, "ia_calculated_a": ia,
-        "normalize_reason": ("Putere din element (alimentare proprie)" if src == "element" else
+        "normalize_reason": ("Putere din inventarul de detectie incendiu" if src == _CSI_SRC else
+                             "Putere din element (alimentare proprie)" if src == "element" else
                              "Putere din formular" if src == "formular" else
                              "Putere default UI (%s)" % tip if src == "default UI" else "Tip receptor necunoscut"),
         "name": cid, "_receptor_src": src,
@@ -845,8 +904,10 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         tech_l = (tech_room or "").strip().lower()     # NIVEL 2: receptor cu room==camera tehnica -> TE-CT
         for el in els:
             et = (el.get("element_type") or "")
-            if et not in ("alimentare_receptor", "receptor_internet"):
+            if et not in ("alimentare_receptor", "receptor_internet") and et not in _DET_CIRCUIT:
                 continue
+            if et in _DET_CIRCUIT and not _det_are_circuit(el):
+                continue                               # trapa pneumatica: nu se alimenteaza deloc
             if _grouped_heating_kind(el.get("label")) is not None:
                 continue                               # Regula 10: VCV/radiatoare -> circuit grupat (compute_circuits), NU 1:1
             is_tech = bool(tech_l) and (el.get("room") or "").strip().lower() == tech_l
