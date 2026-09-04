@@ -205,7 +205,12 @@ _PLAN_SPEC = {
     _ILUMINAT_PLAN: {"accepta": (_ILUMINAT_PLAN, "ambele"), "legenda": "iluminat"},
     _FORTA_PLAN:    {"accepta": (_FORTA_PLAN, "ambele"),    "legenda": "forta"},
     _CS_PLAN:       {"accepta": (_CS_PLAN,),                "legenda": "cs"},
-    _DET_PLAN:      {"accepta": (_DET_PLAN,),               "legenda": "detectie"},
+    # DETECTIE: tabloul apare (decizia Dan, 2026-09-04) — desfumarea se alimenteaza din el si
+    # traseul trebuie sa aiba unde sa ajunga. E o ABATERE constienta de la planurile de referinta
+    # (Mogatech / cel de birouri n-au tablouri pe planşele de sistem) si o rasturnare a deciziei de
+    # la pasii 1-3, unde tocmai excluderea lui a fost bug-ul reparat. CURENTII SLABI raman FARA
+    # tablou: acolo nimic nu se alimenteaza din el (DDCS-ul e receptor pe planşa de forta).
+    _DET_PLAN:      {"accepta": (_DET_PLAN, "ambele"),      "legenda": "detectie"},
 }
 
 
@@ -765,10 +770,44 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
     if _leg == "iluminat":
         # cablurile pe plan sunt ROSII (default _draw_cable) -> legenda la fel
         return [{"kind": "cable", "text": _LEGEND_CABLE_ILUMINAT}]
+    if _leg == "detectie":
+        # DETECTIE: cablurile de BUCLA (E30) se deduc din traseele desenate, ca la curentii slabi —
+        # dar de cand desfumarea si centrala au ALIMENTARE DESENATA de la tablou, pe foaie exista si
+        # linii albastre de 230 V. O linie desenata fara rand de legenda e o linie pe care cititorul
+        # n-o poate identifica, asa ca sectiunea REALA vine din circuite (sursa unica, ca la forta);
+        # fara circuite (proiect vechi) se re-deriva din puterea aparatului, exact ca fallback-ul fortei.
+        _dsecs, _out = [], []
+        _dels = [el for el in (elements or []) if det_are_circuit(el)]
+        if _dels:
+            try:
+                import enrich_circuits as _ec2                       # lazy (evita import circular)
+                _dmap = {v: c.get("cable_type") for c in (circuits or [])
+                         if isinstance(c, dict) and c.get("type") == "dedicat"
+                         for k, v in _ec2._DESC_DET.items()
+                         if str(c.get("description") or "").strip() == v}
+                for el in _dels:
+                    _et2 = (el or {}).get("element_type") or ""
+                    _cbl = _dmap.get(_ec2._DESC_DET.get(_et2))
+                    if not _cbl:                                     # FALLBACK: fara circuits
+                        _pw = (_ec2._csi_power(elements) if _et2 == "centrala_detectie"
+                               else det_putere_receptor(el))
+                        _tri = str((el or {}).get("phase") or "").lower() in ("tri", "trifazat", "3")
+                        _cbl, _s2 = _ec2.cable_type(
+                            "dedicat", _ec2.breaker_and_ia(_pw, tri=_tri, minimum=16)[0], False, tri=_tri)
+                    if _cbl and _cbl not in _dsecs:
+                        _dsecs.append(_cbl)
+            except Exception:
+                _dsecs = []
+        for _cb in _dsecs:
+            # ACEEASI culoare ca traseul desenat (_PRIZA_COLOR) — capcana de la cablul E30, unde
+            # randul generic iesea punctat pe o planşa cu linie continua.
+            _out.append({"kind": "cable", "color": _PRIZA_COLOR,
+                         "text": "Cablu alimentare dedicata %s mmp" % _norm_cable_display(_cb)})
+        return _out
     if _leg != "forta":
-        # PLANSELE DE SISTEM (curenti slabi, detectie incendiu, orice alta de aici inainte):
-        # cablurile lor sunt de alt tip si se deduc din traseele DESENATE, nu din circuite.
-        # Randul de iluminat NU se mosteneste — asta era capcana.
+        # CELELALTE PLANSE DE SISTEM (curenti slabi, orice alta de aici inainte): cablurile lor sunt
+        # de alt tip si se deduc din traseele DESENATE, nu din circuite. Randul de iluminat NU se
+        # mosteneste — asta era capcana.
         return []
     texts = []
     if present & _PRIZA_TYPES:
@@ -1338,6 +1377,21 @@ def det_putere_receptor(el):
     except (TypeError, ValueError):
         pass
     return _DET_POWER_W.get(_t, 0)
+
+
+def det_are_circuit(el):
+    """Elementul de detectie/desfumare primeste CIRCUIT DEDICAT din tabloul general?
+
+    SURSA UNICA a regulii (`enrich_circuits._det_are_circuit` deleaga aici, iar `compute_cables`
+    deseneaza traseul pentru exact aceleasi elemente): centrala isi alimenteaza bucla in joasa
+    tensiune, desfumarea are motoare pe 230/400 V. Trapa PNEUMATICA (0 W) si toata detectia de pe
+    bucla (detectoare, declansatoare, sirena, repetor) nu se alimenteaza din tablou -> False.
+    Fara asta, „cine are circuit" ar fi trait in doua locuri si desenul ar fi putut arata un traseu
+    catre un echipament pe care schema nu-l alimenteaza."""
+    _t = (el or {}).get("element_type") or ""
+    if _t not in _DET_TYPES:
+        return False
+    return _t == "centrala_detectie" or det_putere_receptor(el) > 0
 
 
 # TRASEUL desenat manual (traseu_cs): tipul de cablu sta in `label` — acelasi tipar ca montajul
@@ -1998,7 +2052,11 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     if _leg == "cs":
         return _legend_rows_cs(elements, present)
     if _leg == "detectie":
-        return _legend_rows_det(elements, present)
+        # simbolurile + cablul de BUCLA (E30, din traseele desenate), apoi cablul de ALIMENTARE al
+        # desfumarii si al centralei — derivat din circuite in `_legend_cable_rows`, ca la forta.
+        # Ordinea e cea a foii: intai ce se vede ca simbol, apoi liniile.
+        return _legend_rows_det(elements, present) + _legend_cable_rows(
+            elements, plan_type, present, feeds, circuits, cross_floor=cross_floor)
     if _leg not in ("iluminat", "forta"):
         # detectie incendiu (registrul ei de simboluri vine la pasul urmator) sau planşa
         # neinregistrata in `_PLAN_SPEC`: legenda GOALA, nu becuri si intrerupatoare.
@@ -3723,6 +3781,14 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             # dedicat). Nu ajunge pe plansa de forta pentru ca elementele sunt filtrate pe plan_type
             # INAINTE de compute_cables, iar driverul e plan_type="iluminat".
             receptors.append({"et": et, "x": x, "y": y, "room": room, "label": el.get("label"), "cid": el.get("circuit_id")})
+        elif det_are_circuit(el):
+            # DETECTIE INCENDIU: centrala (230 V) + desfumarea cu putere primesc circuit dedicat pe
+            # tabloul GENERAL -> intra pe CALEA RECEPTOARELOR DEDICATE, neschimbata (stub perpendicular
+            # pe perete + arc pe conturul camerei + segment spre tablou). `label=None`: nimic din
+            # logica de incalzire (grupare, ruta pe peretele camerei tehnice) n-are voie sa se
+            # aprinda pe ele. `det` marcheaza destinatia FIXA pe general — vezi `to_tect` mai jos.
+            receptors.append({"et": et, "x": x, "y": y, "room": room, "label": None,
+                              "cid": el.get("circuit_id"), "det": True})
     teg = panels.get("tablou_teg")
     # FIX etaj iluminat: tabloul GENERAL al plansei pentru ILUMINAT, cu fallback-ul fortei
     # (gen_type): parter -> TEG; etaj (TEG absent, TES prezent) -> TES; niciunul -> None (skip).
@@ -4158,8 +4224,11 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             if id(rc) in _wall_ids:
                 continue                                   # rutat pe perete mai sus
             rroom = (rc.get("room") or "").strip().lower()
-            to_tect = (tect is not None) and (_is_heating_receptor(rc.get("label"))
-                                              or (bool(tech_l) and rroom == tech_l))
+            # DETECTIE: destinatia e MEREU tabloul general — enrich pune circuitele de desfumare si
+            # centrala pe TEG/TES, deci un ventilator asezat in camera tehnica NU trebuie sa fie
+            # desenat catre TE-CT: traseul ar contrazice schema si memoriul.
+            to_tect = (tect is not None) and not rc.get("det") and (
+                _is_heating_receptor(rc.get("label")) or (bool(tech_l) and rroom == tech_l))
             tgt_xy = tect if to_tect else general_xy
             tgt_ty = "tablou_te_ct" if to_tect else gen_type
             if tgt_xy is None:
@@ -4859,7 +4928,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         # marginea peretilor (gate geometric in _route_chain). Defensiv: ORICE eroare -> None ->
         # rutarea de azi, byte-identica. Doar pe forta (lanturile de prize exista doar acolo).
         _room_geoms = None
-        if draw_plan_type == "forta" and rooms:
+        # DETECTIE: si aici se ruteaza receptoare dedicate (desfumarea + centrala), deci au nevoie de
+        # ACEEASI geometrie reala a peretilor. Fara ea, `_G2` ramane None si alimentarile cad pe
+        # polilinia L DIRECTA prin camere — exact defectul pe care F1 l-a reparat la forta.
+        if draw_plan_type in (_FORTA_PLAN, _DET_PLAN) and rooms:
             try:
                 import geometry
                 _geos = geometry.extract_room_geometry(pdf_bytes, rooms, page.rect.width, page.rect.height)
@@ -4996,10 +5068,24 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                     # Numele complet ramane in legenda si in lista de cantitati.
                     _cs_ab = "%s %s" % (_cs_ab, _CAM_TIPURI[_cam_tip(el)]["abbr"])
                 _cs_h = _fmt_height(el.get("mount_height_m"))
-                # fara abreviere (doza) -> FARA eticheta: dozele-s multe si un "h=3.1m" langa
-                # fiecare patratel e doar zgomot.
-                _cs_txt = (" ".join(t for t in (_cs_ab, ("h=%sm" % _cs_h) if _cs_h else "") if t)
-                           if _cs_ab else "")
+                # DETECTIE: echipamentele alimentate din tablou primesc CODUL DE CIRCUIT in fata,
+                # exact tiparul receptoarelor de pe forta ("C8 VD - h=3.5m"): acelasi `_cid_display`
+                # (sufixul -TECT afisat -CT) si aceeasi cratima inaintea inaltimii. Codul vine din
+                # `_cid_label`, injectat IN-MEMORY de /regenerate-plan din enrich — deci eticheta de
+                # pe planşa si numarul din schema sunt acelasi lucru prin constructie.
+                # Restul (detectoare, declansatoare, sirena, repetor, trapa pneumatica) n-au cod ->
+                # eticheta ramane EXACT cea de pana acum, ca la curentii slabi.
+                _cs_cod = (_cid_display(str(el.get("_cid_label") or el.get("circuit_id") or "").strip())
+                           if et in _DET_TYPES else "")
+                if _cs_cod and _cs_ab:
+                    _cs_txt = "%s %s" % (_cs_cod, _cs_ab)
+                    if _cs_h:
+                        _cs_txt = "%s - h=%sm" % (_cs_txt, _cs_h)
+                else:
+                    # fara abreviere (doza) -> FARA eticheta: dozele-s multe si un "h=3.1m" langa
+                    # fiecare patratel e doar zgomot.
+                    _cs_txt = (" ".join(t for t in (_cs_ab, ("h=%sm" % _cs_h) if _cs_h else "") if t)
+                               if _cs_ab else "")
                 if _cs_txt:
                     _cw = len(_cs_txt) * _CS_LABEL_FS * 0.50    # aceeasi formula ca la becuri
                     _labels.append({"text": _cs_txt, "x0": x - _cw / 2.0, "y": y - 17.0,

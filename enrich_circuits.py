@@ -16,14 +16,25 @@ _DET_CIRCUIT = ("centrala_detectie", "ventilator_desfumare", "clapeta_antifoc", 
                 "grila_admisie")
 
 
+# DESCRIEREA circuitului per tip de detectie. La nivel de MODUL fiindca e SURSA UNICA a
+# legaturii circuit <-> element: enrich o scrie, iar BOM-ul o citeste ca sa stie ca
+# "Alimentare clapeta antifoc" e a unei clapete, nu a primului receptor ramas in lista.
+_DESC_DET = {"centrala_detectie": "Alimentare centrala de semnalizare incendiu",
+             "ventilator_desfumare": "Alimentare ventilator de desfumare",
+             "clapeta_antifoc": "Alimentare clapeta antifoc",
+             "trapa_desfumare": "Alimentare trapa de desfumare",
+             "grila_admisie": "Alimentare grila de admisie a aerului"}
+
+
 def _det_are_circuit(el):
-    """Un element de detectie/desfumare chiar cere circuit? Trapa PNEUMATICA nu — nu se alimenteaza."""
+    """Un element de detectie/desfumare chiar cere circuit? Trapa PNEUMATICA nu — nu se alimenteaza.
+    Regula traieste in `draw_elements.det_are_circuit`, ca desenul traseului si crearea circuitului
+    sa nu poata diverge (un traseu catre un echipament nealimentat, sau invers)."""
     try:
-        from draw_elements import det_putere_receptor
+        from draw_elements import det_are_circuit
     except Exception:
         return True
-    _t = (el or {}).get("element_type") or ""
-    return _t == "centrala_detectie" or det_putere_receptor(el) > 0
+    return det_are_circuit(el)
 
 # ── Regula 3: scara breaker + Ia ─────────────────────────────────────────────
 _BREAKER_LADDER = [6, 10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200]
@@ -389,11 +400,6 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     room = el.get("room")
     bt = ("MCB-3P-C" if tri else "MCB-1P-C")
-    _DESC_DET = {"centrala_detectie": "Alimentare centrala de semnalizare incendiu",
-                 "ventilator_desfumare": "Alimentare ventilator de desfumare",
-                 "clapeta_antifoc": "Alimentare clapeta antifoc",
-                 "trapa_desfumare": "Alimentare trapa de desfumare",
-                 "grila_admisie": "Alimentare grila de admisie a aerului"}
     desc = ("Alimentare retea/date" if is_net else _DESC_DET.get(_et)
             or ("Alimentare " + (el.get("label") or tip or "receptor")))
     return {
@@ -408,6 +414,12 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
                              "Putere din formular" if src == "formular" else
                              "Putere default UI (%s)" % tip if src == "default UI" else "Tip receptor necunoscut"),
         "name": cid, "_receptor_src": src,
+        # DETECTIE: pozitia elementului de pe care s-a nascut circuitul. E cheia pe care
+        # /regenerate-plan mapeaza codul inapoi pe element (mecanismul `_plan_x/_plan_y`, deja
+        # folosit de dedup-ul plan<->breviar). Potrivirea pe POZITIE e exacta, spre deosebire de cea
+        # pe descriere: doua ventilatoare au aceeasi descriere, dar niciodata acelasi punct.
+        **({"_plan_x": el.get("x"), "_plan_y": el.get("y"), "_plan_room": el.get("room")}
+           if (is_csi or is_desf) else {}),
     }
 
 def _enrich_heating_group(c, panel, floor_idx, is_mono=False):

@@ -3806,9 +3806,12 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
         # (2) cheia _equip_key_fine + room, apoi doar cheia, in ordinea elementelor (= ordinea in
         # care enrich creeaza dedicatele 1:1) — acopera 2x AC etc. Defensiv: ORICE esec -> fara
         # coduri -> draw cade pe eticheta VECHE (fallback in draw_elements).
-        if request.plan_type == "forta":
+        # DETECTIE INCENDIU: aceeasi injectie de coduri — echipamentele de desfumare si centrala
+        # au circuit dedicat, iar eticheta lor de pe planşa il poarta (tiparul fortei).
+        if request.plan_type in ("forta", "detectie_incendiu"):
             try:
                 import enrich_circuits as _ecm
+                import draw_elements as _dem
                 from supabase_client import supabase as _supa5
                 _prj5 = (_supa5.table("projects").select("result_data, input_data")
                          .eq("id", request.project_id).single().execute().data) or {}
@@ -3824,7 +3827,11 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                           "extra_equipment": _in5.get("extra_equipment") or []}
                 _ecirc = _ecm.enrich_circuits(_allrows, _form5, base_circuits=_rd5.get("circuits") or [])
                 _ded = [c for c in _ecirc if isinstance(c, dict) and c.get("type") == "dedicat" and c.get("id")]
-                _RTYPES = ("alimentare_receptor", "receptor_internet")
+                # tipurile care pot primi cod: receptoarele de forta + cele de detectie cu circuit
+                # (centrala + desfumarea alimentata). Lista vine din registrul familiei, nu
+                # rescrisa aici — un tip nou de desfumare intra automat.
+                _RTYPES = ("alimentare_receptor", "receptor_internet") + tuple(
+                    _dem._DET_TYPES if request.plan_type == "detectie_incendiu" else ())
 
                 def _k_el(_el):
                     if (_el.get("element_type") or "") == "receptor_internet":

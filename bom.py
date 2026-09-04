@@ -9,6 +9,7 @@ import math
 import re
 
 import draw_elements
+import enrich_circuits
 from draw_elements import _PX_TO_M, _cable_l_path
 
 # ── kind (compute_cables) -> sectiune cablu. iluminat=1.5 fix, prize=2.5 fix (ca enrich). ──
@@ -128,6 +129,20 @@ def _match_receptor(desc, pool):
     """Potriveste un circuit dedicat (description) cu un element receptor din pool (consumat).
     'Alimentare retea/date' -> receptor_internet; 'Alimentare X' -> alimentare_receptor cu label X."""
     d = (desc or "").strip().lower()
+    # DETECTIE INCENDIU (INAINTEA restului): descrierile de desfumare incep tot cu "Alimentare", deci
+    # cadeau in bucla de mai jos si — negasind niciun label potrivit — ajungeau la FALLBACK, unde
+    # inghiteau primul `alimentare_receptor` ramas. Masurat: cu ventilatorul inaintea boilerului in
+    # lista de elemente, circuitul ventilatorului lua POZITIA boilerului si metrii lui se contabilizau
+    # la sectiunea FORTA in loc de TE-CT, iar boilerul ramanea fara metri. Aici potrivirea e pe TIP,
+    # din harta lui enrich (sursa unica), si se opreste indiferent de rezultat -> fallback-ul nu mai
+    # e accesibil pentru familia asta.
+    _det = {v.strip().lower(): k for k, v in enrich_circuits._DESC_DET.items()}
+    if d in _det:
+        _t = _det[d]
+        for i, el in enumerate(pool):
+            if (el.get("element_type") or "") == _t:
+                return pool.pop(i)
+        return None
     if "retea/date" in d or "retea" in d or "date" in d:
         for i, el in enumerate(pool):
             if (el.get("element_type") or "") == "receptor_internet":
@@ -166,8 +181,12 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
     tes_cross = ("tablou_teg" in _fl and "tablou_tes" in _fl and _fl["tablou_teg"] != _fl["tablou_tes"])
     tes_counted = False
     out = {}
+    # DETECTIE: si echipamentele alimentate din tablou (centrala + desfumarea) au geometrie pe
+    # plan, deci metri reali. `det_are_circuit` tine trapa PNEUMATICA afara — altfel circuitul
+    # trapei motorizate ar fi putut primi pozitia celei nealimentate.
     pool = [el for el in (plan_elements or [])
-            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")]
+            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")
+            or draw_elements.det_are_circuit(el)]
     for c in (circuits or []):
         ctype = c.get("type")
         ct = _norm_cable(c.get("cable_type"))
@@ -355,9 +374,13 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
     # H4: EXCLUDE grupatele (VCV/radiatoare) -> au ramura proprie (jos), NU pot fi inghitite de fallback-ul
     # _match_receptor al unui dedicat nepotrivit (evita dubla-numarare + mis-match). Distribuitorul zona
     # (dedicat, kind=None) RAMANE in pool -> prins normal aici prin "Alimentare Distribuitor zona".
+    # DETECTIE: si echipamentele alimentate din tablou (centrala + desfumarea) au geometrie pe
+    # plan, deci metri reali. `det_are_circuit` tine trapa PNEUMATICA afara — altfel circuitul
+    # trapei motorizate ar fi putut primi pozitia celei nealimentate.
     pool = [el for el in (plan_elements or [])
-            if (el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")
-            and not draw_elements._grouped_heating_kind(el.get("label"))]
+            if ((el.get("element_type") or "") in ("alimentare_receptor", "receptor_internet")
+                and not draw_elements._grouped_heating_kind(el.get("label")))
+            or draw_elements.det_are_circuit(el)]
     for c in (circuits or []):
         if c.get("type") != "dedicat":
             continue
