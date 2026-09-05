@@ -377,16 +377,22 @@ def _grupuri(g):
     return out
 
 
-def _masoara(g):
+def _masoara(g, grupuri=None, plan_type="curenti_slabi", cutie_sus="rack", rows=None,
+             benzi_fixe=False, buget_h=None):
     """Masuratorile pe care se aseaza layout-ul.
+
+    PARAMETRIZATA (implicitele = exact comportamentul curentilor slabi, verificat pe amprenta):
+    `grupuri` = coloanele gata compuse, `plan_type` = de unde vin randurile de legenda, iar
+    `cutie_sus` = ce cutie ii revine benzii de sus. Schema de detectie incendiu foloseste ACEEASI
+    functie cu alte trei valori — asezarea, benzile si gardurile nu se rescriu a doua oara.
 
     LEGENDA sta JOS-STANGA (decizia Dan), ca zona de sus sa ramana libera pentru echipamente. Latimea
     castigata se investeste in COLOANE ALATURATE (una per grup): inaltimea devine cea a coloanei celei
     mai lungi, nu suma lor. Trei trepte, in ordine: (1) coloane alaturate, (2) legenda pe doua
     coloane, (3) sub-coloane in grupul prea inalt."""
-    rows = build_legend_rows(g["toate"], "curenti_slabi")
+    rows = build_legend_rows(g["toate"], plan_type) if rows is None else rows
     leg_w, leg_h = _legenda_dim(rows)
-    grupuri = _grupuri(g)
+    grupuri = _grupuri(g) if grupuri is None else grupuri
     # DOUA BENZI, dupa cutia in care intra grupul: sus cele care merg la rack (video, date/TV), jos
     # efractia, care isi duce fasciculul pe sub celelalte pana la centrala. Asa fiecare fascicul
     # ajunge la cutia lui fara sa traverseze alt grup — inainte, toate stateau pe acelasi rand si
@@ -399,8 +405,8 @@ def _masoara(g):
         """Imparte grupurile pe benzi si recalculeaza latimile (laneurile depind de rutare)."""
         del _sus[:], _jos[:]
         if doua:
-            _sus.extend(gr for gr in grupuri if gr["cutie"] == "rack")
-            _jos.extend(gr for gr in grupuri if gr["cutie"] != "rack")
+            _sus.extend(gr for gr in grupuri if gr["cutie"] == cutie_sus)
+            _jos.extend(gr for gr in grupuri if gr["cutie"] != cutie_sus)
         else:
             _sus.extend(grupuri)            # o singura banda: toate coloanele pe acelasi rand
         for _b in (_sus, _jos):
@@ -414,7 +420,12 @@ def _masoara(g):
 
     _H = 297.0 * MMPT
     _LAT_MAX = 420.0 * MMPT - 2 * _PAD_MM * MMPT - 24.0
-    _buget = (_H - _PAD_MM * MMPT - 12.0) - (_PAD_MM * MMPT + 62.0) - 20.0 - 28.0
+    # `buget_h`: inaltimea DISPONIBILA pentru coloane. Implicit = toata zona dintre subtitlu si
+    # legenda (cazul curentilor slabi). Schema de incendiu ii da doar restul, fiindca partea de
+    # sus e ocupata de zonele de bucla — masuratorile trebuie sa stie de ele, altfel coloana de
+    # desfumare s-ar rasfira peste serpentina.
+    _buget = (buget_h if buget_h is not None else
+              (_H - _PAD_MM * MMPT - 12.0) - (_PAD_MM * MMPT + 62.0) - 20.0 - 28.0)
 
     def _sub(n, buget):
         """Cate sub-coloane trebuie ca grupul de `n` randuri sa incapa in `buget` pe inaltime."""
@@ -478,10 +489,15 @@ def _masoara(g):
     def _incearca(bug):
         """DOUA benzi daca incap; altfel toate coloanele pe UN rand, ca inainte. Doua benzi asaza
         mai frumos (fiecare fascicul are culoarul lui), dar cer mai multa inaltime — la un sistem de
-        peste 40 de elemente inaltimea e exact ce lipseste, si atunci un rand e alegerea corecta."""
+        peste 40 de elemente inaltimea e exact ce lipseste, si atunci un rand e alegerea corecta.
+
+        `benzi_fixe` OPRESTE revenirea la o banda. E necesar cand fiecare banda merge la ALTA cutie
+        si nu exista o cutie „principala" in care sa incapa amandoua: comasate, fasciculul celei
+        de-a doua ar fi legat la cutia primeia — pe schema de incendiu, alimentarea desfumarii ar fi
+        intrat in centrala de semnalizare. Mai bine o nota ca nu incape decat un cablaj gresit."""
         _benzi(True)
         _r = _asaza(bug)
-        if _r[0] > bug:
+        if _r[0] > bug and not benzi_fixe:
             _benzi(False)
             _r = _asaza(bug)
         return _r
@@ -506,10 +522,134 @@ def _masoara(g):
             "w": cont_w, "h": cont_h}
 
 
+def _deseneaza_benzi(page, m, X0, Y_SUS, Y_JOS, _LAT_DISP):
+    """Coloanele celor doua benzi + fasciculele lor. GENERIC: nu stie ce sisteme deseneaza, doar
+    ce scrie in `m` (grupuri, benzi, pas). Mutat AICI din `build_cs_schema` ca sa fie folosit si de
+    schema de detectie incendiu — acelasi cod, deci schemele nu pot diverge ca asezare."""
+    _banda_fasc = []
+    def _coloana(x, gr, y_start):
+        """Un grup, in `gr['s']` sub-coloane alaturate. NU mai deseneaza nicio magistrala: cablarea
+        structurata e in STEA, deci fiecare element pleaca cu linia LUI (desenata de `_stea`).
+        Intoarce (fascicule, x_dreapta, y_prim, y_ultim), unde `fascicule` are cate o intrare per
+        SUB-COLOANA. Sub-coloanele trebuie rutate separat: liniile primei sub-coloane treceau peste
+        textul celei de-a doua (10 etichete taiate la o coloana de 20 de camere)."""
+        _text(page, x, y_start, gr["titlu"], fs=8.0, bold=True, col=gr["col"])
+        per = int(math.ceil(gr["n"] / float(gr["s"])))
+        y_prim = y_start + 14.0
+        y_ultim = y_prim
+        fasc, x_dr = [], x
+        for k in range(gr["s"]):
+            felie = gr["randuri"][k * per:(k + 1) * per]
+            if not felie:
+                continue
+            _sub = []
+            xk = x + k * (gr["lat"] + _COL_GAP)
+            y = y_prim
+            for el, et, descriere in felie:
+                _draw_cs(page, xk + 8, y + 4, (el.get("element_type") or "doza_cs"), scale=0.62)
+                w1 = _text(page, xk + 23, y + 6.5, et, fs=7.2, bold=True)
+                w2 = _text(page, xk + 23 + w1 + 5, y + 6.5, descriere, fs=6.4,
+                           col=(0.35, 0.35, 0.35))
+                # un rand poate fi DESENAT fara sa se lege la cutie — echipamentul exista pe
+                # schema, dar n-are ce cablu sa primeasca (trapa pneumatica). Fara asta, desenul
+                # ar contrazice chiar textul randului lui.
+                if (el or {}).get("id") not in (gr.get("fara_linie") or ()):
+                    _sub.append((xk + 23 + w1 + 5 + w2 + 6.0, y + 4))
+                y += m["pas"]
+            fasc.append({"gr": gr, "pct": _sub, "x_dr": xk + gr["lat"]})
+            x_dr = max(x_dr, xk + gr["lat"])
+            y_ultim = max(y_ultim, y - m["pas"])
+        return fasc, x_dr, y_prim, y_ultim
+
+    _banda_fasc = []
+    for _banda, _y_banda_top in ((m["sus"], Y_SUS), (m["jos"], Y_JOS)):
+        if not _banda:
+            _banda_fasc.append([])
+            continue
+        # SPATIUL RAMAS se imparte in golurile dintre coloane si in cel dinaintea cutiei: coloanele
+        # se intind pe toata latimea, in loc sa stea lipite una de alta in mijlocul foii.
+        _ocupat = sum(gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) for gr in _banda)
+        _gol = max(_COL_GAP, _COL_GAP + (_LAT_DISP - _ocupat) / float(len(_banda)))
+        x = X0
+        for gr in _banda:
+            gr["geom"] = _coloana(x, gr, _y_banda_top)
+            x += gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) + _gol
+        # FASCICULELE benzii, de la stanga la dreapta: ultimul pleaca direct spre cutie, restul se
+        # ruteaza pe deasupra, fiecare cu banda LUI stivuita peste a celui dinainte
+        _f = [fa for gr in _banda for fa in gr["geom"][0]]
+        for _idx, fa in enumerate(_f):
+            fa["direct"] = _idx == len(_f) - 1
+        # Banda cea mai de SUS ii revine fasciculului cel mai din STANGA, si tot asa coborand spre
+        # dreapta. Invers (cum era intai) fasciculul din stanga trecea pe sub benzile vecinilor si
+        # le taia laneurile verticale — 200 de incrucisari la o schema cu trei fascicule.
+        _acc = 0.0
+        for fa in reversed([x for x in _f if not x["direct"]]):
+            fa["y_sus"] = _y_banda_top - 8.0 - _acc
+            _acc += _pas_stea(len(fa["pct"]), 46.0) * len(fa["pct"]) + _GAP_FASC
+        _banda_fasc.append(_f)
+    return _banda_fasc
+
+def _leaga_cutie(page, r, fascicule, x_hub, n_total):
+    """Leaga fasciculele unei benzi la cutia lor, fiecare cablu pe intrarea LUI.
+
+    DOUA grupuri in aceeasi cutie (video + date) trebuie sa aiba laneuri de coborare DISJUNCTE — cu
+    acelasi interval, coborarile unuia taiau orizontalele celuilalt (278 incrucisari). `off` tine
+    intervalele separate. Codul era scris de doua ori (rack si centrala); acum e unul singur, deci
+    o corectie de geometrie nu mai poate ajunge doar in jumatate din schema."""
+    _ocup = 0
+    for fa in fascicule:
+        gr, _pct, _bx = fa["gr"], fa["pct"], fa["x_dr"]
+        _intr = _intrari_cutie(r, len(_pct), _ocup, n_total)
+        _bom = _CS_CABLE[gr["kind"]]["bom"]
+        if fa["direct"]:
+            _stea(page, _pct, x_hub, _intr, gr["kind"], _bom, off=_ocup)
+        else:
+            _stea(page, _pct, x_hub, _intr, gr["kind"], _bom,
+                  y_sus=fa["y_sus"], x_lane=_bx - 14.0, off=_ocup)
+        _ocup += len(_pct)
+
+
 def _format(g):
     """FORMAT FIX: A3 orizontal, mereu. Masuratorile raman (ele aseaza coloanele si centreaza
     continutul), dar nu mai decid marimea foii."""
     return ("A3",) + _A3
+
+
+def _cartus_final(raw, W, H, cartus_firma, cartus_proiect, plansa_nr, titlu):
+    """CARTUSUL UNIFICAT + numarul REAL al planşei (acelasi lant ca schema FV).
+
+    Scris o singura data pentru toate schemele: `_draw_cartus` DESENEAZA, dar nu scrie
+    metadata `zy_cartus_*` — fara ea stamparea titlului si a numarului sunt no-op. Capcana e
+    usor de repetat intr-o schema noua, de-aia lantul complet sta aici."""
+    try:
+        import cartus_swap as _cs
+        d2 = fitz.open(stream=raw, filetype="pdf")
+        pg = d2[0]
+        x1 = W - _PAD_MM * MMPT
+        y1 = H - _PAD_MM * MMPT
+        bbox = fitz.Rect(x1 - _CARTUS_W_MM * MMPT, y1 - _CARTUS_H_MM * MMPT, x1, y1)
+        cf = dict(cartus_firma or {})
+        cp = dict(cartus_proiect or {})
+        nr = plansa_nr or cp.get("plansa_nr") or ""
+        title_rect, title_base, plansa_box = _cs._draw_cartus(pg, bbox, cf, cp, nr, None, "-")
+        try:
+            d2.set_metadata({**(d2.metadata or {}),
+                             "keywords": "zy_cartus_plansa=%.1f,%.1f,%.1f,%.1f|"
+                                         "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
+                                         % (plansa_box[0], plansa_box[1], plansa_box[2], plansa_box[3],
+                                            title_rect[0], title_rect[1], title_rect[2], title_rect[3],
+                                            title_base)})
+        except Exception:
+            pass
+        out = d2.tobytes(deflate=True)
+        d2.close()
+        rs = _cs.restamp_plansa(out, nr, titlu)
+        if rs.get("success") and rs.get("pdf_base64"):
+            import base64 as _b64
+            return _b64.b64decode(rs["pdf_base64"])
+        return out
+    except Exception:
+        return raw      # fail-safe: schema FARA cartus e mai buna decat lipsa schemei
 
 
 def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=None,
@@ -610,62 +750,7 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
               "ATENȚIE: sistemul depășește ce încape pe o planșă A3 — se recomandă împărțirea pe "
               "planșe separate (efracție / video / date).", fs=6.6, col=(0.80, 0.15, 0.15))
 
-    def _coloana(x, gr, y_start):
-        """Un grup, in `gr['s']` sub-coloane alaturate. NU mai deseneaza nicio magistrala: cablarea
-        structurata e in STEA, deci fiecare element pleaca cu linia LUI (desenata de `_stea`).
-        Intoarce (fascicule, x_dreapta, y_prim, y_ultim), unde `fascicule` are cate o intrare per
-        SUB-COLOANA. Sub-coloanele trebuie rutate separat: liniile primei sub-coloane treceau peste
-        textul celei de-a doua (10 etichete taiate la o coloana de 20 de camere)."""
-        _text(page, x, y_start, gr["titlu"], fs=8.0, bold=True, col=gr["col"])
-        per = int(math.ceil(gr["n"] / float(gr["s"])))
-        y_prim = y_start + 14.0
-        y_ultim = y_prim
-        fasc, x_dr = [], x
-        for k in range(gr["s"]):
-            felie = gr["randuri"][k * per:(k + 1) * per]
-            if not felie:
-                continue
-            _sub = []
-            xk = x + k * (gr["lat"] + _COL_GAP)
-            y = y_prim
-            for el, et, descriere in felie:
-                _draw_cs(page, xk + 8, y + 4, (el.get("element_type") or "doza_cs"), scale=0.62)
-                w1 = _text(page, xk + 23, y + 6.5, et, fs=7.2, bold=True)
-                w2 = _text(page, xk + 23 + w1 + 5, y + 6.5, descriere, fs=6.4,
-                           col=(0.35, 0.35, 0.35))
-                _sub.append((xk + 23 + w1 + 5 + w2 + 6.0, y + 4))
-                y += m["pas"]
-            fasc.append({"gr": gr, "pct": _sub, "x_dr": xk + gr["lat"]})
-            x_dr = max(x_dr, xk + gr["lat"])
-            y_ultim = max(y_ultim, y - m["pas"])
-        return fasc, x_dr, y_prim, y_ultim
-
-    _banda_fasc = []
-    for _banda, _y_banda_top in ((m["sus"], Y_SUS), (m["jos"], Y_JOS)):
-        if not _banda:
-            _banda_fasc.append([])
-            continue
-        # SPATIUL RAMAS se imparte in golurile dintre coloane si in cel dinaintea cutiei: coloanele
-        # se intind pe toata latimea, in loc sa stea lipite una de alta in mijlocul foii.
-        _ocupat = sum(gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) for gr in _banda)
-        _gol = max(_COL_GAP, _COL_GAP + (_LAT_DISP - _ocupat) / float(len(_banda)))
-        x = X0
-        for gr in _banda:
-            gr["geom"] = _coloana(x, gr, _y_banda_top)
-            x += gr["lat"] * gr["s"] + _COL_GAP * (gr["s"] - 1) + _gol
-        # FASCICULELE benzii, de la stanga la dreapta: ultimul pleaca direct spre cutie, restul se
-        # ruteaza pe deasupra, fiecare cu banda LUI stivuita peste a celui dinainte
-        _f = [fa for gr in _banda for fa in gr["geom"][0]]
-        for _idx, fa in enumerate(_f):
-            fa["direct"] = _idx == len(_f) - 1
-        # Banda cea mai de SUS ii revine fasciculului cel mai din STANGA, si tot asa coborand spre
-        # dreapta. Invers (cum era intai) fasciculul din stanga trecea pe sub benzile vecinilor si
-        # le taia laneurile verticale — 200 de incrucisari la o schema cu trei fascicule.
-        _acc = 0.0
-        for fa in reversed([x for x in _f if not x["direct"]]):
-            fa["y_sus"] = _y_banda_top - 8.0 - _acc
-            _acc += _pas_stea(len(fa["pct"]), 46.0) * len(fa["pct"]) + _GAP_FASC
-        _banda_fasc.append(_f)
+    _banda_fasc = _deseneaza_benzi(page, m, X0, Y_SUS, Y_JOS, _LAT_DISP)
 
     _spre_rack = list(m["sus"])
     _spre_centrala = list(m["jos"])
@@ -725,19 +810,7 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     r_rack = fitz.Rect(X_HUB, y_rack, X_HUB + _HUB_W, y_rack + rack_h)
     _bloc(page, r_rack, DE._DDCS_NAME_COM if DE._e_comercial(subtip) else DE._DDCS_NAME_REZ,
           rack_lin, col=DE._CS_VIDEO)
-    _ocupate = 0
-    for fa in _banda_fasc[0]:
-        gr, _pct, _bx = fa["gr"], fa["pct"], fa["x_dr"]
-        _intr = _intrari_cutie(r_rack, len(_pct), _ocupate, _n_rack)
-        # DOUA grupuri in aceeasi cutie (video + date) trebuie sa aiba laneuri de coborare DISJUNCTE
-        # — cu acelasi interval, coborarile unuia taiau orizontalele celuilalt (278 incrucisari).
-        if fa["direct"]:
-            _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
-                  off=_ocupate)
-        else:
-            _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
-                  y_sus=fa["y_sus"], x_lane=_bx - 14.0, off=_ocupate)
-        _ocupate += len(_pct)
+    _leaga_cutie(page, r_rack, _banda_fasc[0], X_HUB, _n_rack)
 
     # ── CENTRALA DE EFRACTIE (sub rack) ──────────────────────────────────────────────────────
     r_c = None
@@ -760,17 +833,7 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         r_c = fitz.Rect(X_HUB, y_c, X_HUB + _HUB_W, y_c + c_h)
         _et_ce = (g["centrala"][0][1] if g["centrala"] else "CE") or "CE"
         _bloc(page, r_c, "%s — CENTRALĂ EFRACȚIE" % _et_ce, c_lin, col=DE._CS_EFRACTIE)
-        _ocup_c = 0
-        for fa in _banda_fasc[1]:
-            gr, _pct, _bx = fa["gr"], fa["pct"], fa["x_dr"]
-            _intr = _intrari_cutie(r_c, len(_pct), _ocup_c, _n_ce)
-            if fa["direct"]:
-                _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
-                      off=_ocup_c)
-            else:
-                _stea(page, _pct, X_HUB, _intr, gr["kind"], _CS_CABLE[gr["kind"]]["bom"],
-                      y_sus=fa["y_sus"], x_lane=_bx - 14.0, off=_ocup_c)
-            _ocup_c += len(_pct)
+        _leaga_cutie(page, r_c, _banda_fasc[1], X_HUB, _n_ce)
         _cablu(page, r_rack.x0 + _HUB_W / 2.0, r_rack.y1, r_c.x0 + _HUB_W / 2.0, r_c.y0,
                "alimentare")
         # eticheta sta la STANGA firului, aliniata la dreapta: cutiile sunt acum lipite de marginea
@@ -789,35 +852,7 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     sh.finish(color=_NEGRU, width=1.2)
     sh.commit()
 
-    # ── CARTUS UNIFICAT + numarul REAL al planşei (acelasi lant ca schema FV) ────────────────
+    # ── CARTUS UNIFICAT + numarul REAL al planşei ───────────────────────────────────────────
     raw = doc.tobytes(deflate=True)
     doc.close()
-    try:
-        import cartus_swap as _cs
-        d2 = fitz.open(stream=raw, filetype="pdf")
-        pg = d2[0]
-        x1 = W - _PAD_MM * MMPT
-        y1 = H - _PAD_MM * MMPT
-        bbox = fitz.Rect(x1 - _CARTUS_W_MM * MMPT, y1 - _CARTUS_H_MM * MMPT, x1, y1)
-        cf = dict(cartus_firma or {})
-        cp = dict(cartus_proiect or {})
-        nr = plansa_nr or cp.get("plansa_nr") or ""
-        title_rect, title_base, plansa_box = _cs._draw_cartus(pg, bbox, cf, cp, nr, None, "-")
-        try:
-            d2.set_metadata({**(d2.metadata or {}),
-                             "keywords": "zy_cartus_plansa=%.1f,%.1f,%.1f,%.1f|"
-                                         "zy_cartus_title=%.1f,%.1f,%.1f,%.1f|%s"
-                                         % (plansa_box[0], plansa_box[1], plansa_box[2], plansa_box[3],
-                                            title_rect[0], title_rect[1], title_rect[2], title_rect[3],
-                                            title_base)})
-        except Exception:
-            pass
-        out = d2.tobytes(deflate=True)
-        d2.close()
-        rs = _cs.restamp_plansa(out, nr, TITLU)
-        if rs.get("success") and rs.get("pdf_base64"):
-            import base64 as _b64
-            return _b64.b64decode(rs["pdf_base64"])
-        return out
-    except Exception:
-        return raw      # fail-safe: schema FARA cartus e mai buna decat lipsa schemei
+    return _cartus_final(raw, W, H, cartus_firma, cartus_proiect, plansa_nr, TITLU)

@@ -743,7 +743,8 @@ def _memoriu_docx_detectie_section(doc, nr, comp):
                        "înclinare de până la 20°. Detectoarele termice se prevăd acolo unde fumul "
                        "nu constituie un indiciu utilizabil — bucătării și spații cu praf.")
         _add_para(doc, "Legăturile dintre echipamentele de detecție și centrală se realizează cu "
-                       "cablu rezistent la foc E30, pozat separat de restul instalațiilor. Centrala "
+                       "cablu JEH(St)H E30 2x2x0,8, rezistent la foc, pozat separat de restul "
+                       "instalațiilor. Centrala "
                        "este prevăzută cu acumulator de rezervă, care asigură funcționarea la "
                        "întreruperea alimentării de la rețea, și se alimentează dintr-un circuit "
                        "dedicat de 230 V din tabloul electric.")

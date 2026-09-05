@@ -467,6 +467,9 @@ const CS_CABLES = [
   { value: "alimentare", label: "Alimentare 2x1 mmp",     col: COL_CS_EFR, dash: undefined },
   { value: "coax_tv",    label: "Coaxial RG6 (TV)",       col: COL_CS_TV,  dash: undefined },
   { value: "semnal",     label: "Semnal LiY(St)Y",        col: "#00838F",  dash: [5, 3] },
+  // BUCLA DE DETECTIE: lipsea din dropdown, desi backend-ul o cunostea de la pasul 4 — traseul
+  // desenat pe planşa de incendiu cadea pe implicitul UTP, deci inginerul nu putea alege E30.
+  { value: "e30",        label: "JEH(St)H E30 2x2x0,8 (buclă detecție)", col: COL_DET, dash: undefined },
 ] as const;
 // traseele desenate înainte de corecție purtau "coax" (zero în baza de date la 30 aug 2026, dar
 // aliasul costă o linie și le ține valide) — oglinda lui _CS_CABLE_ALIAS

@@ -30,7 +30,8 @@ la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare servest
 
 # tipurile de plansa, in ORDINEA fixa de prioritate
 TIPURI = ("plan_iluminat", "plan_forta", "plan_curenti_slabi", "plan_detectie_incendiu",
-          "schema_teg", "schema_tes", "schema_tect", "schema_cs", "schema_fv")
+          "schema_teg", "schema_tes", "schema_tect", "schema_cs", "schema_detectie",
+          "schema_fv")
 
 # eticheta de afisare per nivel (folosita in numele planselor)
 _NIVEL_LABEL = {
@@ -69,6 +70,9 @@ def plansa_nume(tip, nivel=None):
     if tip == "schema_cs":
         # = titlul mare desenat pe schema (schema_cs.TITLU). Sistem, nu tablou -> nu-i "monofilara".
         return "SCHEMA SISTEM CURENȚI SLABI"
+    if tip == "schema_detectie":
+        # = titlul mare desenat pe schema (schema_det.TITLU). Sistem, nu tablou.
+        return "SCHEMA MONOBLOC INSTALAȚII DETECȚIE INCENDIU ȘI DESFUMARE"
     if tip == "schema_fv":
         # = titlul mare desenat pe plansa (schema_fv.py); cartusul ei zice "... - SISTEM FOTOVOLTAIC"
         # (formatul comun draw_cartouche, aceeasi relatie ca TEG/TES/TE-CT cu numele lor canonice)
@@ -77,7 +81,8 @@ def plansa_nume(tip, nivel=None):
 
 
 def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False,
-                             has_cs=False, has_schema_cs=None, has_det=False):
+                             has_cs=False, has_schema_cs=None, has_det=False,
+                             has_schema_det=None):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
@@ -130,7 +135,11 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     # exista si schema. `has_schema_cs` permite decuplarea lor (ex. planşa desenata dar goala).
     if has_cs if has_schema_cs is None else has_schema_cs:
         sheets.append(("schema_cs", None))
-    # 9: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
+    # 9: schema sistemului de detectie incendiu — DUPA schema de curenti slabi, INAINTEA FV.
+    # Acelasi tipar ca `has_schema_cs`: implicit urmeaza planşa (has_det), dar se poate decupla.
+    if has_det if has_schema_det is None else has_schema_det:
+        sheets.append(("schema_detectie", None))
+    # 10: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
     if has_fv:
         sheets.append(("schema_fv", None))
 

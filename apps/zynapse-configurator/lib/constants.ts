@@ -525,6 +525,7 @@ export function plansaTitlu(tip: string, nivel?: string | null): string {
   if (tip === "schema_tes") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC SECUNDAR ${nl}`;
   if (tip === "schema_tect") return "SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC CENTRALA TERMICA";
   if (tip === "schema_cs") return "SCHEMA SISTEM CURENTI SLABI";
+  if (tip === "schema_detectie") return "SCHEMA MONOBLOC INSTALATII DETECTIE INCENDIU SI DESFUMARE";
   if (tip === "schema_fv") return "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC";
   return "PLANSA";
 }
@@ -542,6 +543,9 @@ export function computePlansaNumbering(opts: {
   // detectie incendiu + desfumare: cate o plansa per nivel, DUPA curenti slabi si INAINTEA
   // schemelor. Ca si CS, deplaseaza schemele cu len(floors) pozitii.
   hasDet?: boolean;
+  // schema sistemului de detectie: DUPA schema de curenti slabi, INAINTEA FV. Acelasi tipar ca
+  // hasSchemaCs — implicit urmeaza planşa (hasDet), se poate decupla explicit.
+  hasSchemaDet?: boolean;
 }): PlansaNumEntry[] {
   const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
   const floors = ["parter", ...extra];
@@ -558,6 +562,7 @@ export function computePlansaNumbering(opts: {
   if (tesOn) for (const fl of extra) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
   if (opts.hasSchemaCs == null ? !!opts.hasCs : !!opts.hasSchemaCs) sheets.push(["schema_cs", null]);
+  if (opts.hasSchemaDet == null ? !!opts.hasDet : !!opts.hasSchemaDet) sheets.push(["schema_detectie", null]);
   if (opts.hasFv) sheets.push(["schema_fv", null]);   // FV = MEREU ultima plansa IE
   return sheets.map(([tip, nivel], i) => ({
     nr: `IE.${i + 1}`, tip, nivel, titlu: plansaTitlu(tip, nivel),
@@ -568,13 +573,15 @@ export const sanitizePdfName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").rep
 
 // tipul unei intrari schemas[] (name/description/filename, insensibil la diacritice/majuscule)
 export function schemaTipFor(s: { name?: string | null; description?: string | null; filename?: string | null }):
-  "schema_teg" | "schema_tes" | "schema_tect" | "schema_cs" | "schema_fv" | null {
+  "schema_teg" | "schema_tes" | "schema_tect" | "schema_cs" | "schema_detectie" | "schema_fv" | null {
   const t = `${s?.name || ""} ${s?.description || ""} ${s?.filename || ""}`.toLowerCase()
     .replace(/[ăâ]/g, "a").replace(/î/g, "i").replace(/[șş]/g, "s").replace(/[țţ]/g, "t")
     .replace(/[_\-.]/g, " ");
   if (t.includes("fotovoltaic") || /(^|\s)fv(\s|$)/.test(t)) return "schema_fv";
   // INAINTEA lui "teg"/"general": titlul schemei de curenti slabi nu contine niciunul, dar ordinea
   // ramane explicita ca sa nu depinda de asta daca titlul se schimba vreodata.
+  // INAINTEA lui "curenti slabi": titlurile n-au cuvinte comune, dar ordinea ramane explicita
+  if (t.includes("detectie incendiu")) return "schema_detectie";
   if (t.includes("curenti slabi")) return "schema_cs";
   if (t.includes("te ct") || t.includes("tect") || t.includes("centrala termica")) return "schema_tect";
   if (t.includes("tes")) return "schema_tes";
@@ -600,6 +607,8 @@ export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry
     hasSchemaCs: tipuri.includes("schema_cs"),
     // detectia: acelasi semnal ca la curenti slabi — planşele CHIAR generate, nu bifa
     hasDet: (result.planse_detectie || []).some(p => p?.regenerated),
+    // schema de detectie: din schemele CHIAR primite, ca la CS si FV
+    hasSchemaDet: tipuri.includes("schema_detectie"),
   });
 }
 // schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)

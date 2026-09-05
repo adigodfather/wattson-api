@@ -728,7 +728,8 @@ def _cerinte_detectie(doc, comp):
         _add_para(doc, "Declanşatoarele manuale de alarmă se montează la 1,50 m faţă de pardoseală, "
                        "pe căile de evacuare, astfel încât distanţa de parcurs până la cel mai "
                        "apropiat declanşator să nu depăşească 30 m. Buclele de detecţie se execută cu "
-                       "cablu rezistent la foc E30, pozat separat de instalaţiile de curenţi tari "
+                       "cablu JEH(St)H E30 2x2x0,8, rezistent la foc, pozat separat de "
+                       "instalaţiile de curenţi tari "
                        "şi de cele de curenţi slabi, fără înnădiri pe traseu; legăturile se fac "
                        "exclusiv în doze accesibile. Centrala se alimentează dintr-un circuit "
                        "dedicat de 230 V şi este prevăzută cu acumulator de rezervă.")

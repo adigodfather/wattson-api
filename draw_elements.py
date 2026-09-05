@@ -1289,22 +1289,25 @@ def det_raza_m(el):
 # Abrevierile de pe planşa. VERIFICATE sa nu se loveasca de cele de curenti slabi: chiar daca cele
 # doua familii nu apar pe aceeasi foaie, `cs_index_map` grupeaza pe (etaj, abreviere) si o coliziune
 # ar numerota impreuna doua tipuri diferite.
+# LITERELE sunt cele din schemele monobloc de referinta (Technic Jobs / Arhi Act): D, DT, B, SI.
+# Dispozitivele de BUCLA nu mai primesc index per tip, ci POZITIA PE FIR — „D1/3" = detector,
+# bucla 1, al treilea pe buclă (vezi `det_loop_map`). De-aia „SI" poate coincide cu abrevierea
+# sirenei de efractie fara sa strice nimic: cele doua nu mai intra in acelasi mecanism de
+# numerotare, iar eticheta desenata poarta mereu si bucla.
 _DET_ABBR = {
-    "detector_fum": "DF", "detector_caldura": "DT",      # DT = detector termic (termenul din P118)
+    "detector_fum": "D", "detector_caldura": "DT",       # DT = detector termic (termenul din P118)
     "centrala_detectie": "CSI",                          # centrala de semnalizare a incendiului
-    # DM = declansator manual, termenul din P118/3. „BI" era o prescurtare interna, pe care
-    # verificatorul n-o cauta pe planşa. DF / DT / DM raman trei litere D distincte.
-    "buton_incendiu": "DM", "sirena_incendiu": "SIN", "panou_repetor": "PR",
+    "buton_incendiu": "B", "sirena_incendiu": "SI", "panou_repetor": "PR",
     "trapa_desfumare": "TD", "ventilator_desfumare": "VD",
     "clapeta_antifoc": "CA", "grila_admisie": "GA",
 }
 
 _DET_LEGEND = {
-    "detector_fum": "DF: Detector optic de fum, montaj pe tavan",
+    "detector_fum": "D: Detector optic de fum, montaj pe tavan",
     "detector_caldura": "DT: Detector termic (de caldura), pentru bucatarii si zone cu praf",
     "centrala_detectie": "CSI: Centrala de semnalizare incendiu, cu acumulator de rezerva",
-    "buton_incendiu": "DM: Declansator manual de alarma, cu geam frangibil",
-    "sirena_incendiu": "SIN: Sirena acustica de avertizare incendiu",
+    "buton_incendiu": "B: Declansator manual de alarma, cu geam frangibil",
+    "sirena_incendiu": "SI: Sirena acustica de avertizare incendiu",
     "panou_repetor": "PR: Panou repetor de semnalizare",
     "trapa_desfumare": "TD: Trapa de evacuare a fumului",
     "ventilator_desfumare": "VD: Ventilator de evacuare a fumului",
@@ -1379,6 +1382,90 @@ def det_putere_receptor(el):
     return _DET_POWER_W.get(_t, 0)
 
 
+# DIMENSIONAREA CENTRALEI PE BUCLE. Capacitatea de buclă a centralelor adresabile de pe piață e
+# 127 de dispozitive (Esser, Kentec, Protec, Hochiki; unele 125, altele 240-250) — 127 e valoarea
+# conservatoare, deci cea care nu subdimensioneaza. Gama merge de la 1 la 4 bucle (Teletek IRIS
+# 1L..4L, Protec 2 si 4); peste 4 bucle nu se mai schimba MARIMEA, ci SOLUTIA — a doua centrala in
+# retea — asa ca nu se inventeaza o treapta care nu se cumpara.
+_DET_BUCLA_MAX = 127
+_DET_BUCLE_MAX = 4
+# Ce sta pe bucla: TOATE dispozitivele ADRESABILE. Desfumarea NU — motoarele ei au circuite proprii
+# pe tabloul general, nu adrese pe bucla de detectie.
+# PANOUL REPETOR e numarat (propunere, de confirmat): la unele centrale sta pe bucla, la altele pe
+# o magistrala RS-485 separata. Numarandu-l, la limita iese o buclă in plus — o centrala mai mare
+# decat strictul necesar nu strica proiectul, una mai mica il face neconform.
+_DET_ADRESABILE = ("detector_fum", "detector_caldura", "buton_incendiu", "sirena_incendiu",
+                   "panou_repetor")
+
+
+def det_dispozitive(elements):
+    """Cate dispozitive adresabile stau pe bucle. Numarate de pe PLAN, ca tot restul dimensionarilor
+    (switch, splitter, NVR): nu se cere inginerului un numar pe care planul il stie deja."""
+    return sum(1 for el in (elements or [])
+               if ((el or {}).get("element_type") or "") in _DET_ADRESABILE)
+
+
+def det_bucle(n_dispozitive):
+    """Numarul de bucle al centralei: cea mai mica marime din gama care duce dispozitivele.
+
+    Intoarce (bucle, acopera) — `acopera` False cand nici 4 bucle nu ajung (peste 508 dispozitive):
+    atunci nu se tace si nu se inventeaza o centrala de 5 bucle, ci se SEMNALEAZA, ca la splitterul
+    pasiv de peste 144 de iesiri."""
+    try:
+        n = max(0, int(n_dispozitive))
+    except (TypeError, ValueError):
+        n = 0
+    b = int(math.ceil(n / float(_DET_BUCLA_MAX))) or 1
+    return (min(b, _DET_BUCLE_MAX), b <= _DET_BUCLE_MAX)
+
+
+def det_ordine_bucla(elements):
+    """Dispozitivele adresabile in ORDINEA DE PE FIR.
+
+    Bucla e un SINGUR cablu care trece prin toate, deci ordinea nu mai e „per tip", ci fizica.
+    Cheia e cea a planşei (etaj, apoi sus->jos, apoi stanga->dreapta) — aceeasi cu `cs_index_map`,
+    ca numarul de pe schema sa fie exact cel de pe desen. Etajul intra primul in cheie: o buclă
+    n-are de ce sa sara intre niveluri cat timp incape pe unul singur."""
+    _fl = {"parter": 0, "demisol": -1, "etaj": 1, "etaj 2": 2, "mansarda": 3}
+    els = [el for el in (elements or [])
+           if ((el or {}).get("element_type") or "") in _DET_ADRESABILE and (el or {}).get("id")]
+    els.sort(key=lambda d: (_fl.get(str(d.get("floor") or "parter"), 9),
+                            float(d.get("y") or 0), float(d.get("x") or 0)))
+    return els
+
+
+def det_loop_map(elements):
+    """{id_element: (bucla, pozitie_pe_bucla)} — numerotarea de pe schemele monobloc.
+
+    Impartirea pe bucle: in ORDINEA DE PE FIR, umplute pana la capacitate (`_DET_BUCLA_MAX`).
+    Asa numarul de bucle iese IDENTIC cu `det_bucle`, care dimensioneaza centrala si randul de BOM
+    — daca impartirea ar folosi alta regula (de exemplu una per etaj), schema ar putea arata 3 bucle
+    la o centrala cumparata cu 2. Cu o singura buclă (cazul obisnuit) rezultatul e „D1/1, D1/2...".
+    """
+    out = {}
+    for i, el in enumerate(det_ordine_bucla(elements)):
+        out[el["id"]] = (i // _DET_BUCLA_MAX + 1, i % _DET_BUCLA_MAX + 1)
+    return out
+
+
+def det_eticheta(el, loop_map=None, idx=None):
+    """Eticheta EXACTA a unui element de incendiu — SURSA UNICA pentru planşa si pentru schema.
+
+    Dispozitiv de bucla -> „D1/3" (litera tipului + bucla + pozitia pe fir), convertia schemelor de
+    referinta, care scriu in legenda „indicator numar bucla" + „indicator numar element legat pe
+    bucla". Restul (centrala, desfumarea) pastreaza abrevierea + indexul per tip: nu-s pe buclă,
+    deci n-au nici bucla, nici pozitie pe ea."""
+    _t = (el or {}).get("element_type") or ""
+    _ab = _DET_ABBR.get(_t, "")
+    if not _ab:
+        return ""
+    if _t in _DET_ADRESABILE:
+        _b = (loop_map or {}).get((el or {}).get("id"))
+        return "%s%d/%d" % (_ab, _b[0], _b[1]) if _b else _ab
+    _i = (idx or {}).get((el or {}).get("id"))
+    return "%s %d" % (_ab, _i) if _i else _ab
+
+
 def det_are_circuit(el):
     """Elementul de detectie/desfumare primeste CIRCUIT DEDICAT din tabloul general?
 
@@ -1415,8 +1502,18 @@ _CS_CABLE = {
     # ecranate, 0,8 mm) e formatul standard al buclelor de detectie. Traseul lui se deseneaza
     # MANUAL, ca la curenti slabi (`traseu_cs` cu label „e30"), deci nu cere niciun tip nou de
     # element si nicio migratie in plus.
-    "e30":        {"nume": "Cablu rezistent la foc E30 2x2x0,8 mm, bucle de detectie",
-                   "bom": "Cablu rezistent la foc E30 2x2x0,8 mm", "col": _DET_FAMILIE, "dash": None},
+    # JEH(St)H = tipul REAL al cablului de bucla din schemele de referinta (Technic Jobs, Arhi Act):
+    # manta rezistenta la foc, ecranat, doua perechi de 0,8 mm. „Cablu rezistent la foc" descria
+    # proprietatea, nu produsul — un devizier nu poate cere o oferta pe o proprietate.
+    "e30":        {"nume": "Cablu JEH(St)H E30 2x2x0,8 mmp, bucle de detectie",
+                   "bom": "Cablu JEH(St)H E30 2x2x0,8 mmp", "col": _DET_FAMILIE, "dash": None},
+    # ALIMENTAREA DESFUMARII, pe schema functionala: cablu de forta 230/400 V din tabloul general,
+    # nu de curenti slabi. Sectiunea REALA vine din circuite (enrich o dimensioneaza pe puterea
+    # fiecarui motor); textul de aici e doar implicitul, pentru cazul fara circuite. Culoarea si
+    # stilul sunt cele ale alimentarilor de pe planşa (`_PRIZA_COLOR`, punctat), ca linia sa se
+    # citeasca la fel in amandoua documentele.
+    "forta_det":  {"nume": "Cablu alimentare desfumare, din tabloul electric general",
+                   "bom": "CYY-F 3x2.5", "col": _PRIZA_COLOR, "dash": "[ 3 2 ] 0"},
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},
@@ -1748,6 +1845,11 @@ def cs_index_map(elements):
     """
     grupuri = {}
     for el in (elements or []):
+        # DISPOZITIVELE DE BUCLA sunt numerotate dupa POZITIA PE FIR (`det_loop_map`), nu per tip.
+        # Excluderea e si ce face inofensiva coincidenta „SI" cu sirena de efractie: cele doua
+        # familii nu mai pot ajunge in acelasi grup de numerotare.
+        if ((el or {}).get("element_type") or "") in _DET_ADRESABILE:
+            continue
         ab = _cs_abbr_for(el)
         if not ab or not (el or {}).get("id"):
             continue
@@ -4877,6 +4979,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
         _cs_idx = cs_index_map([e for e in elements
                                 if (e or {}).get("element_type") in _CS_TYPES
                                 or (e or {}).get("element_type") in _DET_TYPES])
+        # POZITIA PE BUCLA se calculeaza pe elementele planşei, ca si indexul: stergerea unui
+        # detector renumeroteaza singura restul buclei, fara gauri.
+        _det_lmap = det_loop_map(elements)
         _e_com = _e_comercial(subtip)   # comercial -> DDCS se eticheteaza RACK (doar numele)
         n_bulb = n_sw = n_panel = n_priza = n_skip = n_ground = n_receptor = 0
         # CONURILE de acoperire ale camerelor: PRIMELE de tot, sub cabluri si sub simboluri —
@@ -5058,10 +5163,15 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # familia (efractie / video / date-TV / incendiu). Aceeasi ramura pentru amandoua:
                 # eticheta, numerotarea si inaltimea functioneaza la fel, deci nu se dubleaza codul.
                 _draw_cs(page, x, y, et)
-                _cs_ab = _cs_abbr_for(el)
-                _cs_i = _cs_idx.get(el.get("id"))
-                if _cs_ab and _cs_i:
-                    _cs_ab = "%s %d" % (_cs_ab, _cs_i)     # PIR 1 / CV-INT 2 (doar cand sunt mai multe)
+                if et in _DET_TYPES:
+                    # SURSA UNICA a etichetei de incendiu: aceeasi functie o foloseste si schema
+                    # functionala, deci „D1/3" de pe planşa si de pe schema nu pot diverge.
+                    _cs_ab = det_eticheta(el, _det_lmap, _cs_idx)
+                else:
+                    _cs_ab = _cs_abbr_for(el)
+                    _cs_i = _cs_idx.get(el.get("id"))
+                    if _cs_ab and _cs_i:
+                        _cs_ab = "%s %d" % (_cs_ab, _cs_i)  # PIR 1 / CV-INT 2 (doar cand sunt mai multe)
                 if et == "camera_video":
                     # tipul, ABREVIAT: "CV-INT 2 DOM h=2.5m". Numele intreg ("Dome") ar face
                     # eticheta cu ~40%% mai lunga, iar pe 15 elemente in 58 mp se suprapun.

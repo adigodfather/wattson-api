@@ -890,6 +890,15 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                                 and str(e.get("label") or "").strip().lower() == "pneumatica")
                     _spec = ("%d motorizate, %d pneumatice" % (_det_cnt[_et] - _n_pn, _n_pn)
                              if _n_pn else "actionare motorizata")
+                elif _et == "centrala_detectie":
+                    # DIMENSIONATA pe numarul de dispozitive adresabile de pe plan, ca switch-ul si
+                    # NVR-ul: 127 dispozitive/bucla, gama 1-4 bucle. Peste 4 bucle nu se tace si nu
+                    # se inventeaza o marime inexistenta — se SCRIE ca gama nu acopera.
+                    _nd = draw_elements.det_dispozitive(plan_elements)
+                    _nb, _ok_b = draw_elements.det_bucle(_nd)
+                    _spec = "%d dispozitive adresabile" % _nd
+                    if not _ok_b:
+                        _spec += " — DEPASESTE gama de 4 bucle: se prevad centrale in retea"
                 elif _et == "grila_admisie":
                     # MOTORIZATA: pozitia poarta puterea servomotorului, ca sa nu fie citita drept
                     # grila fixa. Puterea vine din `det_putere_receptor` (deci si un `power_w` pus pe
@@ -898,7 +907,11 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                     _pw = sorted({draw_elements.det_putere_receptor(e) for e in plan_elements
                                   if (e.get("element_type") or "") == _et})
                     _spec = "motorizata, servomotor %s W" % " / ".join(str(w) for w in _pw if w)
-                rows.append(_row("Detectie incendiu", draw_elements._DET_BOM_NAME[_et], _spec,
+                _den = draw_elements._DET_BOM_NAME[_et]
+                if _et == "centrala_detectie":
+                    _den = "Centrala detectie incendiu adresabila, %d %s, cu acumulator de rezerva" % (
+                        _nb, "bucla" if _nb == 1 else "bucle")
+                rows.append(_row("Detectie incendiu", _den, _spec,
                                  _det_cnt[_et], "buc", sectiune="DETECTIE INCENDIU SI DESFUMARE"))
 
         if _cs_m.get("e30"):
