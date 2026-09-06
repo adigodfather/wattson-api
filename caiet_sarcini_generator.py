@@ -850,7 +850,11 @@ def build_caiet_docx(data: dict) -> bytes:
         if extra is None:
             extra = derive_extra_floors(circuits)
         has_fv = bool(solar.get("package_kw") or solar.get("power_kw"))
-        real = compute_plansa_numbering(extra, bool(has_tect), has_fv=has_fv)
+        # curenti slabi + detectie, ca la memoriu: fara ele nominalizarea planselor de la 1.4 anunta
+        # alte planşe (si alte numere) decat cele livrate. Explicite, fara derivare din circuite.
+        real = compute_plansa_numbering(extra, bool(has_tect), has_fv=has_fv,
+                                        has_cs=bool(data.get("has_cs")),
+                                        has_det=bool(data.get("has_det")))
         if real:
             planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in real]
     except Exception:

@@ -3434,6 +3434,17 @@ class GenerateMemoriuRequest(BaseModel):
     # ALIMENTAREA: "din_firida" (spatiu intr-un imobil existent) sau "bransament_propriu" / gol.
     # Absent = proiectele de dinainte -> bransament propriu, memoriu byte-identic.
     alimentare: str = ""
+    # NUMEROTAREA PLANSELOR (borderoul de la PT). Cele patru campuri erau CITITE de
+    # `build_memoriu_docx` (`data.get("has_tect")` etc.) dar NEDECLARATE aici — iar `model_dump()`
+    # arunca tacut ce nu-i in model. Consecinta, masurata pe Render: `has_tect=False` trimis cu un
+    # circuit TE-CT prezent, si `extra_floors=["etaj"]`, nu schimbau NIMIC in borderou; nodul n8n
+    # le trimitea din iulie degeaba, iar memoriul cadea mereu pe derivarea din circuite. La o casa
+    # cu etaj borderoul anunta doar planşele de parter, fara TES. Caietul de sarcini le declara —
+    # de-aia asimetria a trecut neobservata.
+    extra_floors: Optional[list] = None
+    has_tect: Optional[bool] = None
+    has_cs: Optional[bool] = None
+    has_det: Optional[bool] = None
 
 
 class GenerateCaietSarciniRequest(BaseModel):
@@ -3446,6 +3457,8 @@ class GenerateCaietSarciniRequest(BaseModel):
     solar: dict = {}                     # menţiunea FV + normele FV (gol -> fără)
     extra_floors: Optional[list] = None  # numerotarea planşelor (aceeaşi autoritate ca memoriul)
     has_tect: Optional[bool] = None
+    has_cs: Optional[bool] = None        # curenti slabi + detectie: aceeasi lista ca la memoriu —
+    has_det: Optional[bool] = None       # nominalizarea planselor (1.4) trebuie sa fie ACEEASI
     alimentare: str = ""                 # "din_firida" -> racordul din firida; gol -> ca azi
 
 
