@@ -3223,6 +3223,53 @@ def generate_schema_cs_b64(request: CsSchemaRequest):
         return {"success": False, "error": str(e)}
 
 
+# -------------------------------------------------
+#  SCHEMA DETECTIE INCENDIU (POST /generate-schema-det-b64) — schema MONOBLOC a sistemului de
+#  detectie + desfumare, generata din elementele EFECTIV plasate pe planşa. Tiparul e IDENTIC cu
+#  al schemei de curenti slabi (elementele din DB pe project_id, gate pe prezenta, base64 pentru
+#  n8n) — schema n-are sub-tip comercial, singura diferenta fata de `CsSchemaRequest`.
+# -------------------------------------------------
+
+class DetSchemaRequest(BaseModel):
+    project_id: str = ""              # elementele se citesc din DB (ca la /bom) — sursa UNICA
+    plan_elements: List[dict] = []    # SAU explicit (teste / apelanti care le au deja)
+    cartus_firma: Optional[dict] = None
+    cartus_proiect: Optional[dict] = None
+    plansa_nr: str = ""               # numarul REAL din numerotare (n8n il trimite)
+
+
+@app.post("/generate-schema-det-b64")
+def generate_schema_det_b64(request: DetSchemaRequest):
+    """Schema monobloc a sistemului de detectie incendiu si desfumare (base64, pentru n8n).
+
+    ELEMENTELE: din `plan_elements` daca-s trimise, altfel din DB pe `project_id` — acelasi tipar ca
+    /bom si ca /generate-schema-cs-b64. Asa etichetele de bucla (D1/1, DM1/4) ies din ACELEASI
+    randuri pe care le deseneaza planşa, prin `draw_elements.det_eticheta`.
+    GATE pe PREZENTA: fara echipamente de detectie (sau doar cu centrala, fara nimic pe ramuri)
+    `build_det_schema` intoarce None -> success cu skipped=True si FARA pdf, ca apelantul sa treaca
+    mai departe. Autentificarea e cea globala (`x-zynapse-key`, middleware) — nimic in plus aici."""
+    try:
+        from schema_det import build_det_schema
+        rows = list(request.plan_elements or [])
+        if not rows and request.project_id:
+            from supabase_client import supabase as _supa
+            rows = (_supa.table("plan_elements").select("*")
+                    .eq("project_id", request.project_id).execute().data) or []
+        pdf_bytes = build_det_schema(rows, request.cartus_firma or {}, request.cartus_proiect or {},
+                                     request.plansa_nr or None)
+        if not pdf_bytes:
+            return {"success": True, "skipped": True,
+                    "reason": "fara echipamente de detectie incendiu pe plan"}
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+            "filename": "schema_detectie_incendiu.pdf",
+            "size_bytes": len(pdf_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/generate-schema/test")
 def generate_schema_test():
     """

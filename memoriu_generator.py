@@ -1511,9 +1511,21 @@ def build_memoriu_docx(data: dict) -> bytes:
             _extra = data.get("extra_floors")
             if _extra is None:
                 _extra = derive_extra_floors(circuits)
+            # CURENTI SLABI + DETECTIE: la fel de EXPLICITE ca `has_tect` (le trimite nodul
+            # „Numerotare Planse" prin `Generate Memoriu`). Fara ele borderoul chema numerotarea cu
+            # has_cs/has_det implicit False si iesea o LISTA ALTA decat planşele livrate: la un PT cu
+            # curenti slabi si detectie, borderoul zicea 4 planşe (IE.3 = schema TEG) cand proiectul
+            # avea 8 (IE.3 = planul de curenti slabi). Numerotarea are patru oglinzi tocmai ca
+            # numarul TIPARIT sa fie cel din borderou — aici apelantul o chema incomplet.
+            # Fara derivare din circuite, INTENTIONAT: un fals pozitiv ar adauga in borderou o planşa
+            # care nu exista, ceea ce e mai rau decat omisiunea. Semnalul e planşa CHIAR generata, si
+            # doar apelantul il are. Absent -> exact comportamentul de pana acum.
+            _has_cs = data.get("has_cs")
+            _has_det = data.get("has_det")
             # G3: cu FV selectat (solar prezent), borderoul include si plansa FV (ultima IE)
             _real = compute_plansa_numbering(_extra, bool(_has_tect),
-                                             has_fv=bool(solar.get("package_kw") or solar.get("power_kw")))
+                                             has_fv=bool(solar.get("package_kw") or solar.get("power_kw")),
+                                             has_cs=bool(_has_cs), has_det=bool(_has_det))
             if _real:
                 planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in _real]
         except Exception:
