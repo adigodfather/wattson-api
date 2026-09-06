@@ -664,7 +664,13 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     if not g["toate"]:
         return None                       # gate: fara echipamente -> fara schema
 
-    m = _masoara(g)
+    # `benzi_fixe`: cele doua benzi merg la CUTII DIFERITE (rack / centrala de efractie), deci nu
+    # pot fi comasate pe un rand. Peste ~65 de elemente asezarea cadea pe o singura banda, iar
+    # atunci TOATE fasciculele — inclusiv al efractiei — se legau la RACK, iar cutia centralei
+    # ramanea cu textul „N zone de detectie" si nicio linie: schema afirma un cablaj gresit,
+    # fiindca detectoarele de efractie se leaga la centrala lor, nu la rack.
+    # Cand fiecare banda are alta cutie, comasarea nu e o alegere de layout — e o eroare.
+    m = _masoara(g, benzi_fixe=True)
     _fmt, W_MM, H_MM = _format(g)
     W, H = W_MM * MMPT, H_MM * MMPT
     doc = fitz.open()
@@ -737,8 +743,16 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         # mic un gol proportional ar fi devenit o prapastie de jumatate de foaie intre trei camere
         # sus si trei detectoare jos. Restul se imparte egal sus si jos, deci ansamblul ramane
         # echilibrat pe inaltime.
-        _g = min(_liber * 0.5, 150.0)
-        Y_SUS = _SUS + _rez + (_liber - _g) / 2.0
+        # PLAFON de sus, dar si PRAG de jos: fasciculele benzii de JOS se ruteaza pe deasupra
+        # coloanelor ei, adica URCA peste `Y_JOS`. Cu spatiul epuizat (`_liber` = 0) golul iesea
+        # zero, iar laneurile alea intrau fix peste randurile benzii de sus — 15 linii peste text
+        # la 65 de elemente. Golul nu poate fi mai mic decat rezerva benzii de jos.
+        _rez_jos = _rezerva_fascicule((m["jos"],))
+        _g = max(_rez_jos, min(_liber * 0.5, 150.0))
+        # Deasupra benzii de SUS se rezerva doar laneurile EI: cele ale benzii de jos stau in golul
+        # dintre benzi (mai sus). Cu `_rez` intreg aici, rezerva de jos era numarata de DOUA ori si
+        # ansamblul cobora cu exact atat sub caseta de legenda.
+        Y_SUS = _SUS + _rezerva_fascicule((m["sus"],)) + max(0.0, (_liber - _g) / 2.0)
         Y_JOS = Y_SUS + m["h_sus"] + _g
     else:
         # o singura banda: se CENTREAZA pe inaltime, ca la sistemele mici sa nu ramana un gol ciudat
@@ -836,11 +850,18 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
         _leaga_cutie(page, r_c, _banda_fasc[1], X_HUB, _n_ce)
         _cablu(page, r_rack.x0 + _HUB_W / 2.0, r_rack.y1, r_c.x0 + _HUB_W / 2.0, r_c.y0,
                "alimentare")
-        # eticheta sta la STANGA firului, aliniata la dreapta: cutiile sunt acum lipite de marginea
-        # din dreapta a foii, iar in dreapta firului textul iesea din chenar
-        _text(page, r_rack.x0 + _HUB_W / 2.0 - 6, (r_rack.y1 + r_c.y0) / 2.0,
-              "%s · 12 V c.c." % _CS_CABLE["alimentare"]["bom"], fs=5.6,
-              col=_CS_CABLE["alimentare"]["col"], anchor="right")
+        # Eticheta sta la STANGA firului, aliniata la dreapta: la dreapta lui nu incape (raman 89 pt
+        # pana la chenar, textul are 93). Pe UN rand insa coada ei ajungea la `X_HUB - 20`, adica FIX
+        # in culoarul in care coboara laneurile efractiei (ultimul e la `X_HUB - 14`, iar urmatoarele
+        # merg spre stanga din 2,6 in 2,6 pt) — doua-trei linii verticale taiau textul. Pe DOUA
+        # randuri cel mai lat are 67 pt si incepe la `X_HUB + 5`: ramane in golul dintre cutii, unde
+        # nu trece nimic. Bonus: fara „·" pe rand, latimea masurata e cea reala (`get_text_length`
+        # subevalueaza interpunctul cu 0,278 em, deci ancora la dreapta aluneca).
+        _mij = (r_rack.y1 + r_c.y0) / 2.0
+        _LH = 7.6
+        for _i, _r in enumerate((_CS_CABLE["alimentare"]["bom"], "12 V c.c.")):
+            _text(page, r_rack.x0 + _HUB_W / 2.0 - 6, _mij - 1.65 + _i * _LH, _r, fs=5.6,
+                  col=_CS_CABLE["alimentare"]["col"], anchor="right")
 
     # ── ALIMENTAREA 230 V: circuitul dedicat din tabloul electric ────────────────────────────
     y_al = r_rack.y0 - 24.0
