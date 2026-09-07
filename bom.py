@@ -976,7 +976,11 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         den = lbl[:1].upper() + lbl[1:] if lbl else lbl
         # tech (incalzire clasa 1: PDC/pompe/BMS/distribuitor/boiler) -> TE-CT; extra (AC/cuptor/internet) -> FORTA
         _sec = "TE-CT" if draw_elements._is_heating_receptor(lbl) else "FORTA"
-        rows.append(_row("Receptoare", den, "", n, "buc", sectiune=_sec))
+        # SPEC = puterea, DOAR pentru receptoarele cu putere de CATALOG (cele comerciale). Restul
+        # (boiler/AC/cuptor/EV) isi iau puterea din formular, unde utilizatorul o poate schimba: un
+        # numar fix langa ele ar minti. Fara catalog -> spec gol, adica randul de azi, neatins.
+        _w = enrich_circuits.receptor_catalog_w(lbl)
+        rows.append(_row("Receptoare", den, ("%d W" % _w) if _w else "", n, "buc", sectiune=_sec))
 
     # ── 7. TUBURI (diametru din sectiune; metri = metri cablu) — pe (SECTIUNE, diametru): tuburile
     #     urmeaza cablul (aceeasi sectiune). Suma pe sectiuni per diametru = totalul global. ──

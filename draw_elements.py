@@ -649,6 +649,18 @@ def _receptor_abbrev(label):
         return "HRV"
     if any(k in t for k in ("statie", "incarcare", "masina electrica", "ev_charger")):
         return "EV"
+    # COMERCIALE (cabinet stomatologic / frizerie). Verificate LA COADA, ca sa nu poata schimba
+    # abrevierea niciunui label existent; niciunul dintre cuvintele lor nu apare mai sus.
+    if "unit dentar" in t:
+        return "UNIT"
+    if "compresor" in t:
+        return "COMPR"
+    if "autoclav" in t:
+        return "AUTOCLAV"
+    if "post frizerie" in t:
+        return "POST"
+    if "sterilizator" in t:
+        return "STERIL"
     return None
 
 

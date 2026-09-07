@@ -209,6 +209,31 @@ export const HEATING_RECEPTOR_TYPES: {
   { label: "Distribuitor zona", default_w: 300,  default_phase: "mono", default_height: 0.5, editablePower: true, editablePhase: false, visibleFor: ["floor_heating", "radiant_ceiling", "fan_coil"] },
 ];
 
+// ─── Receptoare COMERCIALE (cabinet stomatologic / frizerie) ──────────────────
+// ACELASI mecanism ca receptoarele termice: element_type ramane "alimentare_receptor", diferentierea
+// se face prin LABEL (deci ZERO migratie). Puterile-s cele confirmate de Dan; sunt DEFAULT-uri scrise
+// pe element la plasare (editabile in inspector), exact ca la "Radiator electric".
+//
+// `rccb_ma` = protectia diferentiala ceruta de APARAT, nu de camera. E o proprietate a TIPULUI, nu o
+// coloana noua in plan_elements: backendul o deduce din label (enrich_circuits._RECEPTOR_RCCB_MA),
+// asa cum deduce si puterea. Unitul dentar cere 10 mA pe circuitul LUI oriunde ar sta — regula de
+// camera (zona umeda) nu-l acopera, fiindca un cabinet nu-i o baie.
+export const COMMERCIAL_RECEPTOR_TYPES: {
+  label: string; default_w: number; default_phase: "mono" | "tri"; default_height: number;
+  rccb_ma: number | null;   // null = fara cerinta proprie (ramane ca orice receptor de azi)
+}[] = [
+  { label: "Unit dentar",   default_w: 2500, default_phase: "mono", default_height: 0.3, rccb_ma: 10 },
+  { label: "Compresor",     default_w: 2200, default_phase: "mono", default_height: 0.3, rccb_ma: null },
+  { label: "Autoclav",      default_w: 1800, default_phase: "mono", default_height: 0.9, rccb_ma: null },
+  { label: "Post frizerie", default_w: 2000, default_phase: "mono", default_height: 1.2, rccb_ma: null },
+  { label: "Sterilizator",  default_w: 800,  default_phase: "mono", default_height: 0.9, rccb_ma: null },
+];
+
+// Metadata receptorului comercial din LABEL exact (oglinda lui `heatingReceptorDef`).
+export function commercialReceptorDef(label: string | null | undefined) {
+  return COMMERCIAL_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
+}
+
 // H5: butoanele termice apar STRICT dupa emisia aleasa in formular (heating_distribution). Helper PUR.
 // floor_heating + radiant_ceiling -> Distribuitor zona (aceleasi bucle/actuatoare/distribuitor de zona) ;
 // fan_coil -> VCV + Distribuitor zona ; electric_radiator -> Radiator electric.
@@ -247,6 +272,14 @@ export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
   { et: "alimentare_receptor", label: "HRV",              btnText: "HRV",              gate: { kind: "equipment", equipType: "hrv" } },
   { et: "alimentare_receptor", label: "Statie incarcare", btnText: "stație încărcare", gate: { kind: "equipment", equipType: "ev_charger" } },
   { et: "receptor_internet",   label: "internet",         btnText: "rețea internet",   gate: { kind: "equipment", equipType: "internet" } },
+  // COMERCIALE (cabinet stomatologic / frizerie) — gate `always`, ca radiatorul electric: aparatele
+  // astea nu-s bifate nicaieri in formular, deci n-au pe ce sa se conditioneze. Conditionarea pe
+  // SUB-TIPUL comercial e un pachet separat (azi NICIUN buton nu se filtreaza pe sub-tip).
+  { et: "alimentare_receptor", label: "Unit dentar",    btnText: "unit dentar",   gate: { kind: "always" } },
+  { et: "alimentare_receptor", label: "Compresor",      btnText: "compresor",     gate: { kind: "always" } },
+  { et: "alimentare_receptor", label: "Autoclav",       btnText: "autoclav",      gate: { kind: "always" } },
+  { et: "alimentare_receptor", label: "Post frizerie",  btnText: "post frizerie", gate: { kind: "always" } },
+  { et: "alimentare_receptor", label: "Sterilizator",   btnText: "sterilizator",  gate: { kind: "always" } },
 ];
 
 // H6: butoanele NON-termice vizibile pt. gate-ul curent. Boiler -> heating_type; restul -> echipamente bifate.

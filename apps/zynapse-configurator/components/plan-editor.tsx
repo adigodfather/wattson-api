@@ -14,7 +14,7 @@ import { createClient } from "@/lib/supabase";
 import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
 import { cameraCanonica, CAMERE_COMERCIALE } from "@/lib/comercial";   // numele de pe plan -> camera canonica (sub-tip comercial)
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
-import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
+import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors, commercialReceptorDef } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
 import { equipKey, isTechReceptorLabel, type HeatingEquipment } from "@/lib/heating-equipment";   // T3 + clasificare tech/extra pt. rubrici
 
 type PngMeta = {
@@ -146,12 +146,31 @@ const isInternetType = (t: string) => t === "receptor_internet";     // Retea in
 function heatingReceptorDef(label: string | null | undefined) {
   return HEATING_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
 }
+// Receptoarele COMERCIALE (unit dentar / compresor / autoclav / post frizerie / sterilizator) au
+// catalogul lor (`commercialReceptorDef`, constants.ts): aceleasi default-uri de putere/faza/inaltime.
+// `rccb_ma` NU se scrie pe element (n-are coloana si nu-i trebuie una): backendul il deduce din
+// LABEL, exact ca pe putere.
+// Receptorul are catalog (termic SAU comercial)? -> campurile "Putere (W)" / "Faza" din inspector.
+// SURSA UNICA a conditiei: altfel un catalog nou s-ar plasa pe plan dar puterea lui n-ar fi editabila.
+function receptorPowerDef(label: string | null | undefined):
+  { default_w: number; editablePhase: boolean } | null {
+  const h = heatingReceptorDef(label);
+  if (h) return { default_w: h.default_w, editablePhase: h.editablePhase };
+  const c = commercialReceptorDef(label);
+  // compresorul de cabinet urca pana la 3,7 kW, unde varianta trifazata e curenta -> faza editabila
+  if (c) return { default_w: c.default_w, editablePhase: true };
+  return null;
+}
 // Clasificare receptor plasat -> rubrica „Camera tehnica" (tech) vs „Echipamente extra". DOAR pentru RANDARE
 // (sub ce rubrica apare in lista); zero efect pe handler-e/enrich. Radiator/VCV -> heatingReceptorDef;
 // boiler/pdc/pompa/bms/distribuitor/centrala -> isTechReceptorLabel; cuptor/AC/HRV/EV/internet -> extra;
 // custom/necunoscut -> Camera tehnica (default, coerent cu locul formularului „Adauga alimentare proprie").
 function isTechReceptor(el: PlanElement): boolean {
   if (el.element_type === "receptor_internet") return false;
+  // COMERCIALE: aparate de cabinet/salon, nu de camera tehnica -> rubrica "Echipamente extra".
+  // Fara ramura asta ar cadea pe `return true` de la final (default-ul pentru label necunoscut) si
+  // ar aparea sub "Camera tehnica", desi butonul care le plaseaza sta in cealalta rubrica.
+  if (commercialReceptorDef(el.label)) return false;
   const heat = heatingReceptorDef(el.label);
   // Radiatorul electric = receptor AUTONOM (decizia Dan 2026-07-25): sta sub "Echipamente extra",
   // nu sub "Camera tehnica". VCV/Distribuitor zona raman tech (legate de sistemul cu apa).
@@ -162,6 +181,8 @@ function isTechReceptor(el: PlanElement): boolean {
 function receptorDefaultHeight(et: string, label: string): number {
   const h = heatingReceptorDef(label);
   if (h) return h.default_height;                    // Regula 10: radiator 0.3 / VCV 2.2 / distribuitor 0.5
+  const com = commercialReceptorDef(label);
+  if (com) return com.default_height;                // unit/compresor 0.3 / autoclav+sterilizator 0.9 / post 1.2
   if (et === "receptor_internet") return 2.0;
   // driverul benzii se monteaza sus, langa banda (in tavan fals / nisa de rigips)
   if (et === "banda_led_driver") return 2.4;
@@ -2054,6 +2075,7 @@ export default function PlanEditor({
     const pos = e.target.getRelativePointerPosition();
     if (!pos) return;
     const heat = heatingReceptorDef(p.label);          // Regula 10: radiator/VCV/distribuitor -> putere+faza DEFAULT
+    const com = commercialReceptorDef(p.label);        // comerciale: unit dentar/compresor/... -> acelasi tipar
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
@@ -2071,7 +2093,10 @@ export default function PlanEditor({
       rotation: 0,
       mount_height_m: receptorDefaultHeight(p.et, p.label),   // inaltime DEFAULT pe tip (editabila)
       // Regula 10: termicele primesc power_w + phase la plasare (editabile in inspector; fallback in backend daca null)
-      ...(heat ? { power_w: heat.default_w, phase: heat.default_phase } : {}),
+      // Comercialele: ACELASI tipar. Backendul are oricum default-ul lui pe label (_RECEPTOR_DEFAULT_W),
+      // deci un element fara power_w (plasat prin API) iese la fel — scrisul aici il face doar EDITABIL.
+      ...(heat ? { power_w: heat.default_w, phase: heat.default_phase }
+               : com ? { power_w: com.default_w, phase: com.default_phase } : {}),
       status: null as string | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
@@ -2339,16 +2364,17 @@ export default function PlanEditor({
           </>
         )}
 
-        {/* Regula 10: Putere (W) + Fază (mono/tri) — receptoare termice. Radiator/VCV: ambele editabile;
-            Distribuitor zona: doar putere (fază fixă mono). Persistă imediat pe plan_elements. */}
-        {isReceptorType(selected.element_type) && heatingReceptorDef(selected.label) && (
+        {/* Regula 10: Putere (W) + Fază (mono/tri) — receptoare cu CATALOG (termice + comerciale).
+            Radiator/VCV + comercialele: ambele editabile; Distribuitor zona: doar putere (fază fixă
+            mono). Persistă imediat pe plan_elements. */}
+        {isReceptorType(selected.element_type) && receptorPowerDef(selected.label) && (
           <>
             <label style={fieldLabel}>Putere (W)</label>
             <input
               type="number"
               className="zy-ed-field"
               min={0}
-              placeholder={String(heatingReceptorDef(selected.label)!.default_w)}
+              placeholder={String(receptorPowerDef(selected.label)!.default_w)}
               value={selected.power_w ?? ""}
               onChange={(e) => {
                 const raw = e.target.value;
@@ -2362,7 +2388,7 @@ export default function PlanEditor({
               }}
               style={inputStyle}
             />
-            {heatingReceptorDef(selected.label)!.editablePhase && (
+            {receptorPowerDef(selected.label)!.editablePhase && (
               <>
                 <label style={fieldLabel}>Fază</label>
                 <select

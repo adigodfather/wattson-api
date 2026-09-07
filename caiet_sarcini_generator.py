@@ -701,6 +701,38 @@ def _cerinte_curenti_slabi(doc, comp):
                    "înainte de predare.")
 
 
+def _cerinte_receptoare_10ma(doc, circuits):
+    """Cerinţa de execuţie pentru receptoarele cu protecţie diferenţială de 10 mA proprie (azi:
+    unitul dentar). Gate pe PREZENŢA REALĂ în circuite — un proiect fără astfel de aparate iese
+    byte-identic. Cele 10 mA nu vin din cameră (un cabinet nu-i zonă umedă), ci din aparatul însuşi:
+    pacientul e în contact direct cu piesele de mână, cu impedanţă mult sub cea a unei mâini uscate."""
+    cs = [c for c in (circuits or [])
+          if isinstance(c, dict) and str(c.get("type") or "") == "dedicat"
+          and int(c.get("rccb_ma") or 0) == 10]
+    if not cs:
+        return
+    nume, vazut = [], set()
+    for c in cs:
+        d = re.sub(r"^alimentare\s+", "", str(c.get("description") or "").strip(), flags=re.I).lower()
+        if d and d not in vazut:
+            vazut.add(d)
+            nume.append(d)
+    lista = ", ".join(nume) if nume else "aparatele medicale"
+    _add_heading(doc, "Receptoare cu protecţie diferenţială de 10 mA", level=2)
+    _add_para(doc, "Circuitele care alimentează următoarele aparate se execută ca circuite dedicate, "
+                   "fiecare aparat pe circuitul lui, şi se protejează cu întreruptor diferenţial de "
+                   "10 mA tip A montat individual pe circuit: {}. Protecţia de 10 mA este cerută de "
+                   "aparat, nu de încăpere, şi se prevede indiferent de camera în care acesta se "
+                   "montează; acolo unde încăperea impune ea însăşi o protecţie mai severă, se "
+                   "păstrează valoarea mai mică. Diferenţialul se montează în tabloul din care pleacă "
+                   "circuitul, imediat după întreruptorul automat, şi se etichetează cu codul "
+                   "circuitului. La recepţie se măsoară curentul şi timpul de declanşare pentru "
+                   "fiecare diferenţial în parte, iar rezultatele se consemnează în buletinul de "
+                   "verificare; declanşarea se probează şi de la butonul de test al aparatului. "
+                   "Priza de alimentare a aparatului se montează accesibilă, astfel încât separarea "
+                   "lui de la reţea să se poată face fără demontări.".format(lista))
+
+
 _DET_TOATE = ("detector_fum", "detector_caldura", "centrala_detectie", "buton_incendiu",
               "sirena_incendiu", "panou_repetor", "trapa_desfumare", "ventilator_desfumare",
               "clapeta_antifoc", "grila_admisie")
@@ -881,6 +913,7 @@ def build_caiet_docx(data: dict) -> bytes:
     _emit_blocks(doc, _CS_CAP3)                     # 3
     _cerinte_curenti_slabi(doc, _cs_comp)           # 3.x, doar cu echipamente pe plan
     _cerinte_detectie(doc, _cs_comp)                # detectie incendiu + desfumare, acelasi gate
+    _cerinte_receptoare_10ma(doc, circuits)         # unit dentar & co., doar cu aparatele pe plan
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.

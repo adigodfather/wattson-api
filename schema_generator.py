@@ -821,7 +821,13 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     if circuit.has_rccb_individual:
         rccb_y = bottom_mcb + 2
         draw_line(c, cx_mm, bottom_mcb, cx_mm, rccb_y, width=0.4)
-        draw_rccb_box(c, cx_mm, rccb_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT, label="30mA")
+        # Sensibilitatea vine din circuit, nu din desen: tabelul de jos o scria deja din `rccb_ma`
+        # (`RCCB {ma}mA tip A`), iar caseta o avea hardcodata pe 30 — la primul circuit de 10 mA
+        # aceeasi schema ar fi spus doua lucruri diferite despre acelasi aparat.
+        # Non-regresie: azi TOATE circuitele cu has_rccb_individual au rccb_ma=30 (boiler ACM,
+        # distribuitor principal, zone umede comerciale), deci desenul iese identic.
+        draw_rccb_box(c, cx_mm, rccb_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT,
+                      label="%dmA" % (circuit.rccb_ma or 30))
         below_rccb = rccb_y + RCCB_HEIGHT
     else:
         below_rccb = bottom_mcb
@@ -1085,7 +1091,15 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
 
     if has_rccb:
         draw_rccb_box(c, leg_x + 8, ly - 1.5, w_mm=10, h_mm=6, label="")
-        draw_text(c, leg_x + 18, ly + 1, "RCCB — protectie diferentiala 30mA", size=7)
+        # Sensibilitatile REALE de pe schema, nu una presupusa: cu un circuit de 10 mA desenat
+        # deasupra, o legenda care spune „30mA" contrazice chiar caseta pe care o explica.
+        # Non-regresie: azi toate individualele sunt 30 mA -> textul iese identic; iar cand RCCB-ul
+        # vine doar din grupuri (fara individuale) se pastreaza acelasi 30 ca fallback.
+        _mas = sorted({int(getattr(cc, "rccb_ma", 30) or 30) for cc in circuits
+                       if getattr(cc, "has_rccb_individual", False)})
+        draw_text(c, leg_x + 18, ly + 1,
+                  "RCCB — protectie diferentiala %smA" % ("/".join(str(m) for m in _mas) or "30"),
+                  size=7)
         ly += row_spacing
 
     if has_light:

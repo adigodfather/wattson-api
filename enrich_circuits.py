@@ -146,15 +146,31 @@ _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv
                        # FIX 3: centrala plasata pe plan = 2 kW FIX (pompa/automatizare/aprindere) —
                        # era nemapata -> 0W "tip necunoscut". Centrala ELECTRICA e neatinsa:
                        # puterea ei vine din base/formular (dedup-ul base_covered castiga).
-                       "centrala": 2000}
+                       "centrala": 2000,
+                       # COMERCIALE (cabinet stomatologic / frizerie) — oglinda lui
+                       # COMMERCIAL_RECEPTOR_TYPES din lib/constants.ts. Aparatele astea NU-s in
+                       # formular (n-au bifa), deci `receptor_power` cade mereu pe default-ul de aici;
+                       # editorul scrie oricum power_w pe element, care are prioritate.
+                       "unit_dentar": 2500, "compresor": 2200, "autoclav": 1800,
+                       "post_frizerie": 2000, "sterilizator": 800}
+# PROTECTIA DIFERENTIALA ceruta de APARAT (mA), nu de camera. Proprietate a TIPULUI de receptor —
+# de-aia sta aici si nu ca o coloana noua pe plan_elements. Unitul dentar cere 10 mA pe circuitul LUI
+# oriunde ar sta: un cabinet nu-i o zona umeda, deci `rccb_zone` nu l-ar acoperi niciodata.
+# Receptoarele fara cerinta proprie LIPSESC din dict -> circuitul lor iese exact ca azi.
+_RECEPTOR_RCCB_MA = {"unit_dentar": 10}
 # label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular. Regula 10:
 # "distribuitor" (zona/nivel) INAINTE de "aer"/etc. — distribuitorul de zona = receptor dedicat 300W.
+# Cele comerciale stau la COADA: `receptor_type_of` intoarce la PRIMA potrivire, deci adaugarea lor
+# la sfarsit nu poate schimba tipul niciunui label existent.
 _RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
                        ("distribuitor", "distribuitor_zona"), ("aer", "ac"),
                        ("condi", "ac"), (" ac", "ac"), ("hrv", "hrv"), ("recuper", "hrv"),
                        ("incarcare", "ev_charger"), ("statie", "ev_charger"), ("masina", "ev_charger"),
                        ("ev_charger", "ev_charger"), ("internet", "internet"), ("retea", "internet"),
-                       ("centrala", "centrala")]   # FIX 3: "Centrala pe gaz" -> default 2 kW
+                       ("centrala", "centrala"),   # FIX 3: "Centrala pe gaz" -> default 2 kW
+                       ("unit dentar", "unit_dentar"), ("compresor", "compresor"),
+                       ("autoclav", "autoclav"), ("post frizerie", "post_frizerie"),
+                       ("sterilizator", "sterilizator")]
 
 def receptor_type_of(label):
     l = " " + (label or "").strip().lower()
@@ -162,6 +178,18 @@ def receptor_type_of(label):
         if kw in l:
             return t
     return None
+
+
+# Receptoarele COMERCIALE au putere de CATALOG: nu-s bifate in formular, deci puterea lor nu poate fi
+# schimbata de acolo. De-aia BOM-ul o poate scrie pe rand. Celelalte receptoare (boiler/AC/cuptor/EV)
+# isi iau puterea din formular -> un numar fix langa ele ar minti, deci intorc None.
+_COMERCIAL_RECEPTOARE = ("unit_dentar", "compresor", "autoclav", "post_frizerie", "sterilizator")
+
+
+def receptor_catalog_w(label):
+    """Puterea de catalog a unui receptor comercial (W), sau None pentru orice alt receptor."""
+    t = receptor_type_of(label)
+    return _RECEPTOR_DEFAULT_W.get(t) if t in _COMERCIAL_RECEPTOARE else None
 
 _NET_RECEPTOR_W = 150   # BAZA: router/switch/rack — circuit dedicat (nu date low-voltage)
 
@@ -409,7 +437,30 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
         "name": c["id"],
     }
 
-def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=None):
+def _receptor_rccb_ma(el, tip, subtip=None):
+    """Protectia diferentiala a circuitului unui RECEPTOR (mA), sau None. Castiga cea mai STRICTA
+    dintre cerinta APARATULUI si cea a CAMEREI in care sta — mA mai mic = mai strict.
+
+    Regula CAMEREI se consulta doar pentru receptoarele care declara deja o cerinta proprie. Motivul
+    e de non-regresie, nu de normativ: azi niciun circuit dedicat nu primeste diferential din camera
+    (`rccb_zone` se cheama exclusiv pe circuitele de prize, in `_enrich_group`), iar generalizarea ei
+    ar adauga retroactiv RCCB-uri la boilerele din bai ale proiectelor deja livrate. Extinderea ei la
+    toate dedicatele e o decizie separata a lui Dan, nu un efect colateral al pachetului asta."""
+    _m = (el or {}).get("rccb_ma")            # override explicit pe element, daca apare vreodata unul
+    try:
+        ma = int(_m) if _m not in (None, "") else None
+    except (TypeError, ValueError):
+        ma = None
+    if ma is None:
+        ma = _RECEPTOR_RCCB_MA.get(tip)
+    if ma is None:
+        return None                            # receptor fara cerinta proprie -> exact ca azi
+    room = (el or {}).get("room")
+    cam = 10 if rccb_zone(room, subtip) else (30 if _comercial_umed(room, subtip) == "30ma" else None)
+    return min(ma, cam) if cam else ma
+
+
+def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=None, subtip=None):
     """alimentare_receptor / receptor_internet -> circuit DEDICAT (compute_circuits nu-l grupeaza).
     Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
@@ -450,7 +501,12 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     bt = ("MCB-3P-C" if tri else "MCB-1P-C")
     desc = ("Alimentare retea/date" if is_net else _DESC_DET.get(_et)
             or ("Alimentare " + (el.get("label") or tip or "receptor")))
+    # RCCB cerut de APARAT (unit dentar 10 mA). Campurile sunt cele pe care le stiu deja BOM-ul
+    # (`_modules_for_circuit` + randul de Sigurante), schema monofilara (caseta RCCB) si caietul
+    # (`_fmt_protectie`) — deci nu se adauga nimic nou pe traseu, nici in n8n.
+    _ma = _receptor_rccb_ma(el, tip, subtip)
     return {
+        **({"rccb_ma": _ma, "has_rccb_individual": True} if _ma else {}),
         "id": cid, "fasa": None, "room": room, "type": "dedicat", "floor": floor_idx,
         "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
         "breaker_a": breaker_a, "room_type": None, "cable_type": cbl,
@@ -996,7 +1052,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
             rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
             rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
             plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono,
-                                            all_els=plan_elements))
+                                            all_els=plan_elements, subtip=comercial_subtip))
             nextn += 1
 
         # BANDA LED: driverele etajului -> circuite DEDICATE (separate de becuri), max 4/circuit.
