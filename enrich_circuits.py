@@ -110,7 +110,13 @@ def pozare_for(section):
 #              ca substring liber ar fi prins orice cuvant cu literele astea.
 # Sincron cu BATH_RX din lib/auto-prize.ts (prizele IP44) — altfel prizele si RCCB-ul diverg.
 _BATH_RX = re.compile(r"(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)", re.I)
-_TERRACE_KW = ("terasa", "terasă", "balcon", "loggia", "logie")
+# TERASE/BALCOANE — regex cu granita de CUVANT la inceput, din acelasi motiv ca „gs" mai sus:
+# „logie" (de la loggia) ca substring liber prindea „RadioLOGIE", „TehnoLOGIE", „BioLOGIE" — camere
+# perfect uscate care primeau tacit RCCB 10 mA, is_bathroom si regim de exterior. Iesit la iveala cu
+# receptorul de radiologie dentara, a carui incapere se cheama chiar asa.
+# Granita e DOAR la inceput, nu si la sfarsit: „Balconul" trebuie sa se potriveasca in continuare.
+# MASURAT pe toate numele de camere din baza: 12 potriviri, aceleasi 12 inainte si dupa.
+_TERRACE_RX = re.compile(r"\b(terasa|terasă|balcon|loggia|logie)", re.I)
 def _comercial_umed(room, subtip):
     """Nivelul de protectie ceruta de o camera COMERCIALA umeda: '10ma' / '30ma' / None.
     Sursa e comercial.REGULI — ACEEASI din care auto-prize.ts ia tipul prizei (IP44), ca sa nu poata
@@ -135,7 +141,7 @@ def rccb_zone(room, subtip=None):
     zonele comerciale cu dus -> 'dus' (acelasi regim I7-2011 ca baia)."""
     r = (room or "").strip().lower()
     if _BATH_RX.search(r): return "baie"
-    if any(k in r for k in _TERRACE_KW): return "terasa"
+    if _TERRACE_RX.search(r): return "terasa"
     if _comercial_umed(room, subtip) == "10ma": return "dus"
     return None
 
@@ -152,12 +158,15 @@ _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv
                        # formular (n-au bifa), deci `receptor_power` cade mereu pe default-ul de aici;
                        # editorul scrie oricum power_w pe element, care are prioritate.
                        "unit_dentar": 2500, "compresor": 2200, "autoclav": 1800,
-                       "post_frizerie": 2000, "sterilizator": 800}
+                       "post_frizerie": 2000, "sterilizator": 800,
+                       # radiologie dentara: UN receptor generic (panoramic / CBCT mic / intraoral).
+                       # Expunerea tine secunde -> media e mica; circuitul il dimensioneaza VARFUL.
+                       "radiologie_dentara": 2000}
 # PROTECTIA DIFERENTIALA ceruta de APARAT (mA), nu de camera. Proprietate a TIPULUI de receptor —
 # de-aia sta aici si nu ca o coloana noua pe plan_elements. Unitul dentar cere 10 mA pe circuitul LUI
 # oriunde ar sta: un cabinet nu-i o zona umeda, deci `rccb_zone` nu l-ar acoperi niciodata.
 # Receptoarele fara cerinta proprie LIPSESC din dict -> circuitul lor iese exact ca azi.
-_RECEPTOR_RCCB_MA = {"unit_dentar": 10}
+_RECEPTOR_RCCB_MA = {"unit_dentar": 10, "radiologie_dentara": 30}
 # label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular. Regula 10:
 # "distribuitor" (zona/nivel) INAINTE de "aer"/etc. — distribuitorul de zona = receptor dedicat 300W.
 # Cele comerciale stau la COADA: `receptor_type_of` intoarce la PRIMA potrivire, deci adaugarea lor
@@ -170,7 +179,7 @@ _RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
                        ("centrala", "centrala"),   # FIX 3: "Centrala pe gaz" -> default 2 kW
                        ("unit dentar", "unit_dentar"), ("compresor", "compresor"),
                        ("autoclav", "autoclav"), ("post frizerie", "post_frizerie"),
-                       ("sterilizator", "sterilizator")]
+                       ("sterilizator", "sterilizator"), ("radiologie", "radiologie_dentara")]
 
 def receptor_type_of(label):
     l = " " + (label or "").strip().lower()
@@ -183,7 +192,8 @@ def receptor_type_of(label):
 # Receptoarele COMERCIALE au putere de CATALOG: nu-s bifate in formular, deci puterea lor nu poate fi
 # schimbata de acolo. De-aia BOM-ul o poate scrie pe rand. Celelalte receptoare (boiler/AC/cuptor/EV)
 # isi iau puterea din formular -> un numar fix langa ele ar minti, deci intorc None.
-_COMERCIAL_RECEPTOARE = ("unit_dentar", "compresor", "autoclav", "post_frizerie", "sterilizator")
+_COMERCIAL_RECEPTOARE = ("unit_dentar", "compresor", "autoclav", "post_frizerie", "sterilizator",
+                         "radiologie_dentara")
 
 
 def receptor_catalog_w(label):

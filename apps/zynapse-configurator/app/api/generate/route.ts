@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
-import { isPhasePT } from "@/lib/constants";
+import { isPhasePT, poateGeneraTip } from "@/lib/constants";
 
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 const FASTAPI = "https://wattson-api.onrender.com";
@@ -109,6 +109,26 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "verificare cont eșuată";
     return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
+  }
+
+  // ── POARTA TIPULUI DE CLĂDIRE ("Curând") — server-side ─────────────────────────────────────
+  // `soon: true` bloca DOAR butonul din configurator (SubtypeList), iar ruta asta doar STOCA
+  // `building_type` fără să-l privească: oricine autentificat putea genera un tip nelansat trimițând
+  // direct payload-ul. O impunem aici, ca la suprafață și la sold, și ÎNAINTE de `extractConstruitaMp`
+  // + lock + n8n — o cerere pe care oricum o refuzăm n-are de ce să consume backend.
+  //
+  // ADMIN: portița rămâne, e deliberată (Dan lucrează logica fiecărui tip înainte de lansare) și
+  // folosește ACELAȘI criteriu ca butonul — `ADMIN_USER_ID`, nu `profiles.is_admin`. Cu două noțiuni
+  // diferite de admin, serverul și interfața ar putea spune lucruri diferite despre același user.
+  //
+  // `comercial_subtip` NU se validează aici: niciunul dintre cele 18 sub-tipuri comerciale n-are
+  // marcaj „Curând" (COMERCIAL_CATEGORII n-are nici măcar câmpul), deci n-ar avea ce respinge. Când
+  // va avea, îi trebuie și badge-ul din selector, nu doar poarta.
+  if (!poateGeneraTip(String(parsed?.building_type ?? ""), userId)) {
+    return NextResponse.json(
+      { error: "Tipul de clădire ales nu este încă disponibil pentru generare. Alege alt tip de clădire." },
+      { status: 403 }
+    );
   }
 
   // suprafata CONSTRUITA determinista (re-extrasa server-side) — calculata O DATA aici, refolosita la SUCCES.

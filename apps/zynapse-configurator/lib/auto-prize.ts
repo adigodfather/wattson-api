@@ -41,7 +41,7 @@ export function prizeCountPerRoom(circuits: Circuit[] | null | undefined): Recor
 export type PrizaType = "priza_simpla" | "priza_dubla" | "priza_16a" | "priza_exterior_ip44";
 export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; heightM: number };
 
-// FIX-P: familiile de camere cu prize IP44 — SINCRON cu enrich_circuits.py (_BATH_RX / _TERRACE_KW):
+// FIX-P: familiile de camere cu prize IP44 — SINCRON cu enrich_circuits.py (_BATH_RX / _TERRACE_RX):
 // acolo dau RCCB 10mA pe circuit, aici tipul + inaltimea prizei. Modifici una -> modifici AMBELE
 // (altfel: simbol/cablu normal pe un circuit protejat 10mA). "teras" acopera terasa/terasă din enrich.
 // ZONA UMEDA — regex, OGLINDA EXACTĂ a lui _BATH_RX din enrich_circuits.py. Pe planuri reale camera
@@ -50,7 +50,12 @@ export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; 
 // abrevierea pură, dar DELIMITATĂ — vechiul „gs" ca substring liber era un fals-pozitiv în așteptare.
 // Dacă se schimbă una, se schimbă AMÂNDOUĂ: altfel prizele primesc IP44 iar circuitul rămâne fără RCCB.
 const BATH_RX = /(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)/i;
-const BALCONY_KW = ["balcon", "loggia", "logie"];
+// BALCON/LOGGIA — regex cu granită de CUVÂNT la început, OGLINDA lui _TERRACE_RX din
+// enrich_circuits.py. „logie" ca substring liber prindea „RadioLOGIE"/„TehnoLOGIE"/„BioLOGIE":
+// camere uscate care primeau priză IP44 la 0,40 m și, pe partea cealaltă, RCCB 10 mA. Exact
+// falsul-pozitiv în așteptare descris mai sus pentru „gs". Granița e DOAR la început, ca
+// „Balconul" să se potrivească în continuare.
+const BALCONY_RX = /\b(balcon|loggia|logie)/i;
 
 // SPAȚII COMERCIALE — regex pe nume normalizat, oglinda lui _COMERCIAL_RULES din draw_elements.py.
 // [count fix, pas_mp] — pasul adaugă +1 priză la fiecare X mp (null = doar fixul).
@@ -116,7 +121,7 @@ export function prizeRuleForRoom(
       ? { count: 0, type: S, circuitGroup: own, heightM: 0.4 }
       : { count: 2, type: IP44, circuitGroup: own, heightM: 0.4 };
   // 2b. BALCON/LOGGIA -> 1 IP44 la h=0.4 (decizia Dan: 1, nu 2 ca terasa)
-  if (BALCONY_KW.some((k) => n.includes(k)))
+  if (BALCONY_RX.test(n))
     return { count: 1, type: IP44, circuitGroup: own, heightM: 0.4 };
   // 3. SPATIU TEHNIC -> SKIP (camera TE-CT, gestionata de schema/T1, nu auto-repartizata)
   if (n.includes("spatiu tehnic") || n.includes("tehnic")) return null;

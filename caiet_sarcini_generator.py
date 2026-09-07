@@ -701,24 +701,62 @@ def _cerinte_curenti_slabi(doc, comp):
                    "înainte de predare.")
 
 
-def _cerinte_receptoare_10ma(doc, circuits):
-    """Cerinţa de execuţie pentru receptoarele cu protecţie diferenţială de 10 mA proprie (azi:
-    unitul dentar). Gate pe PREZENŢA REALĂ în circuite — un proiect fără astfel de aparate iese
-    byte-identic. Cele 10 mA nu vin din cameră (un cabinet nu-i zonă umedă), ci din aparatul însuşi:
+def _receptoare_cu_rccb_propriu(circuits):
+    """{sensibilitate mA: [nume aparate]} pentru receptoarele care cer ELE diferenţial, nu camera.
+
+    Identificarea trece prin `enrich_circuits.receptor_type_of` + `_RECEPTOR_RCCB_MA` — ACELEAŞI două
+    care au decis protecţia — ca să nu apară aici o a doua listă de nume care să se desincronizeze.
+    E şi singurul filtru corect: pe `rccb_ma == 30` simplu ar intra şi circuitele de BAZĂ (boiler ACM,
+    distribuitor principal), care sunt la 30 mA din alt motiv şi n-au ce căuta în capitolul ăsta."""
+    try:
+        import enrich_circuits as _ec
+    except Exception:
+        return {}                              # fail-safe: capitolul lipseşte, restul caietului merge
+    out = {}
+    for c in (circuits or []):
+        if not isinstance(c, dict) or str(c.get("type") or "") != "dedicat" or not c.get("rccb_ma"):
+            continue
+        nume = re.sub(r"^alimentare\s+", "", str(c.get("description") or "").strip(), flags=re.I)
+        tip = _ec.receptor_type_of(nume)
+        if not tip or tip not in _ec._RECEPTOR_RCCB_MA:
+            continue
+        ma = int(c["rccb_ma"])
+        if nume.lower() not in out.setdefault(ma, []):
+            out[ma].append(nume.lower())
+    return out
+
+
+def _cerinte_receptoare_rccb(doc, circuits):
+    """Cerinţa de execuţie pentru receptoarele cu protecţie diferenţială proprie. Gate pe PREZENŢA
+    REALĂ în circuite — un proiect fără astfel de aparate iese byte-identic.
+
+    Protecţia nu vine din cameră (un cabinet nu-i zonă umedă), ci din aparat: la unitul dentar
     pacientul e în contact direct cu piesele de mână, cu impedanţă mult sub cea a unei mâini uscate."""
-    cs = [c for c in (circuits or [])
-          if isinstance(c, dict) and str(c.get("type") or "") == "dedicat"
-          and int(c.get("rccb_ma") or 0) == 10]
-    if not cs:
+    grupe = _receptoare_cu_rccb_propriu(circuits)
+    if not grupe:
         return
-    nume, vazut = [], set()
-    for c in cs:
-        d = re.sub(r"^alimentare\s+", "", str(c.get("description") or "").strip(), flags=re.I).lower()
-        if d and d not in vazut:
-            vazut.add(d)
-            nume.append(d)
-    lista = ", ".join(nume) if nume else "aparatele medicale"
-    _add_heading(doc, "Receptoare cu protecţie diferenţială de 10 mA", level=2)
+    _add_heading(doc, "Receptoare cu protecţie diferenţială proprie", level=2)
+    if 10 in grupe:
+        _cerinta_10ma(doc, ", ".join(grupe[10]))
+    if 30 in grupe:
+        _add_para(doc, "Aparatele de radiologie dentară ({}) se alimentează fiecare din câte un "
+                       "circuit dedicat, protejat cu întreruptor diferenţial de 30 mA tip A. Puterea "
+                       "din proiect acoperă un aparat panoramic sau un CBCT de cabinet; înainte de "
+                       "execuţie se verifică fişa tehnică a aparatului efectiv achiziţionat, fiindcă "
+                       "expunerea durează câteva secunde şi ceea ce dimensionează circuitul este "
+                       "vârful de curent, nu consumul mediu. Producătorii impun de regulă un circuit "
+                       "propriu de 16 A şi o impedanţă maximă a buclei de defect: acolo unde fişa o "
+                       "prevede, valoarea se măsoară la recepţie şi se consemnează în buletin, iar "
+                       "dacă nu se încadrează se măreşte secţiunea conductorului până la respectarea "
+                       "ei. Circuitul nu se ramifică şi nu alimentează alt receptor. Comanda de "
+                       "expunere şi eventualele semnalizări luminoase de avertizare se execută "
+                       "conform proiectului de radioprotecţie, care rămâne în sarcina "
+                       "furnizorului aparatului.".format(", ".join(grupe[30])))
+
+
+def _cerinta_10ma(doc, lista):
+    """Paragraful celor 10 mA (unitul dentar). Separat, ca textul lui să rămână neatins când
+    capitolul primeşte alte sensibilităţi."""
     _add_para(doc, "Circuitele care alimentează următoarele aparate se execută ca circuite dedicate, "
                    "fiecare aparat pe circuitul lui, şi se protejează cu întreruptor diferenţial de "
                    "10 mA tip A montat individual pe circuit: {}. Protecţia de 10 mA este cerută de "
@@ -913,7 +951,7 @@ def build_caiet_docx(data: dict) -> bytes:
     _emit_blocks(doc, _CS_CAP3)                     # 3
     _cerinte_curenti_slabi(doc, _cs_comp)           # 3.x, doar cu echipamente pe plan
     _cerinte_detectie(doc, _cs_comp)                # detectie incendiu + desfumare, acelasi gate
-    _cerinte_receptoare_10ma(doc, circuits)         # unit dentar & co., doar cu aparatele pe plan
+    _cerinte_receptoare_rccb(doc, circuits)         # unit dentar / radiologie, doar cu aparatele pe plan
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.

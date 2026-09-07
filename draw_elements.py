@@ -661,6 +661,8 @@ def _receptor_abbrev(label):
         return "POST"
     if "sterilizator" in t:
         return "STERIL"
+    if "radiologie" in t:
+        return "RX"          # notatia curenta pentru radiografie pe planurile medicale
     return None
 
 

@@ -35,6 +35,34 @@ export const BUILDING_SUBTYPES: Record<string, { value: string; label: string; s
   ],
 };
 
+// Sub-tipul e marcat „Curând"? Caută în TOATE categoriile, după valoare. Poarta server-side din
+// /api/generate citește prin ea ACEEAȘI listă pe care o afișează `SubtypeList` (care are deja
+// intrarea în mână și-i citește `soon` direct) — deci nu există două liste care să dea în timp
+// răspunsuri diferite despre același tip.
+// Un tip NECUNOSCUT (typo, frontend vechi, valoare scoasă între timp) întoarce `false` — deliberat:
+// poarta refuză doar ce recunoaște ca fiind nelansat, nu tot ce nu recunoaște. Altfel o listă
+// desincronizată ar bloca generări care merg azi.
+export function isSoonSubtype(buildingType: string | null | undefined): boolean {
+  const v = (buildingType || "").trim();
+  if (!v) return false;
+  for (const lista of Object.values(BUILDING_SUBTYPES)) {
+    const gasit = lista.find(s => s.value === v);
+    if (gasit) return !!gasit.soon;
+  }
+  return false;
+}
+
+// Regula porții din /api/generate, ca funcție PURĂ: tipurile „Curând" se refuză, cu excepția
+// adminului (portița deliberată — vezi `SubtypeList`); orice altceva trece. Ruta o cheamă pe ea, nu
+// rescrie condiția, ca ce se testează să fie exact ce rulează în producție.
+// ADMIN aici = `ADMIN_USER_ID`, ACELAȘI criteriu ca butonul — nu `profiles.is_admin`, care e a doua
+// noțiune de admin (panoul de administrare). Cu două reguli, serverul și interfața ar putea spune
+// lucruri diferite despre același user.
+export function poateGeneraTip(buildingType: string | null | undefined,
+                               userId: string | null | undefined): boolean {
+  return !isSoonSubtype(buildingType) || userId === ADMIN_USER_ID;
+}
+
 // ─── Faza proiect (Epic 3.11) — pentru moment DOAR DTAC e activă ───────────────
 
 export const FAZA_PROIECT_OPTIONS = [
@@ -227,6 +255,11 @@ export const COMMERCIAL_RECEPTOR_TYPES: {
   { label: "Autoclav",      default_w: 1800, default_phase: "mono", default_height: 0.9, rccb_ma: null },
   { label: "Post frizerie", default_w: 2000, default_phase: "mono", default_height: 1.2, rccb_ma: null },
   { label: "Sterilizator",  default_w: 800,  default_phase: "mono", default_height: 0.9, rccb_ma: null },
+  // Radiologia dentară = UN receptor generic (nu trei tipuri): panoramic, CBCT mic sau intraoral se
+  // alimentează la fel. Expunerea durează secunde, deci consumul mediu e mic — circuitul îl
+  // dimensionează VÂRFUL, de unde cei 2 kW. Inginerul schimbă valoarea pe element dacă are
+  // specificația aparatului.
+  { label: "Radiologie dentara", default_w: 2000, default_phase: "mono", default_height: 1.2, rccb_ma: 30 },
 ];
 
 // Metadata receptorului comercial din LABEL exact (oglinda lui `heatingReceptorDef`).
@@ -280,6 +313,9 @@ export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
   { et: "alimentare_receptor", label: "Autoclav",       btnText: "autoclav",      gate: { kind: "always" } },
   { et: "alimentare_receptor", label: "Post frizerie",  btnText: "post frizerie", gate: { kind: "always" } },
   { et: "alimentare_receptor", label: "Sterilizator",   btnText: "sterilizator",  gate: { kind: "always" } },
+  // LABEL fara diacritice, ca la "Aer conditionat"/"Statie incarcare": el e cheia pe care backendul
+  // o citeste cu `receptor_type_of`, iar aia NU normalizeaza diacriticele. Doar btnText le poarta.
+  { et: "alimentare_receptor", label: "Radiologie dentara", btnText: "radiologie dentară", gate: { kind: "always" } },
 ];
 
 // H6: butoanele NON-termice vizibile pt. gate-ul curent. Boiler -> heating_type; restul -> echipamente bifate.
