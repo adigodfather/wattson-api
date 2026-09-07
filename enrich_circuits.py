@@ -296,10 +296,58 @@ def receptor_power(label, form):
 
 # ── Regula 6: panel din floor ────────────────────────────────────────────────
 def _floor_panel(floor):
+    """Tabloul „natural" al nivelului, DOAR din numele lui. Pastrata ca sursa a indexului de nivel
+    si ca RAMURA DE FALLBACK — vezi `_panel_for_floor`."""
     f = str(floor if floor is not None else "parter").strip().lower()
     if "mansard" in f or f == "2": return "TES2", 2
     if "etaj" in f or f == "1":    return "TES1", 1
     return "TEG", 0
+
+
+COBORARE = "coborare_cabluri"     # punctul prin care circuitele nivelului coboara la TEG
+
+
+def _floor_key(floor):
+    """Cheia de NIVEL, normalizata: aceeasi pentru „etaj"/„Etaj 1"/1 (indexul din `_floor_panel`)."""
+    return _floor_panel(floor)[1]
+
+
+def _panel_for_floor(floor, plan_elements=None):
+    """Tabloul care alimenteaza circuitele nivelului. TREI ramuri, in ordinea deciziei inginerului:
+
+      nivelul are `coborare_cabluri`  -> ("TEG", idx)  — nu exista tablou secundar; circuitele
+                                          coboara prin punctul plasat de el si se leaga la TEG
+      nivelul are `tablou_tes`        -> ("TESn", idx) — exact ca pana acum
+      niciunul                        -> ("TESn", idx) — FALLBACK, comportamentul de azi
+
+    Ramura a treia e deliberat NESCHIMBATA (decizia Dan): pe proiectele existente inginerul n-a
+    plasat niciodata tabloul secundar, iar enrich a presupus mereu ca exista. Presupunerea e gresita
+    — creeaza un circuit si o COLOANA catre un tablou care nu-i pe nicio planşa — dar repararea ei
+    ar rescrie tacit proiecte deja livrate. Se repara prin ALEGERE explicita, nu prin schimbarea
+    implicitului.
+
+    ATENTIE: intoarce ("TEG", idx) cu idx != 0. Indexul de nivel se PASTREAZA, fiindca gruparea
+    circuitelor ramane per-NIVEL: `compute_circuits` imparte becurile prin bin-packing peste tot ce
+    primeste, fara nicio notiune de etaj, deci becurile a doua niveluri intrate in acelasi apel ies
+    pe ACELASI circuit (masurat: 6 becuri parter + 1 mansarda -> un singur C1). Panel-ul se schimba
+    DUPA grupare, nu prin comasarea grupurilor."""
+    tes, idx = _floor_panel(floor)
+    if idx == 0:
+        return tes, idx                              # parterul are mereu TEG
+    fk = _floor_key(floor)
+    for el in (plan_elements or []):
+        if ((el or {}).get("element_type") or "") == COBORARE and _floor_key((el or {}).get("floor")) == fk:
+            return "TEG", idx
+    return tes, idx
+
+
+def _coborare_pe_nivel(plan_elements, floor):
+    """Punctul de coborare al nivelului (sau None). UNUL singur per nivel — primul plasat castiga."""
+    fk = _floor_key(floor)
+    for el in (plan_elements or []):
+        if ((el or {}).get("element_type") or "") == COBORARE and _floor_key((el or {}).get("floor")) == fk:
+            return el
+    return None
 
 def _bulb_w(el):
     pw = el.get("power_w")
@@ -893,17 +941,26 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
                 base_covered[k] = c
 
     banda_cid_map = {}                                 # id element driver -> circuit_id (pt. eticheta pe plan)
-    by_panel = {}                                      # panel -> (elements, floor_idx)
+    # GRUPAREA E PE NIVEL, nu pe tablou. Pana acum cheia era panel-ul, iar asta functiona doar
+    # fiindca fiecare nivel avea tabloul LUI. De cand un nivel superior poate ajunge tot pe TEG
+    # (coborare), doua niveluri ar cadea in acelasi grup — si `compute_circuits` imparte becurile
+    # prin bin-packing peste TOT ce primeste, fara notiune de etaj: becurile parterului si ale
+    # mansardei ar iesi pe ACELASI circuit de iluminat (masurat: 6+1 becuri -> un singur C1).
+    # Cheia e indexul de nivel; panel-ul devine un ATRIBUT al grupului.
+    by_floor = {}                                      # floor_idx -> (elements, panel)
     for el in plan_elements:
-        panel, fidx = _floor_panel(el.get("floor"))
-        by_panel.setdefault(panel, ([], fidx))[0].append(el)
+        panel, fidx = _panel_for_floor(el.get("floor"), plan_elements)
+        by_floor.setdefault(fidx, ([], panel))[0].append(el)
     plan_out = []
-    for panel in sorted(by_panel.keys()):
-        els, fidx = by_panel[panel]
+    for fidx in sorted(by_floor.keys()):
+        els, panel = by_floor[fidx]
         # SUFIX id = conventia PLANULUI: compute_circuits via _detect_general_panel foloseste "TES"
         # (nu "TES1") -> id-uri C1-TES (identice cu plan_elements.circuit_id). panel ramane "TES1"/"TES2"
         # (grupare pe pagini de schema, setat in _enrich_group); DOAR sufixul id-ului se aliniaza.
-        general = "TEG" if panel == "TEG" else "TES"   # gsuf -> C1 (TEG) / C1-TES (etaj+)
+        # Nivel superior pe TEG (coborare) -> sufix PROPRIU "-SUS": id-ul persistat trebuie sa ramana
+        # distinct de al parterului (ambele sunt pe TEG, dar sunt circuite diferite), iar
+        # `_detect_general_panel` intoarce acelasi "SUS" de partea planşei.
+        general = ("TEG" if fidx == 0 else ("SUS" if panel == "TEG" else "TES"))
         tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
@@ -987,7 +1044,16 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     for f in feed_circuits:
         _resize_column_feed(f, merged_tect, force_resum=plan_touched_tect, force_mono=is_mono)
 
+    # ID-UL DE PLANSA, pastrat INAINTE de renumerotare: `_renumber_panel` rescrie `id` cu numarul din
+    # tabloul lui (C7 pe TEG), dar planşa a persistat in `plan_elements.circuit_id` id-ul LOCAL
+    # (C1-SUS). Fara puntea asta, eticheta de pe planşa si numarul din schema ar arata doua lucruri
+    # diferite pentru acelasi circuit. `/regenerate-plan` o foloseste ca sa injecteze `_cid_label`.
+    for c in plan_out:
+        c.setdefault("_plan_cid", c.get("id"))
+
     # ordine finala: TEG(plan, EXCL. tech) + feed(TEG->TE-CT) + TES(plan) + TE-CT(incalzire + tech plan)
+    # Circuitele nivelurilor cu COBORARE au panel="TEG" -> intra aici, dupa cele ale parterului
+    # (`sorted(by_floor)` pune 0 primul), deci numerotarea TEG continua: C1..C6 parter, C7.. mansarda.
     teg = [c for c in plan_out if c.get("panel") == "TEG"]
     tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
 

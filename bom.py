@@ -25,6 +25,20 @@ _PRIZA_CABLE = "CYY-F 3x2.5"
 _BULB_TYPES  = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "panou_led"}
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct"}
+# Punctul de coborare: capatul de SUS al coloanei pe un nivel fara tablou secundar. In afara lui
+# `_PANEL_TYPES` — nu e tablou (n-are randuri de tablou in BOM, n-are schema).
+_COBORARE = "coborare_cabluri"
+
+
+def _coborare_xy(plan_elements):
+    """(x, y) al punctului de coborare, sau None. UNUL per proiect in practica (unul per nivel)."""
+    for el in (plan_elements or []):
+        if ((el or {}).get("element_type") or "") == _COBORARE:
+            try:
+                return (float(el["x"]), float(el["y"]))
+            except (TypeError, ValueError, KeyError):
+                return None
+    return None
 
 _NAMES = {
     "priza_simpla": "Priza simpla", "priza_dubla": "Priza dubla", "priza_16a": "Priza 16A",
@@ -171,14 +185,18 @@ def _extra_meters_by_type(plan_elements, circuits, scale):
     panels = _panel_xy(plan_elements)
     teg  = panels.get("tablou_teg") or panels.get("tablou_tes")
     tect = panels.get("tablou_te_ct")
-    tes  = panels.get("tablou_tes")
-    # coloana TEG->TES exista DOAR cross-floor (TEG si TES pe etaje diferite) — ca desenul de pe plan
+    # CAPATUL DE SUS al coloanei: tabloul secundar SAU, pe nivelul fara tablou, punctul de coborare.
+    # Cablurile urca la fel de multi metri in ambele cazuri — ce difera e ce sta in capatul de sus.
+    _cob = _coborare_xy(plan_elements)
+    tes  = panels.get("tablou_tes") or _cob
+    # coloana exista DOAR cross-floor (capetele pe etaje diferite) — ca desenul de pe plan
     _fl = {}
     for el in (plan_elements or []):
         et = (el or {}).get("element_type") or ""
-        if et in ("tablou_teg", "tablou_tes") and et not in _fl:
-            _fl[et] = str(el.get("floor") or "parter")
-    tes_cross = ("tablou_teg" in _fl and "tablou_tes" in _fl and _fl["tablou_teg"] != _fl["tablou_tes"])
+        _k = "sus" if et in ("tablou_tes", _COBORARE) else ("teg" if et == "tablou_teg" else None)
+        if _k and _k not in _fl:
+            _fl[_k] = str(el.get("floor") or "parter")
+    tes_cross = ("teg" in _fl and "sus" in _fl and _fl["teg"] != _fl["sus"])
     tes_counted = False
     out = {}
     # DETECTIE: si echipamentele alimentate din tablou (centrala + desfumarea) au geometrie pe
@@ -309,11 +327,13 @@ def _tes_column_vertical(plan_elements, rooms):
     fl = {}
     for el in (plan_elements or []):
         et = (el or {}).get("element_type") or ""
-        if et in ("tablou_teg", "tablou_tes") and et not in fl:
-            fl[et] = _FLOOR_IDX.get(str(el.get("floor") or "parter"), 0)
-    if "tablou_teg" not in fl or "tablou_tes" not in fl or fl["tablou_teg"] == fl["tablou_tes"]:
+        # capatul de sus = tabloul secundar SAU punctul de coborare (nivel fara tablou)
+        k = "sus" if et in ("tablou_tes", _COBORARE) else ("teg" if et == "tablou_teg" else None)
+        if k and k not in fl:
+            fl[k] = _FLOOR_IDX.get(str(el.get("floor") or "parter"), 0)
+    if "teg" not in fl or "sus" not in fl or fl["teg"] == fl["sus"]:
         return 0.0
-    lo, hi = min(fl["tablou_teg"], fl["tablou_tes"]), max(fl["tablou_teg"], fl["tablou_tes"])
+    lo, hi = min(fl["teg"], fl["sus"]), max(fl["teg"], fl["sus"])
     hs = _floor_heights(rooms)
     v = 2.0 * _TABLOU_HEIGHT_M                                  # capetele (TEG + TES)
     for lvl in range(lo, hi):                                   # fiecare nivel dintre ele
@@ -425,7 +445,7 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
     # pe cablul circuitului (inclusiv dedicatele de incalzire + feed-ul coloanei).
     ppos = {}
     for el in (plan_elements or []):
-        if (el.get("element_type") or "") in _PANEL_TYPES:
+        if (el.get("element_type") or "") in _PANEL_TYPES or (el.get("element_type") or "") == _COBORARE:
             ppos[(el.get("element_type") or "")] = el
     for c in (circuits or []):
         if _section_of(c.get("cable_type")) <= 0:
@@ -435,6 +455,12 @@ def _vertical_drops(plan_elements, circuits, rooms, W=None, H=None):
         panel = str(c.get("panel") or "TEG")
         key = ("tablou_te_ct" if panel == "TE-CT" else
                ("tablou_tes" if panel.startswith("TES") else "tablou_teg"))
+        # Circuitul unui nivel FARA tablou secundar are panel="TEG" (se leaga acolo), dar cablurile
+        # lui pleaca de pe ETAJUL LUI, din punctul de coborare. Fara distinctia asta, plecarea s-ar
+        # masura de la inaltimea TEG-ului de la parter. Semnalul e `_plan_cid` (sufixul de planşa
+        # "-SUS"), singurul lucru care mai deosebeste cele doua feluri de circuite de pe TEG.
+        if key == "tablou_teg" and str(c.get("_plan_cid") or "").endswith("-SUS") and _COBORARE in ppos:
+            key = _COBORARE
         el = ppos.get(key) or ppos.get("tablou_teg")
         if el is None:
             continue
@@ -1018,6 +1044,19 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     # [f] TABLOU IP65 la TE-CT: 1 buc daca exista tablou_te_ct pe plan.
     if any((el.get("element_type") or "") == "tablou_te_ct" for el in plan_elements):
         rows.append(_row("Tablouri", "Carcasa/tablou IP65", "TE-CT (camera tehnica)", 1, "buc", sectiune="TE-CT"))
+
+    # TUBUL DE PROTECTIE PRIN PLANSEU (decizia Dan): pe nivelul fara tablou secundar, cablurile
+    # circuitelor coboara la TEG printr-un singur punct — traversarea planseului se face in tub.
+    # Metrii = VERTICALA coloanei, aceeasi valoare cu a cablurilor (_tes_column_vertical): un tub
+    # care ar avea alta lungime decat cablul din el ar fi o a doua sursa de adevar.
+    _n_cob = sum(1 for el in plan_elements if (el.get("element_type") or "") == _COBORARE)
+    if _n_cob:
+        _v_cob = _tes_column_vertical(plan_elements, rooms)
+        if _v_cob > 0:
+            rows.append(_row("Accesorii", "Tub de protectie prin planseu", "coborare circuite la TEG",
+                             round(_v_cob * waste, 1), "m", sectiune="TEG"))
+        rows.append(_row("Accesorii", "Doza de trecere prin planseu", "punct de coborare",
+                         _n_cob, "buc", sectiune="TEG"))
 
     # [a][b][d] PRIZA DE PAMANT — LOCUINTA: platbanda 40x4 (perimetrul CONTURULUI MANUAL desenat =
     #     ground_electrode_path) + platbanda 20x2 (TEG->cel mai apropiat perete/contur + 1.5 + 2) +

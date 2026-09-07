@@ -407,11 +407,38 @@ def _wrap_label_25(text, width=25):
 
 def _draw_label_spec(page, sp):
     """Deseneaza un spec de eticheta (x0 = stanga, y = baseline). O2: spec-ul poate avea `lines`
-    (max 2 randuri, echipamente de incalzire) -> fiecare rand la +_LBL_LINE_H sub precedentul."""
+    (max 2 randuri, echipamente de incalzire) -> fiecare rand la +_LBL_LINE_H sub precedentul.
+    `sageata_sus`: circuitul coboara la TEG de pe nivelul asta -> sageata mica DUPA text."""
     lines = sp.get("lines") or [sp["text"]]
     for i, ln in enumerate(lines):
         page.insert_text(fitz.Point(sp["x0"], sp["y"] + i * _LBL_LINE_H), ln,
                          fontsize=sp["fs"], fontname=sp["font"], color=sp["color"])
+    if sp.get("sageata_sus"):
+        # pozitia se ia pe latimea MASURATA a ultimului rand, nu pe `w` din spec: acolo `w` e o
+        # estimare (`len(txt) * fs * 0.50`) folosita la anti-coliziune, si e mai LATA decat textul
+        # real — sageata ar cadea peste ultimele litere.
+        try:
+            _w = fitz.get_text_length(lines[-1], fontname=sp["font"], fontsize=sp["fs"])
+        except Exception:
+            _w = sp.get("w", 0)
+        _y = sp["y"] + (len(lines) - 1) * _LBL_LINE_H
+        _draw_sageata_sus(page, sp["x0"] + _w + sp["fs"] * 0.30, _y, sp["fs"], sp["color"])
+
+
+def _draw_sageata_sus(page, x, y_base, fs, col):
+    """Sageata „circuitul coboara la TEG", desenata VECTORIAL langa eticheta.
+
+    NU ca text: „↑" (U+2191) nu exista in WinAnsi, fontul base-14 il inlocuieste cu „·", iar
+    `get_text_length` il masoara 2,5 pt in loc de latimea reala — a treia oara aceeasi capcana in
+    proiectul asta (em-dash-ul din schema monobloc, interpunctul din eticheta de 12 V). Masurat:
+    „C7↑" se extrage inapoi din PDF ca „C7·"."""
+    h = fs * 0.72
+    top, bot = y_base - h, y_base
+    page.draw_line(fitz.Point(x, bot), fitz.Point(x, top), color=col, width=max(0.7, fs * 0.09))
+    w = fs * 0.22
+    for dx in (-w, w):
+        page.draw_line(fitz.Point(x, top), fitz.Point(x + dx, top + h * 0.36),
+                       color=col, width=max(0.7, fs * 0.09))
 
 
 def _resolve_label_overlaps(specs, pad=1.0, max_steps=40):
@@ -631,12 +658,28 @@ def _cid_display(cid):
     return (cid or "").replace("-TECT", "-CT")
 
 
+def _cid_coboara(cid):
+    """Circuitul asta coboara la TEG de pe un nivel superior? (sufixul de planşa '-SUS', sau codul
+    de enrich marcat cu el). Sageata se deseneaza VECTORIAL — vezi `_draw_label_spec`."""
+    return str(cid or "").endswith("-SUS")
+
+
+def _cid_fara_sus(cid):
+    """Codul fara marcajul de coborare: sageata il inlocuieste, ca sa nu apara si textul si simbolul."""
+    return str(cid or "")[:-4] if _cid_coboara(cid) else str(cid or "")
+
+
 def _priza_label(el):
     """Eticheta priza: 'C{circuit_id} - h={mount_height_m}m'. Circuit lipsa -> doar inaltime;
     ambele lipsa -> ''. Ex: circuit_id='C4', mount_height_m=0.6 -> 'C4 - h=0.6m'.
-    Prizele tech: 'C2-TECT' AFISAT 'C2-CT' (_cid_display, consecvent cu alimentarile)."""
+    Prizele tech: 'C2-TECT' AFISAT 'C2-CT' (_cid_display, consecvent cu alimentarile).
+    `_cid_label` (injectat de /regenerate-plan din enrich) are PRIORITATE fata de `circuit_id`:
+    pe un nivel cu coborare, numarul REAL al circuitului e cel din TEG (C7), nu cel local al
+    planşei (C1-SUS) — altfel eticheta si schema ar arata numere diferite pentru acelasi circuit.
+    Acelasi tipar ca la alimentari (`_cid_label or circuit_id`)."""
     parts = []
-    cid = _cid_display(((el or {}).get("circuit_id") or "").strip())
+    cid = _cid_display(_cid_fara_sus(((el or {}).get("_cid_label")
+                                      or (el or {}).get("circuit_id") or "").strip()))
     if cid:
         parts.append(cid)
     h = _fmt_height((el or {}).get("mount_height_m"))
@@ -656,6 +699,8 @@ def _priza_label_spec(cx, cy, el, inward=None):
         return None
     fs = 9.0                                       # o treapta+ (era 7.5); = becurile (consistent)
     w = len(txt) * fs * 0.50                       # bold -> caractere mai late (ca la becuri)
+    # circuitul coboara la TEG (nivel fara tablou secundar) -> sageata VECTORIALA dupa text
+    _sus = _cid_coboara(((el or {}).get("_cid_label") or (el or {}).get("circuit_id") or "").strip())
     if inward is not None:
         ix, iy = float(inward[0]), float(inward[1])
         if abs(ix) >= abs(iy):                     # perete VERTICAL -> text lateral, in camera
@@ -664,9 +709,9 @@ def _priza_label_spec(cx, cy, el, inward=None):
         else:                                      # perete ORIZONTAL -> text sub/deasupra, in camera
             x0 = cx - w / 2.0
             y = (cy + 30.0 + fs * 0.8) if iy > 0 else (cy - 30.0)
-        return {"text": txt, "x0": x0, "y": y, "w": w, "fs": fs,
+        return {"text": txt, "x0": x0, "y": y, "w": w, "fs": fs, "sageata_sus": _sus,
                 "font": "hebo", "color": _PRIZA_COLOR}
-    return {"text": txt, "x0": cx - w / 2.0, "y": cy - 26.0, "w": w, "fs": fs,
+    return {"text": txt, "x0": cx - w / 2.0, "y": cy - 26.0, "w": w, "fs": fs, "sageata_sus": _sus,
             "font": "hebo", "color": _PRIZA_COLOR}
 
 
@@ -2208,6 +2253,12 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     # f) TABLOURI (ambele): doar tipurile prezente
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
               for et in _PANEL_ORDER if et in present and et in _PANEL_TYPES]
+    # f1) PUNCTUL DE COBORARE: nu-i tablou, dar are simbol pe planşa -> are si rand de legenda.
+    # `kind: "crossing"` refoloseste randul pe care legenda il stie deja de la traversarea intre
+    # niveluri (cerc + sageata), cu `up=False` — nu se adauga un desen nou in legenda.
+    if COBORARE_TYPE in present:
+        panels.append({"kind": "crossing", "up": False,
+                       "text": "Coborare circuite la tabloul general (traversare planseu, in tub)"})
 
     # f2) TABLOURILE FV (FV-P2, DINAMICE): descrierea Dan + montajul din LABEL ("fatada"/"spatiu
     # tehnic") + kW-ul invertorului din POWER_W. Texte ~100 caractere -> wrap pe 2 randuri (`lines`,
@@ -2915,6 +2966,11 @@ _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 _PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator",
                 "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2: tablourile FV si pe PDF
+# COBORAREA CABLURILOR: nivelul fara tablou secundar isi trimite circuitele in jos, prin punctul
+# ales de inginer, la TEG. NU e tablou (in afara lui `_PANEL_TYPES`, ca `corp_evacuare` fata de
+# `_BULB_TYPES`): n-are schema, n-are circuite proprii, nu intra in `panels`. E doar o DESTINATIE
+# de rutare pe planşa lui, plus capatul de sus al coloanei.
+COBORARE_TYPE = "coborare_cabluri"
 _FV_PANEL_ORDER = ("tablou_tcc", "tablou_inv", "tablou_tca")   # ordinea lantului (T.CC -> INV -> T.CA)
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
 _RECEPTOR_TYPES = {"alimentare_receptor", "receptor_internet"}   # NIVEL 2: receptoare -> room geometric (pt. detectie tech in enrich)
@@ -3858,6 +3914,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     Returneaza (cables, stats). cable = {from_type, from_xy, to_type, to_xy, path:[(x,y)..], kind, length, room}."""
     bulbs, switches, panels, prizes, receptors = [], [], {}, [], []
     evacs = []                       # corpuri de evacuare: alimentare PERMANENTA, direct la tablou
+    coborare_xy = None               # punctul prin care circuitele nivelului coboara la TEG
     for el in (elements or []):
         try:
             et = el.get("element_type") or ""
@@ -3874,6 +3931,11 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                 switches.append({"et": et, "x": x, "y": y, "room": room})
         elif et in _PANEL_TYPES:
             panels[et] = (x, y)            # de obicei 1 per tip
+        elif et == COBORARE_TYPE:
+            # Punctul de coborare: TINTA de rutare a planşei, dar NU tablou. Deliberat in afara lui
+            # `panels` — acolo intra doar tablourile REALE, iar `panels` hraneste legenda, BOM-ul si
+            # rezolvarea tabloului general; l-ar face sa apara ca al patrulea tablou peste tot.
+            coborare_xy = (x, y)
         elif et in _PRIZA_TYPES:           # FORTA: prize -> lant pe circuit + coborare la tablou (mai jos)
             prizes.append({"et": et, "x": x, "y": y, "room": room, "cid": el.get("circuit_id"),
                            "rot": el.get("rotation")})   # O1: orientarea barei = rotation persistat (ca desenul)
@@ -3898,6 +3960,11 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     # (unde tabloul e TES) cadeau TOATE pe skip_tablou_lipsa si cablurile spre tablou lipseau.
     lum_panel_type = "tablou_teg" if teg else ("tablou_tes" if panels.get("tablou_tes") else None)
     lum_panel_xy = panels.get(lum_panel_type) if lum_panel_type else None
+    # NIVEL FARA TABLOU SECUNDAR: tinta e punctul de coborare. Fara el, `tgt_xy is None` -> `continue`,
+    # adica planşa ar iesi FARA NICIUN CABLU, tacut — exact defectul reparat o data mai sus (etajul
+    # cadea pe skip_tablou_lipsa). Aici destinatia exista, doar ca nu-i un tablou.
+    if lum_panel_xy is None and coborare_xy is not None:
+        lum_panel_type, lum_panel_xy = COBORARE_TYPE, coborare_xy
     tect = panels.get("tablou_te_ct")
 
     # FAZA 2a: bbox px per camera (nume -> (x0,y0,x1,y1)) pt. rutarea prizelor pe perimetru.
@@ -4039,6 +4106,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     # un circuit = o singura plecare din tablou (capul lantului, priza cea mai apropiata de tablou).
     gen_type = "tablou_teg" if panels.get("tablou_teg") else ("tablou_tes" if panels.get("tablou_tes") else None)
     general_xy = panels.get(gen_type) if gen_type else None
+    if general_xy is None and coborare_xy is not None:     # idem, pentru prize si receptoare
+        gen_type, general_xy = COBORARE_TYPE, coborare_xy
     def _route_chain(prz, room, n, R=None, G_cands=None):
         """REGULA DE AUR (Dan): DAISY-CHAIN — prizele circuitului in LANT (capat de bara -> capat de
         bara, nearest-neighbor pornind de la priza cea mai apropiata de IESIRE), apoi O SINGURA iesire
@@ -4632,11 +4701,18 @@ def tech_room_from_elements(plan_elements):
 def _detect_general_panel(elements):
     """Tabloul GENERAL al planului (per-etaj). 'TES' daca planul contine un tablou_tes (etaj) ->
     circuitele generale primesc sufix -TES (C1-TES, C2-TES...), numerotare PROPRIE/locala (analog -TECT).
+    'SUS' daca planul are un punct de COBORARE in loc de tablou secundar: circuitele lui se leaga
+    la TEG, dar id-ul persistat trebuie sa ramana distinct de al parterului (care e tot pe TEG) ->
+    sufix -SUS. OGLINDA lui `enrich_circuits._panel_for_floor`: cele doua trebuie sa dea acelasi
+    sufix, altfel `plan_elements.circuit_id` si id-ul din schema diverg.
     Altfel 'TEG' (parter/implicit) -> FARA sufix (C1, C2...) = backward-compat total.
     TE-CT ramane subset separat (camera tehnica), neafectat de asta."""
     for el in (elements or []):
         if ((el or {}).get("element_type") or "") == "tablou_tes":
             return "TES"
+    for el in (elements or []):
+        if ((el or {}).get("element_type") or "") == "coborare_cabluri":
+            return "SUS"
     return "TEG"
 
 
@@ -5133,6 +5209,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             elif et in _PANEL_TYPES:
                 _draw_panel(page, x, y, et)                                          # tablou TEG/TE-CT (1c)
                 n_panel += 1
+            elif et == COBORARE_TYPE:
+                # Punctul de coborare: ACELASI simbol conventional de traversare intre niveluri pe
+                # care-l foloseste coloana TEG->TES (`_draw_floor_crossing`), cu sageata in JOS —
+                # circuitele nivelului pleaca de aici spre TEG-ul de dedesubt. Refolosit, nu rescris.
+                _draw_floor_crossing(page, x, y, up=False, label="COBOARA LA TEG")
             elif et in _PRIZA_TYPES:
                 # O1: ORIENTAREA = rotation-ul PERSISTAT de editor (snap pe peretii REALI — aceeasi
                 # sursa pe care o vede inginerul in editor => PDF = editor prin constructie; prizele

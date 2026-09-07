@@ -102,6 +102,9 @@ const PANEL_TYPES = [
   { value: "tablou_teg",    label: "Tablou TEG",    short: "TEG",   colA: "#F0F0F0", colB: "#22C55E" },
   { value: "tablou_te_ct",  label: "Tablou TE-CT",  short: "TE-CT", colA: "#EF4444", colB: "#3B82F6" },
   { value: "tablou_tes",    label: "Tablou TES",    short: "TES",   colA: "#F0F0F0", colB: "#1565C0" },
+  // Punctul de COBORÂRE: nu e tablou (n-are schemă, n-are circuite proprii) — dar se plasează la fel,
+  // e unic pe etaj și se desenează pe ambele planșe, deci trece prin exact același mecanism.
+  { value: "coborare_cabluri", label: "Coborâre cabluri", short: "↓TEG", colA: "#F0F0F0", colB: "#2E7D32" },
   { value: "transformator", label: "Transformator", short: "TR",    colA: "#D1D5DB", colB: "#6B7280" },
   // FV-P1: tablourile sistemului fotovoltaic (gated pe solar.enabled, DOAR parter, montaj în label).
   // INV are simbol propriu (pătrat roșu ~/=) — colA/colB nefolosite acolo.
@@ -2631,6 +2634,47 @@ export default function PlanEditor({
     );
   };
 
+  // TABLOUL SECUNDAR AL ETAJULUI, sau coborârea cablurilor. ALEGEREA E ELEMENTUL PLASAT: nu există
+  // bifă și nicio stare de sincronizat — ori e un `tablou_tes` pe etaj, ori un `coborare_cabluri`.
+  // Fără niciunul, backendul păstrează comportamentul de până acum (TES presupus) — de aceea
+  // avertismentul de mai jos e explicit: altfel planșa ar ieși fără niciun cablu desenat, tăcut.
+  const renderPanelSecundar = () => {
+    const fi = floorIndex(floor);
+    const tes = elements.find(e => e.element_type === "tablou_tes" && floorIndex(e.floor) === fi) || null;
+    const cob = elements.find(e => e.element_type === "coborare_cabluri" && floorIndex(e.floor) === fi) || null;
+    if (tes) return renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false);
+    if (cob) {
+      return (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#C5C8D6", marginBottom: 5 }}>
+            Coborâre cabluri la TEG
+          </div>
+          {renderElementRow(cob, "")}
+          <div style={{ fontSize: 11, color: "#8B8FA8", lineHeight: 1.5, paddingLeft: 2, marginTop: 4 }}>
+            Circuitele etajului se alimentează direct din TEG. Trage punctul acolo unde trec cablurile
+            prin planșeu.
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#C5C8D6", marginBottom: 5 }}>
+          Tablou secundar (TES)
+        </div>
+        <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+          <button type="button" className="zy-add-btn" onClick={() => addPanel("tablou_tes", "nou")}>+ Nou propus</button>
+          <button type="button" className="zy-add-btn" onClick={() => addPanel("tablou_tes", "existent")}>+ Existent</button>
+          <button type="button" className="zy-add-btn" onClick={() => addPanel("coborare_cabluri", "nou")}>+ Coborâre cabluri</button>
+        </div>
+        <div style={{ fontSize: 11, color: "#E9B949", lineHeight: 1.5, paddingLeft: 2, marginTop: 6 }}>
+          Nivelul n-are nici tablou secundar, nici punct de coborâre — alege unul, altfel cablurile
+          spre tablou nu se desenează pe planșa acestui nivel.
+        </div>
+      </div>
+    );
+  };
+
   // secțiunea Tablouri (sub camere): TEG (nou/existent) + TE-CT (nou/existent/nu e nevoie)
   // PARTER -> tabloul GENERAL (TEG) + tehnic (TE-CT). ETAJ/MANSARDĂ -> tabloul SECUNDAR (TES),
   // care se alimentează de la TEG. TE-CT rămâne pe parter în v1 (camera tehnică e de obicei la parter).
@@ -2652,7 +2696,7 @@ export default function PlanEditor({
                 "Pozitioneaza T.CC + INV + T.CA" din editorul de FORTA (bloc adiacent, plan_type=forta). */}
           </>
         ) : (
-          renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false)
+          renderPanelSecundar()
         )}
       </div>
     );

@@ -3955,6 +3955,20 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                     if _pick is not None:
                         _codes[_el["id"]] = str(_pick["id"])
                         _ded_left.remove(_pick)
+                # NIVEL FARA TABLOU SECUNDAR: planşa a persistat id-ul LOCAL (C1-SUS), dar circuitul
+                # sta pe TEG si poarta acolo numarul din numerotarea TEG (C5). Fara puntea asta,
+                # eticheta de pe planşa si numarul din schema ar arata doua lucruri diferite pentru
+                # acelasi circuit — exact divergenta plan/schema pe care numerotarea per-tablou a
+                # rezolvat-o la restul. `_plan_cid` e id-ul de planşa, pastrat de enrich inainte de
+                # renumerotare. Marcajul "-SUS" ramane pe cod: `_cid_display` il ascunde, iar
+                # `_cid_coboara` aprinde sageata vectoriala.
+                _pc_map = {str(_c.get("_plan_cid")): str(_c.get("id"))
+                           for _c in _ecirc
+                           if isinstance(_c, dict) and str(_c.get("_plan_cid") or "").endswith("-SUS")}
+                for _el in rows:
+                    _pc = str(_el.get("circuit_id") or "")
+                    if _pc in _pc_map:
+                        _el["_cid_label"] = _pc_map[_pc] + "-SUS"
                 for _el in rows:                                   # injectare pe subsetul etajului (alt fetch, acelasi id)
                     if _el.get("id") in _codes:
                         _el["_cid_label"] = _codes[_el["id"]]
@@ -4003,10 +4017,16 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                 from supabase_client import supabase as _supa4
                 _pans = (_supa4.table("plan_elements").select("element_type,x,y,floor")
                          .eq("project_id", request.project_id)
-                         .in_("element_type", ["tablou_teg", "tablou_tes"])
+                         .in_("element_type", ["tablou_teg", "tablou_tes", "coborare_cabluri"])
                          .execute().data) or []
                 _tegr = next((r for r in _pans if r.get("element_type") == "tablou_teg"), None)
-                _tesr = next((r for r in _pans if r.get("element_type") == "tablou_tes"), None)
+                # CAPATUL DE SUS al coloanei: tabloul secundar SAU, pe nivelul fara tablou, punctul
+                # de coborare. Traversarea e ACEEASI (o coloana intre doua niveluri) — se schimba
+                # doar ce sta in capatul de sus si textul sagetilor. Mecanismul se REFOLOSESTE.
+                _cobr = next((r for r in _pans if r.get("element_type") == "coborare_cabluri"), None)
+                _tesr = next((r for r in _pans if r.get("element_type") == "tablou_tes"), None) or _cobr
+                _e_cob = (_tesr is not None and _cobr is not None
+                          and _tesr.get("element_type") == "coborare_cabluri")
                 _f_teg = str((_tegr or {}).get("floor") or "parter")
                 _f_tes = str((_tesr or {}).get("floor") or "parter")
                 if _tegr and _tesr and _f_teg != _f_tes and request.floor in (_f_teg, _f_tes):
@@ -4042,14 +4062,19 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         except Exception:
                             pass
                         _cross = {"mode": "up", "xy": (_px, _py),
-                                  "label": "Coloana spre TES (%s)" % _f_tes, "offset_source": _osrc}
+                                  "label": ("Alimentare circuite %s (vine de sus)" % _f_tes if _e_cob
+                                            else "Coloana spre TES (%s)" % _f_tes),
+                                  "offset_source": _osrc}
                         print("[regenerate-plan] cross-floor UP: offset=(%.2f, %.2f) src=%s -> TES proiectat (%.1f, %.1f)"
                               % (_dx, _dy, _osrc, _px, _py))
                     else:
                         # plansa cu TES: simbolul "vine de jos" LANGA tablou (24pt deasupra —
                         # exact pe pozitia TES ar acoperi simbolul tabloului)
-                        _cross = {"mode": "down", "xy": (float(_tesr["x"]), float(_tesr["y"]) - 24.0),
-                                  "label": "Alimentare din TEG (%s)" % _f_teg}
+                        # pe planşa de SUS simbolul il deseneaza chiar elementul (COBOARA LA TEG),
+                        # deci aici nu se mai adauga unul al doilea peste el
+                        _cross = (None if _e_cob else
+                                  {"mode": "down", "xy": (float(_tesr["x"]), float(_tesr["y"]) - 24.0),
+                                   "label": "Alimentare din TEG (%s)" % _f_teg})
                     # sectiunea coloanei TES in legenda: feed-ul TES REAL din schema (enrich il genereaza
                     # acum: feeds_panel="TES1"/"TES2"); fallback normativ DOAR daca lipseste cu totul
                     # (proiecte nefinalizate pre-enrich) — cu prefixul FAZEI bransamentului (mono: 3 fire)
