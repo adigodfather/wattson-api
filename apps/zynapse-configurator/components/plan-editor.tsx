@@ -792,6 +792,73 @@ function snapOrtho(ref: number[] | null | undefined, px: number, py: number,
                     : [ref[0], py];                     // ~vertical  -> x de la referinta
 }
 
+// ── GHIDAJE DE ALINIERE la mutarea corpurilor de TAVAN ─────────────────────────────────────
+// La hale si blocuri, 30-40 de corpuri asezate „din ochi" fac planşa greu de citit si greu de
+// executat. Ghidajele sunt cele din orice editor de design: tragi un corp, iar cand ajunge pe axa
+// altuia (sau la distanta egala fata de doua) apare o linie punctata si corpul se lipeste.
+//
+// DOAR CORPURI DE TAVAN. `aplica_perete` / `aplica_senzor` stau pe perete si au deja snap-ul lor
+// (peretele decide pozitia, nu vecinii), iar banda LED e un traseu, nu un corp.
+// DOAR IN ACEEASI CAMERA: alinierea cu un bec din camera vecina n-are inteles la montaj.
+// Functie PURA, ca `snapToWall` / `snapOrtho` / `snapCamera` — primeste pozitia si vecinii, intoarce
+// pozitia lipita plus ghidajele de desenat. Nu atinge starea, nu deseneaza nimic.
+const CEILING_BULBS = new Set(["lustra_led", "aplica_tavan", "panou_led"]);
+export const isCeilingBulb = (t: string) => CEILING_BULBS.has(t);
+// PRAGUL e in PIXELI DE ECRAN, nu in puncte PDF: ghidajul trebuie sa se simta la fel la orice zoom
+// (celelalte snap-uri sunt in puncte fiindca reprezinta distante FIZICE — grosimea unui perete —,
+// pe cand asta e un gest de mana). 9 px: sub 6 nu se prinde, peste ~14 „fura" pozitia.
+const ALIGN_SNAP_PX = 9;
+
+export type Ghidaj = { axa: "x" | "y"; pos: number; de_la: number; pana_la: number; egal: boolean };
+
+export function snapAliniere(
+  px: number, py: number,
+  frati: Array<{ x: number; y: number }>,
+  pragPdf: number,
+): { x: number; y: number; ghidaje: Ghidaj[] } {
+  const ghidaje: Ghidaj[] = [];
+  let x = px, y = py;
+  // pe fiecare axa, separat: X se aliniaza cu X-ul altora (linie VERTICALA), Y cu Y (orizontala)
+  for (const axa of ["x", "y"] as const) {
+    const co = (p: { x: number; y: number }) => (axa === "x" ? p.x : p.y);
+    const alt = (p: { x: number; y: number }) => (axa === "x" ? p.y : p.x);
+    const val = axa === "x" ? px : py;
+    const valAlt = axa === "x" ? py : px;
+    // 1. AXA: cel mai apropiat frate cu aceeasi coordonata
+    let best: { pos: number; d: number } | null = null;
+    for (const f of frati) {
+      const d = Math.abs(co(f) - val);
+      if (d <= pragPdf && (!best || d < best.d)) best = { pos: co(f), d };
+    }
+    // 2. DISTANTE EGALE: intre fratii DEJA aliniati pe cealalta axa, pasul dintre cei mai apropiati
+    //    doi; daca pozitia curenta continua acel pas, se lipeste pe el. Cu 4+ corpuri regula ramane
+    //    aceeasi — pasul cel mai MIC de pe axa —, fiindca ala e ritmul pe care ochiul il citeste.
+    let egal: { pos: number; d: number } | null = null;
+    const peAxa = frati.filter(f => Math.abs(alt(f) - valAlt) <= pragPdf)
+                       .map(co).sort((a, b) => a - b);
+    if (peAxa.length >= 2) {
+      let pas = Infinity;
+      for (let i = 1; i < peAxa.length; i++) pas = Math.min(pas, peAxa[i] - peAxa[i - 1]);
+      if (pas > 0 && pas < Infinity) {
+        for (const cand of [peAxa[0] - pas, peAxa[peAxa.length - 1] + pas]) {
+          const d = Math.abs(cand - val);
+          if (d <= pragPdf && (!egal || d < egal.d)) egal = { pos: cand, d };
+        }
+      }
+    }
+    const cast = egal && (!best || egal.d < best.d) ? egal : best;   // cel mai apropiat castiga
+    if (!cast) continue;
+    if (axa === "x") x = cast.pos; else y = cast.pos;
+    // ÎNTINDEREA liniei: de la cel mai indepartat frate implicat pana la corpul tras, cu o marja.
+    // Nu pe toata latimea camerei: cu trei corpuri aliniate n-ai mai sti CU CARE se aliniaza.
+    const impl = frati.filter(f => Math.abs(co(f) - cast.pos) <= pragPdf).map(alt);
+    const toate = impl.concat([valAlt]);
+    ghidaje.push({ axa, pos: cast.pos, de_la: Math.min(...toate) - 12,
+                   pana_la: Math.max(...toate) + 12, egal: cast === egal });
+  }
+  return { x, y, ghidaje };
+}
+
 // Shift apasat in evenimentul Konva (nativul e in e.evt). TouchEvent n-are shiftKey -> "in" type-safe.
 function isShiftDown(e: { evt?: unknown }): boolean {
   const ev = e?.evt as Record<string, unknown> | undefined;
@@ -1015,6 +1082,10 @@ export default function PlanEditor({
 
   // factor puncte-PDF -> pixeli-PNG (din png_meta; NICIODATĂ hardcodat)
   const scale = pngMeta?.scale ?? 1;
+  // GHIDAJELE de aliniere: temporare, DOAR in editor. Se sterg la eliberarea mouse-ului si nu
+  // ajung niciodata pe planşa (PDF-ul se deseneaza in backend, din plan_elements — ghidajul nu-i
+  // un element, e o stare de UI).
+  const [ghidaje, setGhidaje] = useState<Ghidaj[]>([]);
   // client Supabase reutilizat (citire la mount + UPDATE/INSERT/DELETE din editor)
   const supabase = useMemo(() => createClient(), []);
 
@@ -2012,7 +2083,33 @@ export default function PlanEditor({
 
   // Drag -> salvează noua poziție în PUNCTE PDF. e.target e Group-ul; x/y sunt în coordonate Layer
   // (spațiul PNG), iar Stage-scale (displayScale) e separat și NU intervine. Inversul exact al afișării.
+  // Corpurile de TAVAN din ACEEASI camera si de pe ACELASI etaj, fara cel tras.
+  function fratiiDeTavan(el: PlanElement) {
+    return elements.filter(o => o.id !== el.id && isCeilingBulb(o.element_type)
+      && floorIndex(o.floor) === floorIndex(el.floor)
+      && (o.room || "") === (el.room || ""));
+  }
+
+  // GHIDAJE la mutare: se calculeaza pozitia lipita si liniile, iar Group-ul e mutat pe loc, ca
+  // becul sa se „prinda" vizibil sub cursor. Shift dezactiveaza (aceeasi conventie ca la trasee).
+  // Costul e O(n) pe axa la fiecare miscare de mouse; la 40 de corpuri intr-o camera inseamna 80 de
+  // scaderi — sub orice prag perceptibil. `setGhidaje` se cheama DOAR cand setul se schimba, altfel
+  // fiecare pixel de drag ar declansa un re-render inutil.
+  function handleDragMove(el: PlanElement, e: KonvaEventObject<DragEvent>) {
+    if (!isCeilingBulb(el.element_type) || isShiftDown(e)) {
+      if (ghidaje.length) setGhidaje([]);
+      return;
+    }
+    const frati = fratiiDeTavan(el);
+    if (!frati.length) return;
+    const r = snapAliniere(e.target.x() / scale, e.target.y() / scale, frati, ALIGN_SNAP_PX / scale);
+    if (r.ghidaje.length) e.target.position({ x: r.x * scale, y: r.y * scale });
+    const cheie = (g: Ghidaj[]) => g.map(z => `${z.axa}:${z.pos.toFixed(1)}:${z.egal}`).join("|");
+    if (cheie(r.ghidaje) !== cheie(ghidaje)) setGhidaje(r.ghidaje);
+  }
+
   function handleDragEnd(el: PlanElement, e: KonvaEventObject<DragEvent>) {
+    setGhidaje([]);                    // ghidajul e temporar: dispare la eliberare
     let xPdf = e.target.x() / scale;
     let yPdf = e.target.y() / scale;
     // FV: tablourile FV se muta ca BLOC (mut unul -> toate 3) + SNAP la perete. FV-B2: la snap,
@@ -3369,6 +3466,7 @@ export default function PlanEditor({
                       onClick={() => selectElement(el.id)}
                       onTap={() => selectElement(el.id)}
                       onDragStart={(e) => e.target.moveToTop()}
+                      onDragMove={(e) => handleDragMove(el, e)}
                       onDragEnd={(e) => handleDragEnd(el, e)}
                       onMouseEnter={(e) => setCursor(e, isPanel && mode === "forta" ? "default" : "move")}
                       onMouseLeave={(e) => setCursor(e, "default")}
@@ -3702,6 +3800,18 @@ export default function PlanEditor({
                         onClick={placeReceptorAt} onTap={placeReceptorAt}
                         onMouseEnter={(e) => setCursor(e, "crosshair")} onMouseLeave={(e) => setCursor(e, "default")} />
                 )}
+                {/* GHIDAJELE DE ALINIERE — ULTIMELE în strat, ca să se vadă peste simboluri.
+                    Punctate și subțiri: sunt un ajutor de moment, nu conținut de planșă. Verde
+                    pentru „distanțe egale" (relația e alta decât simpla aliniere pe axă) și accentul
+                    albastru pentru aliniere — aceeași convenție ca în editoarele de design. */}
+                {ghidaje.map((g, i) => (
+                  <Line key={`gh${i}`}
+                        points={g.axa === "x"
+                          ? [g.pos * scale, g.de_la * scale, g.pos * scale, g.pana_la * scale]
+                          : [g.de_la * scale, g.pos * scale, g.pana_la * scale, g.pos * scale]}
+                        stroke={g.egal ? "#22C55E" : "#378ADD"} strokeWidth={1} dash={[5, 4]}
+                        opacity={0.9} listening={false} />
+                ))}
                 {/* MÂNERUL DE ROTAȚIE — pe camera SELECTATĂ, doar la tipurile cu con (sub 360°).
                     E un cerc mic pe axa conului, la 70% din rază: se trage și camera se rotește după
                     unghiul dintre centru și cursor. Poziția nu se schimbă la rotire.
