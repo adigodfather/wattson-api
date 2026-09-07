@@ -1865,6 +1865,56 @@ def _draw_cerc_detector(page, el, scale_m_per_px, page_rect, clip_rect=None, fal
                      fill=_DET_CERC_FILL, edge=_DET_CERC_EDGE)
 
 
+# CONUL DE DETECTIE al PIR-ului. Familia EFRACTIEI (magenta), nu albastrul camerelor: pe aceeasi
+# planşa stau ambele sisteme, iar culoarea spune la care se uita cititorul. Umplutura e o tenta mai
+# deschisa a familiei, conturul e chiar culoarea ei — exact tiparul cercului de detectie incendiu.
+# Distantele perceptuale, MASURATE (CIE76, acelasi prag de 30 ca la alegerea rozului/turcoazului):
+# dE fata de umplutura camerelor = 54, fata de cercul detectoarelor = 34.
+_PIR_CON_FILL = (0.871, 0.502, 0.651)   # #DE80A6
+_PIR_CON_EDGE = _CS_EFRACTIE            # #C2185B — familia efractiei
+_PIR_CON_UNGHI = 180.0                  # „Raza de actiune 180 grade" — chiar textul din legenda
+_PIR_CON_RAZA_M = 12.0                  # raza uzuala a unui PIR de interior
+
+
+def _draw_con_pir(page, el, scale_m_per_px, page_rect, clip_rect=None, fallback_rect=None):
+    """Conul de detectie al unui PIR: sector de 180 grade, raza 12 m, la scara REALA a planului.
+
+    REFOLOSESTE integral mecanismul conului de camera — aproximarea cu poligon (ca sa poata fi
+    decupat), `_cam_taie` (decupare la incapere, cu revenire la conturul cladirii) si `_fill_con`.
+    Ce difera: unghiul si raza sunt FIXE (un PIR n-are „tipuri" ca o camera), iar culoarea e a
+    efractiei. Nu se aplica `raza_max`: acela plafona camerele de FATADA, care se uita in afara
+    cladirii — un PIR sta inauntru si priveste spre incapere.
+
+    ORIENTAREA vine din `rotation`, pusa de snap-ul la perete/colt (perpendicular pe perete spre
+    interior, respectiv pe bisectoare in colt) si ajustabila cu manerul de rotatie. NU se deduce din
+    usi sau geamuri: detectia usii a fost masurata pe 8 planuri reale — autentica pe 1, fals-pozitiva
+    pe 2, iar pe planul comercial 0 usi si 0 segmente de perete; geamurile nu se detecteaza deloc.
+    Un con de 180 grade orientat gresit ARATA o acoperire care nu exista.
+
+    DECUPAREA la incapere e fizica, nu cosmetica: un PIR nu vede prin pereti.
+    Intoarce True daca a desenat."""
+    try:
+        x = float(el["x"]); y = float(el["y"])
+    except (TypeError, ValueError, KeyError):
+        return False
+    sc = float(scale_m_per_px or 0) or _PX_TO_M
+    r = min(_PIR_CON_RAZA_M / sc, math.hypot(page_rect.width, page_rect.height))
+    if r <= 1:
+        return False
+    try:
+        rot = float(el.get("rotation") or 0.0)
+    except (TypeError, ValueError):
+        rot = 0.0
+    half = math.radians(_PIR_CON_UNGHI) / 2.0
+    pts = [fitz.Point(x, y)]
+    N = max(8, int(_PIR_CON_UNGHI / 6))     # un punct la ~6 grade, ca la camere
+    for i in range(N + 1):
+        a = rot - half + (2 * half) * i / N
+        pts.append(fitz.Point(x + r * math.cos(a), y + r * math.sin(a)))
+    return _fill_con(page, _cam_taie(pts, clip_rect, fallback_rect),
+                     fill=_PIR_CON_FILL, edge=_PIR_CON_EDGE)
+
+
 def _cs_abbr_for(el):
     """Abrevierea de pe planşa pentru un element de curenti slabi. Camera are DOUA abrevieri, dupa
     montaj (`label`): CV-INT / CV-EXT, exact ca pe planurile de referinta. Sir gol = fara eticheta
@@ -2153,6 +2203,12 @@ def _legend_rows_cs(elements, present):
                 rows.append(_rc)
             rows.append({"kind": "cam_con", "text": "Zona de acoperire camera (unghi si raza dupa tip)"})
             continue
+        if et == "detector_pir":
+            # randul aparatului (mai jos, din `_CS_LEGENDA`) spune CE e; asta spune ce arata desenul.
+            # Rand PROPRIU, nu text lipit de cel al PIR-ului: conul e o zona desenata, ca la camere,
+            # si are nevoie de simbolul lui in legenda ca sa se stie ce inseamna pata magenta.
+            rows.append({"kind": "pir_con",
+                         "text": "Zona de detectie PIR (180 grade, 12 m)"})
         if et == "nvr":
             # numarul de canale iese din camerele CHIAR plasate, ca sa nu scrie legenda „24 canale"
             # pe o planşa cu trei camere; aceeasi sursa ca lista de cantitati si ca schema
@@ -3657,6 +3713,18 @@ def _draw_legend(page, x, y, rows):
                    fitz.Point(x + PAD + SYM_W - 4.0, cy + 4.5)]
             page.draw_polyline(_cp, color=None, fill=_CAM_CON_COLOR,
                                fill_opacity=_CAM_CON_OPACITY, width=0, closePath=True)
+        elif kind == "pir_con":
+            # SEMICERC (180 grade), cu umplutura SI contur — exact ce se vede pe planşa. Conturul e
+            # cel care se citeste la 10% opacitate; simbolul camerei n-are unul, dar acolo forma e un
+            # triunghi ingust, aici ar fi ramas o pata roz fara margine.
+            _r = 5.2
+            _cx0 = x + PAD + SYM_W / 2.0
+            _pp = [fitz.Point(_cx0 + _r * math.cos(math.radians(a)),
+                              cy + _r * math.sin(math.radians(a)))
+                   for a in range(180, 361, 15)]
+            page.draw_polyline(_pp, color=_PIR_CON_EDGE, fill=_PIR_CON_FILL,
+                               fill_opacity=_CAM_CON_OPACITY, stroke_opacity=_CAM_CON_EDGE_OPACITY,
+                               width=0.7, closePath=True)
         elif kind == "cs_cable":
             _ck = _CS_CABLE_ALIAS.get(r.get("cable") or "", r.get("cable") or _CS_CABLE_DEFAULT)
             _spec = _CS_CABLE.get(_ck, _CS_CABLE[_CS_CABLE_DEFAULT])
@@ -5087,6 +5155,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                                          _cam_camera_rect(_el, rooms,
                                                           page.rect.width, page.rect.height)
                                          or _cam_clip, _cam_clip)
+                except Exception:
+                    pass          # conul e decorativ: orice eroare NU strica planşa
+            elif (_el or {}).get("element_type") == "detector_pir":
+                # CONUL PIR-ului: aceeasi scara reala, acelasi decupaj la incapere ca la camerele de
+                # INTERIOR (un PIR sta inauntru — n-are cazul „se uita in afara" al camerelor de
+                # fatada, deci nici plafon de raza).
+                try:
+                    _draw_con_pir(page, _el, _cam_scale, page.rect,
+                                  _cam_camera_rect(_el, rooms,
+                                                   page.rect.width, page.rect.height)
+                                  or _cam_clip, _cam_clip)
                 except Exception:
                     pass          # conul e decorativ: orice eroare NU strica planşa
             elif (_el or {}).get("element_type") in _DET_ARIE_DEFAULT:

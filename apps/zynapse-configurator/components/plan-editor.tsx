@@ -295,6 +295,13 @@ function derivePdfScale(
   return m2 > 0 && px2 > 0 ? Math.sqrt(m2 / px2) : null;
 }
 const COL_CAM_CON_EDGE = "#2A6BB8";
+// CONUL PIR — oglinda lui `_PIR_CON_*` din draw_elements.py. Familia EFRACȚIEI, nu albastrul
+// camerelor: pe aceeași planșă stau ambele sisteme. Distanțele perceptuale sunt MĂSURATE (CIE76,
+// pragul 30 al proiectului): dE 54 față de conul camerelor, 34 față de cercul detectoarelor.
+const COL_PIR_CON = "#DE80A6";
+const COL_PIR_CON_EDGE = "#C2185B";
+const PIR_CON_UNGHI = 180;
+const PIR_CON_RAZA_M = 12;
 
 // ── DECUPAREA CONULUI (oglinda lui _cam_camera_rect / _cam_zona_exterior din draw_elements.py) ──
 // Peretii opresc imaginea: conul unei camere de interior se taie la incaperea ei. Fara asta, pe un
@@ -2016,12 +2023,16 @@ export default function PlanEditor({
     // CAMERE: snap în COLȚ (prioritar — acolo se montează), altfel la PERETE (mecanismul prizelor,
     // refolosit neschimbat). La ambele, camera se orientează automat spre interior; orientarea se
     // scrie în `rotation`, exact ca la prize și întrerupătoare. Peste prag -> poziție liberă.
-    if (el.element_type === "camera_video") {
+    // PIR-urile trec prin ACELAȘI snap ca și camerele: se montează la fel (pe perete sau în colț) și
+    // privesc la fel (spre interiorul încăperii). Mecanismul se refolosește neschimbat — singura
+    // diferență e că un PIR are mereu orientare (n-are tipuri de 360°, ca PTZ-ul).
+    if (el.element_type === "camera_video" || el.element_type === "detector_pir") {
       const sn = snapCamera(xPdf, yPdf, walls);
       xPdf = sn.x; yPdf = sn.y;
       e.target.position({ x: xPdf * scale, y: yPdf * scale });
       const patch: Partial<PlanElement> = { x: xPdf, y: yPdf };
-      if (sn.rot !== null && camAreOrientare(el.camera_tip)) patch.rotation = sn.rot;
+      const areOr = el.element_type === "detector_pir" || camAreOrientare(el.camera_tip);
+      if (sn.rot !== null && areOr) patch.rotation = sn.rot;
       setLocalField(el.id, patch);
       persist(el.id, patch);
       return;
@@ -3543,6 +3554,30 @@ export default function PlanEditor({
                     </Group>
                   );
                 })}
+                {/* CONURILE PIR — același mecanism ca la camere (rază din scara REALĂ, decupare la
+                    încăpere), doar că unghiul și raza sunt fixe (180°, 12 m) și culoarea e a
+                    efracției. Tot fundal, sub simboluri. */}
+                {elements.filter(e => e.element_type === "detector_pir").map((el) => {
+                  const rPdf = Math.min(PIR_CON_RAZA_M / (pdfScaleM || PX_TO_M_FIX),
+                                        Math.hypot(pngW / scale, pngH / scale));
+                  const rPx = rPdf * scale;
+                  const rot = (el.rotation || 0) * 180 / Math.PI;
+                  const con = (
+                    <Wedge x={el.x * scale} y={el.y * scale} radius={rPx} angle={PIR_CON_UNGHI}
+                           rotation={rot - PIR_CON_UNGHI / 2} fill={COL_PIR_CON} opacity={0.10}
+                           stroke={COL_PIR_CON_EDGE} strokeWidth={0.7} listening={false} />
+                  );
+                  const cl = camClip(el, rooms, pngW / scale, pngH / scale, rPdf);
+                  if (!cl) return <Fragment key={el.id}>{con}</Fragment>;
+                  return (
+                    <Group key={el.id} listening={false}
+                           clip={{ x: cl.x0 * scale, y: cl.y0 * scale,
+                                   width: (cl.x1 - cl.x0) * scale,
+                                   height: (cl.y1 - cl.y0) * scale }}>
+                      {con}
+                    </Group>
+                  );
+                })}
                 {/* TRASEE CURENȚI SLABI: culoare + stil după tipul de cablu (label) — planşa se
                     citește fără să deschizi legenda, ca pe planurile de referință. */}
                 {elements.filter(e => e.element_type === "traseu_cs").map((el) => {
@@ -3673,10 +3708,15 @@ export default function PlanEditor({
                     ULTIMUL în strat, ca să stea DEASUPRA simbolurilor: sub ele, un element suprapus
                     l-ar face neapucabil. */}
                 {(() => {
-                  const cam = elements.find(e => e.id === selectedId && e.element_type === "camera_video");
-                  if (!cam || !camAreOrientare(cam.camera_tip)) return null;
+                  // acelasi maner si pentru PIR: are mereu orientare, iar raza lui e fixa (12 m)
+                  const cam = elements.find(e => e.id === selectedId
+                    && (e.element_type === "camera_video" || e.element_type === "detector_pir"));
+                  if (!cam) return null;
+                  const ePir = cam.element_type === "detector_pir";
+                  if (!ePir && !camAreOrientare(cam.camera_tip)) return null;
                   const sp = camSpec(cam.camera_tip);
-                  const rPx = (sp.raza / (pdfScaleM || PX_TO_M_FIX)) * scale;
+                  const rPx = ((ePir ? PIR_CON_RAZA_M : sp.raza) / (pdfScaleM || PX_TO_M_FIX)) * scale;
+                  const colMan = ePir ? COL_PIR_CON_EDGE : COL_CAM_CON_EDGE;
                   const hR = Math.max(28, Math.min(rPx * 0.7, Math.max(pngW, pngH) * 0.28));
                   const a0 = cam.rotation || 0;
                   const hx = cam.x * scale + hR * Math.cos(a0);
@@ -3692,9 +3732,11 @@ export default function PlanEditor({
                   };
                   return (
                     <>
-                      <Line points={[cam.x * scale, cam.y * scale, hx, hy]} stroke={COL_CAM_CON_EDGE}
+                      {/* mânerul poartă culoarea conului pe care îl rotește — altfel pe un PIR ar
+                          apărea un mâner albastru peste un con magenta */}
+                      <Line points={[cam.x * scale, cam.y * scale, hx, hy]} stroke={colMan}
                             strokeWidth={1} dash={[4, 3]} opacity={0.8} listening={false} />
-                      <Circle x={hx} y={hy} radius={7} fill="#FFFFFF" stroke={COL_CAM_CON_EDGE}
+                      <Circle x={hx} y={hy} radius={7} fill="#FFFFFF" stroke={colMan}
                               strokeWidth={2} draggable
                               onDragMove={roteste}
                               onDragEnd={(e) => persist(cam.id, { rotation: roteste(e) })}
