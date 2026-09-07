@@ -394,7 +394,10 @@ export interface ProjectResult {
   // Etapa 3 Storage: pdf_base64 devine optional — proiectele NOI au pdf_path (bucket privat,
   // <uid>/<pid>/schema_tablou_<i>.pdf); cele vechi raman pe base64. Cititorii verifica base64 INTAI.
   schemas?: Array<{ name: string; plansa_nr: string; pdf_base64?: string | null; pdf_path?: string | null; page_format?: string;
-    description?: string | null; filename?: string | null }> | null;
+    description?: string | null; filename?: string | null;
+    // `panel` ("TES1"/"TES2"/"TE-CT"/"FV") il trimite nodul n8n de la generare; il declaram ca sa
+    // poata fi CITIT (numerotarea-mirror afla din el CE NIVEL are schema TES).
+    panel?: string | null }> | null;
   has_tect?: boolean;   // emis de n8n in result_data (folosit de numerotarea-mirror)
   // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
   planuri?: Array<{
@@ -546,10 +549,15 @@ export function computePlansaNumbering(opts: {
   // schema sistemului de detectie: DUPA schema de curenti slabi, INAINTEA FV. Acelasi tipar ca
   // hasSchemaCs — implicit urmeaza planşa (hasDet), se poate decupla explicit.
   hasSchemaDet?: boolean;
+  // nivelurile FARA tablou secundar (circuitele coboara la TEG printr-un punct plasat de inginer)
+  // -> nivelul NU primeste schema TES. Lista EXCEPTIILOR, nu a nivelurilor cu tablou: absenta ei
+  // da automat numerotarea de pana acum (non-regresie structurala). Oglinda `coborare_floors`.
+  coborareFloors?: string[];
 }): PlansaNumEntry[] {
   const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
   const floors = ["parter", ...extra];
   const tesOn = opts.hasTes == null ? extra.length > 0 : !!opts.hasTes;
+  const cob = new Set((opts.coborareFloors || []).map(f => String(f || "").trim().toLowerCase()).filter(Boolean));
   const sheets: Array<[string, string | null]> = [];
   for (const fl of floors) sheets.push(["plan_iluminat", fl]);
   for (const fl of floors) sheets.push(["plan_forta", fl]);
@@ -559,7 +567,9 @@ export function computePlansaNumbering(opts: {
   // depinde de nivel, deci nu se schimba nimic vizibil — dar cele patru oglinzi devin identice
   // camp cu camp, si testul de consecventa poate compara direct.
   sheets.push(["schema_teg", "parter"]);
-  if (tesOn) for (const fl of extra) sheets.push(["schema_tes", fl]);
+  // TES: cate una per nivel, MAI PUTIN nivelurile cu punct de coborare (n-au tablou secundar, deci
+  // schema nu se genereaza — un numar rezervat pentru o planşa care nu vine deplaseaza tot restul)
+  if (tesOn) for (const fl of extra) if (!cob.has(String(fl || "").trim().toLowerCase())) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
   if (opts.hasSchemaCs == null ? !!opts.hasCs : !!opts.hasSchemaCs) sheets.push(["schema_cs", null]);
   if (opts.hasSchemaDet == null ? !!opts.hasDet : !!opts.hasSchemaDet) sheets.push(["schema_detectie", null]);
@@ -590,12 +600,32 @@ export function schemaTipFor(s: { name?: string | null; description?: string | n
 }
 // numerotarea derivata din result (universal, inclusiv proiecte vechi cu metadata stale):
 // nivelurile din planse_iluminat (la DTAC: din nr. schemelor TES), TE-CT/FV din has_tect + schemas.
+// indexul nivelului dintr-o schema TES ("TES2" -> 2), din `panel` (semnalul direct al nodului)
+// sau din nume/filename ("schema_monofilara_TES2.pdf"). null = nu se poate afla.
+function tesIndexOf(s: { panel?: string | null; name?: string | null; filename?: string | null }): number | null {
+  const src = `${s?.panel || ""} ${s?.name || ""} ${s?.filename || ""}`;
+  const m = src.match(/TES\s*(\d+)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
 export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry[] {
   const il = result.planse_iluminat || [];
   const tipuri = (result.schemas || []).map(schemaTipFor);
   const nTes = tipuri.filter(t => t === "schema_tes").length;
   const nExtra = il.length > 1 ? il.length - 1 : nTes;
   const extraFloors = Array.from({ length: nExtra }, (_, i) => ["etaj", "mansarda"][i] || `nivel ${i + 2}`);
+  // NIVELURILE FARA SCHEMA TES: cele pentru care n-a venit nicio schema (au punct de coborare).
+  // Semnalul e schema CHIAR primita, ca la hasCs/hasSchemaDet — nu o bifa si nu o derivare din
+  // circuite. Daca indicii nu se pot citi (proiecte vechi, fara `panel` in schemas), lista ramane
+  // GOALA -> numerotarea de pana acum, neschimbata.
+  const tesIdx = new Set<number>();
+  (result.schemas || []).forEach((s, i) => {
+    if (tipuri[i] !== "schema_tes") return;
+    const n = tesIndexOf(s);
+    if (n != null) tesIdx.add(n);
+  });
+  const coborareFloors = tesIdx.size > 0
+    ? extraFloors.filter((_f, i) => !tesIdx.has(i + 1))
+    : [];
   return computePlansaNumbering({
     extraFloors,
     hasTect: !!result.has_tect || tipuri.includes("schema_tect"),
@@ -609,6 +639,7 @@ export function plansaNumberingFromResult(result: ProjectResult): PlansaNumEntry
     hasDet: (result.planse_detectie || []).some(p => p?.regenerated),
     // schema de detectie: din schemele CHIAR primite, ca la CS si FV
     hasSchemaDet: tipuri.includes("schema_detectie"),
+    coborareFloors,
   });
 }
 // schemas[i] -> intrarea de numerotare (TEG/TE-CT/FV unice; TES in ordinea aparitiei = ordinea nivelurilor)

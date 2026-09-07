@@ -854,7 +854,8 @@ def build_caiet_docx(data: dict) -> bytes:
         # alte planşe (si alte numere) decat cele livrate. Explicite, fara derivare din circuite.
         real = compute_plansa_numbering(extra, bool(has_tect), has_fv=has_fv,
                                         has_cs=bool(data.get("has_cs")),
-                                        has_det=bool(data.get("has_det")))
+                                        has_det=bool(data.get("has_det")),
+                                        coborare_floors=data.get("coborare_floors"))
         if real:
             planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in real]
     except Exception:

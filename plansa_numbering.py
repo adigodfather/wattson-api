@@ -82,7 +82,7 @@ def plansa_nume(tip, nivel=None):
 
 def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False,
                              has_cs=False, has_schema_cs=None, has_det=False,
-                             has_schema_det=None):
+                             has_schema_det=None, coborare_floors=None):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
@@ -99,12 +99,21 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     has_det:      sistem de detectie incendiu si desfumare -> cate o plansa per nivel, DUPA cele de
                   curenti slabi si INAINTEA schemelor (aceeasi grupare "planuri, apoi scheme").
                   Ca si CS, DEPLASEAZA schemele cu len(floors) pozitii. Absent/False = nimic.
+    coborare_floors: nivelurile care NU au tablou secundar — circuitele lor coboara la TEG printr-un
+                  punct plasat de inginer, deci nivelul NU primeste schema TES.
+                  E lista EXCEPTIILOR, nu a nivelurilor cu tablou, si asta e deliberat:
+                    - oglindeste `enrich_circuits._panel_for_floor` — singurul caz care schimba
+                      tabloul e punctul de coborare; „are tablou" si „n-are nimic" duc amandoua la TES;
+                    - absenta ei (proiectele de pana acum, si generarea, unde elementele nu exista
+                      inca) da AUTOMAT numerotarea de azi — non-regresia e structurala, nu un caz
+                      special de intretinut.
 
     Return: [{"nr": "IE.N", "tip": ..., "nivel": ..., "nume": ...}, ...]
     """
     extra = [f for f in (extra_floors or []) if str(f or "").strip()]
     floors = ["parter"] + extra
     tes_on = bool(extra) if has_tes is None else bool(has_tes)
+    _cob = {str(f or "").strip().lower() for f in (coborare_floors or []) if str(f or "").strip()}
 
     sheets = []
     # 1-2: TOATE planurile de iluminat (parter, apoi nivelurile) — inaintea fortei (ordinea Dan)
@@ -123,9 +132,13 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
             sheets.append(("plan_detectie_incendiu", fl))
     # 9: TEG (mereu)
     sheets.append(("schema_teg", "parter"))
-    # 6: TES — cate una per nivel peste parter
+    # 6: TES — cate una per nivel peste parter, MAI PUTIN nivelurile cu punct de coborare (acolo
+    # nu exista tablou secundar, deci n-are ce schema sa se genereze; un numar rezervat pentru o
+    # planşa care nu vine deplaseaza degeaba tot ce urmeaza)
     if tes_on:
         for fl in extra:
+            if str(fl or "").strip().lower() in _cob:
+                continue
             sheets.append(("schema_tes", fl))
     # 7: TE-CT (daca exista)
     if has_tect:

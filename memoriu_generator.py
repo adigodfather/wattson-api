@@ -1522,10 +1522,15 @@ def build_memoriu_docx(data: dict) -> bytes:
             # doar apelantul il are. Absent -> exact comportamentul de pana acum.
             _has_cs = data.get("has_cs")
             _has_det = data.get("has_det")
+            # nivelurile fara tablou secundar (punct de coborare) -> fara schema TES in borderou.
+            # EXPLICIT, ca has_cs/has_det: fara derivare din circuite, fiindca un fals pozitiv ar
+            # anunta in borderou o planşa care nu exista.
+            _cob = data.get("coborare_floors")
             # G3: cu FV selectat (solar prezent), borderoul include si plansa FV (ultima IE)
             _real = compute_plansa_numbering(_extra, bool(_has_tect),
                                              has_fv=bool(solar.get("package_kw") or solar.get("power_kw")),
-                                             has_cs=bool(_has_cs), has_det=bool(_has_det))
+                                             has_cs=bool(_has_cs), has_det=bool(_has_det),
+                                             coborare_floors=_cob)
             if _real:
                 planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in _real]
         except Exception:

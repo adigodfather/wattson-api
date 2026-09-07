@@ -3445,6 +3445,7 @@ class GenerateMemoriuRequest(BaseModel):
     has_tect: Optional[bool] = None
     has_cs: Optional[bool] = None
     has_det: Optional[bool] = None
+    coborare_floors: Optional[list] = None   # nivelurile fara tablou secundar -> fara schema TES
 
 
 class GenerateCaietSarciniRequest(BaseModel):
@@ -3459,6 +3460,7 @@ class GenerateCaietSarciniRequest(BaseModel):
     has_tect: Optional[bool] = None
     has_cs: Optional[bool] = None        # curenti slabi + detectie: aceeasi lista ca la memoriu —
     has_det: Optional[bool] = None       # nominalizarea planselor (1.4) trebuie sa fie ACEEASI
+    coborare_floors: Optional[list] = None   # idem: nivelurile fara tablou secundar
     alimentare: str = ""                 # "din_firida" -> racordul din firida; gol -> ca azi
 
 

@@ -217,6 +217,16 @@ export async function POST(req: NextRequest) {
     // DETECȚIE INCENDIU: același semnal ca la curenți slabi — planșele chiar generate, nu bifa.
     has_det: ((rd.planse_detectie as Array<{ regenerated?: boolean }> | undefined) || [])
       .some((p) => p?.regenerated),
+    // NIVELURILE FĂRĂ TABLOU SECUNDAR: cele pe care inginerul a plasat un punct de coborâre.
+    // Semnalul e ELEMENTUL PLASAT (planElements, citite mai sus) — aceeași sursă ca `_panel_for_floor`
+    // din backend, deci numerotarea și circuitele nu pot diverge. Lista EXCEPȚIILOR: goală (proiectele
+    // de până acum, unde nu există niciun punct) = numerotarea de azi, neschimbată.
+    coborare_floors: [...new Set(
+      (planElements as Array<{ element_type?: string; floor?: string }>)
+        .filter((e) => (e?.element_type || "") === "coborare_cabluri")
+        .map((e) => String(e?.floor || "").trim().toLowerCase())
+        .filter(Boolean),
+    )],
     fv_kw: fvKw,
     fv_soil_type: fvSoilType,
     faza,
