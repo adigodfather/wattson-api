@@ -332,6 +332,30 @@ def draw_rccb_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=12, label="30mA"):
               size=6, anchor="center")
 
 
+def draw_afdd_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=12, label="AFDD"):
+    """Box AFDD (protectie la arc electric), sub MCB/RCCB. Simbolul: linie FRANTA = arcul, conventia
+    din cataloagele de aparataj. Deliberat ALTA forma decat triunghiul RCCB-ului: cele doua protectii
+    fac lucruri diferite (arc vs curent rezidual) si n-au voie sa se confunde pe schema.
+
+    Glifa se aseaza RELATIV la inaltimea casetei, ca acelasi simbol sa incapa si in caseta mare de pe
+    circuit (12 mm), si in cea mica din legenda (6 mm). `label=""` -> doar glifa (randul de legenda
+    isi scrie singur textul), exact ca la `draw_rccb_box`."""
+    x = cx_mm - w_mm / 2
+    draw_rect(c, x, y_top_mm, w_mm, h_mm, stroke_width=0.5)
+    _mid = y_top_mm + (h_mm * 0.42 if label else h_mm / 2.0)   # cu text: glifa urca, sa-i faca loc
+    _a = min(1.7, h_mm * 0.20)                                 # amplitudinea zigzagului
+    p = c.beginPath()
+    p.moveTo((cx_mm - 2.4) * mm, to_y(_mid + _a))
+    p.lineTo((cx_mm - 0.4) * mm, to_y(_mid - _a))
+    p.lineTo((cx_mm + 0.6) * mm, to_y(_mid + _a * 0.5))
+    p.lineTo((cx_mm + 2.4) * mm, to_y(_mid - _a))
+    c.setStrokeColor(black)
+    c.setLineWidth(0.6)
+    c.drawPath(p, stroke=1, fill=0)
+    if label:
+        draw_text(c, cx_mm, y_top_mm + h_mm - 2, label, size=6, anchor="center")
+
+
 def draw_lamp_symbol(c, cx_mm, cy_top_mm, r_mm=3, color=None):
     """⊗ — corp de iluminat. Default culoare ROȘU."""
     stroke_color = color if color is not None else HexColor('#c0392b')
@@ -832,6 +856,16 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
     else:
         below_rccb = bottom_mcb
 
+    # AFDD individual (I7-2011 cap. 4.2.4.5) — sub RCCB, daca exista, altfel direct sub MCB.
+    # Pana acum `has_afdd` doar se TRANSPORTA: aparea ca text in coloana „Protectie" a tabelului, dar
+    # nu se desena nimic pe circuit. Un aparat care ocupa modul in tablou si costa bani trebuie sa se
+    # vada si pe schema, nu doar in tabel.
+    if getattr(circuit, "has_afdd", False):
+        afdd_y = below_rccb + 2
+        draw_line(c, cx_mm, below_rccb, cx_mm, afdd_y, width=0.4)
+        draw_afdd_box(c, cx_mm, afdd_y, w_mm=mcb_w, h_mm=RCCB_HEIGHT)
+        below_rccb = afdd_y + RCCB_HEIGHT
+
     # Cablu vertical — pentru priza intra in mijlocul ovalului
     load_y = 125
     if (circuit.tip_consumator or "").lower() == "priza":
@@ -1053,6 +1087,7 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
     # ce randuri apar: din circuitele schemei (None -> toate, comportamentul vechi)
     if circuits is None:
         has_light = has_priza = has_sub = has_dedicat = has_net = has_rccb = True
+        has_afdd_leg = True
         sub_label = "Sub-tablou (TE-CT, anexe, etc.)"
     else:
         tips = [(getattr(cc, "tip_consumator", "") or "").lower() for cc in circuits]
@@ -1066,6 +1101,7 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
         has_dedicat = any(t == "dedicat" and not _is_internet_dest(d) for t, d in zip(tips, dests))
         has_rccb = any(bool(getattr(cc, "has_rccb_individual", False)) or getattr(cc, "rccb_group", None)
                        for cc in circuits)
+        has_afdd_leg = any(bool(getattr(cc, "has_afdd", False)) for cc in circuits)
         # numele reale ale sub-tablourilor (TES/TE-CT), derivate din destinatii
         names = []
         for d in subs:
@@ -1100,6 +1136,13 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
         draw_text(c, leg_x + 18, ly + 1,
                   "RCCB — protectie diferentiala %smA" % ("/".join(str(m) for m in _mas) or "30"),
                   size=7)
+        ly += row_spacing
+
+    # AFDD: rand de legenda, gated ca al RCCB-ului. Fara el, schema desena o caseta pe care legenda
+    # n-o explica — iar cele doua protectii chiar se pot confunda intre ele.
+    if has_afdd_leg:
+        draw_afdd_box(c, leg_x + 8, ly - 1.5, w_mm=10, h_mm=6, label="")
+        draw_text(c, leg_x + 18, ly + 1, "AFDD — protectie la arc electric (I7-2011, 4.2.4.5)", size=7)
         ly += row_spacing
 
     if has_light:

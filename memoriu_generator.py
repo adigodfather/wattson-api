@@ -519,6 +519,19 @@ _HEATING_TXT = {
 }
 
 
+# AFDD — fraza din 2.6, injectata dupa paragraful despre protectia diferentiala a prizelor (acolo
+# unde cititorul se afla deja pe protectia circuitelor de prize). Gated pe PREZENTA REALA in
+# circuite: fara AFDD -> nu se scrie nimic, memoriul iese byte-identic.
+_FRAZA_AFDD = (
+    "Circuitele de prize se echipează suplimentar cu dispozitive de detectare a arcului electric "
+    "(AFDD), conform I7-2011 cap. 4.2.4.5, care le prevede în clădirile cu risc de incendiu, în cele "
+    "cu aglomerări de persoane și în cele cu materiale combustibile — categorii în care spaţiul ce "
+    "face obiectul prezentului proiect se încadrează. Dispozitivul completează protecţia "
+    "diferenţială, nu o înlocuieşte: cele două răspund la defecte diferite — arcul electric serie "
+    "sau paralel, respectiv curentul rezidual. AFDD-urile se montează în tabloul din care pleacă "
+    "circuitul, în amonte de acesta, şi se verifică la recepţie prin butonul propriu de test.")
+
+
 def _memoriu_docx_termic_section(doc, heating_type):
     """Capitolul 2.2 — sursa de căldură. Se scrie DOAR pentru un tip RECUNOSCUT; altfel nu se scrie
     nimic (capitolul lipsește, ca înainte). Numărul 2.2 e liber în `_MEMORIU_BLOCKS`: lista sare de
@@ -1134,6 +1147,9 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
     _din_firida = _alim_din_firida(alimentare)
     # SURSA DE CALDURA (capitolul 2.2). Absenta/necunoscuta -> capitolul lipseste, ca inainte.
     _heating_type = str(heating_type or "").strip()
+    # AFDD pe circuitele de prize (spatii comerciale). Gate pe PREZENTA REALA, din circuite — aceeasi
+    # sursa ca restul capitolelor optionale. Niciun circuit cu AFDD -> fraza nu apare.
+    _has_afdd = any(bool((c or {}).get("has_afdd")) for c in (circuits or []))
     # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
     _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
@@ -1189,6 +1205,8 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
         else:
             _add_para(doc, text)
         # Injectii dinamice, ancorate pe TEXT (robust la reordonari), dupa blocul-ancora:
+        if _has_afdd and kind == "p" and text.startswith("Toate circuitele de prize trebuie"):
+            _add_para(doc, _FRAZA_AFDD)                            # 2.6: AFDD pe circuitele de prize
         if _tipuri and kind == "p" and text.startswith("Distribuţia circuitelor propuse"):
             _add_para(doc, _fraza_cabluri(_tipuri))                # 2.6: tipurile REALE de cablu
         if _feeds_teg and kind == "p" and text.startswith("Din tabloul electric general"):

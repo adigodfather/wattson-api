@@ -429,7 +429,19 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
     # nu e zona cu dus, deci NU 10mA, dar circuitul cere diferential 30mA. Campurile sunt cele pe
     # care BOM-ul le stie deja (rccb_ma / has_rccb_individual) -> rand RCCB 30mA in lista.
     umed30 = (kind != "iluminat" and not rccb and _comercial_umed(room, subtip) == "30ma")
+    # AFDD (I7-2011 cap. 4.2.4.5) — protectie la ARC electric, pe circuitele de PRIZE ale spatiilor
+    # COMERCIALE. Declansatorul e `subtip`: formularul il trimite DOAR cand building_type e
+    # „spatiu_comercial_bloc", deci prezenta lui inseamna exact „proiect comercial"; enrich nici nu
+    # primeste `building_type`. Toate cele 18 sub-tipuri primesc regula, deci care anume nu conteaza.
+    #
+    # DOAR prizele: iluminatul si circuitele dedicate raman neatinse (dedicatele nici nu trec pe aici
+    # — se construiesc in `_enrich_receptor`). Rezidentialul: `subtip` gol -> nimic, byte-identic.
+    #
+    # AFDD si RCCB NU se exclud: unul vede arcul serie/paralel, celalalt curentul rezidual. O priza
+    # de baie dintr-un spatiu comercial le primeste pe amandoua.
+    afdd = (kind == "priza" and bool(subtip))
     return {
+        **({"has_afdd": True} if afdd else {}),
         **({"rccb_ma": 30, "has_rccb_individual": True} if umed30 else {}),
         "id": c["id"], "fasa": None, "room": room, "type": ctype, "floor": floor_idx,
         "panel": panel_out, "pozare": pozare_for(sec), "outlets": outlets, "power_w": power_w,

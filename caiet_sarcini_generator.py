@@ -701,6 +701,32 @@ def _cerinte_curenti_slabi(doc, comp):
                    "înainte de predare.")
 
 
+def _cerinte_afdd(doc, circuits):
+    """Cerinţa de execuţie pentru AFDD (I7-2011 cap. 4.2.4.5). Gate pe PREZENŢA REALĂ în circuite —
+    un proiect fără AFDD iese byte-identic."""
+    cs = [c for c in (circuits or []) if isinstance(c, dict) and c.get("has_afdd")]
+    if not cs:
+        return
+    _add_heading(doc, "Protecţia la arc electric (AFDD)", level=2)
+    _add_para(doc, "Cele {} circuite de prize prevăzute în proiect se protejează cu dispozitive de "
+                   "detectare a arcului electric (AFDD), conform I7-2011 cap. 4.2.4.5. Dispozitivele "
+                   "se montează pe şina din tabloul din care pleacă circuitul, în amonte de plecare, "
+                   "respectând sensul alimentare/sarcină marcat de producător: montarea inversă lasă "
+                   "aparatul inoperant, fără niciun semn exterior. Fiecare AFDD ocupă două module pe "
+                   "şină, iar tablourile din prezentul proiect sunt dimensionate cu spaţiul aferent."
+                   .format(len(cs)))
+    _add_para(doc, "AFDD-ul nu înlocuieşte protecţia diferenţială: cele două răspund la defecte "
+                   "diferite — arcul electric serie sau paralel, respectiv curentul rezidual — şi se "
+                   "montează amândouă acolo unde proiectul le prevede. Nu se montează AFDD pe "
+                   "circuitele de iluminat şi nici pe cele de alimentare a receptoarelor dedicate.")
+    _add_para(doc, "Conductoarele circuitelor protejate cu AFDD nu se înnădesc pe traseu: o înnădire "
+                   "slăbită este chiar defectul pe care dispozitivul îl caută, iar o legătură "
+                   "provizorie îl va face să declanşeze repetat. La recepţie se probează declanşarea "
+                   "fiecărui dispozitiv de la butonul propriu de test, se verifică revenirea "
+                   "circuitului după rearmare şi se consemnează rezultatele în buletinul de "
+                   "verificare.")
+
+
 def _receptoare_cu_rccb_propriu(circuits):
     """{sensibilitate mA: [nume aparate]} pentru receptoarele care cer ELE diferenţial, nu camera.
 
@@ -952,6 +978,7 @@ def build_caiet_docx(data: dict) -> bytes:
     _cerinte_curenti_slabi(doc, _cs_comp)           # 3.x, doar cu echipamente pe plan
     _cerinte_detectie(doc, _cs_comp)                # detectie incendiu + desfumare, acelasi gate
     _cerinte_receptoare_rccb(doc, circuits)         # unit dentar / radiologie, doar cu aparatele pe plan
+    _cerinte_afdd(doc, circuits)                    # AFDD pe prize (comercial), doar cu ele in circuite
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.

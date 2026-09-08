@@ -592,23 +592,32 @@ def _panel_section(panel):
     return "TEG", "Tablou electric TEG"
 
 
+_AFDD_MODULE = 2      # AFDD-ul de sina e de 2 module la practic toate gamele de aparataj
+
+
 def _modules_for_circuit(c):
     """Module de tablou pt. un circuit (regula Dan): >20A = 3 (castiga CHIAR cu RCCB, nu se aduna);
     RCCB fara >20A = 2; cu breaker (<=20A, ex. 16/10/20A) = 1; fara breaker si fara RCCB = 0
-    (rezerva / necablat — nu ocupa modul). RCCB derivat ca la Sigurante (breaker_type/rccb_ma)."""
+    (rezerva / necablat — nu ocupa modul). RCCB derivat ca la Sigurante (breaker_type/rccb_ma).
+
+    AFDD-ul se ADUNA, spre deosebire de regula „max" de mai sus. Acolo maximul e corect fiindca un
+    RCBO combinat INLOCUIESTE MCB-ul si RCCB-ul intr-o singura carcasa; AFDD-ul e un aparat in PLUS
+    pe sina, cu carcasa lui de 2 module. Consecinta e reala si intentionata: la un spatiu comercial
+    tabloul creste, fiindca chiar are mai multe aparate in el."""
     try:
         amp = float((c or {}).get("breaker_a") or 0)
     except (TypeError, ValueError):
         amp = 0.0
     bt = str((c or {}).get("breaker_type") or "")
     has_rccb = ("10mA" in bt or "10 mA" in bt or (c or {}).get("rccb_ma") or (c or {}).get("has_rccb_individual"))
+    afdd = _AFDD_MODULE if (c or {}).get("has_afdd") else 0
     if amp > 20:
-        return 3
+        return 3 + afdd
     if has_rccb:
-        return 2
+        return 2 + afdd
     if amp > 0:
-        return 1
-    return 0
+        return 1 + afdd
+    return 0 + afdd
 
 
 def _circuit_section(c):
@@ -674,7 +683,7 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         circ_by_sec_cable[k] = circ_by_sec_cable.get(k, 0) + 1
 
     # ── 1. SIGURANTE (MCB pe amperaj+poli; RCCB pe mA) — BUCATA 2: grupate pe PANEL (sectiune) ──
-    mcb, rccb = {}, {}
+    mcb, rccb, afdd = {}, {}, {}
     for c in circuits:
         sec = _panel_section(c.get("panel"))[0]
         amp = c.get("breaker_a")
@@ -689,10 +698,17 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
             ma = int(c.get("rccb_ma") or 30)
         if ma:
             rccb[(sec, ma)] = rccb.get((sec, ma), 0) + 1
+        # AFDD — acelasi tipar ca MCB/RCCB: grupat pe sectiune, o bucata per circuit.
+        if c.get("has_afdd"):
+            _a = int(amp or 16)
+            afdd[(sec, _a)] = afdd.get((sec, _a), 0) + 1
     for (sec, amp, poles), n in sorted(mcb.items()):
         rows.append(_row("Sigurante", "MCB %dA %s curba C" % (amp, poles), "", n, "buc", sectiune=sec))
     for (sec, ma), n in sorted(rccb.items()):
         rows.append(_row("Sigurante", "Protectie diferentiala RCCB %dmA" % ma, "", n, "buc", sectiune=sec))
+    for (sec, amp), n in sorted(afdd.items()):
+        rows.append(_row("Sigurante", "Detector de arc electric AFDD %dA" % amp,
+                         "I7-2011 cap. 4.2.4.5", n, "buc", sectiune=sec))
 
     # ── 2. CABLURI (tip + metri) — sectiune LA SURSA (_circuit_section): iluminat->ILUMINAT, prize/extra
     #     ->FORTA, coloana/feed->TEG, dedicat TEHNIC->TE-CT. Cable_type partajat -> SPLIT pe sectiuni. ──
