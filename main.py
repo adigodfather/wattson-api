@@ -3434,6 +3434,11 @@ class GenerateMemoriuRequest(BaseModel):
     # ALIMENTAREA: "din_firida" (spatiu intr-un imobil existent) sau "bransament_propriu" / gol.
     # Absent = proiectele de dinainte -> bransament propriu, memoriu byte-identic.
     alimentare: str = ""
+    # SURSA DE CALDURA (valorile din HEATING_GENERATION) -> capitolul 2.2 „Sistemul termoenergetic".
+    # Absent/necunoscut -> capitolul LIPSESTE, memoriu byte-identic. Declararea AICI e obligatorie:
+    # `model_dump()` arunca tacit orice camp nedeclarat — exact defectul din 5d3e770, unde nodul n8n
+    # trimitea din iulie campuri pe care modelul nu le avea, iar generatorul nu le vedea niciodata.
+    heating_type: str = ""
     # NUMEROTAREA PLANSELOR (borderoul de la PT). Cele patru campuri erau CITITE de
     # `build_memoriu_docx` (`data.get("has_tect")` etc.) dar NEDECLARATE aici — iar `model_dump()`
     # arunca tacut ce nu-i in model. Consecinta, masurata pe Render: `has_tect=False` trimis cu un

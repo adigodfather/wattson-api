@@ -235,6 +235,9 @@ export async function POST(req: NextRequest) {
     // sub-tipul comercial. Nodurile n8n o pasează mai departe la memoriu, caiet și schemă.
     // Absentă (proiecte de dinainte) -> string gol -> backendul se poartă exact ca azi.
     alimentare: String(inputData.alimentare || ""),
+    // SURSA DE CĂLDURĂ: același drum ca `alimentare`. Memoriul scrie din ea capitolul 2.2
+    // („Sistemul termoenergetic"); absentă (proiecte de dinainte) -> capitolul lipsește, ca azi.
+    heating_type: String(inputData.heating_type || ""),
     cartus_firma: firma,
     circuits_source: circuitsSource,   // "plan (enrich)" | "vision (fallback)" — traceabilitate Faza 2
     bom_cables: bomCables,             // randurile-cablu /bom -> memoriul (nodul Generate Memoriu le paseaza)

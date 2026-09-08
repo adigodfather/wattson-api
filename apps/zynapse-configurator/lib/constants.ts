@@ -131,6 +131,21 @@ export const HEATING_GENERATION = [
   { value: "none",             label: "Fără sistem propriu / racordat la centrala clădirii" },
 ];
 
+// Surse imposibile FIZIC pe un anumit tip de clădire — nu „improbabile", imposibile.
+// Un spațiu comercial la parter de bloc n-are teren propriu, deci pompa sol-apă (foraje sau colector
+// îngropat) n-are unde să se execute. Restul rămân: aer-apă cere unitate exterioară pe fațadă și
+// acordul asociației, iar centrala pe gaz cere racord și coș — greu, dar se fac.
+const HEATING_INTERZIS: Record<string, string[]> = {
+  spatiu_comercial_bloc: ["pdc_ground_water"],
+};
+
+// Sursele de căldură oferite pentru un tip de clădire. Tip necunoscut / absent -> lista ÎNTREAGĂ,
+// adică exact comportamentul de azi.
+export function visibleHeatingGeneration(buildingType: string | null | undefined) {
+  const interzise = HEATING_INTERZIS[String(buildingType || "").trim()];
+  return interzise ? HEATING_GENERATION.filter(h => !interzise.includes(h.value)) : HEATING_GENERATION;
+}
+
 // Faza 2 TE-CT: default-ul checkbox-ului "am camera tehnica" PER SURSA (decizia Dan):
 // BIFAT pe sursele care produc TE-CT natural (PDC aer/sol + centrala electrica);
 // NEBIFAT pe gaz/termoficare/existing (echipamentele merg pe TEG, in alta incapere).

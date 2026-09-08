@@ -475,6 +475,63 @@ _MEMORIU_BLOCKS = [
 ]
 
 
+# ── 2.2. Sistemul termoenergetic ─────────────────────────────────────────────
+# Fraza despre SURSA de căldură. Un memoriu de instalații electrice o spune fiindcă sursa decide ce
+# se alimentează: pompe, automatizare, distribuitor — sau nimic. Până acum lipsea complet: eticheta
+# exista doar în `main.py` (`build_memoriu`), chemată exclusiv din `/calc-electric`, endpointul
+# legacy mort — deci niciun memoriu livrat n-a scris vreodată tipul de generare.
+#
+# Cheile sunt valorile REALE din `HEATING_GENERATION` (lib/constants.ts). O valoare necunoscută
+# (proiect vechi, cheie scoasă între timp) -> None -> capitolul LIPSEȘTE, iar memoriul iese
+# byte-identic ca înainte. Nu inventăm un text generic pentru ceva ce nu recunoaștem.
+_HEATING_TXT = {
+    "pdc_air_water": (
+        "Sursa de căldură este o pompă de căldură aer-apă. Unitatea exterioară și cea interioară se "
+        "alimentează pe circuite dedicate din tabloul camerei tehnice, dimensionate conform "
+        "schemelor monofilare anexate; pompele de circulație și automatizarea se alimentează din "
+        "același tablou."),
+    "pdc_ground_water": (
+        "Sursa de căldură este o pompă de căldură sol-apă (geotermală). Pompa de căldură și pompele "
+        "circuitului de captare se alimentează pe circuite dedicate din tabloul camerei tehnice, "
+        "dimensionate conform schemelor monofilare anexate."),
+    "gas_boiler": (
+        "Sursa de căldură este o centrală termică pe gaz. Din instalația electrică se alimentează "
+        "automatizarea centralei și pompele de circulație, printr-un circuit dedicat; arderea nu "
+        "face obiectul prezentului proiect."),
+    "electric_boiler": (
+        "Sursa de căldură este o centrală termică electrică, alimentată printr-un circuit dedicat "
+        "din tabloul camerei tehnice, dimensionat conform schemelor monofilare anexate."),
+    "electric_radiator": (
+        "Încălzirea se realizează cu radiatoare electrice autonome, alimentate din circuitele de "
+        "prize ale încăperilor în care sunt montate. Proiectul nu prevede centrală termică, "
+        "distribuitor sau pompe de circulație."),
+    "district_heating": (
+        "Spațiul este racordat la rețeaua urbană de termoficare. Din instalația electrică se "
+        "alimentează modulul de racord — pompa și automatizarea lui — printr-un circuit dedicat, "
+        "conform schemelor monofilare anexate."),
+    "existing": (
+        "Instalația de încălzire existentă se păstrează, fără modificări. Prezentul proiect nu "
+        "prevede echipamente termice noi și nu intervine asupra celor existente."),
+    "none": (
+        "Spațiul nu are sursă proprie de căldură; alimentarea termică se face din instalația "
+        "clădirii. Prezentul proiect nu prevede centrală termică, distribuitor sau pompe de "
+        "circulație, deci nu conține circuite pentru echipamente termice."),
+}
+
+
+def _memoriu_docx_termic_section(doc, heating_type):
+    """Capitolul 2.2 — sursa de căldură. Se scrie DOAR pentru un tip RECUNOSCUT; altfel nu se scrie
+    nimic (capitolul lipsește, ca înainte). Numărul 2.2 e liber în `_MEMORIU_BLOCKS`: lista sare de
+    la 2.1 la 2.3, iar capitolele opționale (FV / siguranță / curenți slabi / detecție) se numără de
+    la 2.8 în sus — deci inserarea aici nu le atinge numerotarea."""
+    txt = _HEATING_TXT.get((heating_type or "").strip())
+    if not txt:
+        return False
+    _add_heading(doc, "2.2. Sistemul termoenergetic", level=2)
+    _add_para(doc, txt)
+    return True
+
+
 def _memoriu_docx_siguranta_section(doc, nr, n_evac, n_kit):
     """Capitolul de ILUMINAT DE SIGURANTA. Se scrie DOAR daca proiectul chiar are asa ceva
     (n_evac + n_kit > 0), ca la FV — un capitol despre o instalatie inexistenta e mai rau decat
@@ -1039,7 +1096,8 @@ def _teg_feeds_ro(circuits, solar=None):
         return []
 
 
-def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alimentare=None):
+def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alimentare=None,
+                  heating_type=None):
     _add_heading(doc, "III. MEMORIU TEHNIC INSTALAȚII ELECTRICE", level=1)
     _add_heading(doc, "1. DATE GENERALE", level=2)
 
@@ -1074,6 +1132,8 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
     _cs_comp, _cs_cam = _cs_din_circuite(circuits)
     _has_cs = bool(_cs_comp)
     _din_firida = _alim_din_firida(alimentare)
+    # SURSA DE CALDURA (capitolul 2.2). Absenta/necunoscuta -> capitolul lipseste, ca inainte.
+    _heating_type = str(heating_type or "").strip()
     # Dinamice DOAR pe finalize (bom_cables prezent); altfel liste goale -> texte statice byte-identice.
     _tipuri = _cable_types_ro(bom_cables) if bom_cables else []
     _feeds_teg = _teg_feeds_ro(circuits, solar) if bom_cables else []
@@ -1116,6 +1176,10 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
         elif _n_optionale and kind == "li" and "paragrafului 2.8." in text:
             # referinta incrucisata catre PROTECTIA: acelasi numar, calculat din ACEEASI suma
             text = text.replace("paragrafului 2.8.", "paragrafului 2.%d." % (8 + _n_optionale))
+        # 2.2 SISTEMUL TERMOENERGETIC — inserat INAINTE de 2.3, pe numarul liber din lista fixa
+        # (2.1 -> 2.3). Tip necunoscut/absent -> nu se scrie nimic, memoriul iese ca inainte.
+        if kind == "h2" and text.startswith("2.3. Priza"):
+            _memoriu_docx_termic_section(doc, _heating_type)
         if kind == "h1":
             _add_heading(doc, text, level=1)
         elif kind == "h2":
@@ -1541,7 +1605,7 @@ def build_memoriu_docx(data: dict) -> bytes:
     _page_fisa(doc, cp, cf)
     _page_borderou(doc, planse, is_pt=is_pt)
     _page_memoriu(doc, cp, cf, solar=solar, bom_cables=bom_cables, circuits=circuits,
-                  alimentare=alimentare)
+                  alimentare=alimentare, heating_type=data.get("heating_type"))
     if is_pt:
         # secțiuni NOI de PT (V. Brevier = M5-B; VI. Faze determinante = M3; VII. Program = M4)
         _page_brevier(doc, cp, cf, circuits, power_summary, alimentare=alimentare)

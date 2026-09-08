@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
-  INSULATION, HEATING_GENERATION, HEATING_DISTRIBUTION,
+  INSULATION, visibleHeatingGeneration, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
   plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName, schemaTipFor,
   defaultTechRoom, ALIMENTARE_OPTIONS, defaultAlimentare,
@@ -2341,7 +2341,7 @@ export function ZynapseConfigurator() {
               // aleasa anterior (ex. "floor_heating" de la centrala pe gaz) ar ramane in state si ar
               // pleca la n8n + in memoriu, desi dropdown-ul e ascuns.
               if (v === "electric_radiator") update("heating_distribution", "");
-            }} options={HEATING_GENERATION} required />
+            }} options={visibleHeatingGeneration(form.building_type)} required />
           {form.heating_type && form.heating_type !== "existing" && form.heating_type !== "none" && form.heating_type !== "electric_radiator" && (
             <SelectField label="Tip distribuție căldură" value={form.heating_distribution}
               onChange={v => update("heating_distribution", v)} options={HEATING_DISTRIBUTION} />
