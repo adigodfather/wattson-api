@@ -3573,14 +3573,20 @@ export default function PlanEditor({
                       ) : isEvac ? (
                         <>
                           {/* Pictogramă de ieșire, verde — oglinda lui _draw_corp_evacuare din planșă.
-                              Dreptunghiul PLIN e și zona de hit a Group-ului draggable. */}
-                          <Rect x={-15} y={-8.5} width={30} height={17} cornerRadius={2} fill={COL_SAFETY} />
-                          <Line points={[8.5, -5.5, 8.5, 5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
-                          <Line points={[8.5, -5.5, 4, -5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
-                          <Line points={[8.5, 5.5, 4, 5.5]} stroke="#FFFFFF" strokeWidth={1.6} listening={false} />
-                          <Line points={[-9, 0, 1.5, 0]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
-                          <Line points={[1.5, 0, -2.5, -3.5]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
-                          <Line points={[1.5, 0, -2.5, 3.5]} stroke="#FFFFFF" strokeWidth={1.8} listening={false} />
+                              Coordonatele sunt ACELEAȘI cu ale funcției din backend (18,6 × 10,6 pt);
+                              grosimile albe sunt cu ~14% mai groase, ca la varianta veche, fiindcă pe
+                              ecran liniile subțiri se sting.
+                              Zona de HIT e un dreptunghi transparent mai mare decât simbolul, ca la
+                              becuri (unde raza de hit e 11 pentru un simbol de 9): după micșorare,
+                              dreptunghiul verde singur ar fi fost de 10,6 pt înălțime, greu de apucat. */}
+                          <Rect x={-13} y={-9} width={26} height={18} fill="rgba(0,0,0,0.001)" />
+                          <Rect x={-9.3} y={-5.3} width={18.6} height={10.6} cornerRadius={1.2} fill={COL_SAFETY} />
+                          <Line points={[5.3, -3.4, 5.3, 3.4]} stroke="#FFFFFF" strokeWidth={1.25} listening={false} />
+                          <Line points={[5.3, -3.4, 2.5, -3.4]} stroke="#FFFFFF" strokeWidth={1.25} listening={false} />
+                          <Line points={[5.3, 3.4, 2.5, 3.4]} stroke="#FFFFFF" strokeWidth={1.25} listening={false} />
+                          <Line points={[-5.6, 0, 0.9, 0]} stroke="#FFFFFF" strokeWidth={1.4} listening={false} />
+                          <Line points={[0.9, 0, -1.6, -2.2]} stroke="#FFFFFF" strokeWidth={1.4} listening={false} />
+                          <Line points={[0.9, 0, -1.6, 2.2]} stroke="#FFFFFF" strokeWidth={1.4} listening={false} />
                         </>
                       ) : isBulb ? (
                         <>

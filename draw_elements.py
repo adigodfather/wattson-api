@@ -192,23 +192,36 @@ def marcheaza_kit_panica(corpuri, rooms, room_key="room"):
     return n
 
 
+# Jumatatea de inaltime a pictogramei (puncte PDF, scale=1.0). Constanta, nu numar magic: eticheta
+# „C4 EVACUARE" se aseaza fata de ea, deci la o viitoare ajustare de marime nu poate ramane in urma.
+_EVAC_HALF_H = 5.3
+
+
 def _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=1.0):
     """Pictograma de iesire, VERDE: dreptunghi plin + sageata alba spre tocul usii. Deliberat ALTA
-    forma decat orice bec (cerc/semicerc/patrat) — pe plansa se vede imediat ca nu-i corp normal."""
+    forma decat orice bec (cerc/semicerc/patrat) — pe plansa se vede imediat ca nu-i corp normal.
+
+    MARIMEA (masurata, 8 sept 2026): era 30x17 pt, adica 1,67x latimea aplicelor (18x18) si 1,36x a
+    panoului LED (22x22) — si, spre deosebire de ele, PLINA, deci mult mai grea vizual. Acum 18,6x10,6,
+    exact in familia corpurilor punctuale (latimea lor medie e 19,0 pt). Geometria a fost redusa cu
+    0,62; GROSIMILE liniilor albe doar cu ~0,78 (1,4->1,1 si 1,6->1,25), altfel sageata s-ar fi inchis
+    intr-o pata verde la scara mica. Forma a ramas INTACTA — n-a fost nevoie de simplificari.
+
+    `scale` inmulteste tot (legenda foloseste 0.42, ca la becuri) -> legenda se corecteaza singura."""
     s = scale
     x0, y0 = cx, cy + y_offset
-    w, h = 15.0 * s, 8.5 * s
+    w, h = 9.3 * s, _EVAC_HALF_H * s
     page.draw_rect(fitz.Rect(x0 - w, y0 - h, x0 + w, y0 + h),
                    color=_SAFETY_GREEN, fill=_SAFETY_GREEN, width=0.8)
     W = (1, 1, 1)
     # tocul usii (bara verticala + prag) in dreapta
-    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 - 5.5 * s), fitz.Point(x0 + 8.5 * s, y0 + 5.5 * s), color=W, width=1.4 * s)
-    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 - 5.5 * s), fitz.Point(x0 + 4.0 * s, y0 - 5.5 * s), color=W, width=1.4 * s)
-    page.draw_line(fitz.Point(x0 + 8.5 * s, y0 + 5.5 * s), fitz.Point(x0 + 4.0 * s, y0 + 5.5 * s), color=W, width=1.4 * s)
+    page.draw_line(fitz.Point(x0 + 5.3 * s, y0 - 3.4 * s), fitz.Point(x0 + 5.3 * s, y0 + 3.4 * s), color=W, width=1.1 * s)
+    page.draw_line(fitz.Point(x0 + 5.3 * s, y0 - 3.4 * s), fitz.Point(x0 + 2.5 * s, y0 - 3.4 * s), color=W, width=1.1 * s)
+    page.draw_line(fitz.Point(x0 + 5.3 * s, y0 + 3.4 * s), fitz.Point(x0 + 2.5 * s, y0 + 3.4 * s), color=W, width=1.1 * s)
     # sageata spre usa
-    page.draw_line(fitz.Point(x0 - 9.0 * s, y0), fitz.Point(x0 + 1.5 * s, y0), color=W, width=1.6 * s)
-    page.draw_line(fitz.Point(x0 + 1.5 * s, y0), fitz.Point(x0 - 2.5 * s, y0 - 3.5 * s), color=W, width=1.6 * s)
-    page.draw_line(fitz.Point(x0 + 1.5 * s, y0), fitz.Point(x0 - 2.5 * s, y0 + 3.5 * s), color=W, width=1.6 * s)
+    page.draw_line(fitz.Point(x0 - 5.6 * s, y0), fitz.Point(x0 + 0.9 * s, y0), color=W, width=1.25 * s)
+    page.draw_line(fitz.Point(x0 + 0.9 * s, y0), fitz.Point(x0 - 1.6 * s, y0 - 2.2 * s), color=W, width=1.25 * s)
+    page.draw_line(fitz.Point(x0 + 0.9 * s, y0), fitz.Point(x0 - 1.6 * s, y0 + 2.2 * s), color=W, width=1.25 * s)
 
 
 def _is_kit(el):
@@ -5348,7 +5361,10 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_corp_evacuare(page, x, y)
                 _ecid = _cid_display(el.get("_cid_label") or el.get("circuit_id") or "")
                 _etxt = " ".join(t for t in (_ecid, "EVACUARE") if t)
-                _labels.append({"text": _etxt, "x0": x - len(_etxt) * 4.5 * 0.50, "y": y - 13.0,
+                # eticheta la 4,5 pt DEASUPRA marginii de sus a pictogramei — derivata din inaltimea
+                # ei, nu dintr-un numar fix: la micsorarea simbolului ar fi ramas suspendata.
+                _labels.append({"text": _etxt, "x0": x - len(_etxt) * 4.5 * 0.50,
+                                "y": y - (_EVAC_HALF_H + 4.5),
                                 "w": len(_etxt) * 4.5, "fs": 4.5, "font": "hebo", "color": _SAFETY_GREEN})
                 n_bulb += 1
             elif et in _SWITCH_TYPES:
