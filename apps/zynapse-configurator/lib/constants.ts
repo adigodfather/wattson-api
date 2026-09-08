@@ -491,7 +491,10 @@ export interface ProjectResult {
       pdf_width_pt?: number; pdf_height_pt?: number;
       png_width_px?: number; png_height_px?: number;
     } | null;
-    centers?: Array<{ x: number; y: number; label?: string; element_type?: string; power_w?: number | null }>;
+    // `kit_panica`: propunerea backendului (I7-2011), pe același drum ca element_type/power_w.
+    // Absent pe răspunsurile vechi -> `?? false` la INSERT, deci comportamentul de azi.
+    centers?: Array<{ x: number; y: number; label?: string; element_type?: string; power_w?: number | null;
+                      kit_panica?: boolean }>;
     switches?: Array<{ x: number; y: number; angle?: number; room?: string | number | null }>;
     regenerated?: boolean;   // true după "Obține plan" -> pdf_base64 = planul regenerat (cabluri+editări), nu ciorna Vision
   }> | null;

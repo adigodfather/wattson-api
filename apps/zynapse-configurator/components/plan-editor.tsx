@@ -3074,6 +3074,23 @@ export default function PlanEditor({
             ))}
           </div>
         )}
+        {/* Kiturile propuse automat (încăperi >60 mp, grupuri sanitare >8 mp): listate pe cameră și
+            clicabile. Regula PROPUNE — inginerul trebuie să le poată găsi ca să le debifeze, iar
+            becul verde de pe planșă îți spune CĂ există, nu UNDE. Debifarea se face din rubrica
+            camerei, pe becul selectat. */}
+        {kits.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
+            {kits.map(el => (
+              <div key={el.id} style={{ fontSize: 11, color: "#C5C8D6", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 8, background: COL_SAFETY, flexShrink: 0 }} />
+                <button type="button" onClick={() => selectElement(el.id)}
+                  style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit" }}>
+                  Kit de panică · {el.room || "fără cameră"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
           <button type="button" className="zy-add-btn" onClick={() => void addCorpEvacuare()}>+ Corp evacuare</button>
         </div>

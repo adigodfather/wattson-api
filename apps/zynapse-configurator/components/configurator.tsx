@@ -1812,6 +1812,12 @@ export function ZynapseConfigurator() {
                     wall_mounted: false,
                     rotation: 0,
                     power_w: c.power_w ?? 25,       // editabil in meniu; apare si in eticheta "Lustra LED 40W"
+                    // KIT DE PANICĂ: propunerea backendului (I7-2011 — încăperi >60 mp, grupuri
+                    // sanitare >8 mp). Vine pe același drum ca element_type/power_w, din aceeași
+                    // decizie care a colorat becul verde pe planșă. Inginerul poate debifa în editor,
+                    // iar debifarea NU se pierde: fiecare generare creează un proiect NOU (uuid nou),
+                    // deci nimic nu re-scrie rândurile proiectului la care el lucrează.
+                    kit_panica: c.kit_panica ?? false,
                   });
                 }
                 for (const sw of (plansa.switches || [])) {

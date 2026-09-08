@@ -137,6 +137,61 @@ _KIT_ROOM_M2 = 60.0               # incapere mare -> un bec din ea primeste kit
 _KIT_BATH_M2 = 8.0                # grup sanitar / baie peste 8 mp -> idem
 
 
+def marcheaza_kit_panica(corpuri, rooms, room_key="room"):
+    """Marcheaza cu `_kit = True` cate UN corp de iluminat din fiecare incapere care cere kit de
+    panica: camere peste `_KIT_ROOM_M2`, grupuri sanitare peste `_KIT_BATH_M2`. Praguri STRICTE
+    (`>`), un singur corp per incapere, si DOAR unde exista deja un bec — nu inventam corpuri, doar
+    echipam unul existent. Intoarce numarul de corpuri marcate.
+
+    Care bec, daca sunt mai multe: PRIMUL in ordinea listei primite, care e ordinea deterministica in
+    care becurile sunt si desenate, si numerotate. Nu „cel mai central": pozitia lor vine din Vision
+    si se poate schimba intre generari, deci un criteriu geometric ar muta marcajul de la o generare
+    la alta fara ca nimic sa se fi schimbat in proiect.
+
+    Regula PROPUNE — inginerul debifeaza din editor. SURSA UNICA: se cheama o singura data per
+    planşa, iar rezultatul e folosit si la desen, si in raspuns, si la persistare; altfel decizia s-ar
+    putea calcula de doua ori si diverge.
+
+    Zona umeda se recunoaste cu `enrich_circuits._BATH_RX` — ACEEASI expresie care da RCCB-ul de
+    10 mA, importata lazy (import circular la nivel de modul). Cele doua reguli nu se ating: una
+    priveste protectia circuitului de prize, cealalta un bec; le leaga doar definitia incaperii.
+    Import esuat -> prag unic de camera (fail-safe: marcheaza mai putin, niciodata gresit)."""
+    arii = {}
+    for _r in (rooms or []):
+        try:
+            _nm = ((_r or {}).get("name") or "").strip()
+            _a = float((_r or {}).get("area_m2") or 0)
+            if _nm and _a > 0:
+                arii[_nm] = max(_a, arii.get(_nm, 0.0))
+        except (TypeError, ValueError):
+            continue
+    if not arii:
+        return 0
+    try:
+        import enrich_circuits as _ec_bath
+        _bath_rx = _ec_bath._BATH_RX
+    except Exception:
+        _bath_rx = None
+    facute, n = set(), 0
+    for _c in (corpuri or []):
+        if not isinstance(_c, dict):
+            continue
+        # lista poate contine si aparataj (intrerupatoare): kitul se pune pe BECURI. `centers` n-au
+        # inca `element_type` in momentul apelului -> absenta lui inseamna „e bec", nu „sari".
+        if (_c.get("element_type") or _c.get("_bulb_type") or "aplica_tavan") not in _BULB_TYPES:
+            continue
+        _nm = ((_c.get(room_key) or "")).strip()
+        if not _nm or _nm in facute:
+            continue
+        _prag = (_KIT_BATH_M2 if (_bath_rx and _bath_rx.search(_norm_name_ro(_nm)))
+                 else _KIT_ROOM_M2)
+        if arii.get(_nm, 0.0) > _prag:
+            _c["_kit"] = True
+            facute.add(_nm)
+            n += 1
+    return n
+
+
 def _draw_corp_evacuare(page, cx, cy, y_offset=0, scale=1.0):
     """Pictograma de iesire, VERDE: dreptunghi plin + sageata alba spre tocul usii. Deliberat ALTA
     forma decat orice bec (cerc/semicerc/patrat) — pe plansa se vede imediat ca nu-i corp normal."""
@@ -5644,6 +5699,11 @@ def draw_plan_elements(data: dict) -> dict:
             c["_bulb_type"] = _bt
             c["_bulb_pw"] = _bw
 
+        # KIT DE PANICA: decizia se ia O SINGURA DATA, aici, si e folosita mai jos de TOATE trei —
+        # desenul planşei, `detected.centers` (din care frontendul insereaza plan_elements) si
+        # persistarea server-side. Calculata separat in fiecare, ar putea diverge.
+        marcheaza_kit_panica(centers, rooms, room_key="label")
+
         # APARATAJ (paritate 1:1): UN întrerupător per BEC, calculat din `centers`. DOAR pe faza PT
         # (apply_geometry), cale vectorială. Aditiv, defensiv: ORICE eroare -> fără întrerupătoare,
         # becurile NU sunt afectate. (Plasare: la ușa camerei becului dacă există, altfel lângă bec.)
@@ -5669,7 +5729,11 @@ def draw_plan_elements(data: dict) -> dict:
         # text_regex: cy e poziția textului "A:" -> -22 (bec deasupra textului).
         y_offset = 0 if source == "vision_bbox" else -22
         for c in centers:
-            _draw_bulb(page, c["x"], c["y"], c.get("_bulb_type") or "aplica_tavan", y_offset=y_offset)
+            # Becul cu kit e VERDE si pe planşa generata, nu doar in editor: pana acum culoarea se
+            # vedea abia dupa re-desenarea din plan_elements, deci prima planşa arata altfel decat
+            # aceeasi planşa refacuta, fara ca nimic sa se fi schimbat.
+            _draw_bulb(page, c["x"], c["y"], c.get("_bulb_type") or "aplica_tavan", y_offset=y_offset,
+                       color=(_SAFETY_GREEN if c.get("_kit") else None))
 
         # APARATAJ: desenează întrerupătoarele (după becuri, pe aceeași planșă)
         for s in switches:
@@ -5723,6 +5787,7 @@ def draw_plan_elements(data: dict) -> dict:
                         "x": round(c["x"], 1), "y": round(c["y"], 1),
                         "wall_mounted": False, "rotation": 0,
                         "circuit_id": None, "source_panel": None, "power_w": c.get("_bulb_pw"), "z_index": 0,
+                        "kit_panica": bool(c.get("_kit")),   # decizia luata O DATA, mai sus
                     })
                 for s in switches:
                     _elements.append({
@@ -5733,41 +5798,9 @@ def draw_plan_elements(data: dict) -> dict:
                         "wall_mounted": True, "rotation": round(float(s.get("angle", 0)), 3),
                         "circuit_id": None, "source_panel": None, "power_w": None, "z_index": 0,
                     })
-                # ── KIT DE PANICA (I7-2011): marcheaza AUTOMAT cate un bec in incaperile care il
-                # cer — camere peste 60 mp si grupuri sanitare peste 8 mp. Se pune pe UN singur bec
-                # din incapere (primul, ordinea e deja determinista), si DOAR daca incaperea are
-                # bec: nu inventam corpuri, doar echipam unul existent. Inginerul poate debifa din
-                # editor. Aria vine din cartus (aceeasi sursa ca numarul de becuri).
-                _area_by_room = {}
-                for _r in (rooms or []):
-                    try:
-                        _nm = ((_r or {}).get("name") or "").strip()
-                        _a = float((_r or {}).get("area_m2") or 0)
-                        if _nm and _a > 0:
-                            _area_by_room[_nm] = max(_a, _area_by_room.get(_nm, 0.0))
-                    except (TypeError, ValueError):
-                        continue
-                # zona umeda: ACEEASI sursa ca RCCB-ul de 10mA (enrich_circuits._BATH_RX), importata
-                # lazy ca sa nu se dubleze lista (import circular la nivel de modul; tiparul e deja
-                # folosit in compute_cables). Import esuat -> prag unic de camera (fail-safe).
-                try:
-                    import enrich_circuits as _ec_bath
-                    _bath_rx = _ec_bath._BATH_RX
-                except Exception:
-                    _bath_rx = None
-                _kit_done = set()
-                for _el in _elements:
-                    if _el.get("element_type") not in _BULB_TYPES:
-                        continue
-                    _nm = (_el.get("room") or "").strip()
-                    if not _nm or _nm in _kit_done:
-                        continue
-                    _a = _area_by_room.get(_nm, 0.0)
-                    _prag = (_KIT_BATH_M2 if (_bath_rx and _bath_rx.search(_norm_name_ro(_nm)))
-                             else _KIT_ROOM_M2)
-                    if _a > _prag:
-                        _el["kit_panica"] = True
-                        _kit_done.add(_nm)
+                # KIT DE PANICA: NU se recalculeaza aici. Decizia s-a luat o data pe `centers`
+                # (`marcheaza_kit_panica`) si a fost copiata pe randuri mai sus, ca sa nu existe doua
+                # evaluari ale aceleiasi reguli care sa poata diverge.
 
                 # ── ACCES CLADIRE: aplica cu senzor pe fatada, la intrare (DOAR parter) ──────────
                 # Detectia automata a usii de intrare a fost abandonata dupa testarea pe 8 planuri
@@ -5818,10 +5851,15 @@ def draw_plan_elements(data: dict) -> dict:
                               "room": s.get("room")} for s in switches],   # room = numele camerei becului
                 # element_type + power_w (regula _bulb_rule_for_room, deja calculate ca _bulb_type/_bulb_pw):
                 # frontend-ul le foloseste la INSERT-ul plan_elements -> editorul arata acelasi corp ca PDF-ul.
+                # `kit_panica`: decizia regulii de mai sus. Calatoreste pe ACELASI drum ca
+                # element_type/power_w, fiindca frontendul e cel care insereaza plan_elements —
+                # nodul n8n cheama /draw-plan-elements FARA project_id, deci persistarea
+                # server-side nu se atinge in productie.
                 "centers": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                              "label": c["label"][:40],
                              "element_type": c.get("_bulb_type") or "aplica_tavan",
-                             "power_w": c.get("_bulb_pw")} for c in centers],
+                             "power_w": c.get("_bulb_pw"),
+                             "kit_panica": bool(c.get("_kit"))} for c in centers],
             },
         }
     except Exception as e:
