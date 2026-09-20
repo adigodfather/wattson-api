@@ -11,6 +11,7 @@ import floors as _fl                     # axa DESCHISA de niveluri (sursa unica
 # `_panels`, nu `_pn`: `_pn` e deja variabila de bucla in `enrich_circuits` (feed-urile TES), iar
 # aliasul de modul ar fi fost umbrit de ea.
 import panels as _panels                 # registrul de TABLOURI + graful lor (vezi panels.py)
+import apartments as _ap_mod             # apartamentul ca entitate de grupare (vezi apartments.py)
 
 _pn_bucket = _panels.panel_bucket        # scurtatura — se cheama o data per circuit
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
@@ -398,6 +399,19 @@ def _panel_for_floor(floor, plan_elements=None, floors=None):
     return tes, idx
 
 
+def _fdcp_pe_nivel(plan_elements, floor_key):
+    """Numele firidei de palier de pe nivel, sau None. Oglinda lui `_panel_for_floor`: singurul
+    lucru care schimba parintele unui TE-AP e prezenta unei firide PE NIVELUL LUI."""
+    for el in (plan_elements or []):
+        if ((el or {}).get("element_type") or "") != "tablou_fdcp":
+            continue
+        if _floor_key((el or {}).get("floor")) != floor_key:
+            continue
+        return (str((el or {}).get("label") or "").strip()
+                or "FDCP %s" % _fl.floor_canonic(floor_key).upper())
+    return None
+
+
 def _coborare_pe_nivel(plan_elements, floor):
     """Punctul de coborare al nivelului (sau None). UNUL singur per nivel — primul plasat castiga."""
     fk = _floor_key(floor)
@@ -438,12 +452,16 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
         room = c.get("room") if is_tect else None      # TECT: iluminatul e pe camera tehnica (nume)
         zone = None
         outlets = 0
-        desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _fl.floor_canonic(floor_idx))
+        # Numele grupului: apartamentul daca circuitul e al unuia, altfel nivelul. Fara asta, cele
+        # noua apartamente ale unui etaj ar avea toate „Iluminat etaj" — corect, si complet mut.
+        _gn = _ap_mod.eticheta_din_panel(panel_out) or _fl.floor_canonic(floor_idx)
+        desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _gn)
     else:
         room = c.get("room") or (els[idxs[0]].get("room") if idxs else None)   # VERBATIM (nume plan neschimbat)
         zone = rccb_zone(room, subtip)                 # "baie"/"terasa"/"dus"/None -> RCCB 10mA
         outlets = sum(1 for i in idxs if (els[i].get("element_type") or "").startswith("priza"))
-        desc = "Prize " + (str(room) if room else _fl.floor_canonic(floor_idx))
+        desc = "Prize " + (str(room) if room
+                           else (_ap_mod.eticheta_din_panel(panel_out) or _fl.floor_canonic(floor_idx)))
     rccb = zone is not None
     bt = "MCB-1P-C" + (" + RCCB 10mA" if rccb else "")
     # Zona umeda COMERCIALA de nivel 2 (spalator vase / masini de spalat / scafe de frizerie):
@@ -1049,15 +1067,35 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     # indexul are coliziuni legitime (mansarda unei case P+M sta la 2, ca proiectele livrate sa
     # ramana byte-identice; „etaj 2" sta tot la 2) — iar o coliziune AICI e exact defectul de mai
     # sus, cu doua niveluri intrate in acelasi `compute_circuits`. Eticheta e unica prin constructie.
+    #
+    # P2: cheia creste cu inca o treapta — (NIVEL, APARTAMENT). Un element care cade intr-un contur
+    # de apartament intra in grupul LUI, nu in al nivelului; restul (casa scarii, holul de palier)
+    # raman pe nivel, exact ca azi. Motivul e acelasi ca mai sus, cu un etaj mai jos: doua
+    # apartamente de pe acelasi etaj intrate in acelasi `compute_circuits` ar iesi pe ACELEASI
+    # circuite. Fara niciun contur desenat, `_ap` e mereu None si cheia se reduce la nivel — deci
+    # casele si duplexurile trec prin exact acelasi cod ca inainte, si ies byte-identice.
     _floors_all = _floors_of(plan_elements)
-    by_floor = {}                                      # eticheta nivel -> (elements, panel, index)
+    _conturi = {}                                      # nivel -> contururile lui (o data per nivel)
+    for _fk in _floors_all:
+        _cc_niv = _ap_mod.conturi_nivel(plan_elements, _fk, _fl.floor_canonic)
+        if _cc_niv:
+            _conturi[_fk] = _cc_niv
+    _ap_panels = {}                                    # „TE-AP 1.5" -> (nivel, index) — vezi coloanele
+    by_floor = {}                                      # (nivel, apartament) -> (elements, panel, index)
     for el in plan_elements:
         fkey = _floor_key(el.get("floor"))
         panel, fidx = _panel_for_floor(el.get("floor"), plan_elements, floors=_floors_all)
-        by_floor.setdefault(fkey, ([], panel, fidx))[0].append(el)
+        _ap = (_ap_mod.apartament_al_elementului(el, _conturi[fkey])
+               if fkey in _conturi else None)
+        if _ap:
+            panel = _ap_mod.panel_apartament(_ap)      # tabloul apartamentului, nu al nivelului
+        by_floor.setdefault((fkey, _ap), ([], panel, fidx))[0].append(el)
     plan_out = []
-    for fkey in sorted(by_floor, key=lambda k: by_floor[k][2]):   # ordinea = pe verticala, nu alfabetica
-        els, panel, fidx = by_floor[fkey]
+    # ordinea: pe verticala (indexul nivelului), apoi apartamentele in ordinea etichetei; grupul
+    # COMUN al nivelului (`None`) primul, ca circuitele lui sa pastreze numerele de azi.
+    for _gk in sorted(by_floor, key=lambda k: (by_floor[k][2], k[1] is not None, k[1] or "")):
+        fkey, _ap = _gk
+        els, panel, fidx = by_floor[_gk]
         _out_from = len(plan_out)                      # vezi stampila `floor_label` de la finalul iteratiei
         # SUFIX id = conventia PLANULUI: compute_circuits via _detect_general_panel foloseste "TES"
         # (nu "TES1") -> id-uri C1-TES (identice cu plan_elements.circuit_id). panel ramane "TES1"/"TES2"
@@ -1066,6 +1104,12 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         # distinct de al parterului (ambele sunt pe TEG, dar sunt circuite diferite), iar
         # `_detect_general_panel` intoarce acelasi "SUS" de partea planşei.
         general = ("TEG" if fidx == 0 else ("SUS" if panel == "TEG" else "TES"))
+        if _ap:
+            _ap_panels[panel] = (fkey, fidx)           # pentru coloana de alimentare, mai jos
+            # Apartamentul isi poarta propriul sufix, luat din REGISTRUL de tablouri (P1) ca sa fie
+            # acelasi lucru in ambele capete: „TE-AP 1.5" -> „-AP-1.5" -> circuite C1-AP-1.5..CN.
+            # Fara el, cele 9 apartamente ale unui etaj ar imparti secventa „-TES" a nivelului.
+            general = _panels.circuit_suffix(panel).lstrip("-") or "TEG"
         tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
         for c in cc["circuits"]:
@@ -1205,6 +1249,28 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
                "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#1565C0"}
         _resize_column_feed(_fd, _tes_grp, force_resum=True)
         _fd["cable"] = _fd.get("cable_type")           # alias-ul legacy `cable` (schema il afiseaza la feed-uri)
+        feed_circuits.append(_fd)
+
+    # COLOANELE CATRE TABLOURILE DE APARTAMENT (P2). Bloc SEPARAT de cel al TES-urilor de mai sus,
+    # care ramane neatins: pe o casa `_ap_panels` e gol, deci bucla nu ruleaza si nimic nu se schimba.
+    # Parintele: firida de palier a nivelului (`tablou_fdcp`) DACA inginerul a plasat-o — atunci
+    # graful iese TEGD -> FDCP -> TE-AP, ca la Dan; altfel tabloul nivelului (TEG/TESn), ca sa nu
+    # ramana apartamentul ORFAN in graf. Firida propriu-zisa (contorizare, schema ei) e P8.
+    for _apn in sorted(_ap_panels):
+        if any(str(f.get("feeds_panel") or "") == _apn for f in feed_circuits):
+            continue
+        _afk, _afi = _ap_panels[_apn]
+        _parinte = _fdcp_pe_nivel(plan_elements, _afk) or _panel_for_floor(
+            _afk, plan_elements, floors=_floors_all)[0]
+        _grp = [c for c in plan_out if str(c.get("panel") or "") == _apn]
+        _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
+               "panel": _parinte, "feeds_panel": _apn, "phases": (1 if is_mono else 3),
+               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
+               "description": "Alimentare %s" % _apn, "usage": "Alimentare %s" % _apn,
+               "floor_label": _afk,
+               "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#3B82F6"}
+        _resize_column_feed(_fd, _grp, force_resum=True, force_mono=is_mono)
+        _fd["cable"] = _fd.get("cable_type")
         feed_circuits.append(_fd)
 
     # FEED TE-CT SINTETIZAT (gaz bifat): base-ul de gaz nu are feed (breviarul nu emite TE-CT pe gaz) —

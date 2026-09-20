@@ -155,7 +155,11 @@ const isPanelType = (t: string) => PANEL_SET.has(t);
 const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
 const isTraseuType = (t: string) => t === "traseu";
-const isGroundType = (t: string) => t === "ground_electrode_path";   // Faza 3: priza de pamant (polyline pe fundatie)
+const GROUND_TYPE = "ground_electrode_path";
+const APART_TYPE = "contur_apartament";      // P2: conturul de apartament (acelasi mecanism de poligon)
+const APART_COL = "#3B82F6";                 // = _APART_COLOR din draw_elements (lectia O1: editor = PDF)
+const isGroundType = (t: string) => t === GROUND_TYPE;   // Faza 3: priza de pamant (polyline pe fundatie)
+const isApartType = (t: string) => t === APART_TYPE;
 const isFvChainType = (t: string) => t === "fv_chain_path";          // lantul FV desenat MANUAL (polilinie deschisa galbena)
 // Banda LED TRASATA: polilinie DESCHISA pe planul de iluminat -> metri REALI in BOM (lungimea desenata),
 // spre deosebire de `banda_led` PUNCTUAL (simbol vechi, numarat la bucata) care ramane neatins.
@@ -1030,6 +1034,7 @@ export default function PlanEditor({
   const [genMsg, setGenMsg] = useState<string | null>(null);
   // Faza 3 priza de pamant: mod desenare manuala (click succesiv pe conturul fundatiei).
   const [drawingGround, setDrawingGround] = useState(false);
+  const [drawTip, setDrawTip] = useState<string>(GROUND_TYPE);   // oglinda de RANDARE a lui groundTypeRef
   const [groundPts, setGroundPts] = useState<number[][]>([]);            // colturi fixate (puncte PDF)
   const [groundHover, setGroundHover] = useState<[number, number] | null>(null);   // rubber-band live
   // ref = sursa de adevar SINCRONA a colturilor (nu doar state): un dublu-click emite click+click+dblclick
@@ -1038,6 +1043,9 @@ export default function PlanEditor({
   // Shift la ULTIMUL colt plasat: finishDrawGround (apelat din Enter/buton/dublu-click, deci fara
   // eveniment) trebuie sa stie daca inginerul a cerut explicit punct brut, ca sa nu alinieze inchiderea.
   const groundShiftRef = useRef(false);
+  // P2: ACELASI mecanism de poligon serveste si conturul de apartament. Ref-ul spune CE se deseneaza
+  // acum — un al doilea set de stari paralele ar fi insemnat doua fluxuri care se pot desincroniza.
+  const groundTypeRef = useRef<string>(GROUND_TYPE);
   // Lantul FV (manual): mod desenare polilinie DESCHISA galbena — mecanismul prizei de pamant
   // (click succesiv + rubber-band + dublu-click/Enter), dar min 2 puncte si fara inchidere.
   const [drawingFvChain, setDrawingFvChain] = useState(false);
@@ -1770,7 +1778,8 @@ export default function PlanEditor({
   }
 
   // ── Faza 3: priza de pamant — desenare manuala prin click succesiv pe colturile fundatiei. ──
-  function startDrawGround() {
+  function startDrawGround(tip: string = GROUND_TYPE) {
+    groundTypeRef.current = tip;
     setSelectedId(null);            // fara selectie activa cat desenam
     cancelDrawFvChain();            // un singur mod de desenare activ
     cancelDrawBandaLed();           // (straturile de captura nu se suprapun)
@@ -1779,6 +1788,7 @@ export default function PlanEditor({
     setGroundPts([]);
     setGroundHover(null);
     setDrawingGround(true);
+    setDrawTip(tip);
   }
   function cancelDrawGround() {
     setDrawingGround(false);
@@ -1835,12 +1845,19 @@ export default function PlanEditor({
       // aplicam daca latura anterioara nu era ortogonala (n-avem ce strica) sau ramane ortogonala
       if (!ort(pts[n - 1], pts[n]) || ort(pts[n - 1], inchis)) pts[n] = [inchis[0], inchis[1]];
     }
+    // P2: eticheta APARTAMENTULUI se precompletează automat — nivel + ordinea pe nivel. Automată
+    // fiindcă numerotarea manuală lasă goluri când ștergi al treilea din cinci, iar golul nu se vede
+    // până la schemă. Rămâne EDITABILĂ (câmpul `label`), deci convenția lui Dan se poate impune.
+    const esteAp = groundTypeRef.current === APART_TYPE;
+    const fidx = floorIndex(floor);
+    const nAp = elements.filter(e => isApartType(e.element_type)
+                                  && floorCanonic(e.floor) === floorCanonic(floor)).length + 1;
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),   // PROP curent (parter), NU elements[0]?.floor
-      element_type: "ground_electrode_path",
-      plan_type: "forta",
-      label: null as string | null,
+      element_type: esteAp ? APART_TYPE : GROUND_TYPE,
+      plan_type: esteAp ? "ambele" : "forta",   // conturul se vede pe iluminat SI pe forță
+      label: (esteAp ? (fidx <= 0 ? `P${nAp}` : `P${fidx}_${nAp}`) : null) as string | null,
       room: null as string | null,
       x: pts[0][0],
       y: pts[0][1],                 // ancora = coltul 0 (sincron cu NOT NULL x,y)
@@ -1850,7 +1867,7 @@ export default function PlanEditor({
       cable_path: pts,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
-    if (error || !data) { console.error("[plan_elements] INSERT priza de pamant esuat", error?.message); return; }
+    if (error || !data) { console.error("[plan_elements] INSERT poligon esuat", groundTypeRef.current, error?.message); return; }
     setElements(prev => [...prev, data as PlanElement]);
     setSelectedId((data as PlanElement).id);
     setDrawingGround(false);
@@ -2953,7 +2970,7 @@ export default function PlanEditor({
         ) : drawingGround ? (
           <div style={{ paddingLeft: 2 }}>
             <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
-              Click pe fiecare colț al fundației · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+              Click pe fiecare colț al {drawTip === APART_TYPE ? "apartamentului" : "fundației"} · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
             </div>
             <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
               <button type="button" className="zy-add-btn" onClick={() => void finishDrawGround()} disabled={groundPts.length < 3}>Finalizează</button>
@@ -2962,7 +2979,10 @@ export default function PlanEditor({
           </div>
         ) : (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={startDrawGround}>+ Desenează priza de pământ</button>
+            <button type="button" className="zy-add-btn" onClick={() => startDrawGround(GROUND_TYPE)}>+ Desenează priza de pământ</button>
+            {/* P2: conturul de apartament. Se desenează pe FIECARE nivel care are apartamente
+                (decizia lui Dan) — de-aia butonul nu e limitat la parter, ca priza de pământ. */}
+            <button type="button" className="zy-add-btn" onClick={() => startDrawGround(APART_TYPE)}>+ Desenează apartament</button>
           </div>
         )}
       </Rubrica>
@@ -3503,7 +3523,8 @@ export default function PlanEditor({
                 ))}
                 {ordered.map((el) => {
                   if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
-                      || isBandaLedPathType(el.element_type) || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED randate separat
+                      || isBandaLedPathType(el.element_type) || isApartType(el.element_type)
+                      || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED + contur apartament randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -3696,6 +3717,25 @@ export default function PlanEditor({
                   return (
                     <Line key={el.id} points={flat} closed stroke={COL_GROUND} strokeWidth={2.5}
                           lineCap="round" lineJoin="round" listening={false} opacity={0.95} />
+                  );
+                })}
+                {/* CONTURURILE DE APARTAMENT (P2) — poligon ÎNCHIS, linie ÎNTRERUPTĂ albastră, cu
+                    eticheta în colțul din stânga-sus. Întreruptă fiindcă e o DELIMITARE, nu o
+                    instalație: nu trebuie să concureze vizual cu traseele desenate peste ea.
+                    Identic cu `_draw_contur_apartament` din draw_elements (lecția O1: editor = PDF). */}
+                {elements.filter(e => isApartType(e.element_type)).map((el) => {
+                  const pts = (el.cable_path && el.cable_path.length >= 3) ? el.cable_path : null;
+                  if (!pts) return null;
+                  const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
+                  const x0 = Math.min(...pts.map(p => p[0])) * scale;
+                  const y0 = Math.min(...pts.map(p => p[1])) * scale;
+                  return (
+                    <Group key={el.id} listening={false}>
+                      <Line points={flat} closed stroke={APART_COL} strokeWidth={1.4}
+                            dash={[6, 4]} lineJoin="round" opacity={0.95} />
+                      {el.label ? <Text x={x0 + 3} y={y0 + 3} text={`Ap ${el.label}`} fontSize={11}
+                                        fontStyle="bold" fill={APART_COL} /> : null}
+                    </Group>
                   );
                 })}
                 {/* Benzile LED EXISTENTE — polilinii DESCHISE turcoaz, read-only (redesenare = sterge + deseneaza). */}

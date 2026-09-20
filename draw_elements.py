@@ -6,6 +6,7 @@ import unicodedata
 
 import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
 import panels as _pnl                    # registrul de TABLOURI (tipuri, familii, ku; vezi panels.py)
+import apartments as _apm                # conturul de apartament (vezi apartments.py)
 
 import fitz  # PyMuPDF
 
@@ -3310,6 +3311,31 @@ _GROUND_PLATBANDA_WIDTH = 1.8          # priza 40x4 = cea mai groasa (40x4 > 20x
 _GROUND_LEGATURA_WIDTH = 1.2           # legatura TEG->priza 20x2 (mai subtire ca platbanda, mai groasa ca cablurile)
 
 
+_APART_COLOR = (0.231, 0.510, 0.965)     # #3B82F6 — acelasi albastru ca simbolul TE-AP
+_APART_DASH = "[6 4] 0"
+
+
+def _draw_contur_apartament(page, el, eticheta=None):
+    """Conturul de apartament: poligon INCHIS, linie INTRERUPTA albastra, cu eticheta in coltul
+    din stanga-sus. Intrerupta si nu plina fiindca nu e o instalatie — e o DELIMITARE, si nu trebuie
+    sa concureze vizual cu traseele de cablu desenate peste ea.
+
+    Acelasi tipar de date ca priza de pamant: puncte in `cable_path`. Malformat -> nu deseneaza
+    nimic si nu crapa (un poligon strambat de un drag nu poate opri generarea planşei)."""
+    pts = _apm._pts(el)
+    if not pts or len(pts) < 3:
+        return False
+    page.draw_polyline([fitz.Point(x, y) for x, y in pts], color=_APART_COLOR,
+                       width=1.1, closePath=True, dashes=_APART_DASH)
+    txt = str(eticheta or el.get("label") or "").strip()
+    if txt:
+        x0 = min(p[0] for p in pts)
+        y0 = min(p[1] for p in pts)
+        page.insert_text(fitz.Point(x0 + 3, y0 + 11), "Ap %s" % txt, fontsize=9,
+                         fontname="hebo", color=_APART_COLOR)
+    return True
+
+
 def _draw_ground_electrode(page, el_ground, teg_xy=None):
     """Deseneaza priza de pamant trasata manual de inginer (element ground_electrode_path):
       - platbanda 40x4 = poligon INCHIS solid portocaliu pe punctele cable_path (conturul fundatiei);
@@ -5446,6 +5472,12 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
+            elif et == _apm.CONTUR:
+                # CONTURUL DE APARTAMENT: delimitare, nu instalatie. Se deseneaza pe planşa
+                # nivelului lui (fara gard de etaj, spre deosebire de priza de pamant: apartamente
+                # sunt pe toate nivelurile, nu doar la parter). Eticheta vine din `label`, pe care
+                # editorul o precompleteaza automat la creare.
+                _draw_contur_apartament(page, el)
             elif (et in _CS_TYPES or et in _DET_TYPES) and et != "traseu_cs":
                 # CURENTI SLABI + DETECTIE INCENDIU: simbol + eticheta scurta (abrevierea de pe
                 # planurile de referinta) + inaltimea de montaj, cand e setata. Culoarea urmeaza
