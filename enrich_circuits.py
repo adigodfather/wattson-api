@@ -7,6 +7,7 @@
 # n-are power_w pe prize); receptoare=din formular extra_equipment (plan are doar label).
 import math
 import re
+import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
@@ -333,24 +334,37 @@ def receptor_power(label, form):
     return 0, t, "mono", "tip necunoscut"     # label nemapabil (rar; receptoarele vin din butoane UI)
 
 # ── Regula 6: panel din floor ────────────────────────────────────────────────
-def _floor_panel(floor):
+def _floor_panel(floor, floors=None):
     """Tabloul „natural" al nivelului, DOAR din numele lui. Pastrata ca sursa a indexului de nivel
-    si ca RAMURA DE FALLBACK — vezi `_panel_for_floor`."""
-    f = str(floor if floor is not None else "parter").strip().lower()
-    if "mansard" in f or f == "2": return "TES2", 2
-    if "etaj" in f or f == "1":    return "TES1", 1
-    return "TEG", 0
+    si ca RAMURA DE FALLBACK — vezi `_panel_for_floor`.
+
+    Delegata la `floors.floor_panel` (axa DESCHISA). Pana la P0 era un enum de trei scris aici, cu
+    `"etaj" in f`, care prindea etajele 1, 2 si 3 deopotriva. parter/etaj/mansarda dau exact aceleasi
+    perechi ca inainte — (TEG,0) / (TES1,1) / (TES2,2)."""
+    return _fl.floor_panel(floor, floors)
 
 
 COBORARE = "coborare_cabluri"     # punctul prin care circuitele nivelului coboara la TEG
 
 
 def _floor_key(floor):
-    """Cheia de NIVEL, normalizata: aceeasi pentru „etaj"/„Etaj 1"/1 (indexul din `_floor_panel`)."""
-    return _floor_panel(floor)[1]
+    """IDENTITATEA nivelului: eticheta canonica („parter" / „etaj" / „etaj 2" / „subsol" / ...).
+    Aceeasi pentru „etaj"/„Etaj 1"/„etaj1"/1.
+
+    Era INDEXUL. Nu mai e, si asta e miezul pachetului: indexul are coliziuni legitime (mansarda unei
+    case P+M sta la 2 ca sa ramana byte-identica, iar „etaj 2" sta tot la 2), iar o cheie de grupare
+    cu coliziuni contopeste doua niveluri intr-unul. Eticheta e unica prin constructie."""
+    return _fl.floor_canonic(floor)
 
 
-def _panel_for_floor(floor, plan_elements=None):
+def _floors_of(plan_elements):
+    """Nivelurile PREZENTE pe plan, canonice. Contextul de care are nevoie axa ca sa aseze mansarda
+    deasupra etajelor cand sunt mai multe (vezi `floors.floor_index`). Calculat O DATA de apelant —
+    `_panel_for_floor` se cheama o data per element."""
+    return _fl.sort_floors([(el or {}).get("floor") for el in (plan_elements or [])])
+
+
+def _panel_for_floor(floor, plan_elements=None, floors=None):
     """Tabloul care alimenteaza circuitele nivelului. TREI ramuri, in ordinea deciziei inginerului:
 
       nivelul are `coborare_cabluri`  -> ("TEG", idx)  — nu exista tablou secundar; circuitele
@@ -369,7 +383,7 @@ def _panel_for_floor(floor, plan_elements=None):
     primeste, fara nicio notiune de etaj, deci becurile a doua niveluri intrate in acelasi apel ies
     pe ACELASI circuit (masurat: 6 becuri parter + 1 mansarda -> un singur C1). Panel-ul se schimba
     DUPA grupare, nu prin comasarea grupurilor."""
-    tes, idx = _floor_panel(floor)
+    tes, idx = _floor_panel(floor, floors if floors is not None else _floors_of(plan_elements))
     if idx == 0:
         return tes, idx                              # parterul are mereu TEG
     fk = _floor_key(floor)
@@ -412,17 +426,19 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
     breaker_a, ia = breaker_and_ia(power_w, tri=False, minimum=minimum)
     is_ext = any((els[i].get("element_type") or "") == "priza_exterior_ip44" for i in idxs)
     cbl, sec = cable_type(kind, breaker_a, is_ext, tri=False)
-    _FLOOR_NAME = {0: "parter", 1: "etaj", 2: "mansarda"}
+    # A PATRA si a CINCEA copie a enumului de trei traiau aici, ca `_FLOOR_NAME`, ascunse in
+    # descrierea circuitului: peste indexul 2 cadeau pe numele TABLOULUI, deci un etaj 3 s-ar fi
+    # descris „Iluminat TES3" in loc de „Iluminat etaj 3". Delegate la axa; 0/1/2 dau exact ce dadeau.
     if kind == "iluminat":
         room = c.get("room") if is_tect else None      # TECT: iluminatul e pe camera tehnica (nume)
         zone = None
         outlets = 0
-        desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _FLOOR_NAME.get(floor_idx, panel))
+        desc = ("Iluminat " + str(room)) if (is_tect and room) else ("Iluminat " + _fl.floor_canonic(floor_idx))
     else:
         room = c.get("room") or (els[idxs[0]].get("room") if idxs else None)   # VERBATIM (nume plan neschimbat)
         zone = rccb_zone(room, subtip)                 # "baie"/"terasa"/"dus"/None -> RCCB 10mA
         outlets = sum(1 for i in idxs if (els[i].get("element_type") or "").startswith("priza"))
-        desc = "Prize " + (str(room) if room else _FLOOR_NAME.get(floor_idx, panel))
+        desc = "Prize " + (str(room) if room else _fl.floor_canonic(floor_idx))
     rccb = zone is not None
     bt = "MCB-1P-C" + (" + RCCB 10mA" if rccb else "")
     # Zona umeda COMERCIALA de nivel 2 (spalator vase / masini de spalat / scafe de frizerie):
@@ -560,8 +576,7 @@ def _enrich_heating_group(c, panel, floor_idx, is_mono=False):
     tri = bool(c.get("tri")) and not is_mono
     breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
     cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
-    _FLOOR_NAME = {0: "parter", 1: "etaj", 2: "mansarda"}
-    desc = "Incalzire electrica " + _FLOOR_NAME.get(floor_idx, str(panel))
+    desc = "Incalzire electrica " + _fl.floor_canonic(floor_idx)   # idem: a cincea copie a enumului
     return {
         "id": c["id"], "fasa": None, "room": None, "type": "dedicat", "floor": floor_idx,
         "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
@@ -1024,14 +1039,21 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     # (coborare), doua niveluri ar cadea in acelasi grup — si `compute_circuits` imparte becurile
     # prin bin-packing peste TOT ce primeste, fara notiune de etaj: becurile parterului si ale
     # mansardei ar iesi pe ACELASI circuit de iluminat (masurat: 6+1 becuri -> un singur C1).
-    # Cheia e indexul de nivel; panel-ul devine un ATRIBUT al grupului.
-    by_floor = {}                                      # floor_idx -> (elements, panel)
+    # Cheia e ETICHETA CANONICA a nivelului; panel-ul si indexul devin ATRIBUTE ale grupului.
+    # Cheia era INDEXUL. Cat timp axa avea trei valori era acelasi lucru, dar pe o axa deschisa
+    # indexul are coliziuni legitime (mansarda unei case P+M sta la 2, ca proiectele livrate sa
+    # ramana byte-identice; „etaj 2" sta tot la 2) — iar o coliziune AICI e exact defectul de mai
+    # sus, cu doua niveluri intrate in acelasi `compute_circuits`. Eticheta e unica prin constructie.
+    _floors_all = _floors_of(plan_elements)
+    by_floor = {}                                      # eticheta nivel -> (elements, panel, index)
     for el in plan_elements:
-        panel, fidx = _panel_for_floor(el.get("floor"), plan_elements)
-        by_floor.setdefault(fidx, ([], panel))[0].append(el)
+        fkey = _floor_key(el.get("floor"))
+        panel, fidx = _panel_for_floor(el.get("floor"), plan_elements, floors=_floors_all)
+        by_floor.setdefault(fkey, ([], panel, fidx))[0].append(el)
     plan_out = []
-    for fidx in sorted(by_floor.keys()):
-        els, panel = by_floor[fidx]
+    for fkey in sorted(by_floor, key=lambda k: by_floor[k][2]):   # ordinea = pe verticala, nu alfabetica
+        els, panel, fidx = by_floor[fkey]
+        _out_from = len(plan_out)                      # vezi stampila `floor_label` de la finalul iteratiei
         # SUFIX id = conventia PLANULUI: compute_circuits via _detect_general_panel foloseste "TES"
         # (nu "TES1") -> id-uri C1-TES (identice cu plan_elements.circuit_id). panel ramane "TES1"/"TES2"
         # (grupare pe pagini de schema, setat in _enrich_group); DOAR sufixul id-ului se aliniaza.
@@ -1087,6 +1109,15 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         plan_out.extend(_ev)
         banda_cid_map.update(_evmap)   # aceeasi harta element -> circuit (folosita la etichetele de pe plan)
 
+        # `floor_label` — ETICHETA nivelului, langa indexul care se scria deja in `floor`. Pe axa
+        # deschisa intregul nu mai e reversibil: 2 a insemnat dintotdeauna „mansarda", dar acum poate
+        # fi si „etaj 2", iar `derive_extra_floors` citeste inapoi exact acel intreg ca sa numeasca
+        # planşele. Campul e ADITIV si nimeni nu-i obligat sa-l trimita: absenta lui (proiectele de
+        # pana acum) da numerotarea de azi, neschimbata. Stampilat pe felia acestui nivel, nu prin
+        # cinci semnaturi de functie.
+        for _c in plan_out[_out_from:]:
+            _c["floor_label"] = fkey
+
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
     plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]
     plan_has_ilum  = any(c.get("type") == "iluminat" for c in plan_tect)
@@ -1141,18 +1172,27 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     # breaker = treapta peste max intern + sectiune >= max interna, trifazat 5 fire). Coloana desenata
     # (cross-floor) + BOM (_tes_feed_ct/_extra_meters) + legenda citesc feed-ul REAL din circuits ->
     # fallback-ul 5x6 nu se mai activeaza. 9926: TES1 (240W ilum + 6x2000W prize) -> 20A / CYY-F 5x4.
+    # Eticheta nivelului din harta FIXA de doua intrari ramane doar ca plasa: numele adevarat vine
+    # acum de pe circuitele nivelului (`floor_label`), altfel coloana catre al treilea etaj s-ar fi
+    # descris „Alimentare TES3 (nivel superior)" — corect, dar mut.
     _TES_FLOOR_DESC = {"TES1": "etaj", "TES2": "mansarda"}
     for _pn in sorted({str(c.get("panel") or "") for c in tes}):
         if any(str(f.get("feeds_panel") or "") == _pn for f in feed_circuits):
             continue                                   # breviarul l-a emis deja (viitor) -> preservat, nu dublam
         _tes_grp = [c for c in tes if str(c.get("panel") or "") == _pn]
+        _flbl = next((c.get("floor_label") for c in _tes_grp if c.get("floor_label")), None)
+        _fdesc = _TES_FLOOR_DESC.get(_pn) or _flbl or "nivel superior"
         # faza coloanei = faza BRANSAMENTULUI (pe mono nu exista coloana trifazata): phases/breaker/fasa
         # conditionate -> _resize_column_feed dimensioneaza corect (mono: Ia=P/230, 3 fire).
         _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
                "panel": "TEG", "feeds_panel": _pn, "phases": (1 if is_mono else 3),
                "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
-               "description": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
-               "usage": "Alimentare %s (%s)" % (_pn, _TES_FLOOR_DESC.get(_pn, "nivel superior")),
+               "description": "Alimentare %s (%s)" % (_pn, _fdesc),
+               "usage": "Alimentare %s (%s)" % (_pn, _fdesc),
+               # coloana apartine NIVELULUI pe care-l alimenteaza — altfel ar fi singurul circuit
+               # din iesire fara eticheta de nivel, si `derive_extra_floors` ar trebui sa stie ca
+               # „None" inseamna „intreaba alt camp". Lipsa lui aici e defectul prins de testul D.
+               **({"floor_label": _flbl} if _flbl else {}),
                # culorile simbolului de sub-tablou in schema monofilara (alb/albastru = simbolul TES din editor)
                "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#1565C0"}
         _resize_column_feed(_fd, _tes_grp, force_resum=True)

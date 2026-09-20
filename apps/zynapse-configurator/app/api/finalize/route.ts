@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { snapFvPackage } from "@/lib/constants";
+import { floorCanonic, sortFloors } from "@/lib/floors";   // axa DESCHISĂ de niveluri (oglinda floors.py)
 
 // Faza 2b — "Finalizeaza": proxy server-side catre webhook-ul n8n "zynapse-finalize".
 // Optiunea (b): n8n NU primeste credentiale Supabase. Aici (autentificat, ownership check)
@@ -137,17 +138,32 @@ export async function POST(req: NextRequest) {
     plan_mansarda: "mansarda", plan_demisol: "demisol", plan_subsol: "subsol",
   };
   const planuri = Array.isArray(rd.planuri) ? (rd.planuri as Array<{ type?: string }>) : [];
-  let extraFloors: string[] = planuri.slice(1).map(
-    (p) => PLAN_TYPE_LABEL[String(p?.type || "").toLowerCase()] || "etaj",
-  );
+  // Tip nerecunoscut: trece întâi prin axă („plan_etaj3" → „etaj 3"), apoi genericul de dinainte.
+  // Saltul `slice(1)` rămâne neatins — în bază sunt 10 proiecte cu `planuri[0].type="plan_generic"`,
+  // iar orice filtrare pe etichetă l-ar citi ca nivel necunoscut și le-ar inventa un etaj.
+  let extraFloors: string[] = planuri.slice(1).map((p) => {
+    const t = String(p?.type || "").toLowerCase();
+    if (PLAN_TYPE_LABEL[t]) return PLAN_TYPE_LABEL[t];
+    const c = floorCanonic(t);
+    return c !== "parter" ? c : "etaj";
+  });
   if (extraFloors.length === 0) {
-    const FLOOR_LABEL: Record<number, string> = { 1: "etaj", 2: "mansarda" };
-    const fset = new Set<number>();
-    for (const c of circuits as Array<{ floor?: unknown }>) {
-      const fi = parseInt(String(c?.floor), 10);
-      if (Number.isFinite(fi) && fi > 0) fset.add(fi);
+    // Sursa PREFERATĂ: `floor_label` de pe circuite (pus de enrich de la P0). Pe axa deschisă
+    // întregul nu mai e reversibil — 2 a însemnat dintotdeauna „mansardă", dar poate fi și „etaj 2".
+    // Fără etichete (circuitele de până acum) cade pe exact harta veche: 1→etaj, 2→mansardă.
+    const labels = (circuits as Array<{ floor_label?: unknown }>)
+      .map((c) => String(c?.floor_label || "").trim()).filter(Boolean);
+    if (labels.length) {
+      extraFloors = sortFloors(labels).filter((f) => f !== "parter");
+    } else {
+      const FLOOR_LABEL: Record<number, string> = { 1: "etaj", 2: "mansarda" };
+      const fset = new Set<number>();
+      for (const c of circuits as Array<{ floor?: unknown }>) {
+        const fi = parseInt(String(c?.floor), 10);
+        if (Number.isFinite(fi) && fi > 0) fset.add(fi);
+      }
+      extraFloors = [...fset].sort((a, b) => a - b).map((f) => FLOOR_LABEL[f] || floorCanonic(f));
     }
-    extraFloors = [...fset].sort((a, b) => a - b).map((f) => FLOOR_LABEL[f] || `nivel ${f}`);
   }
 
   // ── F2-v2 + memoriu (2026-07-14): semnalul FV pt. clona finalize -> REGENEREAZA schema FV cu kW-ul

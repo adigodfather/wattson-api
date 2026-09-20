@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
-import { floorCanonic, floorIndex } from "@/lib/floors";
+import { floorLevels, floorForPlate, floorLabel, platePos } from "@/lib/floors";
 import { COMERCIAL_CATEGORII, SUBTIP_DEFAULT } from "@/lib/comercial";   // sub-tipul comercial (categorie -> sub-tip)
 import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
 import { groupBomBySection, hasSections } from "@/lib/bom-sections";   // bucata 3: gruparea BOM pe cele 8 sectiuni
@@ -1203,17 +1203,21 @@ export function ZynapseConfigurator() {
     .map((p, idx) => ({ idx, p }))
     .filter((x) => !!x.p.png_base64);
   const multiFloor = editablePlanse.length > 1;
+  // NIVELURILE PROIECTULUI, în ordinea planșelor. Până acum numele nivelului se lua dintr-un tabel
+  // fix de trei, indexat cu poziția planșei — a patra planșă ieșea „Parter" a doua oară, iar
+  // elementele ei se scriau cu ACEEAȘI etichetă `floor` ca ale parterului real. Acum lista vine din
+  // `planuri[].type` (numele REAL: o casă P+M dă `plan_mansarda`), cu convenția veche pe pozițiile
+  // pe care tipul lipsește — deci proiectele de până acum arată exact la fel.
+  const nivele = floorLevels(result?.planuri as Array<{ type?: string | null }> | undefined,
+                             planseIluminat.length);
   // M3: forța per etaj PERSISTATĂ în planse_forta[idx].regenerated (înlocuiește fortaDoneIdxs din sesiune).
   const planseForta = result?.planse_forta || [];
   const fortaDone = (idx: number) => planseForta[idx]?.regenerated === true;
-  const floorName = (idx: number) => {
-    const c = floorCanonic(idx);
-    return c.charAt(0).toUpperCase() + c.slice(1);   // "Parter"/"Etaj"/"Mansarda"
-  };
-  // M1: camere scopate pe etajul SELECTAT (floorIndex robust la cele 3 codificări).
-  // Proiecte vechi/single-floor cu floor=null -> parter (index 0) = zero regresie.
+  const floorName = (idx: number) => floorLabel(floorForPlate(idx, nivele));   // "Parter"/"Etaj"/"Etaj 2"
+  // M1: camere scopate pe etajul SELECTAT. `rooms[].floor` e POZIȚIA planșei (întreg), dar poate
+  // veni și ca etichetă pe proiectele vechi — `platePos` acceptă ambele și întoarce tot poziția.
   const roomsScoped = (result?.rooms ?? []).filter(
-    (r) => floorIndex((r as { floor?: string | number | null }).floor) === editorPlansaIdx
+    (r) => platePos((r as { floor?: string | number | null }).floor, nivele) === editorPlansaIdx
   );
   // Editor full-width (PASUL 3.5): tab Editor -> ascunde formularul + lateste planul pe tot ecranul.
   const editorFull = activeTab === "editor" && !!result;
@@ -1327,7 +1331,7 @@ export function ZynapseConfigurator() {
           ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_detectie_incendiu",
               name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ|CURENȚI SLABI|DETECȚIE INCENDIU)\s*$/, "")} — DETECȚIE INCENDIU`,
               ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
-              filename: `Plan_detectie_incendiu_${floorCanonic(editorPlansaIdx)}.pdf` }
+              filename: `Plan_detectie_incendiu_${floorForPlate(editorPlansaIdx, nivele)}.pdf` }
           : f),
       };
     } else if (mode === "curenti_slabi") {
@@ -1344,7 +1348,7 @@ export function ZynapseConfigurator() {
           ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_curenti_slabi",
               name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ|CURENȚI SLABI)\s*$/, "")} — CURENȚI SLABI`,
               ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
-              filename: `Plan_curenti_slabi_${floorCanonic(editorPlansaIdx)}.pdf` }
+              filename: `Plan_curenti_slabi_${floorForPlate(editorPlansaIdx, nivele)}.pdf` }
           : f),
       };
     } else if (mode === "forta") {
@@ -1363,7 +1367,7 @@ export function ZynapseConfigurator() {
           ? { ...f, pdf_base64: pdfBase64, regenerated: true, type: "plan_forta",
               name: `${(f.name || "PLAN").replace(/\s*—\s*(ILUMINAT|FORȚĂ)\s*$/, "")} — FORȚĂ`,
               ...(plansaNr ? { source_plansa_nr: plansaNr } : {}),
-              filename: `Plan_forta_${floorCanonic(editorPlansaIdx)}.pdf` }
+              filename: `Plan_forta_${floorForPlate(editorPlansaIdx, nivele)}.pdf` }
           : f),
       };
     } else {
@@ -1793,10 +1797,15 @@ export function ZynapseConfigurator() {
           try {
             if (projectUuid) {
               const planElements: Array<Record<string, unknown>> = [];
+              // M2a: floor CANONIC din POZIȚIA planșei — aliniat cu rooms[].floor + plan_elements.
+              // P0: lista nivelurilor vine din `planuri[].type` (numele REAL al nivelului), nu dintr-un
+              // tabel fix de trei. Pe a patra planșă tabelul fix dădea „parter" a doua oară, și TOATE
+              // elementele ei se scriau peste eticheta parterului real — pierdere tăcută, nu eroare.
+              const nivelePlan = floorLevels(
+                data.planuri as Array<{ type?: string | null }> | undefined,
+                (data.planse_iluminat || []).length);
               for (const [idx, plansa] of (data.planse_iluminat || []).entries()) {
-                // M2a: floor CANONIC din INDEXUL planșei (0=parter/1=etaj/2=mansarda) — robust,
-                // aliniat cu rooms[].floor + plan_elements. Elimină vechiul "etaj1".
-                const floor = floorCanonic(idx);
+                const floor = floorForPlate(idx, nivelePlan);
                 for (const c of (plansa.centers || [])) {
                   planElements.push({
                     project_id: projectUuid,
@@ -2908,7 +2917,7 @@ export function ZynapseConfigurator() {
                   pngMeta={modeEditor !== "iluminat" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
                   bgLoading={modeEditor !== "iluminat" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}
-                  floor={floorCanonic(editorPlansaIdx)}
+                  floor={floorForPlate(editorPlansaIdx, nivele)}
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}
                   heatingDistribution={form.heating_distribution}

@@ -4,6 +4,8 @@ import math
 import re
 import unicodedata
 
+import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
+
 import fitz  # PyMuPDF
 
 # Roșu pentru planșa de iluminat (RGB 0-1)
@@ -4735,13 +4737,14 @@ def _room_of_point(px, py, rooms, W, H):
 
 
 def _floor_idx(floor):
-    """Index de nivel (0=parter, 1=etaj, 2=mansarda) din eticheta SAU numarul de floor.
-    OGLINDA _floor_panel (enrich_circuits.py): accepta int (0/1/2), string numeric ("1"/"2")
-    si eticheta ("parter"/"etaj"/"mansarda"). Element.floor = string; room.floor = int -> ambele OK."""
-    f = str(floor if floor is not None else "parter").strip().lower()
-    if "mansard" in f or f == "2": return 2
-    if "etaj" in f or f == "1":    return 1
-    return 0
+    """IDENTITATEA nivelului, pentru potrivirea element <-> camera pe acelasi nivel.
+    Accepta int (room.floor), string numeric si eticheta (element.floor) — ca inainte.
+
+    Intoarce acum ETICHETA canonica, nu indexul: se foloseste NUMAI la egalitate (`==`), iar pe axa
+    deschisa indexul are coliziuni legitime (mansarda la 2, „etaj 2" tot la 2) care ar lipi doua
+    niveluri. Numele functiei ramane `_floor_idx` — e chemata din mai multe locuri si un rename
+    n-ar aduce nimic aici. Delegata la `floors`, sursa unica a axei."""
+    return _fl.floor_canonic(floor)
 
 
 def assign_rooms_to_prizas(elements, rooms, W, H):

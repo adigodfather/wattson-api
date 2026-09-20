@@ -28,6 +28,8 @@ Numele contin diacritice (canonic, ca in memoriu_generator); cartusul le transpu
 la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare serveste si memoriul.
 """
 
+import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
+
 # tipurile de plansa, in ORDINEA fixa de prioritate
 TIPURI = ("plan_iluminat", "plan_forta", "plan_curenti_slabi", "plan_detectie_incendiu",
           "schema_teg", "schema_tes", "schema_tect", "schema_cs", "schema_detectie",
@@ -44,8 +46,15 @@ _NIVEL_LABEL = {
 
 
 def _nivel_label(nivel):
+    """Eticheta de AFISARE a nivelului. Dictionarul ramane autoritatea (ca pana acum, pentru cele
+    scrise explicit acolo); ce nu-i in el trece intai prin canonizarea axei, ca „etaj3"/„E3 retras"
+    /„plan_etaj 3" sa dea toate „ETAJ 3", nu trei etichete diferite."""
     key = str(nivel or "").strip().lower()
-    return _NIVEL_LABEL.get(key, str(nivel or "").strip().upper())
+    if key in _NIVEL_LABEL:
+        return _NIVEL_LABEL[key]
+    if not key:
+        return str(nivel or "").strip().upper()        # None/gol -> "" , exact ca inainte
+    return _fl.floor_canonic(nivel).upper()
 
 
 def plansa_nume(tip, nivel=None):
@@ -111,7 +120,12 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     Return: [{"nr": "IE.N", "tip": ..., "nivel": ..., "nume": ...}, ...]
     """
     extra = [f for f in (extra_floors or []) if str(f or "").strip()]
-    floors = ["parter"] + extra
+    # ORDINEA PE VERTICALA, nu „parterul intai si restul dupa". Defectul se vedea abia cu subsol:
+    # `["parter"] + extra` il aseza DUPA parter, desi e sub el — la Dan subsolul e planşa IE.2, iar
+    # parterul IE.3. `sort_floors` asaza dupa indexul axei, deci parter/etaj/mansarda raman EXACT in
+    # ordinea de pana acum (0 < 1 < 2) si nimic nu se schimba pe proiectele existente.
+    floors = _fl.sort_floors(["parter"] + extra)
+    extra = [f for f in floors if f != _fl.PARTER]        # canonizate + ordonate, fara parter
     tes_on = bool(extra) if has_tes is None else bool(has_tes)
     _cob = {str(f or "").strip().lower() for f in (coborare_floors or []) if str(f or "").strip()}
 
@@ -167,24 +181,34 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     return out
 
 
-# floor INTREG din circuite (0=parter, 1=etaj, 2=mansarda — conventia lib/floors.ts / planLabel)
-# -> nume nivel. Semnal FIABIL: nivel/level sunt NULL in DB, plan_elements.floor e "parter" peste tot;
-# floor intreg e singura sursa corecta (verificat pe 715 circuite: 330 floor=0, 79 floor=1).
-_FLOOR_INT_LABEL = {1: "etaj", 2: "mansarda"}
-
-
+# floor INTREG din circuite -> nume nivel. Semnal FIABIL: nivel/level sunt NULL in DB,
+# plan_elements.floor e "parter" peste tot; floor intreg e singura sursa corecta (verificat pe 715
+# circuite: 330 floor=0, 79 floor=1). Delegat la axa: 1 -> „etaj", 2 -> „mansarda" (MOSTENIT,
+# neschimbat), iar peste 2 nu mai iese „nivel 3", ci „etaj 3".
 def _floor_to_label(f):
-    return _FLOOR_INT_LABEL.get(f, "nivel {}".format(f))
+    return _fl.floor_canonic(f)
 
 
 def derive_extra_floors(circuits):
-    """Deduce nivelurile PESTE parter din campul INTREG `floor` al circuitelor (0=parter, 1=etaj,
-    2=mansarda). Distinct floor>0, sortat crescator -> nume nivel.
+    """Nivelurile ALTELE DECAT PARTERUL, din circuite, ordonate de jos in sus.
 
-    NU keyword-matching (nesigur: floor e INTREG, "etaj" in "1" = False -> rata etajul; nivel/level-s
-    NULL in DB). Circuit fara floor numeric valid -> ignorat (nu presupune parter gresit). Toate lipsa
-    -> [] (doar parter). Sursa PRIMARA ramane explicit din n8n (Faza 2B); asta e derivarea CORECTA pt.
-    fallback (borderoul memoriului / apeluri directe / teste)."""
+    DOUA surse, in ordinea increderii:
+      1. `floor_label` — eticheta canonica pusa de enrich de la P0 incoace. Autoritatea, fiindca
+         numele nivelului nu mai e deductibil din intreg: 2 a insemnat dintotdeauna „mansarda", dar
+         pe axa deschisa poate fi si „etaj 2", iar subsolul (negativ) n-avea cum sa apara deloc.
+      2. `floor` INTREG — fallback pentru circuitele de dinaintea pachetului (si pentru apelurile
+         directe / teste). Exact regula veche: distinct > 0, sortat crescator, 1 -> „etaj",
+         2 -> „mansarda". Circuit fara floor numeric valid -> ignorat (nu presupune parter gresit).
+
+    Fara `floor_label` nicaieri — adica toate proiectele existente — rezultatul e IDENTIC cu cel de
+    dinainte. Asta face non-regresia structurala, nu un caz special de intretinut.
+
+    NU keyword-matching pe intreg (nesigur: "etaj" in "1" = False). Sursa PRIMARA ramane explicit
+    din n8n (Faza 2B); asta e derivarea de fallback (borderoul memoriului / apeluri directe)."""
+    etichete = [str((c or {}).get("floor_label") or "").strip()
+                for c in (circuits or []) if (c or {}).get("floor_label")]
+    if etichete:
+        return [f for f in _fl.sort_floors(etichete) if f != _fl.PARTER]
     floors = set()
     for c in (circuits or []):
         f = (c or {}).get("floor")
@@ -223,10 +247,22 @@ def pick_plan_entry(result_data, plan_type, floor):
     rd = result_data or {}
     circuits = rd.get("circuits") or []
 
+    # `planuri[1:]` = nivelurile peste parter. Saltul POZITIONAL ramane neatins deliberat: in baza
+    # exista 10 proiecte cu `planuri[0].type = "plan_generic"` (masurat), iar orice filtrare pe
+    # eticheta l-ar citi ca nivel necunoscut si le-ar inventa un etaj. Ce se schimba e doar
+    # DERIVAREA numelui pentru tipurile din afara dictionarului: trece intai prin axa, deci
+    # „plan_etaj3" da „etaj 3", nu genericul „etaj".
+    # LIMITA CUNOSCUTA: pe o cladire unde parterul NU e planşa [0] (bloc cu subsol) saltul ar sari
+    # subsolul. Nu se poate intampla inca — ordinea planselor de bloc se decide la P1/P2, odata cu
+    # generarea lor — si o repar acolo, cu ordinea reala in fata, nu ghicind-o acum.
     extra = []
     for p in (rd.get("planuri") or [])[1:]:            # [0] = parter
         t = str((p or {}).get("type") or "").strip().lower()
-        extra.append(_PLAN_TYPE_LABEL.get(t, "etaj"))  # tip necunoscut la nivel>0 -> generic 'etaj'
+        if t in _PLAN_TYPE_LABEL:
+            extra.append(_PLAN_TYPE_LABEL[t])
+            continue
+        _c = _fl.floor_canonic(t)                      # „plan_etaj3" -> „etaj 3"
+        extra.append(_c if _c != _fl.PARTER else "etaj")   # nerecunoscut la nivel>0 -> ca inainte
     if not extra:
         extra = derive_extra_floors(circuits)
 

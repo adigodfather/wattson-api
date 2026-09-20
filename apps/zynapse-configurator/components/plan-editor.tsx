@@ -1292,7 +1292,7 @@ export default function PlanEditor({
   // Global (room=null), poziție inițială = centrul planului; max 1 per tip. NON-BLOCANT.
   async function addPanel(panelType: string, status: "nou" | "existent") {
     // TES: un singur tablou de tip PER ETAJ (floor-scoped) -> parter TEG/TE-CT + etaj TES coexistă.
-    if (elements.some(e => e.element_type === panelType && floorIndex(e.floor) === floorIndex(floor))) return;
+    if (elements.some(e => e.element_type === panelType && floorCanonic(e.floor) === floorCanonic(floor))) return;
     const floorVal = floorCanonic(floor);   // floor-ul ETAJULUI CURENT (prop), nu al primului element (elements nefiltrat pe etaj)
     const cx = pngW > 0 ? (pngW / scale) / 2 : 200;
     const cy = pngH > 0 ? (pngH / scale) / 2 : 200;
@@ -1376,11 +1376,13 @@ export default function PlanEditor({
       }
 
       // GARDĂ M1: `rooms` vin deja scopate pe etajul curent (din configurator). Ne reasigurăm aici
-      // (defense-in-depth) + scriem floor-ul CANONIC al etajului din INDEX (robust la cele 3 codificări
-      // de etaj), nu hardcodat "parter". fidx = indexul etajului (0=parter/1=etaj/2=mansarda) din rooms[].floor.
+      // (defense-in-depth) grupându-le pe POZIȚIA planșei din `rooms[].floor` (întreg).
+      // Eticheta SCRISĂ în `plan_elements.floor` vine însă din prop-ul `floor` — planșa pe care
+      // desenezi chiar acum. Era derivată din `rooms[0].floor` printr-un tabel fix de trei: pe
+      // proiectele existente dădea exact același lucru, dar pe a patra planșă ar fi scris „parter".
       const fidx = floorIndex(rooms[0]?.floor);
       const roomsForFloor = rooms.filter((r) => floorIndex(r.floor) === fidx);
-      const fl = floorCanonic(fidx);
+      const fl = floorCanonic(floor);
       const rows: Record<string, unknown>[] = [];
       let nRooms = 0;
       for (const room of roomsForFloor) {
@@ -2111,7 +2113,7 @@ export default function PlanEditor({
   // Corpurile de TAVAN din ACEEASI camera si de pe ACELASI etaj, fara cel tras.
   function fratiiDeTavan(el: PlanElement) {
     return elements.filter(o => o.id !== el.id && isCeilingBulb(o.element_type)
-      && floorIndex(o.floor) === floorIndex(el.floor)
+      && floorCanonic(o.floor) === floorCanonic(el.floor)
       && (o.room || "") === (el.room || ""));
   }
 
@@ -2165,7 +2167,7 @@ export default function PlanEditor({
         if (s.snapped && s.wall) {
           const di = FV_PANEL_TYPES.indexOf(el.element_type);
           for (const other of elements) {
-            if (!isFvPanelType(other.element_type) || floorIndex(other.floor) !== floorIndex(el.floor)) continue;
+            if (!isFvPanelType(other.element_type) || floorCanonic(other.floor) !== floorCanonic(el.floor)) continue;
             const off = (FV_PANEL_TYPES.indexOf(other.element_type) - di) * FV_SPACING;
             const nx = s.wall === "h" ? s.x + off : s.x;
             const ny = s.wall === "h" ? s.y : s.y + off;
@@ -2181,7 +2183,7 @@ export default function PlanEditor({
       persist(el.id, { x: xPdf, y: yPdf });
       for (const other of elements) {
         if (other.id !== el.id && isFvPanelType(other.element_type)
-            && floorIndex(other.floor) === floorIndex(el.floor)) {
+            && floorCanonic(other.floor) === floorCanonic(el.floor)) {
           setLocalField(other.id, { x: other.x + dx, y: other.y + dy });
           persist(other.id, { x: other.x + dx, y: other.y + dy });
         }
@@ -2734,7 +2736,7 @@ export default function PlanEditor({
 
   // un bloc de tablou (TEG / TE-CT): dacă există deja -> rândul lui (select + ștergere), altfel selectorul.
   const renderPanelBlock = (title: string, panelType: string, allowNotNeeded: boolean) => {
-    const existing = elements.find(e => e.element_type === panelType && floorIndex(e.floor) === floorIndex(floor)) || null;
+    const existing = elements.find(e => e.element_type === panelType && floorCanonic(e.floor) === floorCanonic(floor)) || null;
     const badge = (st: string | null) => (
       <span style={{
         fontSize: 10, padding: "1px 7px", borderRadius: 4, marginLeft: 8,
@@ -2773,9 +2775,9 @@ export default function PlanEditor({
   // Fără niciunul, backendul păstrează comportamentul de până acum (TES presupus) — de aceea
   // avertismentul de mai jos e explicit: altfel planșa ar ieși fără niciun cablu desenat, tăcut.
   const renderPanelSecundar = () => {
-    const fi = floorIndex(floor);
-    const tes = elements.find(e => e.element_type === "tablou_tes" && floorIndex(e.floor) === fi) || null;
-    const cob = elements.find(e => e.element_type === "coborare_cabluri" && floorIndex(e.floor) === fi) || null;
+    const fi = floorCanonic(floor);
+    const tes = elements.find(e => e.element_type === "tablou_tes" && floorCanonic(e.floor) === fi) || null;
+    const cob = elements.find(e => e.element_type === "coborare_cabluri" && floorCanonic(e.floor) === fi) || null;
     if (tes) return renderPanelBlock("Tablou secundar (TES)", "tablou_tes", false);
     if (cob) {
       return (
