@@ -176,6 +176,17 @@ class SchemaRequest(BaseModel):
 # LAYOUT DECISION
 # =============================================================================
 
+# Pragul A3 -> A2, in numar de circuite. 16 e CONVENTIA LUI DAN, citita de pe AP-1: schema lui de
+# apartament are 16 circuite si sta pe A3. Era 10 — ales conservator, fara referinta — si trecea pe
+# A2 o schema pe care el o tine pe jumatate de coala.
+# Lizibilitatea nu e un risc nou: coloana se calculeaza mai jos ca
+# ((width_mm - 6 - 22 - 2) - (6 + MAIN_BREAKER_WIDTH_MM + 4)) / n, deci 16 circuite pe A3 dau 20,0 mm
+# de coloana — practic cat dau 24 de circuite pe A2 (20,6 mm), format care se livreaza deja azi.
+# Ramura de font mic din `draw_circuit_column` (`col_width_mm < 17`) nu se atinge nici acum: pe A3 ar
+# cere 19 circuite, adica peste prag prin definitie.
+PRAG_A3 = 16
+
+
 def pick_layout(n_circuits: int, preference: str = "auto") -> Dict:
     """O singură pagină — A3 sau A2 — text mereu orizontal."""
     if preference == "A3":
@@ -183,7 +194,7 @@ def pick_layout(n_circuits: int, preference: str = "auto") -> Dict:
     elif preference == "A2":
         width, height = 594, 420
     else:  # auto
-        if n_circuits <= 10:
+        if n_circuits <= PRAG_A3:
             width, height = 420, 297
         else:
             width, height = 594, 420

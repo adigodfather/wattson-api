@@ -31,9 +31,15 @@ la desenare (base14 helv/hebo, via _txt din cartus_swap). Aceeasi mapare servest
 import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
 
 # tipurile de plansa, in ORDINEA fixa de prioritate
-TIPURI = ("plan_iluminat", "plan_forta", "plan_curenti_slabi", "plan_detectie_incendiu",
-          "schema_teg", "schema_tes", "schema_tect", "schema_cs", "schema_detectie",
-          "schema_fv")
+TIPURI = ("plan_situatie",
+          "plan_iluminat", "plan_forta", "plan_curenti_slabi", "plan_detectie_incendiu",
+          "plan_camera_pompe_iluminat", "plan_camera_pompe_forta",
+          "schema_distributie", "schema_bmpt_fdcp", "schema_fdcp",
+          "schema_teg", "schema_tes", "schema_tect",
+          "schema_camera_pompe", "schema_ap", "schema_sp", "schema_tcc", "schema_tecv",
+          "schema_cs", "schema_detectie", "schema_fv",
+          "schema_distributie_tv", "schema_distributie_date", "schema_distributie_interfon",
+          "detaliu_iluminat_siguranta", "detaliu_priza_pamant", "detaliu_montaj_fv")
 
 # eticheta de afisare per nivel (folosita in numele planselor)
 _NIVEL_LABEL = {
@@ -86,12 +92,68 @@ def plansa_nume(tip, nivel=None):
         # = titlul mare desenat pe plansa (schema_fv.py); cartusul ei zice "... - SISTEM FOTOVOLTAIC"
         # (formatul comun draw_cartouche, aceeasi relatie ca TEG/TES/TE-CT cu numele lor canonice)
         return "SCHEMA ELECTRICĂ MONOFILARĂ SISTEM FOTOVOLTAIC"
+    # ── BLOC (P5) — titlurile urmeaza planşele REALE ale lui Dan, nu formulari inventate.
+    # `nivel` poarta aici NUMELE instantei (FDCP-ul, tipul de apartament, spatiul comercial), nu un
+    # nivel: tipurile care vin in mai multe exemplare au nevoie sa se distinga intre ele, iar campul
+    # exista deja si calatoreste pana in borderou.
+    if tip == "plan_situatie":
+        return "PLAN DE SITUAȚIE INSTALAȚII ELECTRICE"
+    if tip == "plan_camera_pompe_iluminat":
+        return "PLAN CAMERA POMPELOR INSTALAȚII ELECTRICE DE ILUMINAT"
+    if tip == "plan_camera_pompe_forta":
+        return "PLAN CAMERA POMPELOR INSTALAȚII ELECTRICE DE FORȚĂ"
+    if tip == "schema_distributie":
+        return "SCHEMA ELECTRICĂ DE DISTRIBUȚIE"
+    if tip == "schema_bmpt_fdcp":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ BMPT ȘI FDCP"
+    if tip == "schema_fdcp":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ {}".format(_inst(nivel, "FDCP"))
+    if tip == "schema_camera_pompe":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ CAMERA POMPE"
+    if tip == "schema_ap":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ TABLOU ELECTRIC {}".format(_inst(nivel, "AP"))
+    if tip == "schema_sp":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ {}".format(_inst(nivel, "SP"))
+    if tip == "schema_tcc":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ TCC"
+    if tip == "schema_tecv":
+        return "SCHEMA ELECTRICĂ MONOFILARĂ CONSUMATORI VITALI"
+    if tip == "schema_distributie_tv":
+        return "SCHEMA DE DISTRIBUȚIE REȚEA CABLU TV"
+    if tip == "schema_distributie_date":
+        return "SCHEMA DE DISTRIBUȚIE DATE"
+    if tip == "schema_distributie_interfon":
+        return "SCHEMA DE DISTRIBUȚIE REȚEA DE INTERFON"
+    if tip == "detaliu_iluminat_siguranta":
+        return "DETALIU ILUMINAT DE SIGURANȚĂ"
+    if tip == "detaliu_priza_pamant":
+        return "DETALIU CONECTARE PRIZĂ DE PĂMÂNT"
+    if tip == "detaliu_montaj_fv":
+        return "DETALIU MONTAJ PANOU FOTOVOLTAIC"
     return "PLANȘĂ"
+
+
+def _inst(nume, implicit):
+    """Numele INSTANTEI pentru tipurile care vin in mai multe exemplare (FDCP-uri, tipuri de
+    apartament, spatii comerciale). Gol -> eticheta generica, ca planşa sa nu iasa fara nume."""
+    n = str(nume or "").strip()
+    return n.upper() if n else implicit
 
 
 def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, has_fv=False,
                              has_cs=False, has_schema_cs=None, has_det=False,
-                             has_schema_det=None, coborare_floors=None):
+                             has_schema_det=None, coborare_floors=None,
+                             # ── BLOC (P5). TOATE au implicit ABSENT, si asta e non-regresia:
+                             # o casa nu trimite niciunul, deci lista iese exact ca pana acum.
+                             # Fiecare e GATED PE PREZENTA, nu pe „e bloc": un numar rezervat
+                             # pentru o planşa care nu vine deplaseaza tot restul si promite
+                             # clientului ceva ce nu primeste — exact golul inchis la 156a89b.
+                             has_situatie=False, has_camera_pompe=False, has_teg=True,
+                             has_distributie=False, has_bmpt_fdcp=False,
+                             fdcp=None, apartamente=None, spatii=None,
+                             has_tcc=False, has_tecv=False,
+                             has_tv=False, has_date=False, has_interfon=False,
+                             detalii=None):
     """Lista ORDONATA a planselor EXISTENTE, numerotate IE.1..IE.N FARA goluri.
 
     extra_floors: nivelurile peste parter, in ordine (ex. ["etaj"] sau ["etaj","mansarda"]).
@@ -130,6 +192,10 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     _cob = {str(f or "").strip().lower() for f in (coborare_floors or []) if str(f or "").strip()}
 
     sheets = []
+    # ── BLOC: planul de SITUATIE deschide borderoul (IE.1 la Dan). E singura planşa care arata
+    # cladirea in teren, nu in ea insasi — de-aia sta inaintea tuturor.
+    if has_situatie:
+        sheets.append(("plan_situatie", None))
     # 1-2: TOATE planurile de iluminat (parter, apoi nivelurile) — inaintea fortei (ordinea Dan)
     for fl in floors:
         sheets.append(("plan_iluminat", fl))
@@ -144,8 +210,23 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     if has_det:
         for fl in floors:
             sheets.append(("plan_detectie_incendiu", fl))
-    # 9: TEG (mereu)
-    sheets.append(("schema_teg", "parter"))
+    # ── BLOC: planşele camerei de pompe. Sunt planşe de INCAPERE, nu de nivel — de-aia n-au
+    # eticheta de nivel si nu se multiplica cu `floors`.
+    if has_camera_pompe:
+        sheets.append(("plan_camera_pompe_iluminat", None))
+        sheets.append(("plan_camera_pompe_forta", None))
+    # ── BLOC: arborele de distributie si firidele, INAINTEA schemelor de tablou (asa citesti
+    # ierarhia: de la bransament in jos).
+    if has_distributie:
+        sheets.append(("schema_distributie", None))
+    if has_bmpt_fdcp:
+        sheets.append(("schema_bmpt_fdcp", None))
+    for _f in (fdcp or []):
+        sheets.append(("schema_fdcp", _f))
+    # 9: TEG. `has_teg` e implicit True = comportamentul de pana acum; un bloc il trece pe False,
+    # fiindca acolo tabloul general e TEGD si apare in schema de distributie, nu ca TEG.
+    if has_teg:
+        sheets.append(("schema_teg", "parter"))
     # 6: TES — cate una per nivel peste parter, MAI PUTIN nivelurile cu punct de coborare (acolo
     # nu exista tablou secundar, deci n-are ce schema sa se genereze; un numar rezervat pentru o
     # planşa care nu vine deplaseaza degeaba tot ce urmeaza)
@@ -157,6 +238,17 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     # 7: TE-CT (daca exista)
     if has_tect:
         sheets.append(("schema_tect", None))
+    # ── BLOC: schemele de tablou, in ordinea de pe planşele lui Dan.
+    if has_camera_pompe:
+        sheets.append(("schema_camera_pompe", None))
+    for _a in (apartamente or []):
+        sheets.append(("schema_ap", _a))       # una per TIP de apartament (P4 stie care-s identice)
+    for _sp in (spatii or []):
+        sheets.append(("schema_sp", _sp))      # una per spatiu comercial
+    if has_tcc:
+        sheets.append(("schema_tcc", None))
+    if has_tecv:
+        sheets.append(("schema_tecv", None))
     # 8: schema sistemului de curenti slabi — DUPA schemele de tablou, INAINTEA FV (care ramane
     # ultima, decizia Dan). Implicit urmeaza planşa de curenti slabi (has_cs): daca exista planşa,
     # exista si schema. `has_schema_cs` permite decuplarea lor (ex. planşa desenata dar goala).
@@ -166,9 +258,23 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     # Acelasi tipar ca `has_schema_cs`: implicit urmeaza planşa (has_det), dar se poate decupla.
     if has_det if has_schema_det is None else has_schema_det:
         sheets.append(("schema_detectie", None))
-    # 10: schema FV — MEREU ultima plansa IE (dupa toate), doar cu sistem fotovoltaic selectat
+    # 10: schema FV — ultima dintre SCHEMELE DE INSTALATIE, doar cu sistem fotovoltaic selectat.
+    # „Mereu ultima" era adevarat cat timp dupa ea nu venea nimic; la bloc vin schemele de
+    # distributie a curentilor slabi si detaliile. Pozitia ei RELATIVA fata de tot ce exista azi
+    # ramane insa neschimbata — nimic nou nu se strecoara inaintea ei pe o casa.
     if has_fv:
         sheets.append(("schema_fv", None))
+    # ── BLOC: distributia curentilor slabi (TV / date / interfon), apoi DETALIILE, la final.
+    # Detaliile inchid borderoul fiindca sunt planşe TIPIZATE: nu descriu cladirea, ci cum se
+    # executa un lucru. La Dan sunt IE.35-37, ultimele trei.
+    if has_tv:
+        sheets.append(("schema_distributie_tv", None))
+    if has_date:
+        sheets.append(("schema_distributie_date", None))
+    if has_interfon:
+        sheets.append(("schema_distributie_interfon", None))
+    for _d in (detalii or []):
+        sheets.append(("detaliu_%s" % _d, None))
 
     out = []
     for i, (tip, nivel) in enumerate(sheets, start=1):

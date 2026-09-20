@@ -59,12 +59,35 @@ def _norm(s: str) -> str:
     return "".join(_DIACR.get(c, c) for c in s)
 
 
+# Latimile de ROLA de ploter, in mm: laturile scurte ale seriei A. Un plan mare nu se taie dintr-o
+# coala standard, se trage de pe rola — latimea e fixa (rola), lungimea o alege desenatorul. De-aia
+# planurile lui Dan sunt 594 x 1189: latime de A1, lungime de A0. Raportul iese 2,00, nu 1,414, deci
+# nu e niciun format ISO si nici vreo derivata „alungita" din SR ISO 5457.
+_ROLE_MM = {841: "A0", 594: "A1", 420: "A2", 297: "A3", 210: "A4"}
+# Toleranta pentru LATIMEA DE ROLA e STRANSA, nu cea de 15 mm a formatelor: rola vine taiata exact,
+# deci o latime la 6-10 mm distanta NU e o rola, e altceva. Cu toleranta larga, US Letter (216) se
+# dadea drept „rola A4" si fasia TCC (287) drept „rola A3" — doua minciuni linistite in cartus.
+_TOL_ROLA_MM = 3.0
+
+
 def _detect_format(w_pt: float, h_pt: float) -> str:
+    """Numele formatului pentru cartus. Standard -> „A3". Altfel -> DIMENSIUNILE, „594x1189".
+
+    De ce dimensiunile si nu „A1 alungit": „alungit" nu identifica nimic singur — SR ISO 5457 are
+    mai multe formate derivate, iar 594x1189 nu-i niciunul dintre ele. Dimensiunile sunt
+    neambigue, se verifica cu ruleta pe coala tiparita, si sunt exact ce-i trebuie celui care
+    trimite planul la ploter. Cand latimea nimereste o latime de rola, se spune si aia — „594x1189
+    (rola A1)" — fiindca aia e informatia care decide DACA se poate tipari.
+
+    Pana aici orice format ne-ISO iesea „?": esec MOALE (cartusul se desena, doar cu un semn de
+    intrebare in casuta de format), deci n-a blocat niciodata nimic — dar nici n-a spus nimic."""
     a, b = sorted([w_pt * 25.4 / 72.0, h_pt * 25.4 / 72.0])  # short, long (mm)
     for name, (fw, fh) in _FORMATS_MM.items():
         if abs(a - fw) <= _TOL_MM and abs(b - fh) <= _TOL_MM:
             return name
-    return "?"
+    rola = next((n for lat, n in _ROLE_MM.items() if abs(a - lat) <= _TOL_ROLA_MM), None)
+    dim = "%dx%d" % (round(a), round(b))
+    return "%s (rola %s)" % (dim, rola) if rola else dim
 
 
 def _detect_scara(page) -> str:

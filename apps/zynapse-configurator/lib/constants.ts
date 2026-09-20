@@ -1,3 +1,4 @@
+import { sortFloors } from "./floors";   // axa de niveluri (oglinda floors.py)
 // ─── 3 user-facing building categories (PAS 1) ───────────────────────────────
 
 export const BUILDING_CATEGORIES_3 = [
@@ -620,6 +621,25 @@ export function plansaTitlu(tip: string, nivel?: string | null): string {
   if (tip === "schema_cs") return "SCHEMA SISTEM CURENTI SLABI";
   if (tip === "schema_detectie") return "SCHEMA MONOBLOC INSTALATII DETECTIE INCENDIU SI DESFUMARE";
   if (tip === "schema_fv") return "SCHEMA ELECTRICA MONOFILARA SISTEM FOTOVOLTAIC";
+  // ── BLOC (P5). `nivel` poartă aici NUMELE instanței (FDCP-ul, tipul de apartament, spațiul
+  // comercial), nu un nivel: tipurile care vin în mai multe exemplare trebuie să se distingă.
+  if (tip === "plan_situatie") return "PLAN DE SITUATIE INSTALATII ELECTRICE";
+  if (tip === "plan_camera_pompe_iluminat") return "PLAN CAMERA POMPELOR INSTALATII ELECTRICE DE ILUMINAT";
+  if (tip === "plan_camera_pompe_forta") return "PLAN CAMERA POMPELOR INSTALATII ELECTRICE DE FORTA";
+  if (tip === "schema_distributie") return "SCHEMA ELECTRICA DE DISTRIBUTIE";
+  if (tip === "schema_bmpt_fdcp") return "SCHEMA ELECTRICA MONOFILARA BMPT SI FDCP";
+  if (tip === "schema_fdcp") return `SCHEMA ELECTRICA MONOFILARA ${nl || "FDCP"}`;
+  if (tip === "schema_camera_pompe") return "SCHEMA ELECTRICA MONOFILARA CAMERA POMPE";
+  if (tip === "schema_ap") return `SCHEMA ELECTRICA MONOFILARA TABLOU ELECTRIC ${nl || "AP"}`;
+  if (tip === "schema_sp") return `SCHEMA ELECTRICA MONOFILARA ${nl || "SP"}`;
+  if (tip === "schema_tcc") return "SCHEMA ELECTRICA MONOFILARA TCC";
+  if (tip === "schema_tecv") return "SCHEMA ELECTRICA MONOFILARA CONSUMATORI VITALI";
+  if (tip === "schema_distributie_tv") return "SCHEMA DE DISTRIBUTIE RETEA CABLU TV";
+  if (tip === "schema_distributie_date") return "SCHEMA DE DISTRIBUTIE DATE";
+  if (tip === "schema_distributie_interfon") return "SCHEMA DE DISTRIBUTIE RETEA DE INTERFON";
+  if (tip === "detaliu_iluminat_siguranta") return "DETALIU ILUMINAT DE SIGURANTA";
+  if (tip === "detaliu_priza_pamant") return "DETALIU CONECTARE PRIZA DE PAMANT";
+  if (tip === "detaliu_montaj_fv") return "DETALIU MONTAJ PANOU FOTOVOLTAIC";
   return "PLANSA";
 }
 // OGLINDA lui compute_plansa_numbering din plansa_numbering.py — si a celor DOUA noduri n8n
@@ -643,12 +663,28 @@ export function computePlansaNumbering(opts: {
   // -> nivelul NU primeste schema TES. Lista EXCEPTIILOR, nu a nivelurilor cu tablou: absenta ei
   // da automat numerotarea de pana acum (non-regresie structurala). Oglinda `coborare_floors`.
   coborareFloors?: string[];
+  // ── BLOC (P5). TOATE au implicit ABSENT: o casă nu trimite niciuna, deci lista iese exact ca
+  // până acum. Fiecare e GATED PE PREZENȚĂ, nu pe „e bloc" — un număr rezervat pentru o planșă
+  // care nu vine deplasează tot restul și promite clientului ceva ce nu primește.
+  hasSituatie?: boolean; hasCameraPompe?: boolean; hasTeg?: boolean;
+  hasDistributie?: boolean; hasBmptFdcp?: boolean;
+  fdcp?: string[]; apartamente?: string[]; spatii?: string[];
+  hasTcc?: boolean; hasTecv?: boolean;
+  hasTv?: boolean; hasDate?: boolean; hasInterfon?: boolean;
+  detalii?: string[];
 }): PlansaNumEntry[] {
-  const extra = (opts.extraFloors || []).filter(f => (f || "").trim());
-  const floors = ["parter", ...extra];
+  const extra0 = (opts.extraFloors || []).filter(f => (f || "").trim());
+  // ORDINEA PE VERTICALĂ, nu „parterul întâi și restul după". Python face asta de la P0 (`sort_floors`),
+  // dar oglinda de aici rămăsese pe concatenare — divergența s-a văzut abia când testul de
+  // consecvență a primit un SUBSOL: Python îl punea înaintea parterului, TS după. Pe parter/etaj/
+  // mansardă cele două dau identic (0 < 1 < 2), de-aia n-a ieșit la iveală până acum.
+  const floors = sortFloors(["parter", ...extra0]);
+  const extra = floors.filter(f => f !== "parter");
   const tesOn = opts.hasTes == null ? extra.length > 0 : !!opts.hasTes;
   const cob = new Set((opts.coborareFloors || []).map(f => String(f || "").trim().toLowerCase()).filter(Boolean));
   const sheets: Array<[string, string | null]> = [];
+  // BLOC: planul de SITUAȚIE deschide borderoul — singura planșă care arată clădirea în teren.
+  if (opts.hasSituatie) sheets.push(["plan_situatie", null]);
   for (const fl of floors) sheets.push(["plan_iluminat", fl]);
   for (const fl of floors) sheets.push(["plan_forta", fl]);
   if (opts.hasCs) for (const fl of floors) sheets.push(["plan_curenti_slabi", fl]);
@@ -656,14 +692,37 @@ export function computePlansaNumbering(opts: {
   // "parter", nu null: asa pun si plansa_numbering.py si AMANDOUA nodurile n8n. Titlul TEG nu
   // depinde de nivel, deci nu se schimba nimic vizibil — dar cele patru oglinzi devin identice
   // camp cu camp, si testul de consecventa poate compara direct.
-  sheets.push(["schema_teg", "parter"]);
+  // BLOC: planșele camerei de pompe sunt de ÎNCĂPERE, nu de nivel — nu se multiplică cu `floors`.
+  if (opts.hasCameraPompe) { sheets.push(["plan_camera_pompe_iluminat", null]); sheets.push(["plan_camera_pompe_forta", null]); }
+  // BLOC: arborele și firidele, ÎNAINTEA schemelor de tablou (așa se citește ierarhia).
+  if (opts.hasDistributie) sheets.push(["schema_distributie", null]);
+  if (opts.hasBmptFdcp) sheets.push(["schema_bmpt_fdcp", null]);
+  for (const f of (opts.fdcp || [])) sheets.push(["schema_fdcp", f]);
+  // `hasTeg` implicit true = comportamentul de până acum; un bloc îl trece pe false (acolo tabloul
+  // general e TEGD și apare în schema de distribuție).
+  if (opts.hasTeg !== false) sheets.push(["schema_teg", "parter"]);
   // TES: cate una per nivel, MAI PUTIN nivelurile cu punct de coborare (n-au tablou secundar, deci
   // schema nu se genereaza — un numar rezervat pentru o planşa care nu vine deplaseaza tot restul)
   if (tesOn) for (const fl of extra) if (!cob.has(String(fl || "").trim().toLowerCase())) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
+  // BLOC: schemele de tablou, în ordinea de pe planșele lui Dan.
+  if (opts.hasCameraPompe) sheets.push(["schema_camera_pompe", null]);
+  for (const a of (opts.apartamente || [])) sheets.push(["schema_ap", a]);   // una per TIP (P4)
+  for (const sp of (opts.spatii || [])) sheets.push(["schema_sp", sp]);
+  if (opts.hasTcc) sheets.push(["schema_tcc", null]);
+  if (opts.hasTecv) sheets.push(["schema_tecv", null]);
   if (opts.hasSchemaCs == null ? !!opts.hasCs : !!opts.hasSchemaCs) sheets.push(["schema_cs", null]);
   if (opts.hasSchemaDet == null ? !!opts.hasDet : !!opts.hasSchemaDet) sheets.push(["schema_detectie", null]);
-  if (opts.hasFv) sheets.push(["schema_fv", null]);   // FV = MEREU ultima plansa IE
+  // FV = ultima dintre SCHEMELE DE INSTALAȚIE. „Mereu ultima" a fost adevărat cât timp după ea nu
+  // venea nimic; la bloc vin distribuția curenților slabi și detaliile. Poziția ei RELATIVĂ față de
+  // tot ce există azi rămâne neschimbată — nimic nou nu se strecoară înaintea ei pe o casă.
+  if (opts.hasFv) sheets.push(["schema_fv", null]);
+  // BLOC: distribuția curenților slabi, apoi DETALIILE, la final — planșe TIPIZATE, care nu descriu
+  // clădirea ci cum se execută un lucru. La Dan sunt IE.35-37, ultimele trei.
+  if (opts.hasTv) sheets.push(["schema_distributie_tv", null]);
+  if (opts.hasDate) sheets.push(["schema_distributie_date", null]);
+  if (opts.hasInterfon) sheets.push(["schema_distributie_interfon", null]);
+  for (const d of (opts.detalii || [])) sheets.push([`detaliu_${d}`, null]);
   return sheets.map(([tip, nivel], i) => ({
     nr: `IE.${i + 1}`, tip, nivel, titlu: plansaTitlu(tip, nivel),
   }));
