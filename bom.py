@@ -11,6 +11,7 @@ import re
 import draw_elements
 import enrich_circuits
 import panels as _pnl                    # registrul de TABLOURI (vezi panels.py)
+import bloc as _bloc                     # TCC / TECV / TEP, grupul electrogen (vezi bloc.py)
 from draw_elements import _PX_TO_M, _cable_l_path
 
 # ── kind (compute_cables) -> sectiune cablu. iluminat=1.5 fix, prize=2.5 fix (ca enrich). ──
@@ -100,7 +101,11 @@ def _norm_cable(s):
     if not m:
         return s.strip() or "necunoscut"
     nxm = "%sx%s" % (m.group(1), m.group(2).rstrip(".") or m.group(2))
-    fam = "CYY-F" if "cyy" in s.lower() else (s.split()[0] if s.split() else "CYY-F")
+    # Familia = TOT ce sta inaintea lui NxM, nu primul cuvant. Cu `split()[0]`, „NHXH E90 3x4"
+    # devenea „NHXH 3x4": cablul rezistent la foc si unul obisnuit din aceeasi familie ar fi ajuns
+    # pe acelasi rand de deviz, cu metrii insumati. Taierea tacuta a unui calificativ care schimba
+    # PRODUSUL e aceeasi clasa de defect ca amestecarea lui E30 cu E90.
+    fam = "CYY-F" if "cyy" in s.lower() else (s[:m.start()].strip() or "CYY-F")
     return "%s %s" % (fam, nxm)
 
 
@@ -596,14 +601,27 @@ def _banda_led_driver(power_w):
 
 
 def _panel_section(panel):
-    """(sectiune, denumire tablou) din campul `panel` al circuitului: TEG / TES n / TE-CT."""
+    """(sectiune, denumire tablou) din campul `panel` al circuitului.
+
+    Era o lista alba de doua forme — „TE-CT" exact si „TES" ca prefix — cu TOT restul cazand pe
+    „TEG". Aceeasi forma pe care P1 a reparat-o in `enrich_circuits`, si aici avea deja o consecinta
+    VIE de la P2: cele 25 de tablouri de apartament ale unui bloc se adunau intr-un singur rand
+    „Tablou electric TEG", cu modulele lor la un loc. Nu lipsea un rand din deviz — iesea un rand
+    GRESIT, si plauzibil, care e mai rau.
+
+    Acum intrebarea trece prin REGISTRU (`panels.panel_family`), care e total: un nume recunoscut isi
+    primeste randul lui, iar unul necunoscut ramane pe „TEG" ca pana acum (nu inventam un tablou
+    dintr-o eticheta pe care n-o intelegem)."""
     p = str(panel or "TEG").strip()
     if p.upper() == "TE-CT":
         return "TE-CT", "Tablou electric TE-CT"
-    if p.upper().startswith("TES"):
+    # „TES1"/„TES2" — dar NU „TE-SP1" (spatiu comercial), care e alta familie.
+    if p.upper().startswith("TES") and not p.upper().startswith("TE-S"):
         n = p[3:].strip()
         sec = ("TES %s" % n).strip() if n else "TES"
         return sec, ("Tablou electric %s" % sec)
+    if p.upper() != "TEG" and _pnl.panel_family(p):
+        return p, "Tablou electric %s" % p
     return "TEG", "Tablou electric TEG"
 
 
@@ -1079,6 +1097,22 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     # [f] TABLOU IP65 la TE-CT: 1 buc daca exista tablou_te_ct pe plan.
     if any((el.get("element_type") or "") == "tablou_te_ct" for el in plan_elements):
         rows.append(_row("Tablouri", "Carcasa/tablou IP65", "TE-CT (camera tehnica)", 1, "buc", sectiune="TE-CT"))
+
+    # [h] SURSA DE REZERVA A CONSUMATORILOR VITALI (P6): grupul electrogen si AAR-ul.
+    # Gate pe coloana lui TECV, care le poarta (`_grup_kva` / `_aar`) — deci apar exact cand exista
+    # un tablou de consumatori vitali cu circuite, nu cand cineva a bifat ceva. Puterea e dimensionata
+    # in `bloc.grup_electrogen_kva` din Pa-ul TECV; aici se doar TIPARESTE, ca sa nu existe doua
+    # locuri care calculeaza acelasi kVA si pot diverge.
+    for c in circuits:
+        _kva = (c or {}).get("_grup_kva")
+        if not _kva:
+            continue
+        rows.append(_row("Tablouri", _bloc.GRUP_NUME % int(_kva),
+                         "sursa de rezerva pentru consumatorii vitali", 1, "buc", sectiune="TECV"))
+        if (c or {}).get("_aar"):
+            rows.append(_row("Tablouri", _bloc.AAR_NUME,
+                             "comutare retea <-> grup electrogen", 1, "buc", sectiune="TECV"))
+        break                                    # un singur TECV, deci o singura sursa de rezerva
 
     # TUBUL DE PROTECTIE PRIN PLANSEU (decizia Dan): pe nivelul fara tablou secundar, cablurile
     # circuitelor coboara la TEG printr-un singur punct — traversarea planseului se face in tub.

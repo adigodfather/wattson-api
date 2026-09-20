@@ -22,13 +22,22 @@ import re
 
 CONTUR = "contur_apartament"        # element_type: poligon, ca `ground_electrode_path`
 
+# SPATIUL COMERCIAL din bloc (P6b). TIP PROPRIU, nu un flag pe conturul de apartament — si nu din
+# lene, ci fiindca singurul flag „gratuit" ar fi fost prefixul etichetei („SP1" vs „P1_5"), iar
+# eticheta e un camp LIBER, pe care inginerul il editeaza. Tipul dedus dintr-o eticheta editabila
+# inseamna ca o redenumire muta tacit circuitele pe alt tablou — greşit si plauzibil, exact clasa de
+# defect pe care o evitam peste tot. Un tip de element e o decizie inregistrata o data, are butonul
+# lui in editor si simbolul lui in legenda, si costa aceeasi migratie ca o coloana noua.
+CONTUR_SP = "contur_spatiu_comercial"
+CONTURI = (CONTUR, CONTUR_SP)
+
 # Eticheta de apartament, conventia de pe planşele lui Dan:
 #   parter  -> „P1".."P4"      (marcaj „Ap P1"),   tablou „TE-AP 1"
 #   etaj 1  -> „P1_1".."P1_9"  (marcaj „Ap P1_5"), tablou „TE-AP 1.5"
 # Cratima si punctul difera intre marcajul de pe plan si numele tabloului chiar in documentele lui —
 # pastram ambele forme exact cum le scrie el, fiecare acolo unde apare.
-_RX_ET = re.compile(r"^P(\d+)_(\d+)$")
-_RX_P = re.compile(r"^P(\d+)$")
+# Tiparele „P1_5" / „P3" traiesc acum in `_panel_din`, parametrizate pe prefix, ca sa nu existe o a
+# doua copie pentru „SP1_2" / „SP1".
 
 
 def _pts(el):
@@ -78,68 +87,111 @@ def _aria(pts):
     return abs(s) / 2.0
 
 
-def eticheta_auto(floor_idx, ordine):
+# Prefixul etichetei si al tabloului, per tip de contur. Spatiul comercial urmeaza EXACT aceeasi
+# regula ca apartamentul („SP1" la parter, „SP1_2" la etajul 1 -> „TE-SP 1" / „TE-SP 1.2"), ca sa nu
+# existe doua conventii de citit. Numele „TE-SP <n>" e al lui Dan, luat de pe IE.27 (Nota 2:
+# „Tabloul electric TE-SP va fi montat incastrat in perete"), nu inventat.
+_PREFIX = {CONTUR: ("P", "TE-AP"), CONTUR_SP: ("SP", "TE-SP")}
+
+
+def eticheta_auto(floor_idx, ordine, tip=CONTUR):
     """Eticheta propusa la creare: nivelul + ordinea. Parterul n-are prefix de etaj, ca la Dan.
 
     AUTOMATA, dar EDITABILA — se scrie in `label`, campul care exista deja. Numerotarea automata e
     singura care ramane consecventa cand inginerul sterge al treilea apartament din cinci; scrisul
-    de mana ar lasa o gaura pe care n-o vede nimeni pana la schema."""
+    de mana ar lasa o gaura pe care n-o vede nimeni pana la schema.
+
+    Ordinea se numara PER TIP: un parter cu doua apartamente si un magazin da „P1", „P2" si „SP1",
+    nu „SP3" — altfel numerotarea comerciala ar depinde de cate apartamente sunt langa."""
+    pre = _PREFIX.get(tip, _PREFIX[CONTUR])[0]
     if floor_idx <= 0:
-        return "P%d" % ordine
-    return "P%d_%d" % (floor_idx, ordine)
+        return "%s%d" % (pre, ordine)
+    return "%s%d_%d" % (pre, floor_idx, ordine)
+
+
+def _panel_din(eticheta, pre, tab):
+    e = str(eticheta or "").strip()
+    if e.upper().startswith(pre.upper()):
+        rest = e[len(pre):]
+        m = re.match(r"^(\d+)_(\d+)$", rest)
+        if m:
+            return "%s %s.%s" % (tab, m.group(1), m.group(2))
+        m = re.match(r"^(\d+)$", rest)
+        if m:
+            return "%s %s" % (tab, m.group(1))
+    return ("%s %s" % (tab, e)) if e else tab
+
+
+def panel_contur(eticheta, tip=CONTUR):
+    """Numele TABLOULUI unui contur, din eticheta si TIPUL lui.
+
+    Tipul, nu eticheta, decide familia de tablou. O eticheta scrisa de mana care nu se potriveste cu
+    tiparul iese „TE-AP <eticheta>" / „TE-SP <eticheta>" — lizibila, in loc sa dispara."""
+    pre, tab = _PREFIX.get(tip, _PREFIX[CONTUR])
+    return _panel_din(eticheta, pre, tab)
 
 
 def panel_apartament(eticheta):
-    """Numele TABLOULUI apartamentului, din eticheta lui: „P1_5" -> „TE-AP 1.5"; „P3" -> „TE-AP 3".
-    Necunoscut -> „TE-AP <eticheta>", ca sa ramana lizibil in loc sa dispara."""
-    e = str(eticheta or "").strip()
-    m = _RX_ET.match(e)
-    if m:
-        return "TE-AP %s.%s" % (m.group(1), m.group(2))
-    m = _RX_P.match(e)
-    if m:
-        return "TE-AP %s" % m.group(1)
-    return "TE-AP %s" % e if e else "TE-AP"
+    """Numele TABLOULUI apartamentului: „P1_5" -> „TE-AP 1.5"; „P3" -> „TE-AP 3".
+    Pastrata ca nume propriu fiindca o cheama P2/P4; `panel_contur` e forma generala."""
+    return panel_contur(eticheta, CONTUR)
 
 
 def eticheta_din_panel(panel):
-    """„TE-AP 1.5" -> „P1_5"; „TE-AP 3" -> „P3". None daca nu-i tablou de apartament.
-    Drumul invers al lui `panel_apartament`, ca descrierea circuitului sa poata numi APARTAMENTUL
-    in loc de nivel: noua circuite „Iluminat etaj" pe acelasi etaj nu spun nimic."""
+    """„TE-AP 1.5" -> „P1_5"; „TE-SP 2" -> „SP2". None daca nu-i tablou de contur.
+    Drumul invers al lui `panel_contur`, ca descrierea circuitului sa poata numi APARTAMENTUL sau
+    SPATIUL in loc de nivel: noua circuite „Iluminat etaj" pe acelasi etaj nu spun nimic."""
     e = str(panel or "").strip()
-    if not e.upper().startswith("TE-AP"):
-        return None
-    rest = e[5:].strip()
-    if not rest:
-        return None
-    m = re.match(r"^(\d+)\.(\d+)$", rest)
-    if m:
-        return "P%s_%s" % (m.group(1), m.group(2))
-    m = re.match(r"^(\d+)$", rest)
-    return ("P%s" % m.group(1)) if m else rest
+    for tip, (pre, tab) in _PREFIX.items():
+        if not e.upper().startswith(tab.upper()):
+            continue
+        rest = e[len(tab):].strip()
+        if not rest:
+            return None
+        m = re.match(r"^(\d+)\.(\d+)$", rest)
+        if m:
+            return "%s%s_%s" % (pre, m.group(1), m.group(2))
+        m = re.match(r"^(\d+)$", rest)
+        return ("%s%s" % (pre, m.group(1))) if m else rest
+    return None
 
 
-def conturi_nivel(plan_elements, floor_key, floor_canonic):
-    """Contururile de apartament de pe UN nivel, in ordine determinista (de sus in jos, apoi de la
-    stanga la dreapta — ordinea in care le-ar numerota un om). Fiecare: {eticheta, pts, aria, el}.
+def tip_din_panel(panel):
+    """Tipul de contur al unui tablou („TE-SP 1" -> CONTUR_SP). None daca nu-i tablou de contur."""
+    e = str(panel or "").strip().upper()
+    for tip, (_pre, tab) in _PREFIX.items():
+        if e.startswith(tab.upper()):
+            return tip
+    return None
+
+
+def conturi_nivel(plan_elements, floor_key, floor_canonic, tipuri=CONTURI):
+    """Contururile de pe UN nivel — apartamente SI spatii comerciale — in ordine determinista (de sus
+    in jos, apoi de la stanga la dreapta: ordinea in care le-ar numerota un om).
+    Fiecare: {eticheta, tip, pts, aria, el}.
 
     `floor_canonic` se primeste ca functie ca sa nu duplicam axa aici: apartenenta la nivel trece
-    prin ACEEASI canonizare ca restul codului."""
+    prin ACEEASI canonizare ca restul codului. `tipuri` exista ca sa se poata cere DOAR apartamentele
+    acolo unde intrebarea chiar e despre ele."""
     br = []
     for el in (plan_elements or []):
-        if ((el or {}).get("element_type") or "") != CONTUR:
+        tip = (el or {}).get("element_type") or ""
+        if tip not in tipuri:
             continue
         if floor_canonic((el or {}).get("floor")) != floor_key:
             continue
         pts = _pts(el)
         if not pts:
             continue                             # poligon malformat -> ignorat, nu o exceptie
-        br.append({"pts": pts, "aria": _aria(pts), "el": el,
+        br.append({"pts": pts, "aria": _aria(pts), "el": el, "tip": tip,
                    "_y": min(p[1] for p in pts), "_x": min(p[0] for p in pts)})
     br.sort(key=lambda b: (round(b["_y"] / 40.0), b["_x"]))   # randuri de ~40 pt, apoi stanga->dreapta
-    for i, b in enumerate(br, start=1):
+    _ord = {}                                    # ordinea se numara PER TIP (vezi `eticheta_auto`)
+    for b in br:
+        _ord[b["tip"]] = _ord.get(b["tip"], 0) + 1
         lbl = str((b["el"].get("label") or "")).strip()
-        b["eticheta"] = lbl or eticheta_auto(_idx_din(floor_key, floor_canonic), i)
+        b["eticheta"] = lbl or eticheta_auto(_idx_din(floor_key, floor_canonic),
+                                             _ord[b["tip"]], b["tip"])
     return br
 
 
@@ -153,12 +205,24 @@ def _idx_din(floor_key, floor_canonic):
         return 0
 
 
-def apartament_al_punctului(x, y, conturi):
-    """Apartamentul care CONTINE punctul, sau None. Suprapunere -> cel mai mic contur."""
+def contur_al_punctului(x, y, conturi):
+    """Conturul care CONTINE punctul (dictionarul intreg), sau None.
+
+    SUPRAPUNERE -> castiga cel mai MIC, adica cel mai specific. Aceeasi regula si cand contururile-s
+    de TIPURI diferite: un apartament desenat peste un spatiu comercial nu e o situatie legitima, dar
+    daca inginerul o deseneaza, raspunsul trebuie sa fie DETERMINIST, nu sa depinda de ordinea din
+    lista. La arii egale departajeaza eticheta, tot ca sa nu existe doua raspunsuri pentru acelasi
+    plan."""
     hits = [c for c in (conturi or []) if _in_poligon(x, y, c["pts"])]
     if not hits:
         return None
-    return min(hits, key=lambda c: c["aria"])["eticheta"]
+    return min(hits, key=lambda c: (c["aria"], str(c.get("eticheta") or "")))
+
+
+def apartament_al_punctului(x, y, conturi):
+    """Eticheta conturului care contine punctul, sau None. Forma pastrata pentru P2/P4."""
+    c = contur_al_punctului(x, y, conturi)
+    return c["eticheta"] if c else None
 
 
 def apartament_al_elementului(el, conturi):
@@ -174,8 +238,17 @@ def apartament_al_elementului(el, conturi):
     Elementele ramase in afara oricarui contur cad in grupul COMUN al nivelului (corect pentru casa
     scarii si holul de palier). Ca sa nu fie tacut cand NU e corect, `orfani` le numara —
     vezi `elemente_orfane`."""
+    c = contur_al_elementului(el, conturi)
+    return c["eticheta"] if c else None
+
+
+def contur_al_elementului(el, conturi):
+    """Conturul unui element de plan (dictionarul intreg, cu `tip`), sau None.
+
+    Forma generala a lui `apartament_al_elementului`: cine are nevoie sa stie DACA e apartament sau
+    spatiu comercial intreaba aici, in loc sa deduca din eticheta."""
     try:
-        return apartament_al_punctului(float(el["x"]), float(el["y"]), conturi)
+        return contur_al_punctului(float(el["x"]), float(el["y"]), conturi)
     except (TypeError, ValueError, KeyError):
         return None
 
@@ -300,6 +373,12 @@ def perechi_identice(conturi_sursa, conturi_tinta, camere_sursa=None, camere_tin
     for s in (conturi_sursa or []):
         for i, t in enumerate(conturi_tinta or []):
             if i in luate:
+                continue
+            # TIPUL e prima conditie, inaintea formei: un spatiu comercial de la parter si un
+            # apartament de deasupra pot avea exact acelasi contur (des la blocuri — peretii
+            # structurali sunt aceiasi), iar copierea ar turna prizele magazinului in apartament.
+            # Forma si pozitia n-ar fi prins-o niciodata, fiindca sunt IDENTICE prin constructie.
+            if s.get("tip") != t.get("tip"):
                 continue
             same, d = acelasi_apartament(s["pts"], t["pts"])
             if not same:

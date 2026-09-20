@@ -3312,28 +3312,39 @@ _GROUND_LEGATURA_WIDTH = 1.2           # legatura TEG->priza 20x2 (mai subtire c
 
 
 _APART_COLOR = (0.231, 0.510, 0.965)     # #3B82F6 — acelasi albastru ca simbolul TE-AP
+# Spatiul comercial (P6b): CHIHLIMBAR. Culoare diferita fiindca pe aceeasi planşa de parter pot sta
+# amandoua, iar doua delimitari cu acelasi albastru ar trebui citite dupa eticheta — adica dupa un
+# text de 9 puncte, pe un plan tiparit. Marcajul difera si el: apartamentul poarta „Ap", spatiul isi
+# poarta chiar eticheta („SP1"), cum scrie Dan pe IE.8.
+_SP_COLOR = (0.961, 0.620, 0.043)        # #F59E0B
 _APART_DASH = "[6 4] 0"
+_CONTUR_STIL = {}                        # se completeaza dupa ce _apm e importat (vezi mai jos)
 
 
 def _draw_contur_apartament(page, el, eticheta=None):
-    """Conturul de apartament: poligon INCHIS, linie INTRERUPTA albastra, cu eticheta in coltul
-    din stanga-sus. Intrerupta si nu plina fiindca nu e o instalatie — e o DELIMITARE, si nu trebuie
-    sa concureze vizual cu traseele de cablu desenate peste ea.
+    """Conturul unui apartament SAU al unui spatiu comercial: poligon INCHIS, linie INTRERUPTA, cu
+    eticheta in coltul din stanga-sus. Intrerupta si nu plina fiindca nu e o instalatie — e o
+    DELIMITARE, si nu trebuie sa concureze vizual cu traseele de cablu desenate peste ea.
 
     Acelasi tipar de date ca priza de pamant: puncte in `cable_path`. Malformat -> nu deseneaza
     nimic si nu crapa (un poligon strambat de un drag nu poate opri generarea planşei)."""
     pts = _apm._pts(el)
     if not pts or len(pts) < 3:
         return False
-    page.draw_polyline([fitz.Point(x, y) for x, y in pts], color=_APART_COLOR,
+    col, marcaj = _CONTUR_STIL.get(str((el or {}).get("element_type") or ""),
+                                   (_APART_COLOR, "Ap "))
+    page.draw_polyline([fitz.Point(x, y) for x, y in pts], color=col,
                        width=1.1, closePath=True, dashes=_APART_DASH)
     txt = str(eticheta or el.get("label") or "").strip()
     if txt:
         x0 = min(p[0] for p in pts)
         y0 = min(p[1] for p in pts)
-        page.insert_text(fitz.Point(x0 + 3, y0 + 11), "Ap %s" % txt, fontsize=9,
-                         fontname="hebo", color=_APART_COLOR)
+        page.insert_text(fitz.Point(x0 + 3, y0 + 11), "%s%s" % (marcaj, txt), fontsize=9,
+                         fontname="hebo", color=col)
     return True
+
+
+_CONTUR_STIL = {_apm.CONTUR: (_APART_COLOR, "Ap "), _apm.CONTUR_SP: (_SP_COLOR, "")}
 
 
 def _draw_ground_electrode(page, el_ground, teg_xy=None):
@@ -5472,11 +5483,11 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 # Priza de pamant: DOAR la parter (fundatia); defensiv fata de alt floor.
                 if str(el.get("floor") or "parter") == "parter" and _draw_ground_electrode(page, el, _teg_xy):
                     n_ground += 1
-            elif et == _apm.CONTUR:
-                # CONTURUL DE APARTAMENT: delimitare, nu instalatie. Se deseneaza pe planşa
-                # nivelului lui (fara gard de etaj, spre deosebire de priza de pamant: apartamente
-                # sunt pe toate nivelurile, nu doar la parter). Eticheta vine din `label`, pe care
-                # editorul o precompleteaza automat la creare.
+            elif et in _apm.CONTURI:
+                # CONTURURILE DE GRUPARE (apartament / spatiu comercial): delimitare, nu instalatie.
+                # Se deseneaza pe planşa nivelului lor (fara gard de etaj, spre deosebire de priza
+                # de pamant: apartamentele sunt pe toate nivelurile, nu doar la parter). Eticheta
+                # vine din `label`, pe care editorul o precompleteaza automat la creare.
                 _draw_contur_apartament(page, el)
             elif (et in _CS_TYPES or et in _DET_TYPES) and et != "traseu_cs":
                 # CURENTI SLABI + DETECTIE INCENDIU: simbol + eticheta scurta (abrevierea de pe

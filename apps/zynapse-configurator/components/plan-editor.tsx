@@ -159,8 +159,20 @@ const isTraseuType = (t: string) => t === "traseu";
 const GROUND_TYPE = "ground_electrode_path";
 const APART_TYPE = "contur_apartament";      // P2: conturul de apartament (acelasi mecanism de poligon)
 const APART_COL = "#3B82F6";                 // = _APART_COLOR din draw_elements (lectia O1: editor = PDF)
+// P6b: conturul SPATIULUI COMERCIAL din bloc. Tip propriu, nu un flag pe cel de apartament: singurul
+// flag gratuit ar fi fost prefixul etichetei, iar eticheta e editabila — o redenumire ar fi mutat
+// tacit circuitele de pe TE-SP pe TE-AP.
+const SP_TYPE = "contur_spatiu_comercial";
+const SP_COL = "#F59E0B";                    // = _SP_COLOR din draw_elements
 const isGroundType = (t: string) => t === GROUND_TYPE;   // Faza 3: priza de pamant (polyline pe fundatie)
 const isApartType = (t: string) => t === APART_TYPE;
+const isSpType = (t: string) => t === SP_TYPE;
+const isConturType = (t: string) => isApartType(t) || isSpType(t);
+// Prefixul etichetei si cuvantul din interfata, per tip. OGLINDA lui `apartments._PREFIX`.
+const CONTUR_META: Record<string, { pre: string; nume: string; col: string; marcaj: string }> = {
+  [APART_TYPE]: { pre: "P", nume: "apartamentului", col: APART_COL, marcaj: "Ap" },
+  [SP_TYPE]: { pre: "SP", nume: "spațiului comercial", col: SP_COL, marcaj: "" },
+};
 const isFvChainType = (t: string) => t === "fv_chain_path";          // lantul FV desenat MANUAL (polilinie deschisa galbena)
 // Banda LED TRASATA: polilinie DESCHISA pe planul de iluminat -> metri REALI in BOM (lungimea desenata),
 // spre deosebire de `banda_led` PUNCTUAL (simbol vechi, numarat la bucata) care ramane neatins.
@@ -1794,7 +1806,10 @@ export default function PlanEditor({
     if (loading || genLoading || finalized || !projectId) return;
     const cheie = `${projectId}|${floorCanonic(floor)}`;
     if (copiereRulataRef.current === cheie) return;      // o dată per deschidere de nivel
-    if (!elements.some(e => isApartType(e.element_type))) return;   // nivel fără apartamente
+    // Orice contur de grupare, nu doar apartamentele: mecanismul de copiere e al CONTURULUI, iar
+    // `perechi_identice` refuză oricum perechile de tipuri diferite. Lăsat pe apartamente, un nivel
+    // cu numai spații comerciale ar fi fost exclus tăcut dintr-un mecanism care i se aplică.
+    if (!elements.some(e => isConturType(e.element_type))) return;   // nivel fără contururi
     copiereRulataRef.current = cheie;
     (async () => {
       try {
@@ -1902,16 +1917,20 @@ export default function PlanEditor({
     // P2: eticheta APARTAMENTULUI se precompletează automat — nivel + ordinea pe nivel. Automată
     // fiindcă numerotarea manuală lasă goluri când ștergi al treilea din cinci, iar golul nu se vede
     // până la schemă. Rămâne EDITABILĂ (câmpul `label`), deci convenția lui Dan se poate impune.
-    const esteAp = groundTypeRef.current === APART_TYPE;
+    const tipCurent = groundTypeRef.current;
+    const meta = CONTUR_META[tipCurent] || null;      // null = priza de pământ (fundație)
     const fidx = floorIndex(floor);
-    const nAp = elements.filter(e => isApartType(e.element_type)
+    // Ordinea se numără PER TIP — un parter cu două apartamente și un magazin dă „P1", „P2" și
+    // „SP1", nu „SP3". Oglinda lui `apartments.conturi_nivel`.
+    const nAp = elements.filter(e => e.element_type === tipCurent
                                   && floorCanonic(e.floor) === floorCanonic(floor)).length + 1;
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),   // PROP curent (parter), NU elements[0]?.floor
-      element_type: esteAp ? APART_TYPE : GROUND_TYPE,
-      plan_type: esteAp ? "ambele" : "forta",   // conturul se vede pe iluminat SI pe forță
-      label: (esteAp ? (fidx <= 0 ? `P${nAp}` : `P${fidx}_${nAp}`) : null) as string | null,
+      element_type: meta ? tipCurent : GROUND_TYPE,
+      plan_type: meta ? "ambele" : "forta",   // conturul se vede pe iluminat SI pe forță
+      label: (meta ? (fidx <= 0 ? `${meta.pre}${nAp}` : `${meta.pre}${fidx}_${nAp}`)
+                   : null) as string | null,
       room: null as string | null,
       x: pts[0][0],
       y: pts[0][1],                 // ancora = coltul 0 (sincron cu NOT NULL x,y)
@@ -3012,9 +3031,16 @@ export default function PlanEditor({
 
   // Faza 3: sectiunea priza de pamant (fundatie) — buton de desenare, DOAR plan forta + parter.
   const renderGroundingSection = () => {
-    if (mode !== "forta" || floorCanonic(floor) !== "parter") return null;
+    // Poarta era `mode !== "forta" || floor !== "parter"` pe TOATA secțiunea — deci butonul de
+    // contur apărea doar la parter, deși comentariul lui de la P2 zicea explicit că nu trebuie
+    // limitat („se desenează pe FIECARE nivel care are apartamente"). Decizia era scrisă, codul o
+    // contrazicea: pe etajul 1 nu aveai cu ce desena cele nouă apartamente. Poarta de parter
+    // rămâne, dar DOAR pe priza de pământ, unde chiar are sens.
+    if (mode !== "forta") return null;
+    const laParter = floorCanonic(floor) === "parter";
     const existing = elements.find(e => isGroundType(e.element_type)) || null;
     const nApart = elements.filter(e => isApartType(e.element_type)).length;
+    const nSp = elements.filter(e => isSpType(e.element_type)).length;
     return (
       <>
       {/* P4: ce a preluat nivelul de la cel de dedesubt. Mesaj, nu doar un marcaj pe simbol —
@@ -3039,16 +3065,44 @@ export default function PlanEditor({
           </div>
         </Rubrica>
       ) : null}
+      {nSp > 0 ? (
+        <Rubrica title="Spații comerciale" hint="Spațiile comerciale se predau la roșu: tablou propriu (TE-SP), coloană din firida de palier și un set minim de circuite. Proiectul de detaliu îl face cumpărătorul.">
+          <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2 }}>
+            {nSp} spați{nSp === 1 ? "u" : "i"} conturat{nSp === 1 ? "" : "e"} pe acest nivel
+          </div>
+        </Rubrica>
+      ) : null}
+      {/* Conturul se desenează pe FIECARE nivel (decizia lui Dan la P2), deci rubrica asta nu e
+          limitată la parter. Priza de pământ, care chiar e doar a fundației, rămâne mai jos. */}
+      <Rubrica title="Contururi de grupare" hint="Apartamentele și spațiile comerciale își primesc tabloul din conturul desenat. Ce rămâne în afara lor e comun (TCC).">
+        {drawingGround && drawTip !== GROUND_TYPE ? (
+          <div style={{ paddingLeft: 2 }}>
+            <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
+              Click pe fiecare colț al {(CONTUR_META[drawTip] || CONTUR_META[APART_TYPE]).nume} · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+            </div>
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="zy-add-btn" onClick={() => void finishDrawGround()} disabled={groundPts.length < 3}>Finalizează</button>
+              <button type="button" className="zy-add-btn" onClick={cancelDrawGround}>Anulează</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
+            <button type="button" className="zy-add-btn" onClick={() => startDrawGround(APART_TYPE)}>+ Desenează apartament</button>
+            <button type="button" className="zy-add-btn" onClick={() => startDrawGround(SP_TYPE)}>+ Desenează spațiu comercial</button>
+          </div>
+        )}
+      </Rubrica>
+      {laParter ? (
       <Rubrica title="Priza de pământ" hint="Priza de pământ de fundație este obligatorie (I7-2011).">
         {existing ? (
           <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
             Priză adăugată — șterge-o ca s-o redesenezi.
             <button type="button" className="zy-add-btn" onClick={() => removeElement(existing.id)}>Șterge</button>
           </div>
-        ) : drawingGround ? (
+        ) : drawingGround && drawTip === GROUND_TYPE ? (
           <div style={{ paddingLeft: 2 }}>
             <div style={{ fontSize: 11, color: "#C5C8D6", marginBottom: 6, lineHeight: 1.5 }}>
-              Click pe fiecare colț al {drawTip === APART_TYPE ? "apartamentului" : "fundației"} · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
+              Click pe fiecare colț al fundației · <b>{groundPts.length}</b> punct{groundPts.length === 1 ? "" : "e"} · dublu-click / Enter finalizează · Esc anulează
             </div>
             <div className="flex gap-1.5" style={{ flexWrap: "wrap" }}>
               <button type="button" className="zy-add-btn" onClick={() => void finishDrawGround()} disabled={groundPts.length < 3}>Finalizează</button>
@@ -3058,12 +3112,10 @@ export default function PlanEditor({
         ) : (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
             <button type="button" className="zy-add-btn" onClick={() => startDrawGround(GROUND_TYPE)}>+ Desenează priza de pământ</button>
-            {/* P2: conturul de apartament. Se desenează pe FIECARE nivel care are apartamente
-                (decizia lui Dan) — de-aia butonul nu e limitat la parter, ca priza de pământ. */}
-            <button type="button" className="zy-add-btn" onClick={() => startDrawGround(APART_TYPE)}>+ Desenează apartament</button>
           </div>
         )}
       </Rubrica>
+      ) : null}
       </>
     );
   };
@@ -3602,8 +3654,8 @@ export default function PlanEditor({
                 ))}
                 {ordered.map((el) => {
                   if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
-                      || isBandaLedPathType(el.element_type) || isApartType(el.element_type)
-                      || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED + contur apartament randate separat
+                      || isBandaLedPathType(el.element_type) || isConturType(el.element_type)
+                      || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED + contururi randate separat
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -3802,18 +3854,20 @@ export default function PlanEditor({
                     eticheta în colțul din stânga-sus. Întreruptă fiindcă e o DELIMITARE, nu o
                     instalație: nu trebuie să concureze vizual cu traseele desenate peste ea.
                     Identic cu `_draw_contur_apartament` din draw_elements (lecția O1: editor = PDF). */}
-                {elements.filter(e => isApartType(e.element_type)).map((el) => {
+                {elements.filter(e => isConturType(e.element_type)).map((el) => {
                   const pts = (el.cable_path && el.cable_path.length >= 3) ? el.cable_path : null;
                   if (!pts) return null;
+                  const m = CONTUR_META[el.element_type] || CONTUR_META[APART_TYPE];
                   const flat = pts.flatMap(p => [p[0] * scale, p[1] * scale]);
                   const x0 = Math.min(...pts.map(p => p[0])) * scale;
                   const y0 = Math.min(...pts.map(p => p[1])) * scale;
                   return (
                     <Group key={el.id} listening={false}>
-                      <Line points={flat} closed stroke={APART_COL} strokeWidth={1.4}
+                      <Line points={flat} closed stroke={m.col} strokeWidth={1.4}
                             dash={[6, 4]} lineJoin="round" opacity={0.95} />
-                      {el.label ? <Text x={x0 + 3} y={y0 + 3} text={`Ap ${el.label}`} fontSize={11}
-                                        fontStyle="bold" fill={APART_COL} /> : null}
+                      {el.label ? <Text x={x0 + 3} y={y0 + 3}
+                                        text={m.marcaj ? `${m.marcaj} ${el.label}` : el.label}
+                                        fontSize={11} fontStyle="bold" fill={m.col} /> : null}
                     </Group>
                   );
                 })}

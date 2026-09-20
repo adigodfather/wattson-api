@@ -19,19 +19,43 @@ const FIXED_AFTER_TES = [
   "CURENTI SLABI",
   // a patra planşa. Fara intrarea asta randurile ar cadea tot pe rangul 999 ("Diverse").
   "DETECTIE INCENDIU SI DESFUMARE",
+  // BLOC (P1/P6): tablourile care nu-s nici TEG, nici TES. Ordinea e a ierarhiei reale —
+  // bransamentul, generalul, firidele de palier, apoi comunii si vitalii.
+  "BMPT",
+  "TEGD",
+  "FDCP",
+  "FDCS",
+  "TCC",
+  "TECV",
+  "TEP",
+  "TE-LIFT",
 ];
 
 function isTes(sec: string): boolean {
   return /^TES(\s|\d|$)/.test(sec);
 }
 
-// Rang de sortare: [grup, sub-index]. TEG intai, apoi TES 1/2/... (dupa numar), apoi lista fixa,
-// apoi necunoscut/"Diverse" la coada.
+// Tablou de APARTAMENT („TE-AP 1.5"). Se sorteaza ca TES-urile, dupa numar, ca cele 25 de tablouri
+// ale unui bloc sa stea grupate si in ordine, nu imprastiate pe rangul 999.
+function isTeAp(sec: string): boolean {
+  return /^TE-AP(\s|$)/.test(sec);
+}
+
+// „TE-AP 1.5" -> 1005; „TE-AP 3" -> 3000. Etajul bate ordinea din etaj, ca la numerotarea lui Dan.
+function teApRank(sec: string): number {
+  const m = /^TE-AP\s+(\d+)(?:\.(\d+))?/.exec(sec);
+  if (!m) return 0;
+  return parseInt(m[1], 10) * 1000 + (m[2] ? parseInt(m[2], 10) : 0);
+}
+
+// Rang de sortare: [grup, sub-index]. TEG intai, apoi TES 1/2/... (dupa numar), apoi tablourile de
+// apartament, apoi lista fixa, apoi necunoscut/"Diverse" la coada.
 export function sectionRank(sec: string): [number, number] {
   if (sec === "TEG") return [0, 0];
   if (isTes(sec)) return [1, parseInt(sec.replace(/\D/g, ""), 10) || 0];
+  if (isTeAp(sec)) return [2, teApRank(sec)];
   const i = FIXED_AFTER_TES.indexOf(sec);
-  if (i >= 0) return [2 + i, 0];
+  if (i >= 0) return [3 + i, 0];
   return [999, 0];
 }
 
@@ -46,7 +70,18 @@ export function sectionLabel(sec: string): string {
     case "SISTEM FOTOVOLTAIC": return "Sistem fotovoltaic";
     case "PRIZA DE PAMANT - FOTOVOLTAIC": return "Priză de pământ — fotovoltaic";
     case "Diverse": return "Diverse";
-    default: return isTes(sec) ? `Tablou secundar (${sec})` : sec;
+    case "BMPT": return "Bloc de măsură și protecție (BMPT)";
+    case "TEGD": return "Tablou general de distribuție (TEGD)";
+    case "FDCP": return "Firidă de distribuție curenți tari (FDCP)";
+    case "FDCS": return "Firidă de distribuție curenți slabi (FDCS)";
+    case "TCC": return "Tablou consumatori comuni (TCC)";
+    case "TECV": return "Tablou consumatori vitali (TECV)";
+    case "TEP": return "Tablou cameră pompe (TEP)";
+    case "TE-LIFT": return "Tablou lift (TE-LIFT)";
+    default:
+      if (isTes(sec)) return `Tablou secundar (${sec})`;
+      if (isTeAp(sec)) return `Tablou apartament (${sec})`;
+      return sec;
   }
 }
 

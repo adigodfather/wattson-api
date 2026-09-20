@@ -556,8 +556,14 @@ def _protectie_circuit(circuit) -> str:
     Trifazatul se citeste din eticheta insasi („3P"); tipul si rolul, din campurile circuitului."""
     tip = str(getattr(circuit, "tip_consumator", "") or "")
     este_tablou = tip == "sub_tablou"
-    return _prot.normalizeaza(getattr(circuit, "protectie", "") or "",
-                              tip=tip, este_tablou=este_tablou)
+    _p = getattr(circuit, "protectie", "") or ""
+    # EXCEPTIA DE CURBA, pastrata prin normalizare (P6). n8n asambleaza eticheta din `breaker_type`,
+    # iar un „B" pe un circuit TRIFAZAT nu poate veni decat din `protectii.B_DESFUMARE` — nimic
+    # altceva din lantul nostru nu emite 3P+B, fiindca regula generala trimite trifazatul pe C.
+    # Fara linia asta normalizarea l-ar rescrie pe C, si planşa ar contrazice `breaker_type`-ul pe
+    # care il citesc BOM-ul si memoriul: acelasi aparat, doua litere, in doua documente.
+    _fb = ("3P" in _p) and any(x.strip(",") == "B" for x in _p.split())
+    return _prot.normalizeaza(_p, tip=tip, este_tablou=este_tablou, forta_b=_fb)
 
 
 def format_protection_short(protectie: str) -> tuple:

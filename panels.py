@@ -36,7 +36,8 @@ santier. `_ETICHETE_APROPIATE` pastreaza perechile ca sa nu se redeschida discut
 # (familie, element_type, eticheta scurta, ku, e_firida)
 #   ku  = coeficientul de simultaneitate al tabloului (I7-2011 cap. 3.2.2.3, tab. 3.5).
 #         Valorile de bloc sunt MASURATE pe schemele lui Dan, nu alese: TE-AP 11,31/18,85 = 0,600;
-#         TCC 31,90/39,88 = 0,800; TECV 20,80/20,80 = 1,000; TGD 330,40/550,67 = 0,600.
+#         TCC 31,90/39,88 = 0,800; TECV 20,80/20,80 = 1,000; TGD 330,40/550,67 = 0,600;
+#         TE-SP 0,900 (scris in clar in Nota 1 de pe IE.27 si IE.28).
 #   e_firida = dulap/firida de distributie (contur DUBLU pe plan) vs tablou propriu-zis (simbolul
 #         clasic, doua triunghiuri). Distinctia e de desen, nu de calcul.
 _FAMILII = (
@@ -54,7 +55,11 @@ _FAMILII = (
     ("FDCP",  "tablou_fdcp",   "FDCP",   0.60, True),
     ("FDCS",  "tablou_fdcs",   "FDCS",   0.80, True),
     ("TE-AP", "tablou_te_ap",  "TE-AP",  0.60, False),
-    ("TE-SP", "tablou_te_sp",  "TE-SP",  0.80, False),
+    # 0,90 e MASURAT, nu implicit: IE.27 si IE.28 scriu amandoua, in Nota 1, „Conform NORMATIV
+    # I7/2011 Cap.3.2.2.3 Tabel 3.5. Factorul de utilizare pentru acest tip de tablou este egal cu
+    # ku= 0.90". Pana la P6b figura aici 0,80 — o valoare pusa la P1 fiindca nu ma uitasem inca pe
+    # planşele spatiilor, deci o presupunere, nu o citire.
+    ("TE-SP", "tablou_te_sp",  "TE-SP",  0.90, False),
     ("TE-LIFT", "tablou_te_lift", "TE-LIFT", 1.00, False),
     ("TECV",  "tablou_tecv",   "TECV",   1.00, False),
     ("TEP",   "tablou_tep",    "TEP",    1.00, False),

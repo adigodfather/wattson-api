@@ -13,6 +13,7 @@ import floors as _fl                     # axa DESCHISA de niveluri (sursa unica
 import panels as _panels                 # registrul de TABLOURI + graful lor (vezi panels.py)
 import protectii as _prot               # curba si capacitatea de rupere (vezi protectii.py)
 import apartments as _ap_mod             # apartamentul ca entitate de grupare (vezi apartments.py)
+import bloc as _blc                      # TCC / TECV / TEP, cablul E90, grupul electrogen (bloc.py)
 
 _pn_bucket = _panels.panel_bucket        # scurtatura — se cheama o data per circuit
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
@@ -88,9 +89,13 @@ def _dedicate_section(breaker_a):
     if breaker_a >= 20: return 4.0
     return 2.5
 
-def cable_type(kind, breaker_a=0, is_exterior=False, tri=False):
+def cable_type(kind, breaker_a=0, is_exterior=False, tri=False, familie=None):
     """iluminat->1.5 FIX; prize->2.5 FIX (+IP44 exterior); dedicat->sectiune SCALEAZA cu breaker
-    (siguranta). '3x'=mono (F+N+PE), '5x'=trifazat (3F+N+PE)."""
+    (siguranta). '3x'=mono (F+N+PE), '5x'=trifazat (3F+N+PE).
+
+    `familie` schimba DOAR numele produsului („NHXH E90" pentru circuitele de siguranta la incendiu),
+    nu si dimensionarea: un cablu rezistent la foc se alege pe aceeasi sectiune ca oricare altul, si
+    ar fi fost o greseala sa existe doua scari de sectiuni care pot diverge."""
     n = "5x" if tri else "3x"
     if kind == "iluminat":
         sec = 1.5
@@ -98,7 +103,7 @@ def cable_type(kind, breaker_a=0, is_exterior=False, tri=False):
         sec = 2.5
     else:  # dedicat -> sectiune din breaker (siguranta)
         sec = _dedicate_section(breaker_a)
-    txt = "CYY-F %s%s" % (n, ("%.1f" % sec).rstrip("0").rstrip("."))
+    txt = "%s %s%s" % (familie or "CYY-F", n, ("%.1f" % sec).rstrip("0").rstrip("."))
     if kind == "priza" and is_exterior:
         txt += " IP44"
     return txt, sec
@@ -510,8 +515,12 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
     # regula existenta o produce singura: cuptorul si AC-ul sunt alimentari DEDICATE, deci n-au
     # `kind == "priza"` si pica in afara fara niciun caz special. Cele sase care raman sunt exact
     # circuitele de prize (G.S.+depozit, living+hol, bucatarie, masina de spalat, uscator, dormitor).
-    _este_ap = _ap_mod.eticheta_din_panel(panel_out) is not None
-    afdd = (kind == "priza" and (bool(subtip) or _este_ap))
+    # ...si la SPATIILE COMERCIALE din bloc (P6b), pe exact aceeasi regula si din acelasi motiv:
+    # I7 4.2.4.5 cere AFDD la spatii comerciale indiferent cine le deseneaza, iar SP1 al lui Dan
+    # (IE.27) chiar are AFDD pe C5..C10. Regula n-a trebuit extinsa — `eticheta_din_panel` stie acum
+    # si „TE-SP 1", deci conditia care era scrisa pentru apartamente le prinde pe amandoua.
+    _este_contur = _ap_mod.eticheta_din_panel(panel_out) is not None
+    afdd = (kind == "priza" and (bool(subtip) or _este_contur))
     return {
         **({"has_afdd": True} if afdd else {}),
         **({"rccb_ma": 30, "has_rccb_individual": True} if umed30 else {}),
@@ -554,11 +563,14 @@ def _receptor_rccb_ma(el, tip, subtip=None):
     return min(ma, cam) if cam else ma
 
 
-def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=None, subtip=None):
+def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=None, subtip=None,
+                     vital=False):
     """alimentare_receptor / receptor_internet -> circuit DEDICAT (compute_circuits nu-l grupeaza).
     Putere din formular/default UI (regula #2). Reteaua (receptor_internet) = 0W (date low-voltage)
     -> circuit minimal (breaker minim 16A), reprezinta alimentarea echipamentului de retea.
-    is_mono (bransament MONOFAZAT): forteaza mono — nu exista receptor trifazat pe o singura faza."""
+    is_mono (bransament MONOFAZAT): forteaza mono — nu exista receptor trifazat pe o singura faza.
+    `vital` (P6, doar la bloc): circuit de siguranta la incendiu — cablu NHXH E90 si, la motorul de
+    desfumare, curba B chiar trifazat. Implicit False, deci casele trec pe exact acelasi drum."""
     _et = (el.get("element_type") or "")
     is_net = _et == "receptor_internet"
     # DETECTIE INCENDIU: centrala isi ia puterea din inventarul buclei (ca DDCS-ul din al lui);
@@ -595,14 +607,20 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     # ca ordin de marime, si gresit ca aparat. Tipurile de aici NU exista pe niciun proiect de azi
     # (verificat pe etichetele din baza), deci tabelul nu poate schimba nimic existent.
     _ap1 = _AP1_ALIMENTARI.get(tip)
-    if _ap1 and not tri:
+    # Circuitele VITALE se dimensioneaza la fel ca oricare altele — doar familia cablului difera.
+    # Tabelul de catalog `_AP1_ALIMENTARI` e al receptoarelor de APARTAMENT (sonerie, DTC, ventilator
+    # axial de baie) si n-are ce cauta pe un tablou de consumatori vitali; de-aia `vital` il ocoleste.
+    _fam = _blc.FAMILIE_E90 if vital else None
+    if _ap1 and not tri and not vital:
         breaker_a, ia = breaker_and_ia(power_w, tri=False, minimum=_ap1[0])
         cbl, sec = _ap1[1], _ap1[2]
     else:
         breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
-        cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
+        cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri, familie=_fam)
     room = el.get("room")
-    bt = _prot.breaker_type(tri=tri)
+    # Exceptia de curba: motorul de desfumare ramane pe B si trifazat (vezi `protectii.B_DESFUMARE`).
+    _fb = vital and _et in _prot.B_DESFUMARE
+    bt = _prot.breaker_type(tri=tri, forta_b=_fb)
     desc = ("Alimentare retea/date" if is_net else _DESC_DET.get(_et)
             or ("Alimentare " + (el.get("label") or tip or "receptor")))
     # RCCB cerut de APARAT (unit dentar 10 mA). Campurile sunt cele pe care le stiu deja BOM-ul
@@ -808,10 +826,13 @@ _EVAC_W_PER_CORP = 8          # W/corp (identic cu _EVAC_W din draw_elements —
 _EVAC_MAX_PER_CIRCUIT = 20    # peste asta se sparge in mai multe circuite (limita practica de doze)
 
 
-def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf):
+def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf, familie=None):
     """Circuitele DEDICATE ale corpurilor de evacuare de pe un etaj. Tiparul _enrich_banda_drivers:
     scaneaza elementele de un tip, le grupeaza, intoarce (circuite, nextn, harta element -> circuit).
-    MCB 10A curba C, FARA RCD, cablu de iluminat (3x1.5). Fara corpuri -> ([], nextn, {})."""
+    MCB 10A curba C, FARA RCD, cablu de iluminat (3x1.5). Fara corpuri -> ([], nextn, {}).
+
+    `familie` (P6, doar la bloc): „NHXH E90" — iluminatul de evacuare al unui bloc se executa in
+    cablu rezistent la foc (IE.29 C9). Implicit None = cablul de azi, deci casele sunt neatinse."""
     corpuri = [el for el in els if (el.get("element_type") or "") == "corp_evacuare"]
     if not corpuri:
         return [], nextn, {}
@@ -821,7 +842,7 @@ def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf):
         grup = corpuri[i:i + size]
         i += size
         power_w = _EVAC_W_PER_CORP * len(grup)
-        cbl, sec = cable_type("iluminat", 10, False, tri=False)
+        cbl, sec = cable_type("iluminat", 10, False, tri=False, familie=familie)
         cid = "C%d%s" % (nextn, gsuf)
         nextn += 1
         for d in grup:
@@ -842,6 +863,48 @@ def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf):
             "name": cid, "_evacuare_corpuri": len(grup),
         })
     return out, nextn, cid_map
+
+
+# ── SPATIUL COMERCIAL PREDAT „LA ROSU" (P6b) ─────────────────────────────────
+def _sp_la_rosu(panel, floor_idx, is_mono=False):
+    """Setul minim al unui spatiu comercial GOL: DDCS/RACK + sase circuite de priza.
+
+    E singurul loc din tot codul unde circuitele NU se deriva din ce-a desenat inginerul — si are un
+    motiv: la predarea la rosu nu e desenat nimic inauntru, iar tabloul trebuie totusi sa existe cu
+    ceva in el. Ca sa nu devina o portita, e GATED STRICT pe „spatiul n-a primit niciun circuit":
+    daca omul a desenat o singura priza acolo, setul asta nu mai apare deloc si castiga ce-a facut
+    el. Aceeasi consecventa stricta ca la prizele camerei tehnice.
+
+    Cifrele sunt in `bloc.py`, masurate pe IE.27."""
+    out = []
+    _sp = _ap_mod.eticheta_din_panel(panel) or panel
+    _motiv = "Set minim - spatiu comercial predat la rosu (proiectul de detaliu il face cumparatorul)"
+    brk, ia = breaker_and_ia(_blc.SP_DDCS_W, tri=False, minimum=16)
+    cbl, sec = cable_type("dedicat", brk, False, tri=False)
+    out.append({
+        "id": None, "fasa": None, "room": None, "type": "dedicat", "floor": floor_idx,
+        "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": _blc.SP_DDCS_W,
+        "breaker_a": brk, "room_type": None, "cable_type": cbl,
+        "description": "Alimentare retea/date %s" % _sp,
+        "is_bathroom": False, "is_exterior": False,
+        "breaker_type": _prot.breaker_type(tri=False),
+        "pi_normalized": False, "ia_calculated_a": ia, "normalize_reason": _motiv,
+        "name": None, "_la_rosu": True,
+    })
+    brk, ia = breaker_and_ia(_blc.SP_PRIZA_W, tri=False, minimum=16)
+    cbl, sec = cable_type("priza", brk, False, tri=False)
+    for _ in range(_blc.SP_PRIZE_CIRCUITE):
+        out.append({
+            "id": None, "fasa": None, "room": None, "type": "prize", "floor": floor_idx,
+            "panel": panel, "pozare": pozare_for(sec), "outlets": 0,
+            "power_w": _blc.SP_PRIZA_W, "breaker_a": brk, "room_type": None, "cable_type": cbl,
+            "description": "Prize %s" % _sp, "has_afdd": True,
+            "is_bathroom": False, "is_exterior": False,
+            "breaker_type": _prot.breaker_type(tri=False),
+            "pi_normalized": True, "ia_calculated_a": ia, "normalize_reason": _motiv,
+            "name": None, "_la_rosu": True,
+        })
+    return out
 
 
 # ── Regula 5: faza round-robin ciclic PER TABLOU ─────────────────────────────
@@ -928,7 +991,11 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False, force_mono=False
     sec = max(sec, max_sec)                                 # >= cel mai gros cablu din tablou
     n = "5x" if tri else "3x"
     feed["breaker_a"] = breaker
-    feed["cable_type"] = "CYY-F %s%smmp" % (n, ("%.1f" % sec).rstrip("0").rstrip("."))
+    # `familie` schimba DOAR numele produsului (coloana catre TECV si catre TEP se executa in cablu
+    # rezistent la foc). Dimensionarea de mai sus ramane identica — un E90 se alege pe aceeasi
+    # sectiune ca un CYY-F.
+    _fam = str(feed.get("_cablu_familie") or "CYY-F")
+    feed["cable_type"] = "%s %s%smmp" % (_fam, n, ("%.1f" % sec).rstrip("0").rstrip("."))
     feed["ia_calculated_a"] = ia
     feed["pozare"] = pozare_for(sec)
 
@@ -1125,21 +1192,48 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         _cc_niv = _ap_mod.conturi_nivel(plan_elements, _fk, _fl.floor_canonic)
         if _cc_niv:
             _conturi[_fk] = _cc_niv
+    # P6: pe un BLOC, ce nu cade intr-un apartament e COMUN, si comunul are tabloul lui (TCC).
+    # Criteriul refoloseste exact mecanismul de la P2 — `apartament_al_elementului` intoarce None —
+    # deci nu apare o a doua definitie a lui „comun". Pe o casa `_bloc_on` e False si toata ramura
+    # asta e moarta: nimic nu se muta de pe TEG/TESn.
+    #
+    # TRIGGERUL E PE PROIECT, APARTENENTA PE NIVEL: subsolul blocului n-are niciun apartament, dar
+    # iluminatul lui sta tot pe TCC (C1..C3 „ILUMINAT SUBSOL" la Dan). Un trigger per nivel l-ar fi
+    # lasat pe TEG.
+    _bloc_on = _blc.este_bloc(plan_elements)
+    _pompe_l = ((_blc.camera_pompe(plan_elements) or "") if _bloc_on else "").strip().lower()
     _ap_panels = {}                                    # „TE-AP 1.5" -> (nivel, index) — vezi coloanele
-    by_floor = {}                                      # (nivel, apartament) -> (elements, panel, index)
+    by_floor = {}                                      # (nivel, apartament, subgrup) -> (elems, panel, idx)
     for el in plan_elements:
         fkey = _floor_key(el.get("floor"))
         panel, fidx = _panel_for_floor(el.get("floor"), plan_elements, floors=_floors_all)
-        _ap = (_ap_mod.apartament_al_elementului(el, _conturi[fkey])
-               if fkey in _conturi else None)
+        # ORDINEA DE DECIZIE, o singura intrebare pentru amandoua tipurile de contur: elementul cade
+        # intr-un contur? Daca da, TIPUL conturului spune ce tablou e (TE-AP sau TE-SP); daca nu,
+        # e comun. Nu-s doua treceri („e in apartament? altfel e in magazin?") tocmai fiindca o a
+        # doua trecere ar putea raspunde altceva la suprapunere — asa raspunsul e unul singur,
+        # castigat de conturul cel mai MIC, si acelasi indiferent de ordinea din lista.
+        _ct = (_ap_mod.contur_al_elementului(el, _conturi[fkey]) if fkey in _conturi else None)
+        _ap = _ct["eticheta"] if _ct else None
+        _sub = None                                    # a treia treapta a cheii, doar la bloc
         if _ap:
-            panel = _ap_mod.panel_apartament(_ap)      # tabloul apartamentului, nu al nivelului
-        by_floor.setdefault((fkey, _ap), ([], panel, fidx))[0].append(el)
+            # TIPUL conturului decide familia: apartament -> TE-AP, spatiu comercial -> TE-SP.
+            panel = _ap_mod.panel_contur(_ap, _ct.get("tip"))
+        elif _bloc_on:
+            # Camera de pompe isi are tabloul ei (TEP), alimentat din TECV — deci e un GRUP separat
+            # de comun, nu un circuit din el. Acelasi tipar ca la camera tehnica, doar ca acolo
+            # despartirea se face inauntrul lui `compute_circuits` (sufixul -TECT), iar aici prin
+            # cheia de grupare: TEP e un tablou intreg, nu o felie dintr-unul.
+            if _pompe_l and str(el.get("room") or "").strip().lower() == _pompe_l:
+                panel, _sub = _blc.TEP, "pompe"
+            else:
+                panel, _sub = _blc.TCC, "comun"
+        by_floor.setdefault((fkey, _ap, _sub), ([], panel, fidx))[0].append(el)
     plan_out = []
     # ordinea: pe verticala (indexul nivelului), apoi apartamentele in ordinea etichetei; grupul
     # COMUN al nivelului (`None`) primul, ca circuitele lui sa pastreze numerele de azi.
-    for _gk in sorted(by_floor, key=lambda k: (by_floor[k][2], k[1] is not None, k[1] or "")):
-        fkey, _ap = _gk
+    for _gk in sorted(by_floor, key=lambda k: (by_floor[k][2], k[1] is not None, k[1] or "",
+                                               k[2] or "")):
+        fkey, _ap, _sub = _gk
         els, panel, fidx = by_floor[_gk]
         _out_from = len(plan_out)                      # vezi stampila `floor_label` de la finalul iteratiei
         # SUFIX id = conventia PLANULUI: compute_circuits via _detect_general_panel foloseste "TES"
@@ -1154,6 +1248,13 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
             # Apartamentul isi poarta propriul sufix, luat din REGISTRUL de tablouri (P1) ca sa fie
             # acelasi lucru in ambele capete: „TE-AP 1.5" -> „-AP-1.5" -> circuite C1-AP-1.5..CN.
             # Fara el, cele 9 apartamente ale unui etaj ar imparti secventa „-TES" a nivelului.
+            general = _panels.circuit_suffix(panel).lstrip("-") or "TEG"
+        elif _sub:
+            # TCC si TEP isi iau sufixul din acelasi registru. TCC primeste grupul comun al FIECARUI
+            # nivel, deci sufixul „-TCC" se repeta — si asta e tocmai ce trebuie: renumerotarea
+            # finala pe sufix (mai jos) il face o SINGURA secventa continua C1-TCC..CN-TCC peste
+            # toate nivelurile, cum are Dan C1..C23 intr-un singur tablou. Gruparea ramane PER NIVEL,
+            # deci iluminatul subsolului nu se amesteca cu al etajului 2 (lectia de la P0).
             general = _panels.circuit_suffix(panel).lstrip("-") or "TEG"
         tech_room = _detect_tech_room_name(els) if has_base_tect else None   # NIVEL 1: gated tablou_te_ct + base TE-CT
         cc = compute_circuits(els, tech_room=tech_room, general=general)   # tech_room -> becuri/prize tech = -TECT
@@ -1187,10 +1288,18 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
                 continue                               # UN singur circuit (base), elementul da pozitia
             # receptor_internet: MEREU circuit dedicat (150W, alimentare router/rack) — oriunde plasat
             # (skip-ul vechi 'net in afara camerei tehnice -> ignorat' e ELIMINAT).
-            rec_panel = "TE-CT" if is_tech else panel  # NIVEL 2: receptor din camera tehnica -> TE-CT
-            rec_id = ("C%d-TECT" % nextn) if is_tech else ("C%d%s" % (nextn, gsuf))
+            # CONSUMATORII VITALI (P6) — desfumare si detectie — trec pe TECV, dar NUMAI la bloc.
+            # Pe o casa raman exact unde erau, pe tabloul nivelului: decizia de la pachetul de
+            # detectie (cu mentiunea in memoriu ca la cladirile care cer circuit de siguranta se
+            # trateaza separat) ramane intacta. La bloc CHIAR se trateaza separat, deci acolo si
+            # numai acolo regula se schimba.
+            _vital = _bloc_on and _blc.este_vital(el)
+            rec_panel = "TE-CT" if is_tech else (_blc.TECV if _vital else panel)
+            rec_id = ("C%d-TECT" % nextn) if is_tech else (
+                ("C%d-TECV" % nextn) if _vital else ("C%d%s" % (nextn, gsuf)))
             plan_out.append(_enrich_receptor(el, rec_id, rec_panel, fidx, form, is_mono=is_mono,
-                                            all_els=plan_elements, subtip=comercial_subtip))
+                                            all_els=plan_elements, subtip=comercial_subtip,
+                                            vital=_vital))
             nextn += 1
 
         # BANDA LED: driverele etajului -> circuite DEDICATE (separate de becuri), max 4/circuit.
@@ -1199,7 +1308,8 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         plan_out.extend(_bd)
         banda_cid_map.update(_bmap)
         # ILUMINAT DE SIGURANTA: circuit dedicat pentru corpurile de evacuare de pe etajul asta
-        _ev, nextn, _evmap = _enrich_evacuare(els, panel, fidx, nextn, gsuf)
+        _ev, nextn, _evmap = _enrich_evacuare(els, panel, fidx, nextn, gsuf,
+                                              familie=(_blc.FAMILIE_E90 if _bloc_on else None))
         plan_out.extend(_ev)
         banda_cid_map.update(_evmap)   # aceeasi harta element -> circuit (folosita la etichetele de pe plan)
 
@@ -1211,6 +1321,23 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         # cinci semnaturi de functie.
         for _c in plan_out[_out_from:]:
             _c["floor_label"] = fkey
+
+    # SPATIILE COMERCIALE GOALE (P6b): setul minim „la rosu", emis DUPA bucla, ca sa poata intreba
+    # daca spatiul a primit deja circuite. Un contur de spatiu comercial in care inginerul a desenat
+    # ceva trece prin bucla de mai sus ca orice alt contur si NU ajunge aici.
+    if _bloc_on:
+        for _fk_sp, _cc_niv in _conturi.items():
+            for _ct_sp in _cc_niv:
+                if _ct_sp.get("tip") != _ap_mod.CONTUR_SP:
+                    continue
+                _pn_sp = _ap_mod.panel_contur(_ct_sp["eticheta"], _ap_mod.CONTUR_SP)
+                if any(str(c.get("panel") or "") == _pn_sp for c in plan_out):
+                    continue                       # lucrat -> ce-a desenat el castiga
+                _fi_sp = max(0, _fl.floor_index(_fk_sp))
+                _ap_panels[_pn_sp] = (_fk_sp, _fi_sp)          # ca sa primeasca si coloana
+                for _c in _sp_la_rosu(_pn_sp, _fi_sp, is_mono=is_mono):
+                    _c["floor_label"] = _fk_sp
+                    plan_out.append(_c)
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
     plan_tect = [c for c in plan_out if _pn_bucket(c.get("panel")) == _panels.BUCKET_TECT]
@@ -1317,6 +1444,46 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         _resize_column_feed(_fd, _grp, force_resum=True, force_mono=is_mono)
         _fd["cable"] = _fd.get("cable_type")
         feed_circuits.append(_fd)
+
+    # COLOANELE TABLOURILOR DE BLOC (P6): TCC, TECV, TEP. Bloc separat, ca si cel al apartamentelor:
+    # pe o casa `_bloc_on` e False, niciun tablou de-astea n-are circuite, si bucla nu produce nimic.
+    #
+    # GATE PE PREZENTA, nu pe configuratie: coloana se creeaza doar daca tabloul are macar un circuit.
+    # E regula de la `156a89b`, a patra oara — un tablou promis si gol nu-i o rezerva, e o minciuna pe
+    # schema. TECV nu apare pe un bloc fara echipamente vitale, TEP nu apare fara camera de pompe.
+    #
+    # TOPOLOGIA e citita de pe planşele lui, nu presupusa: IE.29 scrie pe coloana lui TCC „...la
+    # BMPT", IE.30 scrie pe a lui TECV „De la AAR / BMPT", iar TEP atarna de TECV (IE.30 C6).
+    if _bloc_on:
+        _sursa = _blc.tablou_sursa(plan_elements,
+                                   _panel_for_floor(0, plan_elements, floors=_floors_all)[0])
+        _are_tecv = any(str(c.get("panel") or "") == _blc.TECV for c in plan_out)
+        for _bpn, _par, _fam90 in ((_blc.TCC, _sursa, None),
+                                   (_blc.TECV, _sursa, _blc.FAMILIE_E90),
+                                   (_blc.TEP, (_blc.TECV if _are_tecv else _sursa),
+                                    _blc.FAMILIE_E90)):
+            _grp = [c for c in plan_out if str(c.get("panel") or "") == _bpn]
+            if not _grp or any(str(f.get("feeds_panel") or "") == _bpn for f in feed_circuits):
+                continue
+            _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"),
+                   "type": "sub_tablou", "panel": _par, "feeds_panel": _bpn,
+                   "phases": (1 if is_mono else 3), "is_sub_tablou": True,
+                   "breaker_type": _prot.breaker_type(tri=not is_mono),
+                   "description": "Alimentare %s" % _bpn, "usage": "Alimentare %s" % _bpn,
+                   **({"_cablu_familie": _fam90} if _fam90 else {}),
+                   "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#1565C0"}
+            _resize_column_feed(_fd, _grp, force_resum=True, force_mono=is_mono)
+            _fd["cable"] = _fd.get("cable_type")
+            # GRUPUL ELECTROGEN + AAR calatoresc pe coloana lui TECV, fiindca acolo au inteles: sunt
+            # sursa DE REZERVA a consumatorilor vitali, si se dimensioneaza din puterea lor absorbita.
+            # Campurile sunt ADITIVE — cine nu le citeste vede aceeasi coloana ca fara ele.
+            if _bpn == _blc.TECV:
+                _kva = _blc.grup_electrogen_kva(_fd.get("power_w"))
+                if _kva:
+                    _fd["_grup_kva"], _fd["_aar"] = _kva, True
+                    _fd["description"] = "Alimentare TECV (din AAR / %s)" % _par
+                    _fd["usage"] = _fd["description"]
+            feed_circuits.append(_fd)
 
     # FEED TE-CT SINTETIZAT (gaz bifat): base-ul de gaz nu are feed (breviarul nu emite TE-CT pe gaz) —
     # daca exista circuite TE-CT (sintetizate) si niciun feed TE-CT, il cream ca la TES (acelasi mecanism,

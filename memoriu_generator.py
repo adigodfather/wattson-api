@@ -793,9 +793,13 @@ _DET_ORDINE = ["centrala_detectie", "detector_fum", "detector_caldura", "buton_i
 _DET_DESFUMARE = {"trapa_desfumare", "ventilator_desfumare", "clapeta_antifoc", "grila_admisie"}
 
 
-def _memoriu_docx_detectie_section(doc, nr, comp):
+def _memoriu_docx_detectie_section(doc, nr, comp, tecv=None):
     """Capitolul de DETECȚIE INCENDIU ȘI DESFUMARE. Se scrie DOAR dacă proiectul chiar are
-    echipamente plasate pe planșă, ca la FV, iluminatul de siguranță și curenții slabi."""
+    echipamente plasate pe planșă, ca la FV, iluminatul de siguranță și curenții slabi.
+
+    `tecv` = (kVA grup electrogen) când proiectul are tablou de consumatori vitali. Atunci mențiunea
+    despre circuitul de siguranță se schimbă: la bloc cerința CHIAR se tratează, deci fraza care
+    spune „se tratează separat, împreună cu proiectantul general" ar fi devenit neadevărată."""
     _add_heading(doc, "%s. Instalații de detecție a incendiului și de desfumare" % nr, level=2)
     _n_det = sum(int(comp.get(k) or 0) for k in ("detector_fum", "detector_caldura"))
     _has_desf = any(comp.get(k) for k in _DET_DESFUMARE)
@@ -818,7 +822,21 @@ def _memoriu_docx_detectie_section(doc, nr, comp):
                        "este prevăzută cu acumulator de rezervă, care asigură funcționarea la "
                        "întreruperea alimentării de la rețea, și se alimentează dintr-un circuit "
                        "dedicat de 230 V din tabloul electric.")
-    if _has_desf:
+    if _has_desf and tecv:
+        # BLOC: cerința e ONORATĂ, nu amânată. Fraza de mai jos ar fi devenit neadevărată aici —
+        # „se tratează separat, împreună cu proiectantul general" scris pe un proiect care CHIAR are
+        # tabloul de consumatori vitali, grupul electrogen și cablul rezistent la foc ar fi fost o
+        # limitare inventată. Decizia nu s-a schimbat; s-a schimbat proiectul.
+        _add_para(doc, "Echipamentele de desfumare — ventilatoare, trape, clapete antifoc și "
+                       "grile motorizate de admisie — se alimentează din tabloul electric al "
+                       "consumatorilor vitali (TECV), pe circuite dedicate, dimensionate pe puterea "
+                       "fiecărui echipament. Tabloul se racordează înaintea separatorului general, "
+                       "prin dispozitivul de anclanșare automată a rezervei (AAR), care comută "
+                       "alimentarea pe grupul electrogen de %d kVA la întreruperea alimentării din "
+                       "rețea, astfel încât evacuarea fumului rămâne în funcțiune. Atât coloana de "
+                       "alimentare a tabloului, cât și circuitele care pleacă din el se execută în "
+                       "cablu NHXH E90, rezistent la foc 90 de minute." % int(tecv))
+    elif _has_desf:
         # MENȚIUNEA OBLIGATORIE (decizia Dan): alimentarea desfumării e pe tabloul general, iar
         # limita soluției se scrie EXPLICIT — nu se lasă cititorul să presupună că e circuit de
         # siguranță. Fără fraza asta, un verificator ar putea citi planșa ca fiind conformă acolo
@@ -1186,7 +1204,11 @@ def _page_memoriu(doc, cp, cf, solar=None, bom_cables=None, circuits=None, alime
                 _memoriu_docx_curenti_slabi_section(doc, "2.%d" % _nr_next, _cs_comp, _cs_cam)
                 _nr_next += 1
             if _has_det:
-                _memoriu_docx_detectie_section(doc, "2.%d" % _nr_next, _cs_comp)
+                # Grupul electrogen calatoreste pe coloana lui TECV (`_grup_kva`), unde l-a pus
+                # enrich. Absenta lui = proiect fara consumatori vitali -> fraza de azi, neatinsa.
+                _tecv_kva = next((c.get("_grup_kva") for c in (circuits or [])
+                                  if isinstance(c, dict) and c.get("_grup_kva")), None)
+                _memoriu_docx_detectie_section(doc, "2.%d" % _nr_next, _cs_comp, tecv=_tecv_kva)
                 _nr_next += 1
             text = "2.%d. " % _nr_next + text[len("2.8. "):]                # PROTECTIA -> 2.9 .. 2.11
         elif _n_optionale and kind == "li" and "paragrafului 2.8." in text:
