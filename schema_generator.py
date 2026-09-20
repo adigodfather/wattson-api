@@ -332,6 +332,9 @@ def draw_rccb_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=12, label="30mA"):
               size=6, anchor="center")
 
 
+import protectii as _prot                 # curba + capacitatea de rupere (vezi protectii.py)
+
+
 def draw_afdd_box(c, cx_mm, y_top_mm, w_mm=22, h_mm=12, label="AFDD"):
     """Box AFDD (protectie la arc electric), sub MCB/RCCB. Simbolul: linie FRANTA = arcul, conventia
     din cataloagele de aparataj. Deliberat ALTA forma decat triunghiul RCCB-ului: cele doua protectii
@@ -529,6 +532,22 @@ def wrap_text(text: str, max_chars: int = 12, max_lines: int = 2) -> List[str]:
 # =============================================================================
 # HELPERS — formatare continut text
 # =============================================================================
+
+def _protectie_circuit(circuit) -> str:
+    """Eticheta de protectie a unui circuit, cu CURBA si kA.
+
+    Normalizeaza ce vine din afara in loc sa astepte ca n8n sa se schimbe: eticheta NU se
+    construieste in backend — n8n o asambleaza din `breaker_type` + `breaker_a` si o trimite ca sir
+    (verificat: `protectie` nu exista pe niciunul dintre cele 546 de circuite salvate in baza, deci
+    nu se persista). Aceeasi cale prin care „; AFDD" a ajuns pe tabel. Cand n8n va trimite deja
+    formatul nou, `normalizeaza` il lasa neatins — are `kA` in ea si se opreste.
+
+    Trifazatul se citeste din eticheta insasi („3P"); tipul si rolul, din campurile circuitului."""
+    tip = str(getattr(circuit, "tip_consumator", "") or "")
+    este_tablou = tip == "sub_tablou"
+    return _prot.normalizeaza(getattr(circuit, "protectie", "") or "",
+                              tip=tip, este_tablou=este_tablou)
+
 
 def format_protection_short(protectie: str) -> tuple:
     """Imparte protectia in 2 linii scurte pentru afisare in box MCB.
@@ -831,7 +850,7 @@ def draw_circuit_column(c, cx_mm: float, col_width_mm: float,
 
     # Box MCB — pe schema afisam fara prefixul "MCB " (ramane "1P+N 16A C").
     # Tabelul de jos pastreaza formatul complet "MCB 1P+N 16A C" (neschimbat).
-    protectie_schema = circuit.protectie or ""
+    protectie_schema = _protectie_circuit(circuit) or ""
     if protectie_schema.startswith("MCB "):
         protectie_schema = protectie_schema.replace("MCB ", "", 1)
     line1, line2 = format_protection_short(protectie_schema)
@@ -1033,7 +1052,7 @@ def draw_table_full(c, width_mm: float, page_circuits,
         draw_text(c, col_x[3] + col_w[3] / 2, cy, f"{circuit.ia_a:.2f}",
                   size=font_size, anchor="center")
         # 5. Protectie — MCB + RCCB (+ AFDD) inline pe o linie
-        prot = circuit.protectie or "-"
+        prot = _protectie_circuit(circuit) or "-"
         if getattr(circuit, 'has_rccb_individual', False):
             rccb_ma = getattr(circuit, 'rccb_ma', 30) or 30
             prot += f"; RCCB {rccb_ma}mA tip A"

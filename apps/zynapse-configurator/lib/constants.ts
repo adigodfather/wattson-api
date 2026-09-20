@@ -208,7 +208,10 @@ export const EXTRA_EQUIPMENT_DEFAULTS: {
 }[] = [
   { type: "boiler",          label: "Boiler ACM",                             icon: "🛁", default_kw: 2,   default_phase: "mono" },
   { type: "cuptor_electric", label: "Cuptor electric",                        icon: "🍳", default_kw: 2,   default_phase: "mono", panel_target: "TEG" },
-  { type: "ac",         label: "Aer condiționat",                        icon: "❄️", default_kw: 2.5, default_phase: "mono" },
+  // 2,0 kW, nu 2,5 (decizia lui Dan): valoarea de pe schema AP-1. Oglinda lui `_RECEPTOR_DEFAULT_W`
+  // din enrich_circuits.py — cele două trebuie să rămână egale, altfel formularul și fallback-ul
+  // backendului ar da două puteri diferite pentru același aparat.
+  { type: "ac",         label: "Aer condiționat",                        icon: "❄️", default_kw: 2,   default_phase: "mono" },
   { type: "hrv",        label: "Ventilație cu recuperare căldură (HRV)", icon: "🌀", default_kw: 0.2, default_phase: "mono" },
   { type: "internet",   label: "Rețea date / Internet (prize RJ45)",     icon: "🌐", default_kw: 0,   default_phase: "none" },
   // FV: MEREU trifazat + pachete discrete (nu putere liberă) — cardul are selector 5/10/15/20 kW.

@@ -11,6 +11,7 @@ import floors as _fl                     # axa DESCHISA de niveluri (sursa unica
 # `_panels`, nu `_pn`: `_pn` e deja variabila de bucla in `enrich_circuits` (feed-urile TES), iar
 # aliasul de modul ar fi fost umbrit de ea.
 import panels as _panels                 # registrul de TABLOURI + graful lor (vezi panels.py)
+import protectii as _prot               # curba si capacitatea de rupere (vezi protectii.py)
 import apartments as _ap_mod             # apartamentul ca entitate de grupare (vezi apartments.py)
 
 _pn_bucket = _panels.panel_bucket        # scurtatura — se cheama o data per circuit
@@ -154,7 +155,9 @@ def rccb_zone(room, subtip=None):
 
 # ── Regula 2: putere receptor din formular (join pe label) ───────────────────
 # Puteri default (W) — oglinda EXTRA_EQUIPMENT_DEFAULTS (constants.ts); fallback daca lipseste din formular.
-_RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv": 200,
+# AC = 2000 W (decizia lui Dan, 20 sept 2026): 2,00 kW e valoarea de pe schema lui AP-1, nu 2,5.
+# E un IMPLICIT, nu un plafon — formularul si editorul scriu `power_w` pe element, si acela castiga.
+_RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2000, "hrv": 200,
                        "ev_charger": 7400, "internet": 0, "solar": 5000, "distribuitor_zona": 300,
                        # FIX 3: centrala plasata pe plan = 2 kW FIX (pompa/automatizare/aprindere) —
                        # era nemapata -> 0W "tip necunoscut". Centrala ELECTRICA e neatinsa:
@@ -168,12 +171,29 @@ _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2500, "hrv
                        "post_frizerie": 2000, "sterilizator": 800,
                        # radiologie dentara: UN receptor generic (panoramic / CBCT mic / intraoral).
                        # Expunerea tine secunde -> media e mica; circuitul il dimensioneaza VARFUL.
-                       "radiologie_dentara": 2000}
+                       "radiologie_dentara": 2000,
+                       # AP-1 (P3) — puterile sunt cele TIPARITE pe schema lui Dan, nu estimate:
+                       # masina de spalat / uscator / cuptor / AC = 2,00 kW fiecare; sonerie,
+                       # senzor de gaz si doza DTC = 0,1 kW; ventilatorul axial de baie = 15 W
+                       # (din legenda planşei: „80 m3/h, 15W").
+                       "masina_spalat": 2000, "uscator": 2000, "sonerie": 100,
+                       "senzor_gaz": 100, "dtc": 100, "ventilator_axial": 15}
 # PROTECTIA DIFERENTIALA ceruta de APARAT (mA), nu de camera. Proprietate a TIPULUI de receptor —
 # de-aia sta aici si nu ca o coloana noua pe plan_elements. Unitul dentar cere 10 mA pe circuitul LUI
 # oriunde ar sta: un cabinet nu-i o zona umeda, deci `rccb_zone` nu l-ar acoperi niciodata.
 # Receptoarele fara cerinta proprie LIPSESC din dict -> circuitul lor iese exact ca azi.
 _RECEPTOR_RCCB_MA = {"unit_dentar": 10, "radiologie_dentara": 30}
+
+# AP-1 (P3): (amperaj MINIM, cablu, sectiune) pentru alimentarile mici, luate CA ATARE de pe schema
+# lui Dan. Soneria e singurul circuit din tot proiectul cu conductor FY — de-aia e scris aici si nu
+# derivat: nicio regula de sectiune nu l-ar fi produs.
+_AP1_ALIMENTARI = {
+    "sonerie":          (6,  "2x FY 1mmp",  1.0),      # C10: 6A, 2xFY 1, IPEY 13
+    "senzor_gaz":       (6,  "CYY-F 3x1.5", 1.5),      # C12: 6A
+    "dtc":              (10, "CYY-F 3x1.5", 1.5),      # C14: 10A
+    "ventilator_axial": (16, "CYY-F 3x1.5", 1.5),      # C15: 16A, dar conductor de 1,5
+    "distribuitor_zona": (16, "CYY-F 3x1.5", 1.5),     # C13: DISTRIBUITOARE
+}
 # label plan (poate fi display "Cuptor electric" sau tip "boiler") -> tip formular. Regula 10:
 # "distribuitor" (zona/nivel) INAINTE de "aer"/etc. — distribuitorul de zona = receptor dedicat 300W.
 # Cele comerciale stau la COADA: `receptor_type_of` intoarce la PRIMA potrivire, deci adaugarea lor
@@ -181,6 +201,13 @@ _RECEPTOR_RCCB_MA = {"unit_dentar": 10, "radiologie_dentara": 30}
 _RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
                        ("distribuitor", "distribuitor_zona"), ("aer", "ac"),
                        ("condi", "ac"), (" ac", "ac"), ("hrv", "hrv"), ("recuper", "hrv"),
+                       # AP-1: INAINTEA lui „masina"/„statie" -> ev_charger, altfel „Masina de
+                       # spalat" ar fi citita ca statie de incarcare de 7,4 kW. Verificat pe baza:
+                       # azi nu exista nicio eticheta cu „masina", deci ordinea noua nu schimba nimic.
+                       ("masina de spalat", "masina_spalat"), ("spalat", "masina_spalat"),
+                       ("uscator", "uscator"), ("sonerie", "sonerie"),
+                       ("senzor gaz", "senzor_gaz"), ("senzor de gaz", "senzor_gaz"),
+                       ("dtc", "dtc"), ("ventilator axial", "ventilator_axial"),
                        ("incarcare", "ev_charger"), ("statie", "ev_charger"), ("masina", "ev_charger"),
                        ("ev_charger", "ev_charger"), ("internet", "internet"), ("retea", "internet"),
                        ("centrala", "centrala"),   # FIX 3: "Centrala pe gaz" -> default 2 kW
@@ -463,7 +490,7 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
         desc = "Prize " + (str(room) if room
                            else (_ap_mod.eticheta_din_panel(panel_out) or _fl.floor_canonic(floor_idx)))
     rccb = zone is not None
-    bt = "MCB-1P-C" + (" + RCCB 10mA" if rccb else "")
+    bt = _prot.breaker_type(tri=False, rccb_ma=(10 if rccb else None))
     # Zona umeda COMERCIALA de nivel 2 (spalator vase / masini de spalat / scafe de frizerie):
     # nu e zona cu dus, deci NU 10mA, dar circuitul cere diferential 30mA. Campurile sunt cele pe
     # care BOM-ul le stie deja (rccb_ma / has_rccb_individual) -> rand RCCB 30mA in lista.
@@ -478,7 +505,13 @@ def _enrich_group(c, els, panel, floor_idx, subtip=None):
     #
     # AFDD si RCCB NU se exclud: unul vede arcul serie/paralel, celalalt curentul rezidual. O priza
     # de baie dintr-un spatiu comercial le primeste pe amandoua.
-    afdd = (kind == "priza" and bool(subtip))
+    # AFDD si la APARTAMENTE, pe ACEEASI regula ca la comercial: doar circuitele de PRIZE.
+    # Decizia lui Dan difera de propriul lui desen (AP-1 are AFDD si pe C4 cuptor si C8 AC), iar
+    # regula existenta o produce singura: cuptorul si AC-ul sunt alimentari DEDICATE, deci n-au
+    # `kind == "priza"` si pica in afara fara niciun caz special. Cele sase care raman sunt exact
+    # circuitele de prize (G.S.+depozit, living+hol, bucatarie, masina de spalat, uscator, dormitor).
+    _este_ap = _ap_mod.eticheta_din_panel(panel_out) is not None
+    afdd = (kind == "priza" and (bool(subtip) or _este_ap))
     return {
         **({"has_afdd": True} if afdd else {}),
         **({"rccb_ma": 30, "has_rccb_individual": True} if umed30 else {}),
@@ -556,10 +589,20 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
         tip, src = "desfumare", "element"
         ph = (el.get("phase") or "mono")              # ventilatorul mare poate fi TRIFAZAT
     tri = str(ph).lower() in ("tri", "trifazat", "3") and not is_mono
-    breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
-    cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
+    # DIMENSIONAREA de catalog a receptoarelor mici din AP-1 (P3). Minimul general de 16A e corect
+    # pentru un cuptor sau un AC, dar absurd pentru o sonerie de 100 W: Dan ii da 6A si conductor
+    # 2xFY 1 mmp in tub de 13. Fara tabelul asta, toate alimentarile ies pe 16A / 3x2,5 — corect
+    # ca ordin de marime, si gresit ca aparat. Tipurile de aici NU exista pe niciun proiect de azi
+    # (verificat pe etichetele din baza), deci tabelul nu poate schimba nimic existent.
+    _ap1 = _AP1_ALIMENTARI.get(tip)
+    if _ap1 and not tri:
+        breaker_a, ia = breaker_and_ia(power_w, tri=False, minimum=_ap1[0])
+        cbl, sec = _ap1[1], _ap1[2]
+    else:
+        breaker_a, ia = breaker_and_ia(power_w, tri=tri, minimum=16)
+        cbl, sec = cable_type("dedicat", breaker_a, False, tri=tri)
     room = el.get("room")
-    bt = ("MCB-3P-C" if tri else "MCB-1P-C")
+    bt = _prot.breaker_type(tri=tri)
     desc = ("Alimentare retea/date" if is_net else _DESC_DET.get(_et)
             or ("Alimentare " + (el.get("label") or tip or "receptor")))
     # RCCB cerut de APARAT (unit dentar 10 mA). Campurile sunt cele pe care le stiu deja BOM-ul
@@ -604,7 +647,7 @@ def _enrich_heating_group(c, panel, floor_idx, is_mono=False):
         "id": c["id"], "fasa": None, "room": None, "type": "dedicat", "floor": floor_idx,
         "panel": panel, "pozare": pozare_for(sec), "outlets": 0, "power_w": power_w,
         "breaker_a": breaker_a, "room_type": None, "cable_type": cbl, "description": desc,
-        "is_bathroom": False, "is_exterior": False, "breaker_type": ("MCB-3P-C" if tri else "MCB-1P-C"),
+        "is_bathroom": False, "is_exterior": False, "breaker_type": _prot.breaker_type(tri=tri),
         "pi_normalized": False, "ia_calculated_a": ia,
         "normalize_reason": "Incalzire electrica grupata (putere reala insumata, plafon 2kW, FFD)",
         "name": c["id"], "_heating_group": True,
@@ -743,7 +786,9 @@ def _enrich_banda_drivers(els, panel, floor_idx, nextn, gsuf, scale=None):
             "breaker_a": breaker_a, "room_type": None, "cable_type": cbl,
             "description": "Alimentare drivere banda LED",
             "is_bathroom": False, "is_exterior": False,
-            "breaker_type": "MCB-1P-C",          # curba C: inrush-ul surselor LED ar arunca curba B
+            # C, nu B: „inrush-ul surselor LED ar arunca curba B" — motivul era deja aici, si
+            # regula noua (mono -> B) n-are voie sa stearga o decizie luata pe un motiv FIZIC.
+            "breaker_type": _prot.breaker_type(tri=False, inrush=True),
             "pi_normalized": False,
             "ia_calculated_a": round(power_w / 230.0, 2) if power_w else 0.0,
             "normalize_reason": "Drivere banda LED (%d buc, %.1f m banda) — sectiune impusa de inrush"
@@ -789,7 +834,7 @@ def _enrich_evacuare(els, panel, floor_idx, nextn, gsuf):
             "breaker_a": 10, "room_type": None, "cable_type": cbl,
             "description": "Iluminat de siguranta - evacuare",
             "is_bathroom": False, "is_exterior": False,
-            "breaker_type": "MCB-1P-C",     # FARA RCD: cauza comuna de intrerupere pe un circuit de siguranta
+            "breaker_type": _prot.breaker_type(tri=False),   # FARA RCD: cauza comuna de intrerupere pe un circuit de siguranta
             "pi_normalized": False,
             "ia_calculated_a": round(power_w / 230.0, 2) if power_w else 0.0,
             "normalize_reason": "Circuit de siguranta dedicat (%d corpuri autonome, 2h) - fara RCD, "
@@ -869,7 +914,7 @@ def _resize_column_feed(feed, tect_circuits, force_resum=False, force_mono=False
     tri = (str(feed.get("phases")) == "3" or "5x" in str(feed.get("cable_type") or "")) and not force_mono
     if force_mono:
         feed["phases"] = 1
-        feed["breaker_type"] = "MCB-1P-C"
+        feed["breaker_type"] = _prot.breaker_type(tri=False)
         feed["fasa"] = None                             # assign_phases (mono) o pune "R"
     breaker, ia = breaker_and_ia(pw, tri=tri, minimum=16)   # min 16A (coloana principala)
     # SELECTIVITATE + podea normativa (decizia Dan): coloana unui tablou NU poate fi mai mica decat
@@ -899,7 +944,7 @@ def _synth_gas_tect(form, is_mono, has_distributor_on_plan=True):
         "id": None, "name": None, "fasa": None, "room": None, "type": "dedicat", "panel": "TE-CT",
         "usage": "Distribuitor principal incalzire", "description": "Distribuitor principal incalzire",
         "power_w": 200, "breaker_a": 10, "cable_type": "3x1.5 mm2 CYYF", "pozare": pozare_for(1.5),
-        "breaker_type": "MCB-1P-C", "ia_calculated_a": round(200 / 230.0, 2), "rccb_ma": 30,
+        "breaker_type": _prot.breaker_type(tri=False), "ia_calculated_a": round(200 / 230.0, 2), "rccb_ma": 30,
         "has_rccb_individual": True, "is_main_distributor": True, "phases": 1, "outlets": 0,
         "notes": "Distribuitor incalzire (pompe/actuatoare) — centrala pe gaz",
     }]
@@ -919,7 +964,7 @@ def _synth_gas_tect(form, is_mono, has_distributor_on_plan=True):
             "id": None, "name": None, "fasa": None, "room": None, "type": "dedicat", "panel": "TE-CT",
             "usage": "Boiler ACM", "description": "Alimentare boiler", "power_w": pw,
             "breaker_a": breaker_a, "cable_type": cbl, "pozare": pozare_for(sec),
-            "breaker_type": ("MCB-3P-C" if tri else "MCB-1P-C"), "ia_calculated_a": ia,
+            "breaker_type": _prot.breaker_type(tri=tri), "ia_calculated_a": ia,
             "rccb_ma": 30, "has_rccb_individual": True, "phases": (3 if tri else 1), "outlets": 0,
         })
         break                                          # un singur boiler
@@ -1238,7 +1283,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         # conditionate -> _resize_column_feed dimensioneaza corect (mono: Ia=P/230, 3 fire).
         _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
                "panel": "TEG", "feeds_panel": _pn, "phases": (1 if is_mono else 3),
-               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
+               "breaker_type": _prot.breaker_type(tri=not is_mono), "is_sub_tablou": True,
                "description": "Alimentare %s (%s)" % (_pn, _fdesc),
                "usage": "Alimentare %s (%s)" % (_pn, _fdesc),
                # coloana apartine NIVELULUI pe care-l alimenteaza — altfel ar fi singurul circuit
@@ -1265,7 +1310,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
         _grp = [c for c in plan_out if str(c.get("panel") or "") == _apn]
         _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
                "panel": _parinte, "feeds_panel": _apn, "phases": (1 if is_mono else 3),
-               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
+               "breaker_type": _prot.breaker_type(tri=not is_mono), "is_sub_tablou": True,
                "description": "Alimentare %s" % _apn, "usage": "Alimentare %s" % _apn,
                "floor_label": _afk,
                "sub_tablou_color1": "#F0F0F0", "sub_tablou_color2": "#3B82F6"}
@@ -1279,7 +1324,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     if is_tech_room and merged_tect and not any(str(f.get("feeds_panel") or "") == "TE-CT" for f in feed_circuits):
         _fd = {"id": None, "name": None, "fasa": (None if is_mono else "RST"), "type": "sub_tablou",
                "panel": "TEG", "feeds_panel": "TE-CT", "phases": (1 if is_mono else 3),
-               "breaker_type": ("MCB-1P-C" if is_mono else "MCB-3P-C"), "is_sub_tablou": True,
+               "breaker_type": _prot.breaker_type(tri=not is_mono), "is_sub_tablou": True,
                "description": "Alimentare TE-CT (camera tehnica)",
                "usage": "Alimentare TE-CT (camera tehnica)",
                "sub_tablou_color1": "#e74c3c", "sub_tablou_color2": "#3498db"}

@@ -465,13 +465,20 @@ def _fmt_cablu(s):
 
 
 def _fmt_protectie(c):
+    """Protectia, in formatul de pe planşele lui Dan: „MCB 1P+N 16A B 6kA 30mA".
+
+    Era „MCB-1P-C 16A" — codul intern al campului, tiparit ca atare. Acum trece prin `protectii`,
+    aceeasi sursa care da curba si capacitatea de rupere pe schema; caietul si planşa nu mai pot
+    spune doua lucruri diferite despre acelasi aparat."""
+    import protectii as _prot
     bt = str(c.get("breaker_type") or "").strip()
     ba = c.get("breaker_a")
-    prot = " ".join(x for x in (bt, "{}A".format(ba) if ba else "") if x).strip() or "-"
-    rccb = c.get("rccb_ma")
-    if rccb and "RCCB" not in prot.upper():
-        prot += " + RCCB {}mA".format(rccb)
-    return prot
+    if not ba:
+        return bt or "-"
+    tip = str(c.get("type") or "")
+    return _prot.eticheta(ba, tri=("3P" in bt), tip=tip,
+                          este_tablou=(tip == "sub_tablou"),
+                          rccb_ma=c.get("rccb_ma"))
 
 
 def _specificatie_tablouri(doc, circuits):
