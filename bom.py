@@ -10,6 +10,7 @@ import re
 
 import draw_elements
 import enrich_circuits
+import panels as _pnl                    # registrul de TABLOURI (vezi panels.py)
 from draw_elements import _PX_TO_M, _cable_l_path
 
 # ── kind (compute_cables) -> sectiune cablu. iluminat=1.5 fix, prize=2.5 fix (ca enrich). ──
@@ -24,7 +25,9 @@ _PRIZA_CABLE = "CYY-F 3x2.5"
 # bucata. Numele ramane in _NAMES pentru randare/compatibilitate. Sincron cu draw_elements._BULB_TYPES.
 _BULB_TYPES  = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "panou_led"}
 _PRIZA_TYPES = {"priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44"}
-_PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct"}
+# Din REGISTRU (panels.py), nu o a patra lista scrisa de mana: pana la P1 erau trei seturi de
+# tipuri de tablou (aici, in draw_elements si in CHECK-ul din baza) care trebuiau tinute in acord.
+_PANEL_TYPES = set(_pnl.ELEMENT_TYPES)
 # Punctul de coborare: capatul de SUS al coloanei pe un nivel fara tablou secundar. In afara lui
 # `_PANEL_TYPES` — nu e tablou (n-are randuri de tablou in BOM, n-are schema).
 _COBORARE = "coborare_cabluri"
@@ -48,6 +51,18 @@ _NAMES = {
     "panou_led": "Panou LED",
     "tablou_teg": "Tablou general TEG", "tablou_tes": "Tablou secundar TES",
     "tablou_te_ct": "Tablou TE-CT (camera tehnica)",
+    # BLOC (P1) — denumiri de antemasuratoare, nu acronime: lista de cantitati o citeste si cine
+    # n-a vazut planşa.
+    "tablou_bmpt": "Bloc de masura si protectie trifazic (BMPT)",
+    "tablou_tgd": "Tablou general de distributie (TEGD)",
+    "tablou_fdcp": "Firida de distributie si contorizare de palier (FDCP)",
+    "tablou_fdcs": "Firida de distributie curenti slabi (FDCS)",
+    "tablou_te_ap": "Tablou electric de apartament (TE-AP)",
+    "tablou_te_sp": "Tablou electric spatiu comercial (TE-SP)",
+    "tablou_consumatori_comuni": "Tablou consumatori comuni (TCC)",
+    "tablou_tecv": "Tablou consumatori vitali (TECV)",
+    "tablou_tep": "Tablou camera pompelor (TEP)",
+    "tablou_te_lift": "Tablou lift (TE-LIFT)",
 }
 
 

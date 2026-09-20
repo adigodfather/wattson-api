@@ -8,6 +8,11 @@
 import math
 import re
 import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
+# `_panels`, nu `_pn`: `_pn` e deja variabila de bucla in `enrich_circuits` (feed-urile TES), iar
+# aliasul de modul ar fi fost umbrit de ea.
+import panels as _panels                 # registrul de TABLOURI + graful lor (vezi panels.py)
+
+_pn_bucket = _panels.panel_bucket        # scurtatura — se cheama o data per circuit
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
 
 _RECEPTOR_TYPES = {"alimentare_receptor"}          # receptor_internet = date (skip in faza 1)
@@ -1119,7 +1124,7 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
             _c["floor_label"] = fkey
 
     # NIVEL 1: becurile/prizele din camera tehnica (plan) -> panel TE-CT (setat in _enrich_group)
-    plan_tect = [c for c in plan_out if c.get("panel") == "TE-CT"]
+    plan_tect = [c for c in plan_out if _pn_bucket(c.get("panel")) == _panels.BUCKET_TECT]
     plan_has_ilum  = any(c.get("type") == "iluminat" for c in plan_tect)
     plan_has_priza = any(c.get("type") in ("prize", "priza") for c in plan_tect)
 
@@ -1163,8 +1168,11 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
     # ordine finala: TEG(plan, EXCL. tech) + feed(TEG->TE-CT) + TES(plan) + TE-CT(incalzire + tech plan)
     # Circuitele nivelurilor cu COBORARE au panel="TEG" -> intra aici, dupa cele ale parterului
     # (`sorted(by_floor)` pune 0 primul), deci numerotarea TEG continua: C1..C6 parter, C7.. mansarda.
-    teg = [c for c in plan_out if c.get("panel") == "TEG"]
-    tes = [c for c in plan_out if str(c.get("panel") or "").startswith("TES")]
+    # PARTITIE, nu filtre: fiecare circuit al planului cade in EXACT o galeata, fiindca
+    # `panel_bucket` e totala. Formele de aici sunt aceleasi ca inainte (TEG exact, TES* prefix,
+    # TE-CT exact), doar ca acum sunt scrise o singura data, intr-un loc, si cu un rest explicit.
+    teg = [c for c in plan_out if _pn_bucket(c.get("panel")) == _panels.BUCKET_TEG]
+    tes = [c for c in plan_out if _pn_bucket(c.get("panel")) == _panels.BUCKET_TES]
 
     # FEED TES (coloana TEG->TES) — mecanism GENERAL pt. ORICE tablou secundar (TES1, TES2/mansarda...):
     # breviarul n8n NU emite feed TES, iar filtrul de preservare pastreaza doar TE-CT -> il cream AICI,
@@ -1215,20 +1223,41 @@ def enrich_circuits(plan_elements, form=None, base_circuits=None, scale=None):
 
     # FAZA 2 TE-CT (nebifat): dedicatele redirectate intra in fluxul TEG (dupa circuitele planului),
     # numerotate C{n} fara sufix — exact ca feed-urile.
-    out = teg + redirected_teg + feed_circuits + tes + merged_tect
+    #
+    # ALTE TABLOURI (P1): tot ce nu-i TEG / TES* / TE-CT. Pana aici nu exista aceasta linie, iar
+    # consecinta nu era ca astfel de circuite ieseau gresit — ci ca NU IESEAU DELOC. `teg`, `tes` si
+    # `merged_tect` sunt TREI FILTRE, nu o partitie: un circuit care nu nimerea niciunul disparea
+    # tacut, cu schema si memoriul generate normal in jurul lui. Din cele 16 nume de tablou ale unui
+    # bloc, douasprezece cadeau asa. `panels.panel_bucket` e o functie TOTALA — intoarce o galeata
+    # pentru orice nume, inclusiv unul necunoscut — deci „in afara" nu mai exista.
+    #
+    # Un tablou NERECUNOSCUT ajunge aici, nu la gunoi si nici adoptat de TEG: isi pastreaza
+    # circuitele si primeste secventa lui de numerotare. Acelasi implicit ca la `_PLAN_SPEC` —
+    # IZOLARE, ceva ce se vede, nu pierdere tacuta.
+    alt_panels = [c for c in plan_out if _pn_bucket(c.get("panel")) == _panels.BUCKET_ALT]
+    out = teg + redirected_teg + feed_circuits + tes + merged_tect + alt_panels
 
     # renumerotare PER TABLOU = sistemul PLANULUI (id+name; panel/feeds_panel/dimensionarea raman).
     # Pastreaza ORDINEA compute_circuits (deci id-uri IDENTICE cu plan_elements.circuit_id: TEG C1..,
     # etaj C1-TES.., TE-CT C1-TECT..) si integreaza circuitele din baza (feed pe TEG, incalzire pe
     # TE-CT) in numerotarea tabloului lor. NU mai flat C1..CN (care arunca sufixele).
-    def _renumber_panel(circuits, suffix):
-        for i, c in enumerate(circuits):
-            cid = "C%d%s" % (i + 1, suffix)
+    # Numerotarea e PE SUFIX, iar sufixul e o functie a NUMELUI de tablou (`panels.circuit_suffix`).
+    # Trei galeti hardcodate erau destule cat timp existau trei tablouri; blocul are 25 de TE-AP-uri,
+    # fiecare cu C1..C15 al lui.
+    #
+    # MAPAREA MULTI-LA-UNU A MOSTENITELOR E INTENTIONATA, nu o scapare: TES1 si TES2 dau amandoua
+    # „-TES", deci impart O SINGURA secventa — exact numerotarea de azi (C1-TES..C4-TES pe o casa
+    # P+E+M), pe care o vede si `plan_elements.circuit_id`. Numerotarea per tablou pentru ele ar
+    # da doua circuite „C1-TES" pe acelasi proiect si ar rescrie id-urile persistate. Un tablou NOU
+    # e unu-la-unu, deci isi primeste secventa proprie. Regula e aceeasi; doar sufixul difera.
+    _grupe = {}
+    for c in out:
+        _grupe.setdefault(_panels.circuit_suffix(c.get("panel")), []).append(c)
+    for _suf, _cc in _grupe.items():
+        for i, c in enumerate(_cc):
+            cid = "C%d%s" % (i + 1, _suf)
             c["id"] = cid
             c["name"] = cid
-    _renumber_panel(teg + redirected_teg + feed_circuits, "")   # TEG + redirectate + coloane -> C1..CN
-    _renumber_panel(tes, "-TES")                   # etaj -> C1-TES..CN-TES (ca planul; nu -TES1, nu flat)
-    _renumber_panel(merged_tect, "-TECT")          # TE-CT -> C1-TECT..CN-TECT (tech plan intai = ca planul)
 
     # tri: doar circuitele planului (TE-CT/feed pastreaza faza normativa); MONO: TOATE "R" (o faza reala)
     assign_phases(out, is_mono=is_mono)

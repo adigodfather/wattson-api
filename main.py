@@ -3607,7 +3607,18 @@ def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
         import enrich_circuits as _ec
         circuits = _ec.enrich_circuits(request.plan_elements or [], request.form or {},
                                        base_circuits=request.base_circuits or [])
-        return {"success": True, "circuits": circuits, "count": len(circuits)}
+        # GRAFUL DE TABLOURI (P1) — ADITIV: `circuits` iese exact ca pana acum, iar `panels` e un
+        # camp NOU pe care azi nu-l citeste nimeni. Calculul lui sta AICI, nu in n8n, pentru ca e o
+        # sumare peste circuitele pe care tot backendul le produce: pus dincolo, ar deveni a doua
+        # sursa de adevar pentru aceleasi cifre (exact divergenta plan/schema reparata cu enrich).
+        # Esecul lui nu are voie sa strice raspunsul: circuitele sunt livrabilul.
+        try:
+            import panels as _pnl
+            _graf = _pnl.panel_graph(circuits)
+        except Exception as _eg:
+            print("[enrich-circuits] panel_graph skip:", _eg)
+            _graf = {}
+        return {"success": True, "circuits": circuits, "count": len(circuits), "panels": _graf}
     except Exception as e:
         return {"success": False, "error": str(e), "circuits": []}
 

@@ -5,6 +5,7 @@ import re
 import unicodedata
 
 import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
+import panels as _pnl                    # registrul de TABLOURI (tipuri, familii, ku; vezi panels.py)
 
 import fitz  # PyMuPDF
 
@@ -815,6 +816,18 @@ _PANEL_LEGEND_NAME = {
     "tablou_te_ct":  "TE-CT: Tablou electric camera-tehnica (montaj h=1.5m)",
     "tablou_tes":    "TES: Tablou electric secundar (montaj h=1.5m)",
     "transformator": "Transformator",
+    # BLOC (P1). Textele urmeaza legenda REALA a lui Dan de pe planşele lui, nu o formulare inventata.
+    "tablou_bmpt":   "BMPT: Bloc de masura si protectie trifazic, la limita de proprietate",
+    "tablou_tgd":    "TEGD: Tablou electric general de distributie, in dulapul de la intrarea in imobil",
+    "tablou_fdcp":   "FDCP: Firida de distributie si contorizare de palier, la fiecare nivel",
+    "tablou_fdcs":   "FDCS: Firida de distributie curenti slabi, montata de distribuitorul de internet/TV",
+    "tablou_te_ap":  "TE-AP: Tablou electric de apartament, incastrat in perete deasupra usii (h=2.43m)",
+    "tablou_te_sp":  "TE-SP: Tablou electric spatiu comercial (montaj h=1.5m)",
+    "tablou_consumatori_comuni":
+                     "TCC: Tablou consumatori comuni (iluminat spatii comune, lift, prize de serviciu)",
+    "tablou_tecv":   "TECV: Tablou electric consumatori vitali, alimentat prin AAR din grupul electrogen",
+    "tablou_tep":    "TEP: Tablou electric camera pompelor",
+    "tablou_te_lift": "TE-LIFT: Tablou electric lift",
 }
 _SWITCH_LEGEND_TEXT = {
     "intrerupator_simplu":    "Intrerupator simplu montat la h=1.10 m",
@@ -830,7 +843,12 @@ _LEGEND_PRIZA_NAME = {
     "priza_exterior_ip44": "Priza exterior IP44",
 }
 # Ordini deterministice in legenda (seturile _PANEL_TYPES/_SWITCH_TYPES/_PRIZA_TYPES sunt neordonate).
-_PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator")
+# Ordinea de LEGENDA: cele existente intai, in ordinea de pana acum (randurile lor nu se misca pe
+# proiectele de azi), apoi cele de bloc, de la sursa spre consumator — cum se citeste ierarhia.
+_PANEL_ORDER = ("tablou_teg", "tablou_te_ct", "tablou_tes", "transformator",
+                "tablou_bmpt", "tablou_tgd", "tablou_fdcp", "tablou_te_ap", "tablou_te_sp",
+                "tablou_consumatori_comuni", "tablou_tecv", "tablou_tep", "tablou_te_lift",
+                "tablou_fdcs")
 _SWITCH_ORDER = ("intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara")
 _PRIZA_ORDER = ("priza_simpla", "priza_dubla", "priza_16a", "priza_exterior_ip44")
 # Cablu pe plan_type: iluminat 1.5, forta (prize) 2.5. Dedicatele (forta) adauga sectiunile lor.
@@ -3104,8 +3122,10 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 # si nu mai poate fi creat din UI. Sincron cu bom.py (altfel BOM-ul si plansa ar diverge).
 _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "panou_led"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
-_PANEL_TYPES = {"tablou_teg", "tablou_tes", "tablou_te_ct", "transformator",
-                "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2: tablourile FV si pe PDF
+# Tablourile „clasice" vin din REGISTRU (panels.py), ca sa nu existe doua liste care trebuie tinute
+# in acord; FV-ul si transformatorul raman scrise aici, fiindca nu-s tablouri de distributie.
+_PANEL_TYPES = set(_pnl.ELEMENT_TYPES) | {"transformator",
+                                          "tablou_tcc", "tablou_inv", "tablou_tca"}   # FV-P2
 # COBORAREA CABLURILOR: nivelul fara tablou secundar isi trimite circuitele in jos, prin punctul
 # ales de inginer, la TEG. NU e tablou (in afara lui `_PANEL_TYPES`, ca `corp_evacuare` fata de
 # `_BULB_TYPES`): n-are schema, n-are circuite proprii, nu intra in `panels`. E doar o DESTINATIE
@@ -3128,6 +3148,20 @@ _PANEL_INFO = {
     "tablou_tcc":    ((0.941, 0.941, 0.941), (0.102, 0.102, 0.102), "T.CC"),
     "tablou_inv":    ((1.0, 1.0, 1.0),       (0.863, 0.149, 0.149), "INV"),
     "tablou_tca":    ((0.941, 0.941, 0.941), (0.102, 0.102, 0.102), "T.CA"),
+    # ── BLOC (P1) ──────────────────────────────────────────────────────────────────────────────
+    # FIRIDE de distributie (contur DUBLU in `_draw_panel`): dulapuri care CONTIN tablouri.
+    "tablou_bmpt":   ((0.941, 0.941, 0.941), (0.200, 0.235, 0.329), "BMPT"),   # alb + bleumarin
+    "tablou_tgd":    ((0.941, 0.941, 0.941), (0.059, 0.498, 0.251), "TEGD"),   # alb + verde INCHIS (TEG e deschis)
+    "tablou_fdcp":   ((0.941, 0.941, 0.941), (0.490, 0.310, 0.800), "FDCP"),   # alb + violet
+    "tablou_fdcs":   ((0.941, 0.941, 0.941), (0.047, 0.651, 0.678), "FDCS"),   # alb + turcoaz (= curenti slabi)
+    # TABLOURI propriu-zise (simbolul clasic, doua triunghiuri)
+    "tablou_te_ap":  ((0.941, 0.941, 0.941), (0.231, 0.510, 0.965), "TE-AP"),  # alb + albastru
+    "tablou_te_sp":  ((0.941, 0.941, 0.941), (0.950, 0.522, 0.102), "TE-SP"),  # alb + portocaliu (comercial)
+    "tablou_consumatori_comuni":
+                     ((0.941, 0.941, 0.941), (0.451, 0.580, 0.161), "TCC"),    # alb + verde-oliv
+    "tablou_tecv":   ((0.937, 0.267, 0.267), (0.980, 0.800, 0.122), "TECV"),   # rosu + galben = VITAL
+    "tablou_tep":    ((0.941, 0.941, 0.941), (0.647, 0.451, 0.149), "TEP"),    # alb + ocru
+    "tablou_te_lift": ((0.941, 0.941, 0.941), (0.353, 0.380, 0.443), "TE-LIFT"),  # alb + gri inchis
 }
 _INV_RED = (0.863, 0.149, 0.149)   # #DC2626 — conturul/diagonala invertorului (= Konva)
 
@@ -3166,6 +3200,13 @@ def _draw_panel(page, x, y, element_type, scale=1.0, with_label=True):
     page.draw_polyline([P(-12, -8), P(-12, 8), P(12, 8)], color=colB, fill=colB, width=0.3, closePath=True)
     # contur dreptunghi + conector vertical deasupra
     page.draw_rect(fitz.Rect(x - 12 * s, y - 8 * s, x + 12 * s, y + 8 * s), color=_PANEL_DARK, width=1.0)
+    # FIRIDA (BMPT / TGD / FDCP / FDCS): al DOILEA contur, la 2 pt in interior. O firida e un dulap
+    # care CONTINE tablouri, nu un tablou — iar pe o planşa de bloc stau unul langa altul, uneori cu
+    # etichete la un punct distanta („TCC" langa „T.CC"). Culoarea singura nu ajunge: se pierde la
+    # tiparul alb-negru, care e cum se citesc planurile pe santier. Forma ramane.
+    if _pnl.element_is_firida(element_type):
+        page.draw_rect(fitz.Rect(x - 10 * s, y - 6 * s, x + 10 * s, y + 6 * s),
+                       color=_PANEL_DARK, width=0.7)
     page.draw_line(P(0, -8), P(0, -16), color=_PANEL_DARK, width=1.4)
     # eticheta scurta sub dreptunghi (omisa in legenda)
     if with_label:

@@ -111,8 +111,30 @@ const PANEL_TYPES = [
   { value: "tablou_tcc",    label: "Tablou T.CC (FV)",   short: "T.CC", colA: "#F0F0F0", colB: "#1a1a1a" },
   { value: "tablou_inv",    label: "Invertor solar (FV)", short: "INV",  colA: "#FFFFFF", colB: "#DC2626" },
   { value: "tablou_tca",    label: "Tablou T.CA (FV)",   short: "T.CA", colA: "#F0F0F0", colB: "#1a1a1a" },
+  // ── BLOC (P1): cele zece tablouri ale ierarhiei pe patru niveluri. Culorile sunt ACELEAȘI cu
+  // `_PANEL_INFO` din draw_elements (lecția O1: editor = PDF). Intrarea aici dă desenul, eticheta
+  // și pastila din listă — NU un buton: plasarea lor vine odată cu fluxul de bloc.
+  // ⚠️ „TCC" de aici e Tabloul Consumatorilor Comuni; `tablou_tcc` de mai sus e T.CC, tabloul de
+  // curent CONTINUU al fotovoltaicului. Același acronim, aparate diferite — de-aia tipul e scris
+  // pe litere, iar firidele au contur dublu.
+  { value: "tablou_bmpt",   label: "BMPT (bloc măsură)", short: "BMPT",  colA: "#F0F0F0", colB: "#333C54" },
+  { value: "tablou_tgd",    label: "Tablou TEGD",        short: "TEGD",  colA: "#F0F0F0", colB: "#0F7F40" },
+  { value: "tablou_fdcp",   label: "Firidă FDCP",        short: "FDCP",  colA: "#F0F0F0", colB: "#7D4FCC" },
+  { value: "tablou_fdcs",   label: "Firidă FDCS",        short: "FDCS",  colA: "#F0F0F0", colB: "#0CA6AD" },
+  { value: "tablou_te_ap",  label: "Tablou apartament",  short: "TE-AP", colA: "#F0F0F0", colB: "#3B82F6" },
+  { value: "tablou_te_sp",  label: "Tablou spațiu com.", short: "TE-SP", colA: "#F0F0F0", colB: "#F2851A" },
+  { value: "tablou_consumatori_comuni",
+                            label: "Tablou cons. comuni", short: "TCC",  colA: "#F0F0F0", colB: "#739429" },
+  { value: "tablou_tecv",   label: "Tablou cons. vitali", short: "TECV", colA: "#EF4444", colB: "#FACC1F" },
+  { value: "tablou_tep",    label: "Tablou cameră pompe", short: "TEP",  colA: "#F0F0F0", colB: "#A57326" },
+  { value: "tablou_te_lift", label: "Tablou lift",        short: "TE-LIFT", colA: "#F0F0F0", colB: "#5A6171" },
 ];
 const FV_PANEL_TYPES = ["tablou_tcc", "tablou_inv", "tablou_tca"];
+// FIRIDE de distribuție (dulapuri care CONȚIN tablouri) — contur DUBLU, oglinda lui
+// `panels.element_is_firida`. Forma, nu culoarea: pe tipar alb-negru culoarea se pierde, iar pe o
+// planșă de bloc stau unul lângă altul cu etichete la un punct distanță.
+const FIRIDA_TYPES = ["tablou_bmpt", "tablou_tgd", "tablou_fdcp", "tablou_fdcs"];
+const isFiridaType = (t: string) => FIRIDA_TYPES.includes(t);
 const isFvPanelType = (t: string) => FV_PANEL_TYPES.includes(t);
 const FV_SPACING = 22;   // FV-B2: pasul blocului T.CC|INV|T.CA (pt; simbol 18x18 -> ~4pt aer) — buton + drag
 // Prize (aparataj pe perete) — simbol semicerc (priza). MULTIPLE per plansa. Tipurile sunt deja in CHECK.
@@ -3561,6 +3583,10 @@ export default function PlanEditor({
                               <Line points={[-12, -8, 12, -8, 12, 8]} closed fill={panel.colA} />
                               <Line points={[-12, -8, -12, 8, 12, 8]} closed fill={panel.colB} />
                               <Rect x={-12} y={-8} width={24} height={16} stroke="#1F2433" strokeWidth={1.2} listening={false} />
+                              {/* FIRIDĂ: al doilea contur, la 2 pt în interior (oglinda `_draw_panel`) */}
+                              {isFiridaType(el.element_type) && (
+                                <Rect x={-10} y={-6} width={20} height={12} stroke="#1F2433" strokeWidth={0.8} listening={false} />
+                              )}
                               {/* conector vertical scurt deasupra */}
                               <Line points={[0, -8, 0, -16]} stroke="#1F2433" strokeWidth={1.6} listening={false} />
                               {panel.short ? <Text x={-12} y={10} text={panel.short} fontSize={10} fontStyle="bold" fill="#1F2433" listening={false} /> : null}
