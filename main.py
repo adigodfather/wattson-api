@@ -3601,6 +3601,33 @@ class EnrichCircuitsRequest(BaseModel):
     base_circuits: list = []   # result_data.circuits — TE-CT + feed coloana se PRESERVA de aici
 
 
+class ApartamenteCopiazaRequest(BaseModel):
+    """P4: ce continut ar trebui sa primeasca apartamentele de pe un nivel, de la cele identice de
+    dedesubt. Toate campurile declarate — `model_dump()` arunca TACIT ce nu-i in model (defectul
+    din 5d3e770, unde generatorul citea campuri pe care modelul nu le avea)."""
+    plan_elements: list = []
+    floor: str = "parter"           # nivelul TINTA (cel deschis in editor)
+    project_id: str = ""
+
+
+@app.post("/apartamente-copiaza")
+def apartamente_copiaza(request: ApartamenteCopiazaRequest):
+    """PROPUNE ce sa se copieze; NU scrie nimic. Scrierea ramane la CLIENT, ca la restul
+    elementelor de plan (`save_plan_elements` e efectiv mort — nodul n8n nu-i paseaza project_id).
+    Acelasi tipar ca la kitul de panica: regula traieste aici, insertul acolo.
+
+    Fail-safe: orice eroare -> success:False cu liste goale, ca deschiderea etajului sa nu se
+    blocheze niciodata din cauza unei copieri."""
+    try:
+        import apartments as _ap
+        import floors as _fl
+        r = _ap.copieri_pentru_nivel(request.plan_elements or [], request.floor,
+                                     request.project_id, _fl.floor_canonic, _fl.floor_index)
+        return {"success": True, **r}
+    except Exception as e:
+        return {"success": False, "error": str(e), "copieri": [], "sarite": []}
+
+
 @app.post("/enrich-circuits")
 def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
     try:

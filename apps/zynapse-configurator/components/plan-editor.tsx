@@ -43,6 +43,7 @@ type PlanElement = {
   kit_panica?: boolean | null;      // bec normal echipat cu kit de emergenta 2h (iluminat antipanica)
   camera_tip?: string | null;       // doar camera_video: bullet/dome/turret/ptz/fisheye180/360/termica
   arie_acoperire_mp?: number | null;  // doar detectoarele de incendiu: 20/40/60/80/100 (P118/3 tab. 3.4)
+  copiat_din?: string | null;       // P4, doar pe contur_apartament: conturul SURSĂ de la care a primit conținutul
 };
 
 const COL_BULB_DEFAULT = "#1E63D6";   // albastrul normal al corpurilor de iluminat
@@ -78,7 +79,7 @@ const MODE_LABEL: Record<PlanMode, string> = {
   detectie_incendiu: "detecție incendiu",
 };
 
-const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip, arie_acoperire_mp";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip, arie_acoperire_mp, copiat_din";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [
@@ -1777,6 +1778,59 @@ export default function PlanEditor({
     persist(el.id, patch);
   }
 
+  // ── P4: COPIEREA CONȚINUTULUI de la apartamentul identic de dedesubt ────────────────────────
+  // Se declanșează la DESCHIDEREA nivelului, după ce elementele lui s-au încărcat — momentul în
+  // care inginerul chiar se uită la etaj, deci și momentul în care vede ce a primit. La salvare ar
+  // fi însemnat să scriem în timp ce desenează; la generare, prea târziu ca să mai corecteze.
+  //
+  // IDEMPOTENȚA (punctul delicat): backendul sare peste un apartament care are deja `copiat_din`
+  // SAU care are deja elemente. Marcajul stă pe CONTUR, nu pe elemente — dacă ar sta pe elemente,
+  // ștergerea unui bec copiat ar șterge și dovada, iar becul ar reveni la următoarea deschidere.
+  // Așa, copierea se întâmplă o singură dată per apartament, iar tot ce face inginerul după aceea
+  // rămâne al lui.
+  const copiereRulataRef = useRef<string>("");
+  const [copiereInfo, setCopiereInfo] = useState<string>("");
+  useEffect(() => {
+    if (loading || genLoading || finalized || !projectId) return;
+    const cheie = `${projectId}|${floorCanonic(floor)}`;
+    if (copiereRulataRef.current === cheie) return;      // o dată per deschidere de nivel
+    if (!elements.some(e => isApartType(e.element_type))) return;   // nivel fără apartamente
+    copiereRulataRef.current = cheie;
+    (async () => {
+      try {
+        // elementele TUTUROR nivelurilor: sursa e mai jos, iar `elements` e scopat pe nivelul curent
+        const { data: toate } = await supabase.from("plan_elements").select(SELECT_COLS)
+          .eq("project_id", projectId);
+        if (!toate || !toate.length) return;
+        const res = await fetch("/api/apartamente-copiaza", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_elements: toate, floor: floorCanonic(floor), project_id: projectId }),
+        });
+        const j = await res.json();
+        const copieri = Array.isArray(j?.copieri) ? j.copieri : [];
+        if (!copieri.length) return;
+        const noi: PlanElement[] = [];
+        for (const c of copieri) {
+          const rows = (c.elemente || []).map((r: Record<string, unknown>) => ({ ...r, copiat_din: null }));
+          if (!rows.length) continue;
+          const { data, error } = await supabase.from("plan_elements").insert(rows).select(SELECT_COLS);
+          if (error) { console.error("[P4] insert copiere eșuat", error.message); continue; }
+          // marcajul pe conturul ȚINTĂ, DUPĂ ce inserturile au reușit: dacă pică, se reîncearcă
+          // la următoarea deschidere în loc să rămână un apartament gol marcat ca „primit".
+          await supabase.from("plan_elements").update({ copiat_din: c.sursa_id }).eq("id", c.tinta_id);
+          noi.push(...((data || []) as PlanElement[]));
+        }
+        if (noi.length) {
+          setElements(prev => [...prev, ...noi.filter(n => n.plan_type === mode || n.plan_type === "ambele")]);
+          setCopiereInfo(copieri.map((c: { tinta: string; sursa: string; sursa_nivel: string }) =>
+            `${c.tinta} a preluat conținutul de la ${c.sursa} (${c.sursa_nivel})`).join(" · "));
+        }
+      } catch (err) {
+        console.error("[P4] copiere între etaje eșuată", err);   // NON-BLOCANT: etajul rămâne gol
+      }
+    })();
+  }, [elements, loading, genLoading, finalized, projectId, floor, mode]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Faza 3: priza de pamant — desenare manuala prin click succesiv pe colturile fundatiei. ──
   function startDrawGround(tip: string = GROUND_TYPE) {
     groundTypeRef.current = tip;
@@ -2960,7 +3014,31 @@ export default function PlanEditor({
   const renderGroundingSection = () => {
     if (mode !== "forta" || floorCanonic(floor) !== "parter") return null;
     const existing = elements.find(e => isGroundType(e.element_type)) || null;
+    const nApart = elements.filter(e => isApartType(e.element_type)).length;
     return (
+      <>
+      {/* P4: ce a preluat nivelul de la cel de dedesubt. Mesaj, nu doar un marcaj pe simbol —
+          lecția de la kitul de panică: marcajul vizual a fost destul, dar problema reală era că nu
+          puteai GĂSI elementele ca să le modifici. Aici elementele copiate intră în lista normală
+          de elemente, deci sunt găsibile; mesajul spune doar DE UNDE au venit. */}
+      {copiereInfo ? (
+        <div style={{ fontSize: 11, color: "#8ECAFF", background: "rgba(59,130,246,0.10)",
+                      border: "1px solid rgba(59,130,246,0.35)", borderRadius: 6,
+                      padding: "6px 8px", marginBottom: 8, lineHeight: 1.5 }}>
+          <b>Conținut preluat automat:</b> {copiereInfo}.<br />
+          Poți șterge sau muta orice element — nu se mai copiază a doua oară.
+        </div>
+      ) : null}
+      {nApart > 0 ? (
+        <Rubrica title="Apartamente" hint="Contururile desenate pe nivelul curent. Apartamentele identice de pe nivelurile de deasupra preiau automat conținutul, o singură dată.">
+          <div style={{ fontSize: 11, color: "#C5C8D6", paddingLeft: 2 }}>
+            {nApart} apartament{nApart === 1 ? "" : "e"} conturat{nApart === 1 ? "" : "e"} pe acest nivel
+            {elements.filter(e => isApartType(e.element_type) && e.copiat_din).length
+              ? ` · ${elements.filter(e => isApartType(e.element_type) && e.copiat_din).length} cu conținut preluat`
+              : ""}
+          </div>
+        </Rubrica>
+      ) : null}
       <Rubrica title="Priza de pământ" hint="Priza de pământ de fundație este obligatorie (I7-2011).">
         {existing ? (
           <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
@@ -2986,6 +3064,7 @@ export default function PlanEditor({
           </div>
         )}
       </Rubrica>
+      </>
     );
   };
 

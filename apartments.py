@@ -211,3 +211,204 @@ def camere_ale_apartamentelor(rooms, conturi, W, H):
         if ap:
             out[str((r or {}).get("name") or "").strip().lower()] = ap
     return out
+
+
+# ── P4: COPIEREA CONTINUTULUI INTRE APARTAMENTE IDENTICE ──────────────────────────────────────
+# Inginerul lucreaza UN apartament complet; cele identice de pe alte niveluri il primesc automat.
+#
+# DE CE E MAI SIGUR DECAT DETECTIA USII, care a picat pe 7 din 8 planuri:
+#   1. apartamentele suprapuse sunt ALINIATE VERTICAL — se compara conturul din ACELASI LOC pe doua
+#      planşe, nu se cauta asemanari oriunde;
+#   2. esecul e VIZIBIL: daca nu recunoaste, etajul iese GOL si inginerul pune manual. La usa, o
+#      detectie gresita producea o planşa care PAREA corecta.
+#
+# TOLERANTELE SUNT MASURATE PE PLANSELE LUI DAN, nu alese:
+#   jitterul intre etaje (camere potrivite pe pozitie, IE.4 -> IE.5): mediana 6,2 pt, p90 19,3,
+#     MAXIM 21,5 pt — atata se misca acelasi lucru de la un etaj la altul;
+#   pasul intre apartamente vecine (marcajele „Ap Pn_m" de pe IE.4): MINIM 140 pt, mediana 159;
+#   cea mai mica distanta intre doua camere GEMENE de pe aceeasi planşa: 76 pt.
+# TOL_POZITIE = 30 pt sta intre ele: 1,4x peste jitterul maxim observat (deci accepta suprapunerea
+# reala) si de 2,5 ori sub cea mai mica distanta de confuzie (deci nu poate lega doua apartamente
+# diferite). La scara 1:50 inseamna 53 cm.
+TOL_POZITIE = 30.0
+
+# FORMA confirma, nu discrimineaza — pozitia a facut deja treaba, fiindca la 30 pt niciun alt
+# apartament nu incape. De-aia toleranta de forma e RELATIVA si generoasa: contururile-s desenate cu
+# mana, iar un prag strict ar refuza perechi bune fara sa castige nimic la siguranta.
+TOL_FORMA_FRAC = 0.08          # 8% din diagonala conturului
+TOL_FORMA_MIN = 12.0           # ...dar niciodata sub 12 pt
+
+
+def _dedup(pts, eps=0.5):
+    """Colturi consecutive ~identice -> unul singur (cele doua click-uri ale unui dublu-click)."""
+    out = []
+    for p in pts or []:
+        if not out or abs(p[0] - out[-1][0]) > eps or abs(p[1] - out[-1][1]) > eps:
+            out.append((float(p[0]), float(p[1])))
+    if len(out) > 1 and abs(out[0][0] - out[-1][0]) <= eps and abs(out[0][1] - out[-1][1]) <= eps:
+        out.pop()                                # poligonul e inchis implicit
+    return out
+
+
+def _ancora(pts):
+    """Coltul din stanga-sus al bbox-ului. Stabil la translatie si INDEPENDENT de ordinea in care
+    au fost desenate colturile — spre deosebire de „primul varf", care depinde de unde a inceput
+    inginerul sa apese."""
+    return (min(p[0] for p in pts), min(p[1] for p in pts))
+
+
+def _diagonala(pts):
+    return ((max(p[0] for p in pts) - min(p[0] for p in pts)) ** 2
+            + (max(p[1] for p in pts) - min(p[1] for p in pts)) ** 2) ** 0.5
+
+
+def acelasi_apartament(a_pts, b_pts, tol_poz=TOL_POZITIE):
+    """(identice?, (dx, dy)) — doua contururi descriu acelasi apartament?
+
+    TREI conditii, in ordinea in care elimina cel mai repede:
+      1. acelasi numar de colturi (dupa dedup) — o forma cu 6 colturi nu poate fi una cu 4;
+      2. POZITIE: ancorele la cel mult `tol_poz` una de alta (suprapunerea verticala);
+      3. FORMA: dupa translatia care suprapune ancorele, fiecare colt in dreptul perechii lui.
+
+    Colturile se compara IN ORDINE, dar cu rotatie: acelasi dreptunghi desenat incepand din alt colt
+    da aceeasi forma, si ar fi absurd sa-l refuzam pentru asta."""
+    A, B = _dedup(a_pts), _dedup(b_pts)
+    if len(A) < 3 or len(A) != len(B):
+        return False, None
+    ax, ay = _ancora(A)
+    bx, by = _ancora(B)
+    dx, dy = bx - ax, by - ay
+    if (dx * dx + dy * dy) ** 0.5 > tol_poz:
+        return False, None
+    tol_f = max(TOL_FORMA_MIN, TOL_FORMA_FRAC * _diagonala(A))
+    n = len(A)
+    for start in range(n):                       # rotatie: acelasi contur, alt colt de pornire
+        if all(abs((B[(start + i) % n][0] - dx) - A[i][0]) <= tol_f
+               and abs((B[(start + i) % n][1] - dy) - A[i][1]) <= tol_f for i in range(n)):
+            return True, (dx, dy)
+    return False, None
+
+
+def perechi_identice(conturi_sursa, conturi_tinta, camere_sursa=None, camere_tinta=None):
+    """Perechile (contur sursa, contur tinta, (dx, dy)) intre doua niveluri.
+
+    `camere_*` = {eticheta apartament -> set de nume de camere}, cand se stiu. Atunci se cere SI
+    acelasi set de camere: doua apartamente suprapuse cu aceeasi forma dar cu alte incaperi (un
+    recompartimentat) nu se mai confunda. Fara camere, raman forma si pozitia — si tot se vede,
+    fiindca un etaj negrupat iese GOL."""
+    out, luate = [], set()
+    for s in (conturi_sursa or []):
+        for i, t in enumerate(conturi_tinta or []):
+            if i in luate:
+                continue
+            same, d = acelasi_apartament(s["pts"], t["pts"])
+            if not same:
+                continue
+            if camere_sursa is not None and camere_tinta is not None:
+                if camere_sursa.get(s["eticheta"]) != camere_tinta.get(t["eticheta"]):
+                    continue
+            luate.add(i)
+            out.append((s, t, d))
+            break
+    return out
+
+
+# Campurile care NU se copiaza: identitatea randului, nivelul (se rescrie) si tot ce e DERIVAT din
+# circuite. `circuit_id` copiat ar purta numarul de circuit al apartamentului SURSA pe planşa
+# tintei — un numar care arata corect si e al altcuiva.
+_NU_SE_COPIAZA = ("id", "created_at", "updated_at", "project_id", "floor", "circuit_id")
+
+
+def plan_copiere(elemente_sursa, dx, dy, floor_tinta, project_id):
+    """Elementele de copiat, deja translatate. PUR: nu scrie nimic, doar spune CE ar trebui scris.
+
+    `room` se PASTREAZA: intr-un apartament identic „Dormitor" inseamna aceeasi incapere. E singurul
+    loc unde coliziunea de nume de camera e inofensiva, fiindca nu se compara intre apartamente.
+    `cable_path` (trasee, benzi LED, contururi) se translateaza punct cu punct, cu ACELASI (dx, dy):
+    altfel traseul ar ramane in urma elementelor pe care le leaga."""
+    out = []
+    for el in (elemente_sursa or []):
+        nou = {k: v for k, v in (el or {}).items() if k not in _NU_SE_COPIAZA}
+        nou["project_id"] = project_id
+        nou["floor"] = floor_tinta
+        nou["circuit_id"] = None
+        try:
+            nou["x"] = float(el["x"]) + dx
+            nou["y"] = float(el["y"]) + dy
+        except (TypeError, ValueError, KeyError):
+            continue
+        cp = (el or {}).get("cable_path")
+        if isinstance(cp, (list, tuple)) and cp:
+            try:
+                nou["cable_path"] = [[float(p[0]) + dx, float(p[1]) + dy] for p in cp]
+            except (TypeError, ValueError, IndexError):
+                nou["cable_path"] = None
+        out.append(nou)
+    return out
+
+
+def copieri_pentru_nivel(plan_elements, floor_tinta, project_id, floor_canonic, floor_index):
+    """CE ar trebui copiat pe nivelul `floor_tinta`. PUR — nu scrie nimic, nu atinge baza.
+
+    SURSA e cel mai apropiat nivel de DEDESUBT care are un apartament identic CU CONTINUT. „De
+    dedesubt" fiindca asa lucreaza inginerul: face parterul, apoi urca. Cel mai apropiat, fiindca
+    daca a modificat etajul 1 fata de parter, etajul 2 trebuie sa semene cu etajul 1, nu cu parterul.
+
+    Se sare peste un apartament tinta daca:
+      - are deja `copiat_din` setat  -> s-a copiat o data; ce-a facut inginerul dupa ramane al lui;
+      - are deja elemente inauntru   -> a lucrat acolo, nu-i turnam peste.
+    Amandoua garzile sunt necesare: prima tine minte ca s-a copiat chiar daca inginerul a sters TOT
+    ce-a primit; a doua apara un apartament lucrat de mana, care n-a fost niciodata copiat.
+
+    Intoarce {"copieri": [...], "sarite": [...]} — si sarite, ca interfata sa poata SPUNE de ce n-a
+    facut nimic. Un etaj care ramane gol fara explicatie arata identic cu unul uitat."""
+    els = list(plan_elements or [])
+    ft = floor_canonic(floor_tinta)
+    conturi_t = conturi_nivel(els, ft, floor_canonic)
+    if not conturi_t:
+        return {"copieri": [], "sarite": [], "motiv": "nivelul nu are contururi de apartament"}
+
+    # nivelurile de DEDESUBT, de la cel mai apropiat in jos
+    niveluri = sorted({floor_canonic(e.get("floor")) for e in els},
+                      key=lambda f: floor_index(f), reverse=True)
+    mai_jos = [f for f in niveluri if floor_index(f) < floor_index(ft)]
+
+    copieri, sarite = [], []
+    for t in conturi_t:
+        if (t["el"] or {}).get("copiat_din"):
+            sarite.append({"tinta": t["eticheta"], "motiv": "a primit deja continut"})
+            continue
+        els_t = [e for e in els
+                 if floor_canonic(e.get("floor")) == ft
+                 and (e.get("element_type") or "") != CONTUR
+                 and apartament_al_elementului(e, [t])]
+        if els_t:
+            sarite.append({"tinta": t["eticheta"], "motiv": "are deja %d elemente" % len(els_t)})
+            continue
+        gasit = None
+        for fs in mai_jos:
+            conturi_s = conturi_nivel(els, fs, floor_canonic)
+            per = perechi_identice(conturi_s, [t])
+            if not per:
+                continue
+            s, _t, d = per[0]
+            els_s = [e for e in els
+                     if floor_canonic(e.get("floor")) == fs
+                     and (e.get("element_type") or "") != CONTUR
+                     and apartament_al_elementului(e, [s])]
+            if not els_s:
+                continue                         # identic, dar gol — nu-i sursa, cautam mai jos
+            gasit = (fs, s, d, els_s)
+            break
+        if not gasit:
+            sarite.append({"tinta": t["eticheta"],
+                           "motiv": "niciun apartament identic cu continut pe nivelurile de dedesubt"})
+            continue
+        fs, s, (dx, dy), els_s = gasit
+        copieri.append({
+            "tinta": t["eticheta"], "tinta_id": (t["el"] or {}).get("id"),
+            "sursa": s["eticheta"], "sursa_id": (s["el"] or {}).get("id"), "sursa_nivel": fs,
+            "dx": round(dx, 2), "dy": round(dy, 2),
+            "elemente": plan_copiere(els_s, dx, dy, ft, project_id),
+        })
+    return {"copieri": copieri, "sarite": sarite}
