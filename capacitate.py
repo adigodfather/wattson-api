@@ -66,21 +66,27 @@ def mesaj_ocupat():
 
 
 # ──────────────────────────────── 2. POARTA ────────────────────────────────
-# Cate primitive incap. Bugetul: 512 MB, minus memoria de repaus a procesului (masurata: 72 MB
-# dupa amanarea importurilor, de la 83) si o rezerva de ~100 MB pentru uvicorn, raspuns si sistem
-# -> ~340 MB pentru desen, adica ~185 000 de primitive la 1,85 KB bucata.
+# Cate primitive incap. Pragul e ancorat in masuratori DE PE RENDER, nu de pe masina de dezvoltare:
+# repausul real pe Linux e 112 MB, nu 72 ca pe Windows, iar RSS-ul urca spre 200 MB dupa cateva
+# cereri (fragmentare) — deci bugetul pentru o operatie grea e ~300 MB, nu ~400.
 #
-# Pragul se exprima insa in unitatile TOKENIZERULUI de mai jos, fiindca el e singurul care se poate
-# calcula ieftin. Masurat pe 16 planuri (blocul lui Dan + fiecare plan din baza), raportul
-# get_drawings/tokenizer sta intre 0,24 si 0,50 — deci `get_drawings <= 0,5 x tokenizer`, si un
-# prag de 400 000 de tokeni tine materializarea sub ~200 000 de primitive.
+# Pragul se exprima in unitatile TOKENIZERULUI de mai jos, singurul care se poate calcula ieftin.
+# Masurat pe 16 planuri (blocul lui Dan + fiecare plan din baza), raportul get_drawings/tokenizer
+# sta intre 0,24 si 0,50, deci `get_drawings <= 0,5 x tokenizer`.
+#
+# Masurat pe Render, pe un plan de 357 912 tokeni (156 550 primitive): varful a urcat la 424,8 MB
+# din 512 si cererea a durat 48,7 s — adica ~1,5 KB si ~0,135 ms pentru fiecare token. La 300 000
+# ies ~222 MB si ~40 s in cel mai rau caz, ceea ce lasa ~90 MB de marja si tine cererea sub
+# bugetul de 60 s al Vercel. Un prag de 400 000 ar fi dat 496 MB: ar fi incaput pe hartie si ar fi
+# cazut in realitate.
 #
 # Ce accepta si ce refuza, verificat:
-#   cea mai mare casa din baza (`santandrei`)  178 972  ->  trece, cu marja de 2,2x
-#   a doua ca marime                            50 141  ->  trece
-#   bloc/subsol, etaj 1, etaj 2         332 000..358 000 ->  trec
-#   bloc/parter, etaj 3               1 734 000..2 170 000 -> REFUZATE (ele au omorat instanta)
-PRAG_PRIMITIVE = 400_000
+#   cea mai mare casa din baza (`santandrei`)  178 972  ->  trece, la 60% din prag
+#   a doua ca marime                            50 141  ->  trece, la 17%
+#   toate planurile de bloc de rola      332 000..2 170 000 -> REFUZATE. Nu e o pierdere: la
+#       358 000 cererea deja dura 48,7 s, iar cele mari au omorat instanta. Blocurile se rezolva
+#       cand desenul se va citi fara `get_drawings` (etapa 3), nu ridicand pragul.
+PRAG_PRIMITIVE = 300_000
 
 # Operatorii care CONSTRUIESC traseu: m/l (punct, linie), c/v/y (Bezier), re (dreptunghi).
 # Pentru NUMARAT nu e nevoie de matricea de transformare — conteaza cate sunt, nu unde cad.
