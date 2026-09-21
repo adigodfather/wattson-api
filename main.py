@@ -8,7 +8,8 @@ from schema_generator import (
     generate_schema_pdf,
     build_sample_request,
 )
-from memoriu_generator import build_memoriu_docx, _is_pt
+# `memoriu_generator` trage python-docx: 12,4 MB la pornire, pentru DOUA locuri din tot
+# serverul. Se importa in corpul lor — al doilea apel il ia din cache-ul de module.
 from cartus_swap import swap_cartus_plan
 import draw_elements
 # PASUL 2 din trei: campul nedeclarat se LOGHEAZA, cererea TRECE. Trei incidente de acelasi fel
@@ -144,6 +145,70 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── PROTECTIA INSTANTEI (etapa 1, 22.09.2026) ────────────────────────────────────────────────
+# Instanta are 512 MB si `get_drawings()` cere ~1,85 KB per primitiva de desen. Un plan de bloc de
+# rola a urcat la 1772 MB si a omorat procesul: 502/503 pentru TOTI utilizatorii pana la repornire.
+# Nici casele nu stau departe — `santandrei` cere 240 MB, deci doua incarcari deodata trec de
+# limita. Decoratorul pune amandoua pazele din `capacitate.py` peste endpointurile care
+# materializeaza desenul sau randeaza: o singura cerere grea odata, si nimic peste prag.
+# NU schimba niciun rezultat — ce trecea, trece byte-identic.
+import functools                                                          # noqa: E402
+import capacitate                                                         # noqa: E402
+
+_CAMPURI_PDF = ("pdf_base64", "base_pdf_base64", "plan_base64")
+
+
+def _protejat(fn):
+    """Semafor + poarta pe complexitate. Se pune SUB `@app.post(...)`.
+
+    `functools.wraps` pastreaza `__wrapped__`, deci `inspect.signature` — si prin ea FastAPI —
+    vede semnatura reala si validarea Pydantic ramane neatinsa.
+    """
+    @functools.wraps(fn)
+    def invelis(*args, **kwargs):
+        cerere = args[0] if args else next(iter(kwargs.values()), None)
+        try:
+            with capacitate.poarta_grea():
+                _verifica_prag(cerere)
+                return fn(*args, **kwargs)
+        except capacitate.Ocupat:
+            logger.warning("[capacitate] coada plina la %s — 503", fn.__name__)
+            return JSONResponse(status_code=503, content=capacitate.mesaj_ocupat(),
+                                headers={"Retry-After": "5"})
+        except capacitate.PreaComplex as e:
+            logger.warning("[capacitate] %s refuzat: %d primitive (limita %d)",
+                           fn.__name__, e.n, capacitate.PRAG_PRIMITIVE)
+            return JSONResponse(status_code=413, content=capacitate.mesaj_prea_complex(e.n))
+    return invelis
+
+
+def _verifica_prag(cerere):
+    """Numara primitivele planului din cerere, daca cererea aduce unul.
+
+    Fara PDF in corp (ex. /regenerate-plan, care-l ia din baza) ramane doar semaforul — tot
+    protejeaza, fiindca varfurile nu se mai aduna. Orice eroare de citire lasa cererea sa treaca:
+    poarta nu are voie sa blocheze utilizatori pe un bug al ei (acelasi principiu ca /validate-plan).
+    """
+    b64 = next((getattr(cerere, c, None) for c in _CAMPURI_PDF if getattr(cerere, c, None)), None)
+    if not isinstance(b64, str) or len(b64) < 1000:
+        return
+    doc = None
+    try:
+        import fitz
+        raw = b64.split(",", 1)[1] if "," in b64 else b64
+        doc = fitz.open(stream=base64.b64decode(raw), filetype="pdf")
+        if doc.page_count < 1:
+            return
+        capacitate.verifica(doc)
+    except capacitate.PreaComplex:
+        raise
+    except Exception:
+        return
+    finally:
+        if doc is not None:
+            doc.close()
 
 
 # ── AUTENTIFICARE INTERNA (x-zynapse-key) — FAIL-CLOSED IN PRODUCTIE (P1-1) ──
@@ -1372,6 +1437,7 @@ def _memoriu_fv_sections(extra_equipment, faza=None):
         lines.append("9.2. Priza de pamant a sistemului fotovoltaic")
         lines.append("Sistemul fotovoltaic se leaga la o priza de pamant DEDICATA, separata de priza "
                      "de pamant a instalatiei generale.")
+        from memoriu_generator import _is_pt
         if not _is_pt(faza):
             lines.append("Pentru sistemul fotovoltaic se va propune o priza de pamant dedicata, "
                          "dimensionata la faza PT (Rp <= 4 ohm).")
@@ -1806,6 +1872,7 @@ class AnnotatePlanRequest(ZynModel):
 
 
 @app.post("/annotate-plan")
+@_protejat
 def annotate_plan(req: AnnotatePlanRequest):
     try:
         from PIL import Image, ImageDraw
@@ -3518,6 +3585,7 @@ def generate_memoriu(request: GenerateMemoriuRequest):
     """Genereaza memoriul tehnic instalatii electrice ca .docx, returnat base64.
     Acelasi pattern ca /generate-schema-b64 (erori cu status 200 pentru n8n)."""
     try:
+        from memoriu_generator import build_memoriu_docx
         docx_bytes = build_memoriu_docx(request.model_dump())
         numar = (request.cartus_proiect.numar_proiect or "proiect").strip()
         safe_numar = numar.replace("/", "-").replace(" ", "_") or "proiect"
@@ -3565,6 +3633,7 @@ class SwapCartusRequest(ZynModel):
 
 
 @app.post("/swap-cartus-plan")
+@_protejat
 def swap_cartus_plan_endpoint(request: SwapCartusRequest):
     """Detecteaza cartusul arhitectului pe planul PDF si il inlocuieste cu cartusul
     firmei (overlay vectorial, format + scara pastrate). Erori cu status 200 (n8n)."""
@@ -3590,6 +3659,7 @@ class DrawPlanElementsRequest(ZynModel):
 
 
 @app.post("/draw-plan-elements")
+@_protejat
 def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
     try:
         payload = request.model_dump()
@@ -3989,6 +4059,7 @@ class RegeneratePlanRequest(ZynModel):
 
 
 @app.post("/regenerate-plan")
+@_protejat
 def regenerate_plan_endpoint(request: RegeneratePlanRequest):
     """SUB-PAS 1a: citeste plan_elements EDITAT din DB (service-role, ocoleste RLS) si
     redeseneaza becuri+intrerupatoare pe baza curata. Tablouri SKIP (1c), fara cabluri."""
@@ -4289,6 +4360,7 @@ class RenderBasePngRequest(ZynModel):
 
 
 @app.post("/render-base-png")
+@_protejat
 def render_base_png_endpoint(request: RenderBasePngRequest):
     """PDF (baza curata) -> {png_base64, png_meta}. NU deseneaza nimic. Erori status 200 (frontend)."""
     doc = None
@@ -4330,6 +4402,7 @@ class ExtractGeometryRequest(ZynModel):
 
 
 @app.post("/extract-geometry")
+@_protejat
 def extract_geometry_endpoint(request: ExtractGeometryRequest):
     """P1: extrage peretii GLOBALI (segmente H/V) din PDF-ul curat, in PUNCTE PDF (acelasi spatiu ca
     plan_elements). Pt. snap prize pe perete (viitor). _collect = auto-detect layere (5/5 arhitecti).
@@ -4385,6 +4458,7 @@ class CropToBuildingRequest(ZynModel):
 
 
 @app.post("/crop-to-building")
+@_protejat
 def crop_to_building_endpoint(request: CropToBuildingRequest):
     """V3b: decupeaza pagina 1 la bounding-box-ul cladirii (din pereti) -> Vision vede cladirea mare
     -> bbox-uri camere corecte; intoarce crop_box pt. re-maparea bbox-urilor la pagina intreaga.
@@ -4633,6 +4707,7 @@ class ExtractSurfaceRequest(ZynModel):
 
 
 @app.post("/extract-surface")
+@_protejat
 def extract_surface_endpoint(request: ExtractSurfaceRequest):
     """Suprafata construita DETERMINISTA din planuri (base64) — pt. billing server-side (route.ts o
     re-extrage la generare, fara sa se increada in client). source='text_vectorial' daca s-a gasit;
@@ -4653,6 +4728,7 @@ class ValidatePlanRequest(ZynModel):
 
 
 @app.post("/validate-plan")
+@_protejat
 def validate_plan_endpoint(request: ValidatePlanRequest):
     """POARTA de validare DETERMINISTA (fara AI, <1s) — ruleaza INAINTE de Vision/credite.
     Discriminanti dovediti empiric (schema reala: 0 pereti + 0 etichete arie; planuri reale:

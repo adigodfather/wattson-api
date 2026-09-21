@@ -13,7 +13,10 @@ Returneaza bytes (.docx) — encodarea base64 se face in endpoint.
 import io
 import re
 
-import requests
+import lenes
+# `requests` costa 17,4 MB la pornire si se foloseste intr-un singur loc in fisierul
+# asta: descarcarea logo-ului de firma. Se incarca la primul `requests.get`.
+requests = lenes.modul("requests")
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH

@@ -17,7 +17,10 @@ from io import BytesIO
 import base64
 import os
 import re
-import requests
+import lenes
+# `requests` costa 17,4 MB la pornire si se foloseste intr-un singur loc in fisierul
+# asta: descarcarea logo-ului de firma. Se incarca la primul `requests.get`.
+requests = lenes.modul("requests")
 
 from pydantic import Field
 # Baza care AVERTIZEAZA cand primeste un camp pe care nu-l declara (vezi strict_models).

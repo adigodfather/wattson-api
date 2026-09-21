@@ -15,7 +15,10 @@ import re
 from datetime import datetime
 
 import fitz  # PyMuPDF
-import requests
+import lenes
+# `requests` costa 17,4 MB la pornire si se foloseste intr-un singur loc in fisierul
+# asta: descarcarea logo-ului de firma. Se incarca la primul `requests.get`.
+requests = lenes.modul("requests")
 
 # Formate standard (mm), short x long
 _FORMATS_MM = {
