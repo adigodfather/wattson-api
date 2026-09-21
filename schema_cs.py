@@ -629,7 +629,10 @@ def _cartus_final(raw, W, H, cartus_firma, cartus_proiect, plansa_nr, titlu):
         y1 = H - _PAD_MM * MMPT
         bbox = fitz.Rect(x1 - _CARTUS_W_MM * MMPT, y1 - _CARTUS_H_MM * MMPT, x1, y1)
         cf = dict(cartus_firma or {})
-        cp = dict(cartus_proiect or {})
+        # NORMALIZAT: `project_info` numeste numarul `proiect_nr`, iar `_draw_cartus` citeste
+        # `numar_proiect`. Fara asta, orice planşa care trece pe-aici (CS, FV, distributia,
+        # detaliile) pierde TACIT numarul de proiect — exact regresia de la P9.
+        cp = _cs.normalizeaza_cartus_proiect(cartus_proiect or {})
         nr = plansa_nr or cp.get("plansa_nr") or ""
         title_rect, title_base, plansa_box = _cs._draw_cartus(pg, bbox, cf, cp, nr, None, "-")
         try:

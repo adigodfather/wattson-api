@@ -203,31 +203,11 @@ def _circ_payload(c):
 # `project_info` si cartusul schemei numesc DOUA lucruri la fel cu nume diferite. Divergenta e
 # veche si documentata in `app/api/generate/route.ts` (CARTUS_MAP), unde se face maparea inversa,
 # modal -> project_info. Aici e nevoie de ea in sensul celalalt.
-_ALIAS_CARTUS = {"proiect_nr": "numar_proiect", "data": "data_proiect"}
-
-
 def _cartus_proiect(brut, plansa_nr):
-    """`project_info` (forma din baza) -> cartusul pe care-l intelege schema.
-
-    DE CE EXISTA. La P9 am trecut sarcinile pe `_b.project_info`, in timp ce nodul dinainte folosea
-    `wb.cartus_proiect` — forma modalului. Cele doua se deosebesc prin exact doua nume, iar Pydantic
-    le arunca in tacere: `proiect_nr` nu era declarat pe `CartusProiect`, deci NUMARUL DE PROIECT a
-    disparut de pe toate schemele regenerate la finalizare, si PDF-ul iesea identic cu unul caruia
-    nu i se daduse niciun numar. Prins de modul de avertizare, la prima rulare pe date reale.
-
-    Se filtreaza si la ce DECLARA modelul: `project_info` mai poarta `surfaces`, `plansa_nr` si
-    altele, care n-au ce cauta intr-un cartus. Lista nu se scrie de mana — se ia din model, altfel
-    ar fi inca o oglinda de intretinut."""
-    from schema_generator import CartusProiect
-    cunoscute = set(CartusProiect.model_fields)
-    brut = dict(brut or {})
-    out = {k: v for k, v in brut.items() if k in cunoscute and v not in (None, "")}
-    # Aliasurile completeaza DOAR ce lipseste: un `numar_proiect` explicit bate `proiect_nr`.
-    for vechi, nou in _ALIAS_CARTUS.items():
-        if brut.get(vechi) and not out.get(nou):
-            out[nou] = brut[vechi]
-    out["plansa_nr"] = plansa_nr
-    return out
+    """`project_info` -> cartusul planşei. Un singur rand: normalizarea sta in `cartus_swap`,
+    fiindca o cere ORICE producator de planşa, nu doar schemele de tablou (vezi motivul acolo)."""
+    from cartus_swap import normalizeaza_cartus_proiect
+    return normalizeaza_cartus_proiect(brut, plansa_nr)
 
 
 def _sarcina(nume_tablou, plansa, circuits, graf, cartus_firma, cartus_proiect, descriere=None,

@@ -350,6 +350,44 @@ def _free_corner_rect(page, W, H, margin=20.0, gap=6.0):
     return None
 
 
+# ── NORMALIZAREA CARTUSULUI DE PROIECT ────────────────────────────────────────────────────────
+# `project_info` (forma din baza) si cartusul planşei numesc DOUA lucruri la fel cu nume diferite:
+#   proiect_nr  <->  numar_proiect          data  <->  data_proiect
+# Divergenta e veche si documentata in `app/api/generate/route.ts` (CARTUS_MAP), unde se face
+# maparea inversa, modal -> project_info. Aici e nevoie de ea in sensul celalalt.
+#
+# DE CE AICI, si nu in fiecare producator. La P9 sarcinile de schema au trecut pe `project_info`,
+# in timp ce nodul dinainte folosea forma modalului — iar `_draw_cartus` de mai jos citeste DOAR
+# `numar_proiect`. Rezultat: NUMARUL DE PROIECT a disparut de pe toate schemele regenerate la
+# finalizare, iar PDF-ul iesea byte-identic cu unul caruia nu i se daduse niciun numar. Reparat
+# atunci in constructorul de sarcini — dar producatorii NOI (distributia, detaliile) nu trec pe
+# acolo si ar fi calcat exact in aceeasi groapa. Langa functia care CITESTE campul, nu poate fi
+# uitata.
+#
+# Se filtreaza si la ce DECLARA modelul: `project_info` mai poarta `surfaces`, `plansa_nr` si
+# altele, care n-au ce cauta intr-un cartus. Lista nu se scrie de mana — se ia din model.
+_ALIAS_CARTUS = {"proiect_nr": "numar_proiect", "data": "data_proiect"}
+
+
+def normalizeaza_cartus_proiect(brut, plansa_nr=None):
+    """`project_info` -> cartusul pe care-l intelege `_draw_cartus`."""
+    try:
+        from schema_generator import CartusProiect
+        cunoscute = set(CartusProiect.model_fields)
+    except Exception:                      # pragma: no cover
+        cunoscute = {"beneficiar", "amplasament", "titlu_proiect", "numar_proiect",
+                     "data_proiect", "faza", "plansa_nr", "scara", "sef_proiect"}
+    brut = dict(brut or {})
+    out = {k: v for k, v in brut.items() if k in cunoscute and v not in (None, "")}
+    # Aliasurile completeaza DOAR ce lipseste: un `numar_proiect` explicit bate `proiect_nr`.
+    for vechi, nou in _ALIAS_CARTUS.items():
+        if brut.get(vechi) and not out.get(nou):
+            out[nou] = brut[vechi]
+    if plansa_nr is not None:
+        out["plansa_nr"] = plansa_nr
+    return out
+
+
 def _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara):
     """Cartus nou pe structura CARTUS.xlsx: grila 10 randuri x 3 zone verticale.
       STANGA (~29.5%): titlu proiectant (2r) | SIGLA (4r) | DATE DE CONTACT (1r) | date firma (3r)
