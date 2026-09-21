@@ -426,6 +426,103 @@ def plan_copiere(elemente_sursa, dx, dy, floor_tinta, project_id):
     return out
 
 
+# ── P9: TIPUL de apartament ───────────────────────────────────────────────────────────────────
+# DECIZIA LUI DAN: tipul e SURSA DE COPIERE. Apartamentele care si-au primit continutul din acelasi
+# apartament sunt de acelasi tip; unul desenat de mana, fara copiere, e un tip nou.
+#
+# Mecanismul exista de la P4 si nu se adauga nimic: `copiat_din` pe conturul TINTA. Tipul e
+# RADACINA lantului — daca A s-a copiat in B si B in C, toate trei au aceeasi radacina, deci acelasi
+# tip. Fara lant, un apartament e propria lui radacina.
+#
+# UN SINGUR CRITERIU, si nu din lene. Tentatia era sa cad pe geometrie cand `copiat_din` lipseste
+# (P4 stie deja sa spuna daca doua contururi descriu acelasi apartament). Am lasat-o afara: copierea
+# e ACTUL EXPLICIT prin care inginerul spune „astea-s la fel", iar desenarea a doua contururi
+# identice nu spune asta. Cu doua criterii, tipul ar fi depins de care raspunde primul.
+#
+# DOUA CONSECINTE, amandoua vizibile si amandoua cu acelasi remediu (ruleaza copierea):
+#   - `copiat_din` e ON DELETE SET NULL: daca inginerul sterge conturul SURSA, tinta devine radacina
+#     si apare un tip in plus. E corect — dovada ca erau la fel a disparut odata cu sursa, iar a
+#     pastra tipul ar insemna sa tinem o afirmatie fara temei. Consecinta se VEDE (o schema in plus),
+#     nu se ascunde.
+#   - doua apartamente identice desenate AMBELE de mana dau DOUA tipuri. Acceptabil: proiectul iese
+#     cu o schema in plus, nu cu una gresita.
+_RX_ETICH = re.compile(r"^(?:P|SP)(\d+)(?:_(\d+))?$")
+
+
+def _ordine_eticheta(e):
+    """Cheie de sortare pentru etichete de apartament: „P1" < „P2" < „P1_1" < „P1_10"."""
+    m = _RX_ETICH.match(str(e or "").strip())
+    if not m:
+        return (9999, 9999, str(e or ""))
+    return (int(m.group(1)), int(m.group(2) or 0), "")
+
+
+def tipuri_apartament(plan_elements, floor_canonic, floor_index):
+    """Tipurile de apartament ale proiectului: [{nume, radacina_id, membri, domeniu}].
+
+    `membri` = [(nivel, eticheta)], ordonate de jos in sus si apoi dupa eticheta.
+    `domeniu` = textul pe care schema si-l declara singura, ca AP-1 de pe IE.25 al lui Dan:
+        „PARTER: P1..P4 · ETAJ 1: P1_1..P1_9".
+
+    Numerotarea AP-1, AP-2... urmeaza RADACINILE, in ordinea in care le intalneste inginerul:
+    nivelul de jos intai, apoi de sus in jos si de la stanga la dreapta pe nivel — exact ordinea in
+    care `conturi_nivel` le numeroteaza. Asa tipul 1 e cel din care s-a copiat prima oara."""
+    els = list(plan_elements or [])
+    conturi = {}                                    # id contur -> (nivel, eticheta, ordine pe nivel)
+    parinte = {}
+    for fk in sorted({floor_canonic(e.get("floor")) for e in els}, key=floor_index):
+        for i, c in enumerate(conturi_nivel(els, fk, floor_canonic, tipuri=(CONTUR,))):
+            cid = (c["el"] or {}).get("id")
+            if cid is None:
+                continue
+            conturi[cid] = (fk, c["eticheta"], i)
+            src = (c["el"] or {}).get("copiat_din")
+            if src:
+                parinte[cid] = src
+
+    def radacina(cid):
+        """Capatul lantului. Limita de pasi: un ciclu introdus de date gresite n-are voie sa blocheze
+        generarea — se opreste si trateaza nodul curent ca radacina."""
+        vazut = set()
+        while cid in parinte and parinte[cid] in conturi and cid not in vazut:
+            vazut.add(cid)
+            cid = parinte[cid]
+        return cid
+
+    grupe = {}
+    for cid in conturi:
+        grupe.setdefault(radacina(cid), []).append(cid)
+
+    def cheie_radacina(r):
+        fk, _et, ordine = conturi[r]
+        return (floor_index(fk), ordine)
+
+    out = []
+    for n, r in enumerate(sorted(grupe, key=cheie_radacina), start=1):
+        membri = sorted(((conturi[c][0], conturi[c][1]) for c in grupe[r]),
+                        key=lambda m: (floor_index(m[0]), _ordine_eticheta(m[1])))
+        pe_nivel = {}
+        for niv, et in membri:
+            pe_nivel.setdefault(niv, []).append(et)
+        bucati = []
+        for niv in sorted(pe_nivel, key=floor_index):
+            ee = pe_nivel[niv]
+            bucati.append("%s: %s" % (niv.upper(),
+                                      ee[0] if len(ee) == 1 else "%s..%s" % (ee[0], ee[-1])))
+        out.append({"nume": "AP-%d" % n, "radacina_id": r, "membri": membri,
+                    "domeniu": " · ".join(bucati)})
+    return out
+
+
+def tip_al_apartamentului(tipuri, nivel, eticheta):
+    """Numele tipului („AP-2") pentru un apartament, sau None. Drumul invers al lui
+    `tipuri_apartament`, ca schema unui apartament sa stie carui tip ii apartine."""
+    for t in (tipuri or []):
+        if (nivel, eticheta) in t["membri"]:
+            return t["nume"]
+    return None
+
+
 def copieri_pentru_nivel(plan_elements, floor_tinta, project_id, floor_canonic, floor_index):
     """CE ar trebui copiat pe nivelul `floor_tinta`. PUR — nu scrie nimic, nu atinge baza.
 

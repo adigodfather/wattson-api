@@ -211,12 +211,88 @@ export async function POST(req: NextRequest) {
     .filter((r) => String(r.categorie) === "Cabluri" || /cyaby|cablu solar|myf/i.test(String(r.denumire)))
     .map((r) => ({ item: r.denumire, sectiune: r.sectiune }));
 
+  // ── NIVELURILE FĂRĂ TABLOU SECUNDAR, calculate O DATĂ și folosite în DOUĂ locuri ──────────────
+  // Punctele de coborâre CHIAR plasate pe plan. Sursa e aceeași cu `_panel_for_floor` din backend,
+  // deci numerotarea și circuitele nu pot diverge.
+  const coborareFloors = [...new Set(
+    (planElements as Array<{ element_type?: string; floor?: string }>)
+      .filter((e) => (e?.element_type || "") === "coborare_cabluri")
+      .map((e) => String(e?.floor || "").trim().toLowerCase())
+      .filter(Boolean),
+  )];
+
+  // TABLOURILE FANTOMĂ (P9, defectul înregistrat la P8). `panels` vine ÎNGHEȚAT din `result_data`,
+  // scris la GENERARE; punctul de coborâre se plasează DUPĂ, în editor. Deci lista putea conține un
+  // TES pentru un nivel care între timp nu mai are tablou secundar — iar nodul de scheme, care
+  // citește `panels`, îi genera schemă și îi dădea un număr de rezervă, care cădea peste al unui
+  // PLAN (IE.2). Numerotarea știa deja adevărul; lista de tablouri nu.
+  // Se repară AICI, la sursă, cu exact semnalul de mai sus — nu în nodul de scheme, unde ar fi fost
+  // a doua noțiune de „ce tablouri există".
+  // ── PORȚILE DE BLOC (P9) ─────────────────────────────────────────────────────────────────────
+  // Același tipar ca `has_cs` / `has_det`: semnalul e ce EXISTĂ CU ADEVĂRAT, nu o bifă din formular.
+  // Și, mai important, se derivă din CIRCUITE, nu din elemente — un tablou are schemă doar dacă are
+  // circuite, deci poarta se aprinde exact când există conținut de desenat. Fără derivare optimistă:
+  // o planșă anunțată și nelivrată e mai rea decât una lipsă, fiindcă borderoul o promite.
+  //
+  // Se aprind DOAR porțile ale căror tipuri au acum producător (schemele de tablou, prin
+  // /schema-payloads). `has_teg`, `has_situatie`, distribuția și detaliile rămân stinse — tipurile
+  // lor n-au încă cine să le deseneze, iar aprinderea lor ar reface exact golul 44-vs-23.
+  const panelsDinCircuite = new Set(
+    (circuits as Array<{ panel?: string }>).map((c) => String(c?.panel || "").trim()).filter(Boolean),
+  );
+  const areTablou = (pred: (n: string) => boolean) => [...panelsDinCircuite].some(pred);
+  // Tipurile de apartament: o schemă per TIP, nu per apartament (25 de apartamente, 2 scheme la
+  // Dan). Regula e a autorității — rădăcina lanțului `copiat_din` — deci se cere de la ea.
+  let tipuriAp: Array<{ nume?: string }> = [];
+  try {
+    const tKey = process.env.ZYNAPSE_INTERNAL_KEY;
+    const tr = await fetch(`${FASTAPI}/tipuri-apartament`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(tKey ? { "x-zynapse-key": tKey } : {}) },
+      body: JSON.stringify({ plan_elements: planElements }),
+    });
+    const tj = await tr.json();
+    if (tj?.success && Array.isArray(tj.tipuri)) tipuriAp = tj.tipuri;
+  } catch { /* fără tipuri -> nicio schemă de apartament anunțată; restul neatins */ }
+
+  const fdcpNume = [...new Set(
+    (planElements as Array<{ element_type?: string; label?: string; floor?: string }>)
+      .filter((e) => (e?.element_type || "") === "tablou_fdcp")
+      .map((e) => String(e?.label || "").trim()
+        || `FDCP ${String(e?.floor || "parter").trim().toUpperCase()}`),
+  )];
+  const spatiiNume = [...new Set(
+    (planElements as Array<{ element_type?: string; label?: string }>)
+      .filter((e) => (e?.element_type || "") === "contur_spatiu_comercial")
+      .map((e) => String(e?.label || "").trim()).filter(Boolean),
+  )];
+  const portiBloc = {
+    apartamente: tipuriAp.map((t) => String(t?.nume || "")).filter(Boolean),
+    spatii: spatiiNume,
+    fdcp: areTablou((n) => /^FDCP/i.test(n)) ? fdcpNume : [],
+    has_bmpt_fdcp: areTablou((n) => /^BMPT/i.test(n)),
+    has_tcc: areTablou((n) => n.toUpperCase() === "TCC"),
+    has_tecv: areTablou((n) => n.toUpperCase() === "TECV"),
+    // DOAR schema camerei de pompe, nu și cele două PLANȘE ale ei: tabloul TEP se desenează ca
+    // orice alt tablou, planurile de încăpere n-au încă producător. Fără despărțirea asta, poarta
+    // ar fi anunțat trei planșe și ar fi livrat una — exact golul pe care-l închidem.
+    has_schema_camera_pompe: areTablou((n) => n.toUpperCase() === "TEP"),
+  };
+
+  const TES_RX = /^TES(\d+)$/i;
+  const panelsCurate = (Array.isArray(rd.panels) ? rd.panels : []).filter((p) => {
+    const m = TES_RX.exec(String((p as { name?: string })?.name || ""));
+    if (!m) return true;                                   // nu-i TES -> neatins
+    const nivel = extraFloors[parseInt(m[1], 10) - 1];     // TES{i} <-> al i-lea nivel peste parter
+    return !nivel || !coborareFloors.includes(String(nivel).trim().toLowerCase());
+  });
+
   const webhookBody = {
     project_id: projectId,
     circuits,
     power_summary: rd.power_summary || {},
     panel: rd.panel || {},
-    panels: rd.panels || [],
+    panels: panelsCurate,
     rooms: rd.rooms || [],
     project_info: rd.project_info || {},
     annotated_plan_base64: rd.annotated_plan_base64 ? "1" : null,
@@ -233,16 +309,14 @@ export async function POST(req: NextRequest) {
     // DETECȚIE INCENDIU: același semnal ca la curenți slabi — planșele chiar generate, nu bifa.
     has_det: ((rd.planse_detectie as Array<{ regenerated?: boolean }> | undefined) || [])
       .some((p) => p?.regenerated),
-    // NIVELURILE FĂRĂ TABLOU SECUNDAR: cele pe care inginerul a plasat un punct de coborâre.
-    // Semnalul e ELEMENTUL PLASAT (planElements, citite mai sus) — aceeași sursă ca `_panel_for_floor`
-    // din backend, deci numerotarea și circuitele nu pot diverge. Lista EXCEPȚIILOR: goală (proiectele
-    // de până acum, unde nu există niciun punct) = numerotarea de azi, neschimbată.
-    coborare_floors: [...new Set(
-      (planElements as Array<{ element_type?: string; floor?: string }>)
-        .filter((e) => (e?.element_type || "") === "coborare_cabluri")
-        .map((e) => String(e?.floor || "").trim().toLowerCase())
-        .filter(Boolean),
-    )],
+    // NIVELURILE FĂRĂ TABLOU SECUNDAR: calculate mai sus (`coborareFloors`), fiindcă aceeași listă
+    // filtrează și `panels`. Lista goală (proiectele de până acum) = numerotarea de azi, neschimbată.
+    coborare_floors: coborareFloors,
+    // PORȚILE DE BLOC, derivate mai sus din circuitele CHIAR generate. Pe o casă toate ies goale
+    // sau false, deci numerotarea rămâne exact cea de azi — non-regresia e structurală.
+    ...portiBloc,
+    // TIPURILE de apartament, pentru schemele care își declară domeniul („AP-1: PARTER P1..P4 · …").
+    tipuri_apartament: tipuriAp,
     fv_kw: fvKw,
     fv_soil_type: fvSoilType,
     faza,

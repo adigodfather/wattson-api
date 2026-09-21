@@ -3828,6 +3828,7 @@ class PlansaNumberingRequest(BaseModel):
     # ── BLOC (P5). Toate implicit ABSENT: o casa nu trimite niciunul si lista iese ca pana acum.
     has_situatie: bool = False
     has_camera_pompe: bool = False
+    has_schema_camera_pompe: Optional[bool] = None
     has_teg: bool = True           # un bloc il trece pe False (tabloul general e BMPT/TEGD)
     has_distributie: bool = False
     has_bmpt_fdcp: bool = False
@@ -3855,6 +3856,7 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
             coborare_floors=request.coborare_floors,
             has_situatie=bool(request.has_situatie),
             has_camera_pompe=bool(request.has_camera_pompe),
+            has_schema_camera_pompe=request.has_schema_camera_pompe,
             has_teg=bool(request.has_teg),
             has_distributie=bool(request.has_distributie),
             has_bmpt_fdcp=bool(request.has_bmpt_fdcp),
@@ -3865,6 +3867,58 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
         return {"success": True, "planse": planse, "count": len(planse)}
     except Exception as e:
         return {"success": False, "error": str(e), "planse": []}
+
+
+# -------------------------------------------------
+#  SARCINILE SCHEMELOR  —  POST /schema-payloads
+#  Lista ANUNTATA de /plansa-numbering -> cate o sarcina gata de trimis la /generate-schema-b64,
+#  cu numarul ei de planşa. n8n doar itereaza: nu mai decide EL ce scheme exista.
+#  Inlocuieste lista alba prin regex din nodul „Generate Schemas TES" (/^TES\d+$/), care lasa pe
+#  dinafara 15 din cele 16 tablouri ale unui bloc si, invers, genera scheme neanuntate.
+# -------------------------------------------------
+
+class SchemaPayloadsRequest(BaseModel):
+    planse: List[dict] = []            # iesirea /plansa-numbering (autoritatea)
+    circuits: List[dict] = []
+    cartus_firma: dict = {}
+    cartus_proiect: dict = {}
+    tipuri_apartament: List[dict] = []  # din /tipuri-apartament; gol = fara scheme de tip
+
+
+@app.post("/schema-payloads")
+def schema_payloads_endpoint(request: SchemaPayloadsRequest):
+    """{sarcini, lipsa, count}. `lipsa` = planse anuntate fara tablou — se VAD, nu dispar."""
+    try:
+        from schema_payloads import sarcini_scheme
+        r = sarcini_scheme(request.planse or [], request.circuits or [],
+                           cartus_firma=request.cartus_firma or {},
+                           cartus_proiect=request.cartus_proiect or {},
+                           tipuri_ap=request.tipuri_apartament or [])
+        return {"success": True, "sarcini": r["sarcini"], "lipsa": r["lipsa"],
+                "count": len(r["sarcini"])}
+    except Exception as e:
+        return {"success": False, "error": str(e), "sarcini": [], "lipsa": []}
+
+
+# -------------------------------------------------
+#  TIPURILE DE APARTAMENT  —  POST /tipuri-apartament
+#  Tipul = RADACINA lantului `copiat_din` (decizia Dan): apartamentele care si-au primit continutul
+#  din acelasi apartament sunt de acelasi tip. Pe blocul lui Dan: 2 tipuri pentru 27 de apartamente.
+# -------------------------------------------------
+
+class TipuriApartamentRequest(BaseModel):
+    plan_elements: List[dict] = []
+
+
+@app.post("/tipuri-apartament")
+def tipuri_apartament_endpoint(request: TipuriApartamentRequest):
+    try:
+        import apartments as _ap
+        import floors as _fl
+        t = _ap.tipuri_apartament(request.plan_elements or [], _fl.floor_canonic, _fl.floor_index)
+        return {"success": True, "tipuri": t, "count": len(t)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "tipuri": []}
 
 
 # -------------------------------------------------

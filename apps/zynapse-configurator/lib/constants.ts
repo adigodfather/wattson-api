@@ -666,7 +666,8 @@ export function computePlansaNumbering(opts: {
   // ── BLOC (P5). TOATE au implicit ABSENT: o casă nu trimite niciuna, deci lista iese exact ca
   // până acum. Fiecare e GATED PE PREZENȚĂ, nu pe „e bloc" — un număr rezervat pentru o planșă
   // care nu vine deplasează tot restul și promite clientului ceva ce nu primește.
-  hasSituatie?: boolean; hasCameraPompe?: boolean; hasTeg?: boolean;
+  hasSituatie?: boolean; hasCameraPompe?: boolean; hasSchemaCameraPompe?: boolean;
+  hasTeg?: boolean;
   hasDistributie?: boolean; hasBmptFdcp?: boolean;
   fdcp?: string[]; apartamente?: string[]; spatii?: string[];
   hasTcc?: boolean; hasTecv?: boolean;
@@ -706,7 +707,9 @@ export function computePlansaNumbering(opts: {
   if (tesOn) for (const fl of extra) if (!cob.has(String(fl || "").trim().toLowerCase())) sheets.push(["schema_tes", fl]);
   if (opts.hasTect) sheets.push(["schema_tect", null]);
   // BLOC: schemele de tablou, în ordinea de pe planșele lui Dan.
-  if (opts.hasCameraPompe) sheets.push(["schema_camera_pompe", null]);
+  // Decuplabila de PLANSELE camerei de pompe, ca `hasSchemaCs` de `hasCs`: tabloul TEP are
+  // producator, planurile de incapere inca nu.
+  if (opts.hasSchemaCameraPompe ?? opts.hasCameraPompe) sheets.push(["schema_camera_pompe", null]);
   for (const a of (opts.apartamente || [])) sheets.push(["schema_ap", a]);   // una per TIP (P4)
   for (const sp of (opts.spatii || [])) sheets.push(["schema_sp", sp]);
   if (opts.hasTcc) sheets.push(["schema_tcc", null]);

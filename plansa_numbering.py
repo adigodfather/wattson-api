@@ -151,7 +151,8 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
                              # Fiecare e GATED PE PREZENTA, nu pe „e bloc": un numar rezervat
                              # pentru o planşa care nu vine deplaseaza tot restul si promite
                              # clientului ceva ce nu primeste — exact golul inchis la 156a89b.
-                             has_situatie=False, has_camera_pompe=False, has_teg=True,
+                             has_situatie=False, has_camera_pompe=False,
+                             has_schema_camera_pompe=None, has_teg=True,
                              has_distributie=False, has_bmpt_fdcp=False,
                              fdcp=None, apartamente=None, spatii=None,
                              has_tcc=False, has_tecv=False,
@@ -242,7 +243,11 @@ def compute_plansa_numbering(extra_floors=None, has_tect=False, has_tes=None, ha
     if has_tect:
         sheets.append(("schema_tect", None))
     # ── BLOC: schemele de tablou, in ordinea de pe planşele lui Dan.
-    if has_camera_pompe:
+    # Schema camerei de pompe se poate decupla de PLANSELE ei, exact ca `has_schema_cs` de `has_cs`:
+    # tabloul TEP are producator (o schema de tablou ca oricare alta), planurile de incapere inca nu.
+    # Fara decuplare, aprinderea portii ar fi anuntat doua planse pe care nimeni nu le deseneaza —
+    # adica exact golul pe care-l inchidem.
+    if has_camera_pompe if has_schema_camera_pompe is None else has_schema_camera_pompe:
         sheets.append(("schema_camera_pompe", None))
     for _a in (apartamente or []):
         sheets.append(("schema_ap", _a))       # una per TIP de apartament (P4 stie care-s identice)
