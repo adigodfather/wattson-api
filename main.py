@@ -4700,6 +4700,14 @@ def campuri_necunoscute():
     return strict_models.raport()
 
 
+@app.post("/campuri-necunoscute/reset")
+def campuri_necunoscute_reset():
+    """Reporneste fereastra de masurare. De chemat dupa ce s-a curatat un apelant — altfel raportul
+    poarta la nesfarsit un camp care nu se mai trimite si `curat` nu devine verde din motive moarte.
+    Nu atinge nimic din generare: sterge doar contoare din memoria instantei."""
+    return {"success": True, "sterse": strict_models.reseteaza(), "raport": strict_models.raport()}
+
+
 # -------------------------------------------------
 #  SERVIRE FRONTEND STATIC
 # -------------------------------------------------

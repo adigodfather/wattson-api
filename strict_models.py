@@ -89,6 +89,24 @@ def inregistreaza_rute(app):
     return len(_rute)
 
 
+def reseteaza():
+    """Sterge contoarele si reporneste fereastra de masurare.
+
+    Fereastra are nevoie de un INCEPUT ales, nu de „ultimul deploy, cand o fi fost el": dupa ce se
+    curata un apelant, numaratoarea trebuie sa inceapa de la zero, altfel raportul poarta la
+    nesfarsit un camp care nu se mai trimite si `curat` nu devine verde din motive moarte. Tot asta
+    sterge si intrarile lasate de sondele de verificare, care nu sunt trafic real."""
+    global _de_la
+    with _lacat:
+        sterse = len(_necunoscute)
+        _necunoscute.clear()
+        _atingeri.clear()
+        _de_la = time.time()
+    logger.warning("[campuri] contoare resetate (%d campuri sterse); fereastra reincepe acum",
+                   sterse)
+    return sterse
+
+
 def raport():
     """Ce s-a vazut pana acum. `curat` = se poate trece la pasul 3."""
     with _lacat:
