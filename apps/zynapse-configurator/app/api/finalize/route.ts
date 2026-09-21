@@ -69,7 +69,9 @@ export async function POST(req: NextRequest) {
     // Faza 2: planul EDITAT (plan_elements) -> sursa circuitelor pt. schema+memoriu (RLS: doar owner).
     const { data: peData } = await supa
       .from("plan_elements")
-      .select("element_type, power_w, phase, room, floor, label, x, y")
+      // `kit_panica` intra in select ODATA cu poarta detaliului de iluminat de siguranta: fara el,
+      // ramura „bec cu kit" din poarta ar fi fost moarta si s-ar fi aprins doar pe corp_evacuare.
+      .select("element_type, power_w, phase, room, floor, label, x, y, kit_panica")
       .eq("project_id", projectId);
     planElements = Array.isArray(peData) ? peData : [];
   } catch {
@@ -264,6 +266,13 @@ export async function POST(req: NextRequest) {
         .map((g) => String(g?.eticheta || "").trim()).filter(Boolean);
     }
   } catch { /* fără tipuri -> nicio schemă de apartament anunțată; restul neatins */ }
+  // ILUMINAT DE SIGURANȚĂ: corp de evacuare desenat SAU bec cu kit de panică. Același semnal pe
+  // care-l folosește regula de kit din backend — nu bifa din formular, ci ce e chiar pe plan.
+  const areIluminatSiguranta = (planElements as Array<{ element_type?: string; kit_panica?: unknown }>)
+    .some((e) => (e?.element_type || "") === "corp_evacuare" || e?.kit_panica === true);
+  // PRIZA DE PĂMÂNT: conturul chiar desenat de inginer (pe nivelul fundației).
+  const arePrizaPamant = (planElements as Array<{ element_type?: string }>)
+    .some((e) => (e?.element_type || "") === "ground_electrode_path");
   const spatiiNume = [...new Set(
     (planElements as Array<{ element_type?: string; label?: string }>)
       .filter((e) => (e?.element_type || "") === "contur_spatiu_comercial")
@@ -289,6 +298,24 @@ export async function POST(req: NextRequest) {
     // orice alt tablou, planurile de încăpere n-au încă producător. Fără despărțirea asta, poarta
     // ar fi anunțat trei planșe și ar fi livrat una — exact golul pe care-l închidem.
     has_schema_camera_pompe: areTablou((n) => n.toUpperCase() === "TEP"),
+    // SCHEMA DE DISTRIBUȚIE: arborele tablourilor. Poarta e forma de BLOC a arborelui, nu o bifă —
+    // o casă are doar TEG/TES/TE-CT și n-ar avea ce arăta acolo peste ce spune deja schema TEG.
+    // Măsurat: niciun proiect existent n-are vreunul din tablourile astea, deci numerotarea
+    // caselor rămâne byte-identică.
+    has_distributie: areTablou((n) => /^(BMPT|FDCP|TCC|TECV|TEGD|TGD)/i.test(n)),
+    // DETALIILE. `detaliu_priza_pamant` rămâne DOAR la bloc: non-regresia cerută acoperă explicit
+    // o singură excepție (iluminatul de siguranță), iar aprinderea lui la case le-ar fi schimbat
+    // numerotarea fără acord. Se poate lărgi oricând — e o listă.
+    //
+    // `detaliu_iluminat_siguranta` se aprinde ORIUNDE există iluminat de siguranță: detaliul e
+    // generic (cerința I7 e a clădirii, nu a blocului), iar o casă cu corpuri de evacuare are
+    // aceeași nevoie. Măsurat înainte: UN SINGUR proiect din bază are corpuri de evacuare, e de
+    // test și nefinalizat — deci schimbarea e latentă pentru tot ce există azi.
+    detalii: [
+      ...(areIluminatSiguranta ? ["iluminat_siguranta"] : []),
+      ...(areTablou((n) => /^(BMPT|FDCP|TCC|TECV|TEGD|TGD)/i.test(n)) && arePrizaPamant
+        ? ["priza_pamant"] : []),
+    ],
   };
 
   const TES_RX = /^TES(\d+)$/i;

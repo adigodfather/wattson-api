@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
-import { floorLevels, floorForPlate, floorLabel, platePos } from "@/lib/floors";
+import { floorLevels, floorForPlate, floorLabel, platePos, floorIndex } from "@/lib/floors";
 import { COMERCIAL_CATEGORII, SUBTIP_DEFAULT } from "@/lib/comercial";   // sub-tipul comercial (categorie -> sub-tip)
 import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
 import { groupBomBySection, hasSections } from "@/lib/bom-sections";   // bucata 3: gruparea BOM pe cele 8 sectiuni
@@ -2918,6 +2918,9 @@ export function ZynapseConfigurator() {
                   bgLoading={modeEditor !== "iluminat" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}
                   floor={floorForPlate(editorPlansaIdx, nivele)}
+                  // Nivelul fundatiei = cel mai de jos al proiectului (priza de pamant e
+                  // INTOTDEAUNA in fundatie). Fara subsol iese „parter", deci casele nu simt nimic.
+                  nivelFundatie={[...(nivele || [])].sort((a, b) => floorIndex(a) - floorIndex(b))[0] || "parter"}
                   onRegenerated={handleRegenerated}
                   rooms={roomsScoped}
                   heatingDistribution={form.heating_distribution}

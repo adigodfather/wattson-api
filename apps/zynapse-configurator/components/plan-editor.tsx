@@ -996,7 +996,7 @@ export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
-  comercialSubtip = null,
+  comercialSubtip = null, nivelFundatie = "parter",
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string) => void; mode?: PlanMode;
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
@@ -1016,7 +1016,10 @@ export default function PlanEditor({
      // Sub-tipul comercial (categorie -> sub-tip). Da intelesul numelor GENERICE de camere de pe
      // plan: „Sala" e sala de aparate pe fitness, sala de servire pe restaurant, spatiu de vanzare
      // pe magazin. null pe orice alt tip de cladire -> regulile rezidentiale, neatinse.
-     comercialSubtip?: string | null }) {
+     comercialSubtip?: string | null;
+     // Nivelul CEL MAI DE JOS al proiectului = nivelul fundatiei, acolo unde se deseneaza
+     // priza de pamant. Implicit „parter": o casa fara subsol se poarta exact ca azi.
+     nivelFundatie?: string }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3037,7 +3040,13 @@ export default function PlanEditor({
     // contrazicea: pe etajul 1 nu aveai cu ce desena cele nouă apartamente. Poarta de parter
     // rămâne, dar DOAR pe priza de pământ, unde chiar are sens.
     if (mode !== "forta") return null;
-    const laParter = floorCanonic(floor) === "parter";
+    // PRIZA DE PAMANT E INTOTDEAUNA IN FUNDATIE (regula lui Dan). Fundatia e a nivelului celui mai
+    // de jos al proiectului: la un bloc cu subsol e fundatia subsolului, deci conturul se deseneaza
+    // pe PLANUL DE SUBSOL, nu pe parter. Pana aici poarta era fixata pe „parter" si la un bloc cu
+    // subsol n-aveai unde s-o desenezi — sau o desenai pe nivelul gresit.
+    // `nivelFundatie` vine de la configurator, care stie lista de niveluri; implicitul „parter"
+    // face ca o casa fara subsol sa se poarte EXACT ca azi.
+    const laFundatie = floorCanonic(floor) === floorCanonic(nivelFundatie || "parter");
     const existing = elements.find(e => isGroundType(e.element_type)) || null;
     const nApart = elements.filter(e => isApartType(e.element_type)).length;
     const nSp = elements.filter(e => isSpType(e.element_type)).length;
@@ -3092,7 +3101,7 @@ export default function PlanEditor({
           </div>
         )}
       </Rubrica>
-      {laParter ? (
+      {laFundatie ? (
       <Rubrica title="Priza de pământ" hint="Priza de pământ de fundație este obligatorie (I7-2011).">
         {existing ? (
           <div style={{ fontSize: 11, color: "#545870", display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}>
