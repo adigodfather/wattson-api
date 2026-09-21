@@ -3807,10 +3807,39 @@ def bom_endpoint(request: BomRequest):
 # -------------------------------------------------
 
 class PlansaNumberingRequest(BaseModel):
+    """CONTRACTUL endpointului = EXACT parametrii functiei pure.
+
+    Avea patru campuri cand functia citea deja douazeci: un camp nedeclarat pe un model Pydantic
+    NU da eroare, se ARUNCA in tacere. E aceeasi clasa de defect ca `model_dump()` din 14 iulie,
+    unde `extra_floors` si `has_tect` plecau din n8n si nu ajungeau niciodata — saptamani in care
+    totul raspundea 200. De-aia campurile de aici se tin sincronizate cu semnatura functiei, si
+    de-aia testul lor trece PRIN ENDPOINT: un test care cheama functia direct ar fi verde si cand
+    modelul arunca tot."""
     extra_floors: List[str] = []   # niveluri peste parter, in ordine (ex. ["etaj"] / ["etaj","mansarda"])
     has_tect: bool = False         # exista tablou centrala termica -> schema TE-CT
     has_tes: Optional[bool] = None # override; implicit = exista cel putin un nivel peste parter
     has_fv: bool = False           # sistem fotovoltaic selectat (solar.enabled) -> schema FV = ULTIMA IE
+    # curenti slabi + detectie (pachetul de curenti slabi) — planşele CHIAR generate, nu derivate
+    has_cs: bool = False
+    has_schema_cs: Optional[bool] = None
+    has_det: bool = False
+    has_schema_det: Optional[bool] = None
+    coborare_floors: Optional[List[str]] = None
+    # ── BLOC (P5). Toate implicit ABSENT: o casa nu trimite niciunul si lista iese ca pana acum.
+    has_situatie: bool = False
+    has_camera_pompe: bool = False
+    has_teg: bool = True           # un bloc il trece pe False (tabloul general e BMPT/TEGD)
+    has_distributie: bool = False
+    has_bmpt_fdcp: bool = False
+    fdcp: Optional[List[str]] = None          # cate o schema per firida de palier
+    apartamente: Optional[List[str]] = None   # tipurile de apartament (AP-1, AP-2...)
+    spatii: Optional[List[str]] = None        # spatiile comerciale (SP1, SP2...)
+    has_tcc: bool = False
+    has_tecv: bool = False
+    has_tv: bool = False
+    has_date: bool = False
+    has_interfon: bool = False
+    detalii: Optional[List[str]] = None       # planşele de detaliu care exista
 
 
 @app.post("/plansa-numbering")
@@ -3818,8 +3847,21 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
     """Lista ORDONATA a planselor EXISTENTE, IE.1..IE.N fara goluri. Erori status 200 (n8n)."""
     try:
         from plansa_numbering import compute_plansa_numbering
-        planse = compute_plansa_numbering(request.extra_floors or [], bool(request.has_tect),
-                                          request.has_tes, bool(request.has_fv))
+        planse = compute_plansa_numbering(
+            request.extra_floors or [], bool(request.has_tect), request.has_tes,
+            bool(request.has_fv),
+            has_cs=bool(request.has_cs), has_schema_cs=request.has_schema_cs,
+            has_det=bool(request.has_det), has_schema_det=request.has_schema_det,
+            coborare_floors=request.coborare_floors,
+            has_situatie=bool(request.has_situatie),
+            has_camera_pompe=bool(request.has_camera_pompe),
+            has_teg=bool(request.has_teg),
+            has_distributie=bool(request.has_distributie),
+            has_bmpt_fdcp=bool(request.has_bmpt_fdcp),
+            fdcp=request.fdcp, apartamente=request.apartamente, spatii=request.spatii,
+            has_tcc=bool(request.has_tcc), has_tecv=bool(request.has_tecv),
+            has_tv=bool(request.has_tv), has_date=bool(request.has_date),
+            has_interfon=bool(request.has_interfon), detalii=request.detalii)
         return {"success": True, "planse": planse, "count": len(planse)}
     except Exception as e:
         return {"success": False, "error": str(e), "planse": []}

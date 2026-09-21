@@ -1630,11 +1630,27 @@ def build_memoriu_docx(data: dict) -> bytes:
             # EXPLICIT, ca has_cs/has_det: fara derivare din circuite, fiindca un fals pozitiv ar
             # anunta in borderou o planşa care nu exista.
             _cob = data.get("coborare_floors")
+            # BLOC (P5): aceleasi porti, primite tot EXPLICIT de la apelant. Borderoul e a cincea
+            # oglinda a numerotarii, si singura care ajunge TIPARITA in fata clientului — daca ea
+            # cheama functia cu mai putini parametri decat planşele chiar generate, lista din memoriu
+            # si planşele din dosar spun lucruri diferite. Exact ce s-a intamplat la curenti slabi:
+            # borderoul zicea 4 planşe cand proiectul avea 8.
+            # Fara derivare din circuite, ca si `has_cs`/`has_det`: un fals pozitiv ar anunta in
+            # borderou o planşa care nu exista. Absent -> numerotarea de azi, neschimbata.
+            _bloc = {k: data.get(k) for k in
+                     ("has_situatie", "has_camera_pompe", "has_distributie", "has_bmpt_fdcp",
+                      "fdcp", "apartamente", "spatii", "has_tcc", "has_tecv",
+                      "has_tv", "has_date", "has_interfon", "detalii")
+                     if data.get(k) is not None}
+            if data.get("has_teg") is not None:
+                _bloc["has_teg"] = bool(data.get("has_teg"))
+            if data.get("has_tes") is not None:
+                _bloc["has_tes"] = data.get("has_tes")
             # G3: cu FV selectat (solar prezent), borderoul include si plansa FV (ultima IE)
             _real = compute_plansa_numbering(_extra, bool(_has_tect),
                                              has_fv=bool(solar.get("package_kw") or solar.get("power_kw")),
                                              has_cs=bool(_has_cs), has_det=bool(_has_det),
-                                             coborare_floors=_cob)
+                                             coborare_floors=_cob, **_bloc)
             if _real:
                 planse = [{"nr": p["nr"], "titlu": p["nume"]} for p in _real]
         except Exception:

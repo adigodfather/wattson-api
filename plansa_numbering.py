@@ -107,6 +107,9 @@ def plansa_nume(tip, nivel=None):
     if tip == "schema_bmpt_fdcp":
         return "SCHEMA ELECTRICĂ MONOFILARĂ BMPT ȘI FDCP"
     if tip == "schema_fdcp":
+        # Eticheta instantei poarta ea insasi familia — „FDCP PARTER", ca pe IE.21..IE.23 — exact
+        # ca „AP-1" si „SP1". Conventia e uniforma pentru toate cele trei tipuri cu instante:
+        # apelantul trimite numele COMPLET al planşei, nu doar nivelul.
         return "SCHEMA ELECTRICĂ MONOFILARĂ {}".format(_inst(nivel, "FDCP"))
     if tip == "schema_camera_pompe":
         return "SCHEMA ELECTRICĂ MONOFILARĂ CAMERA POMPE"
