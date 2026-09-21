@@ -19,7 +19,9 @@ import os
 import re
 import requests
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+# Baza care AVERTIZEAZA cand primeste un camp pe care nu-l declara (vezi strict_models).
+from strict_models import ZynModel
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -92,7 +94,7 @@ CARTOUCHE_HEIGHT_MM = 49    # y: 244 → 293 (până la 297 - 4 margine jos)
 # PYDANTIC MODELS
 # =============================================================================
 
-class CartusFirma(BaseModel):
+class CartusFirma(ZynModel):
     """Date firmă din Supabase profile (populate prin /settings)."""
     firma_nume: str = ""
     firma_cui: str = ""
@@ -105,7 +107,7 @@ class CartusFirma(BaseModel):
     desenator_nume: str = ""
 
 
-class CartusProiect(BaseModel):
+class CartusProiect(ZynModel):
     """Date proiect din formular sau extrase din planșă."""
     beneficiar: str = ""
     amplasament: str = ""
@@ -118,7 +120,7 @@ class CartusProiect(BaseModel):
     sef_proiect: str = ""
 
 
-class Circuit(BaseModel):
+class Circuit(ZynModel):
     nr: str
     fasa: str = "R"             # "R" | "S" | "T" | "RST"
     destinatie: str = ""
@@ -140,7 +142,7 @@ class Circuit(BaseModel):
     sub_tablou_color2: Optional[str] = None  # ex: "#ff69b4"
 
 
-class MainBreaker(BaseModel):
+class MainBreaker(ZynModel):
     cod: str = "C0"
     tip: str = "MCB 3P+N 40A C 10kA"
     cablu_alim: str = "CYABY 5×10mmp"
@@ -149,14 +151,14 @@ class MainBreaker(BaseModel):
     spd_type: str = "Tip 2"
 
 
-class RccbGroup(BaseModel):
+class RccbGroup(ZynModel):
     id: str
     cod: str = ""
     tip: str = "RCCB 4P 40A/30mA tip A"
     description: str = ""
 
 
-class SchemaRequest(BaseModel):
+class SchemaRequest(ZynModel):
     tablou_nume: str = "TEG"
     tablou_descriere: str = "TABLOU ELECTRIC GENERAL"
     pi_total_kw: float = 0

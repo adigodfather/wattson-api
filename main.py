@@ -11,7 +11,10 @@ from schema_generator import (
 from memoriu_generator import build_memoriu_docx, _is_pt
 from cartus_swap import swap_cartus_plan
 import draw_elements
-from pydantic import BaseModel
+# PASUL 2 din trei: campul nedeclarat se LOGHEAZA, cererea TRECE. Trei incidente de acelasi fel
+# (14 iul, P7, P9) au costat ore, fiindca Pydantic arunca in tacere si endpointul raspunde 200.
+import strict_models
+from strict_models import ZynModel
 from typing import List, Optional, Literal
 import math
 import os
@@ -159,6 +162,18 @@ _REQUIRE_KEY = bool((os.environ.get("RENDER") or "").strip()) or \
     (os.environ.get("ZYNAPSE_REQUIRE_KEY") or "").strip() == "1"
 
 
+# Calea cererii, pusa la dispozitia validarii Pydantic (PASUL 2). Se citeste DOAR `url.path` —
+# corpul nu se atinge, deci fluxul HTTP ramane exact cel de azi. Fara asta, un camp necunoscut pe
+# un model IMBRICAT (Circuit, CartusFirma) n-ar avea cum sa spuna pe ce endpoint a intrat.
+@app.middleware("http")
+async def _marcheaza_ruta(request, call_next):
+    jeton = strict_models.ruta_curenta.set(request.url.path)
+    try:
+        return await call_next(request)
+    finally:
+        strict_models.ruta_curenta.reset(jeton)
+
+
 @app.middleware("http")
 async def _require_zynapse_key(request, call_next):
     if request.method == "OPTIONS" or request.url.path in _PUBLIC_PATHS:
@@ -256,14 +271,14 @@ CATEGORY_LABELS = {
 # -------------------------------------------------
 
 
-class MotorData(BaseModel):
+class MotorData(ZynModel):
     name: str
     power_kw: float
     phase: str = "tri"  # mono / tri
     count: int = 1
 
 
-class ExtraEquipment(BaseModel):
+class ExtraEquipment(ZynModel):
     type: str   # boiler/ac/hrv/internet/solar/ev_charger/custom
     name: str
     power_kw: float = 0.0
@@ -274,7 +289,7 @@ class ExtraEquipment(BaseModel):
     soil_type: Optional[str] = None
 
 
-class Building(BaseModel):
+class Building(ZynModel):
     type: str
     levels: str
     climate_zone: Optional[str] = None
@@ -285,7 +300,7 @@ class Building(BaseModel):
     total_volume_m3: float
 
 
-class Heating(BaseModel):
+class Heating(ZynModel):
     type: str  # pdc_air_water/pdc_air_air/pdc_ground_water/gas_boiler/electric_boiler/geothermal/district_heating/existing/none
     has_acm_boiler: bool = False
     has_ventilation: bool = False
@@ -294,7 +309,7 @@ class Heating(BaseModel):
     distribution: Optional[str] = None  # floor_heating/fan_coil/electric_radiator/radiant_ceiling/existing
 
 
-class Room(BaseModel):
+class Room(ZynModel):
     name: str
     level: Optional[str] = None
     area_m2: float
@@ -307,7 +322,7 @@ class Room(BaseModel):
     has_nightstands: bool = False
 
 
-class ProjectData(BaseModel):
+class ProjectData(ZynModel):
     project_id: str
     building: Building
     heating: Heating
@@ -1774,7 +1789,7 @@ def calc_electric(data: ProjectData):
 #  ADNOTARE PLAN
 # -------------------------------------------------
 
-class RoomWithCircuits(BaseModel):
+class RoomWithCircuits(ZynModel):
     name: str
     function: str
     bbox: Optional[dict] = None  # {x, y, w, h} in pixels
@@ -1782,7 +1797,7 @@ class RoomWithCircuits(BaseModel):
     lights: Optional[List[dict]] = None
 
 
-class AnnotatePlanRequest(BaseModel):
+class AnnotatePlanRequest(ZynModel):
     plan_base64: str   # raw base64 (no data: prefix) OR data:image/...;base64,...
     plan_type: str = "image/png"
     rooms_with_circuits: List[RoomWithCircuits]
@@ -1875,7 +1890,7 @@ def annotate_plan(req: AnnotatePlanRequest):
 #  SCHEMĂ MONOFILARĂ (POST /generate-schema)
 # -------------------------------------------------
 
-class CircuitSchema(BaseModel):
+class CircuitSchema(ZynModel):
     nr: int
     faza: str = "R"
     tip: str = "iluminat"
@@ -1891,7 +1906,7 @@ class CircuitSchema(BaseModel):
     simbol: str = ""
 
 
-class TablouInfo(BaseModel):
+class TablouInfo(ZynModel):
     name: str
     Pi: float = 0.0
     Pa: float = 0.0
@@ -1900,7 +1915,7 @@ class TablouInfo(BaseModel):
     protectie_generala: str = ""
 
 
-class ProjectInfoSchema(BaseModel):
+class ProjectInfoSchema(ZynModel):
     beneficiar: str = ""
     titlu_proiect: str = ""
     adresa: str = ""
@@ -1909,7 +1924,7 @@ class ProjectInfoSchema(BaseModel):
     faza: str = "DTAC"
 
 
-class GenerateSchemaRequest(BaseModel):
+class GenerateSchemaRequest(ZynModel):
     project_info: Optional[ProjectInfoSchema] = None
     tablou: TablouInfo
     circuits: List[CircuitSchema]
@@ -2229,7 +2244,7 @@ def generate_schema_b64(request: SchemaRequestV2):
 #  MULTI-SCHEMA ENGINE (POST /generate-schema)
 # -------------------------------------------------
 
-class CircuitInputNew(BaseModel):
+class CircuitInputNew(ZynModel):
     id: str = ""
     type: str = "prize"
     description: str = ""
@@ -2248,7 +2263,7 @@ class CircuitInputNew(BaseModel):
     kit_panica: int = 0              # nr. becuri cu kit de emergenta pe circuit (gate-ul Notei 5)
 
 
-class PowerSummaryNew(BaseModel):
+class PowerSummaryNew(ZynModel):
     installed_kw: float = 0
     absorbed_kw: float = 0
     current_a: float = 0
@@ -2258,13 +2273,13 @@ class PowerSummaryNew(BaseModel):
     main_breaker_type: Optional[str] = None
 
 
-class PanelInfoNew(BaseModel):
+class PanelInfoNew(ZynModel):
     rccb_groups: List[dict] = []
     has_spd: bool = True
     name: Optional[str] = None
 
 
-class EquipmentInfoNew(BaseModel):
+class EquipmentInfoNew(ZynModel):
     boiler_acm: bool = False
     aer_conditionat: bool = False
     pdc: bool = False
@@ -2272,7 +2287,7 @@ class EquipmentInfoNew(BaseModel):
     ventilatie_hrv: bool = False
 
 
-class GenerateSchemaMultiRequest(BaseModel):
+class GenerateSchemaMultiRequest(ZynModel):
     project_info: Optional[dict] = None
     power_summary: PowerSummaryNew = PowerSummaryNew()
     panel: PanelInfoNew = PanelInfoNew()
@@ -3142,7 +3157,7 @@ def generate_schema(request: SchemaRequestV2):
 #  SCHEMA FV (POST /generate-schema-fv-b64) — planșa IE finală, șablon fix pe pachete 5/10/15/20 kW
 # -------------------------------------------------
 
-class FvSchemaRequest(BaseModel):
+class FvSchemaRequest(ZynModel):
     package_kw: Optional[float] = None   # pachetul explicit (5/10/15/20)
     power_kw: Optional[float] = None     # SAU puterea liberă din formular -> snap la pachet
     cartus_firma: Optional[dict] = None
@@ -3176,7 +3191,7 @@ def generate_schema_fv_b64(request: FvSchemaRequest):
 #  efractie + supraveghere video, generata din elementele EFECTIV plasate pe planşa.
 # -------------------------------------------------
 
-class CsSchemaRequest(BaseModel):
+class CsSchemaRequest(ZynModel):
     project_id: str = ""              # elementele se citesc din DB (ca la /bom) — sursa UNICA
     plan_elements: List[dict] = []    # SAU explicit (teste / apelanti care le au deja)
     cartus_firma: Optional[dict] = None
@@ -3230,7 +3245,7 @@ def generate_schema_cs_b64(request: CsSchemaRequest):
 #  n8n) — schema n-are sub-tip comercial, singura diferenta fata de `CsSchemaRequest`.
 # -------------------------------------------------
 
-class DetSchemaRequest(BaseModel):
+class DetSchemaRequest(ZynModel):
     project_id: str = ""              # elementele se citesc din DB (ca la /bom) — sursa UNICA
     plan_elements: List[dict] = []    # SAU explicit (teste / apelanti care le au deja)
     cartus_firma: Optional[dict] = None
@@ -3392,7 +3407,7 @@ async def health():
 #  MEMORIU TEHNIC (.docx)  —  POST /generate-memoriu
 # -------------------------------------------------
 
-class MemoriuCartusProiect(BaseModel):
+class MemoriuCartusProiect(ZynModel):
     beneficiar: str = ""
     titlu_proiect: str = ""
     amplasament: str = ""
@@ -3400,7 +3415,7 @@ class MemoriuCartusProiect(BaseModel):
     faza: str = ""
 
 
-class MemoriuCartusFirma(BaseModel):
+class MemoriuCartusFirma(ZynModel):
     firma_nume: str = ""
     firma_reg_com: str = ""
     firma_cui: str = ""
@@ -3412,12 +3427,12 @@ class MemoriuCartusFirma(BaseModel):
     proiectant_nume: str = ""
 
 
-class MemoriuPlansa(BaseModel):
+class MemoriuPlansa(ZynModel):
     nr: str = ""
     titlu: str = ""
 
 
-class GenerateMemoriuRequest(BaseModel):
+class GenerateMemoriuRequest(ZynModel):
     cartus_proiect: MemoriuCartusProiect = MemoriuCartusProiect()
     cartus_firma: MemoriuCartusFirma = MemoriuCartusFirma()
     planse: List[MemoriuPlansa] = []
@@ -3459,7 +3474,7 @@ class GenerateMemoriuRequest(BaseModel):
     coborare_floors: Optional[list] = None   # nivelurile fara tablou secundar -> fara schema TES
 
 
-class GenerateCaietSarciniRequest(BaseModel):
+class GenerateCaietSarciniRequest(ZynModel):
     """Caiet de sarcini (2026-07-24) — livrabil DISTINCT de memoriu (CUM se execută).
     Payload aproape identic cu memoriul; emis DOAR la fazele cu PT (gate _is_pt)."""
     cartus_proiect: MemoriuCartusProiect = MemoriuCartusProiect()
@@ -3520,7 +3535,7 @@ def generate_memoriu(request: GenerateMemoriuRequest):
 #  SWAP CARTUS PLAN (.pdf overlay)  —  POST /swap-cartus-plan
 # -------------------------------------------------
 
-class SwapCartusFirma(BaseModel):
+class SwapCartusFirma(ZynModel):
     firma_nume: str = ""
     firma_reg_com: str = ""
     firma_cui: str = ""
@@ -3531,7 +3546,7 @@ class SwapCartusFirma(BaseModel):
     proiectant_nume: str = ""
 
 
-class SwapCartusProiect(BaseModel):
+class SwapCartusProiect(ZynModel):
     beneficiar: str = ""
     titlu_proiect: str = ""
     amplasament: str = ""
@@ -3540,7 +3555,7 @@ class SwapCartusProiect(BaseModel):
     sef_proiect: str = ""     # confirmat in modalul cartusului (Vision propune, inginerul confirma)
 
 
-class SwapCartusRequest(BaseModel):
+class SwapCartusRequest(ZynModel):
     pdf_base64: str = ""
     cartus_firma: SwapCartusFirma = SwapCartusFirma()
     cartus_proiect: SwapCartusProiect = SwapCartusProiect()
@@ -3563,7 +3578,7 @@ def swap_cartus_plan_endpoint(request: SwapCartusRequest):
 #  DRAW PLAN ELEMENTS (.pdf overlay)  —  POST /draw-plan-elements
 # -------------------------------------------------
 
-class DrawPlanElementsRequest(BaseModel):
+class DrawPlanElementsRequest(ZynModel):
     pdf_base64: str = ""
     plansa_nr: str = ""
     plan_type: str = "iluminat"  # deocamdată doar iluminat (becuri)
@@ -3601,13 +3616,13 @@ def draw_plan_elements_endpoint(request: DrawPlanElementsRequest):
 #  circuits:[] (caller-ul /api/finalize cade pe circuitele vechi Vision -> nu blocheaza finalizarea).
 # -------------------------------------------------
 
-class EnrichCircuitsRequest(BaseModel):
+class EnrichCircuitsRequest(ZynModel):
     plan_elements: list = []
     form: dict = {}
     base_circuits: list = []   # result_data.circuits — TE-CT + feed coloana se PRESERVA de aici
 
 
-class ApartamenteCopiazaRequest(BaseModel):
+class ApartamenteCopiazaRequest(ZynModel):
     """P4: ce continut ar trebui sa primeasca apartamentele de pe un nivel, de la cele identice de
     dedesubt. Toate campurile declarate — `model_dump()` arunca TACIT ce nu-i in model (defectul
     din 5d3e770, unde generatorul citea campuri pe care modelul nu le avea)."""
@@ -3663,7 +3678,7 @@ def enrich_circuits_endpoint(request: EnrichCircuitsRequest):
 #  scala per-proiect din area_m2 (fallback fix ~1:71). Self-contained: citeste DB pe project_id.
 # -------------------------------------------------
 
-class BomRequest(BaseModel):
+class BomRequest(ZynModel):
     project_id: str = ""
     base_pdf_base64: str = ""   # pt. W/H (scala per-proiect); OPTIONAL -> fallback scala fixa
     form: dict = {}             # extra_equipment (puteri receptoare), ca la enrich
@@ -3812,7 +3827,7 @@ def bom_endpoint(request: BomRequest):
 #  o cheama, apoi restampeaza fiecare PDF cu /restamp-plansa. Sub x-zynapse-key (middleware global).
 # -------------------------------------------------
 
-class PlansaNumberingRequest(BaseModel):
+class PlansaNumberingRequest(ZynModel):
     """CONTRACTUL endpointului = EXACT parametrii functiei pure.
 
     Avea patru campuri cand functia citea deja douazeci: un camp nedeclarat pe un model Pydantic
@@ -3883,7 +3898,7 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
 #  dinafara 15 din cele 16 tablouri ale unui bloc si, invers, genera scheme neanuntate.
 # -------------------------------------------------
 
-class SchemaPayloadsRequest(BaseModel):
+class SchemaPayloadsRequest(ZynModel):
     planse: List[dict] = []            # iesirea /plansa-numbering (autoritatea)
     circuits: List[dict] = []
     cartus_firma: dict = {}
@@ -3912,7 +3927,7 @@ def schema_payloads_endpoint(request: SchemaPayloadsRequest):
 #  din acelasi apartament sunt de acelasi tip. Pe blocul lui Dan: 2 tipuri pentru 27 de apartamente.
 # -------------------------------------------------
 
-class TipuriApartamentRequest(BaseModel):
+class TipuriApartamentRequest(ZynModel):
     plan_elements: List[dict] = []
 
 
@@ -3933,7 +3948,7 @@ def tipuri_apartament_endpoint(request: TipuriApartamentRequest):
 #  reutilizeaza metadata zy_cartus_plansa/zy_cartus_title). Asa numarul TIPARIT = numarul din documente.
 # -------------------------------------------------
 
-class RestampPlansaRequest(BaseModel):
+class RestampPlansaRequest(ZynModel):
     pdf_base64: str = ""
     plansa_nr: str = ""            # IE.N final (din /plansa-numbering)
     plansa_titlu: str = ""         # numele complet al plansei (din /plansa-numbering)
@@ -3955,7 +3970,7 @@ def restamp_plansa_endpoint(request: RestampPlansaRequest):
 #  REGENERATE PLAN (Obtine plan, sub-pas 1a)  —  POST /regenerate-plan
 # -------------------------------------------------
 
-class RegeneratePlanRequest(BaseModel):
+class RegeneratePlanRequest(ZynModel):
     project_id: str = ""
     floor: str = "parter"
     base_pdf_base64: str = ""   # BAZA CURATA = planuri[].pdf_base64 (cartus+mask, FARA becuri)
@@ -4257,7 +4272,7 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
 #  Acelasi DPI/meta ca draw_plan_elements -> editorul mapeaza IDENTIC. Sub x-zynapse-key (middleware).
 # -------------------------------------------------
 
-class RenderBasePngRequest(BaseModel):
+class RenderBasePngRequest(ZynModel):
     pdf_base64: str = ""
     dpi: int = 120          # identic cu draw_plan_elements (png_meta.scale = dpi/72)
 
@@ -4298,7 +4313,7 @@ def render_base_png_endpoint(request: RenderBasePngRequest):
 #  EXTRACT GEOMETRY (pereti din cleanBasePdf, P1)  —  POST /extract-geometry
 # -------------------------------------------------
 
-class ExtractGeometryRequest(BaseModel):
+class ExtractGeometryRequest(ZynModel):
     pdf_base64: str = ""   # cleanBasePdf (planuri[].pdf_base64) -> coordonate IDENTICE cu plan_elements x,y
     rooms: List[dict] = []  # OPTIONAL (V4): camere Vision {name, area_m2, bbox} -> room_geoms (geom_bbox per camera)
 
@@ -4352,7 +4367,7 @@ def extract_geometry_endpoint(request: ExtractGeometryRequest):
 #  CROP TO BUILDING (V3b: decupare la cladire pt. Vision)  —  POST /crop-to-building
 # -------------------------------------------------
 
-class CropToBuildingRequest(BaseModel):
+class CropToBuildingRequest(ZynModel):
     pdf_base64: str = ""        # planul brut (parter/etaj) -> se decupeaza la conturul cladirii
     dpi: int = 200             # rezolutie raster pt. imaginea decupata trimisa la Vision
     margin_frac: float = 0.11  # V3b: margine 11% in jurul peretilor -> NU taie terasele deschise
@@ -4571,7 +4586,7 @@ def extract_surface_from_plans(plan_floors_base64=None, plan_base64=""):
             "note": ("niciun plan cu suprafata in text" if plans else "niciun plan"), "flag": None}
 
 
-class ExtractSurfaceRequest(BaseModel):
+class ExtractSurfaceRequest(ZynModel):
     plan_base64: str = ""
     plan_floors_base64: list = []   # multi-etaj: list de base64 SAU de {base64}
 
@@ -4592,7 +4607,7 @@ def extract_surface_endpoint(request: ExtractSurfaceRequest):
 #  POARTA DE VALIDARE PLAN  —  POST /validate-plan
 # -------------------------------------------------
 
-class ValidatePlanRequest(BaseModel):
+class ValidatePlanRequest(ZynModel):
     pdf_base64: str = ""
 
 
@@ -4646,6 +4661,32 @@ def validate_plan_endpoint(request: ValidatePlanRequest):
                 doc.close()
             except Exception:
                 pass
+
+
+# -------------------------------------------------
+#  CAMPURILE NECUNOSCUTE  —  GET /campuri-necunoscute  (PASUL 2)
+#  Dovada ca se poate trece la pasul 3 (`extra="forbid"`). Se citeste de aici, nu din logurile
+#  Render: acolo un avertisment se pierde intre mii de linii, si tocmai asta a lasat cele trei
+#  incidente sa treaca neobservate.
+#
+#  `curat: true` cere DOUA lucruri deodata:
+#    campuri_necunoscute gol  — niciun apelant nu trimite ceva ce modelul arunca;
+#    modele_neatinse gol      — fiecare model a fost CHEMAT macar o data de trafic real.
+#  Al doilea e cel usor de uitat: un model netestat da si el lista goala, dar nu inseamna „curat",
+#  inseamna „nu stiu". Numaratoarea `atingeri` face diferenta vizibila.
+#
+#  Se inregistreaza AICI, dupa ce toate rutele sunt montate: harta model -> cale se citeste din
+#  `app.routes`, nu dintr-o lista scrisa de mana care ar ramane in urma si ar minti in log.
+# -------------------------------------------------
+
+_N_RUTE_INREGISTRATE = strict_models.inregistreaza_rute(app)
+logger.info("[campuri] harta model -> ruta: %d modele inregistrate (politica extra=%s)",
+            _N_RUTE_INREGISTRATE, strict_models.POLITICA_EXTRA)
+
+
+@app.get("/campuri-necunoscute")
+def campuri_necunoscute():
+    return strict_models.raport()
 
 
 # -------------------------------------------------
