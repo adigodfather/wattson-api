@@ -3922,13 +3922,19 @@ def schema_payloads_endpoint(request: SchemaPayloadsRequest):
 
 
 # -------------------------------------------------
-#  TIPURILE DE APARTAMENT  —  POST /tipuri-apartament
-#  Tipul = RADACINA lantului `copiat_din` (decizia Dan): apartamentele care si-au primit continutul
-#  din acelasi apartament sunt de acelasi tip. Pe blocul lui Dan: 2 tipuri pentru 27 de apartamente.
+#  GRUPARILE DE BLOC  —  POST /tipuri-apartament
+#  Doua grupari, amandoua „mai multe obiecte, o singura planşa":
+#    `tipuri` — tipul de apartament = RADACINA lantului `copiat_din` (decizia Dan). Pe blocul lui:
+#               2 tipuri pentru 27 de apartamente.
+#    `fdcp`   — firidele de palier identice. Cere si `circuits`; fara ele iese lista goala.
+#  Numele caii ramane `/tipuri-apartament` DELIBERAT: Render si Vercel se deployeaza separat, iar o
+#  redenumire ar fi deschis o fereastra in care frontendul vechi cheama o cale care nu mai exista si
+#  isi pierde TACUT tipurile de apartament (try/catch -> lista goala). Campul nou e aditiv.
 # -------------------------------------------------
 
 class TipuriApartamentRequest(ZynModel):
     plan_elements: List[dict] = []
+    circuits: List[dict] = []          # doar pentru gruparea FDCP; gol = `fdcp` gol
 
 
 @app.post("/tipuri-apartament")
@@ -3936,10 +3942,15 @@ def tipuri_apartament_endpoint(request: TipuriApartamentRequest):
     try:
         import apartments as _ap
         import floors as _fl
+        from schema_payloads import grupuri_fdcp
         t = _ap.tipuri_apartament(request.plan_elements or [], _fl.floor_canonic, _fl.floor_index)
-        return {"success": True, "tipuri": t, "count": len(t)}
+        # ACEEASI functie pe care o cheama /schema-payloads cand rezolva o planşa `schema_fdcp`.
+        # Daca cele doua ar grupa diferit, numerotarea ar anunta planşe pe care generatorul nu le
+        # poate produce — exact dezechilibrul inchis la P9.
+        g = grupuri_fdcp(request.circuits or [], t)
+        return {"success": True, "tipuri": t, "count": len(t), "fdcp": g}
     except Exception as e:
-        return {"success": False, "error": str(e), "tipuri": []}
+        return {"success": False, "error": str(e), "tipuri": [], "fdcp": []}
 
 
 # -------------------------------------------------

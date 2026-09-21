@@ -20,6 +20,7 @@ Sarcinile se construiesc AICI, nu in nod: datele de tablou (Pi, Pa, Ia, ku, faze
 doua sursa pentru aceleasi numere.
 """
 import apartments as _apm
+import floors as _fl
 import panels as _pn
 import protectii as _prot
 
@@ -50,6 +51,117 @@ _DESCRIERI = {
     "FDCP": "FIRIDA DE DISTRIBUTIE CURENTI TARI",
     "BMPT": "BLOC DE MASURA SI PROTECTIE",
 }
+
+
+# ── GRUPAREA FIRIDELOR DE PALIER ──────────────────────────────────────────────────────────────
+# DECIZIA LUI DAN: doua firide IDENTICE impart o singura planşa de schema. La el, FDCP E1 si FDCP E2
+# sunt doua firide FIZICE (200 A fiecare, amandoua pe IE.20), dar o singura schema — IE.22,
+# „FDCP ETAJ 1-2". PE PLAN raman amandoua, cu etichetele lor: sunt doua cutii in doua case de scara,
+# iar a desena una singura ar fi o minciuna despre cladire. Se comaseaza DOCUMENTUL, nu obiectul.
+#
+# CRITERIUL DE IDENTITATE, in ordinea in care elimina:
+#   1. acelasi set de copii, pe TIPURI — nu pe etichete. P1_1..P1_9 de pe etajul 1 si P2_1..P2_9 de
+#      pe etajul 2 au etichete diferite si acelasi TIP (AP-1), deci firidele lor sunt identice.
+#      Tiparea vine de la P9 si nu se rescrie aici: `tip_al_apartamentului`.
+#   2. aceleasi spatii comerciale — acolo nu exista tipare, fiecare spatiu isi are schema lui, deci
+#      doua firide care hranesc SP1 si respectiv SP2 NU sunt identice.
+#   3. aceeasi protectie a firidei si acelasi cablu de coloana (din circuitul care o alimenteaza).
+#
+# O SINGURA SURSA: functia asta e chemata si de endpointul care construieste lista de porti (deci de
+# numerotare), si de constructorul de sarcini. Daca numerotarea ar grupa si generatorul nu — sau
+# invers — ar reveni exact dezechilibrul „anuntate != livrate" inchis la P9.
+
+
+def _descriptor_copil(nume_copil, tipuri_ap, membri_ap):
+    """Cum se vede un tablou-copil in semnatura firidei: prin TIPUL lui, nu prin eticheta."""
+    fam = _pn.panel_family(nume_copil) or "?"
+    if fam == "TE-AP":
+        et = _apm.eticheta_din_panel(nume_copil)
+        tip = membri_ap.get(et)
+        # FARA TIP, NU SE COMASEAZA. `/api/finalize` isi inveleste apelul la /tipuri-apartament
+        # intr-un try/catch, deci lista de tipuri POATE sa iasa goala. Daca in cazul ala toate
+        # apartamentele ar primi acelasi descriptor („necunoscut"), doua firide cu acelasi NUMAR de
+        # apartamente ar parea identice si ar primi o singura schema — un rezultat gresit si
+        # plauzibil, adica exact felul de greseala care nu se prinde la citit. Cazand pe eticheta,
+        # firidele raman distincte: mai multe planşe decat trebuie e o pierdere; o schema care
+        # descrie un tablou ce nu exista asa e o minciuna in dosar.
+        return "AP:%s" % tip if tip else "AP!%s" % (et or nume_copil)
+    if fam == "TE-SP":
+        # Spatiile comerciale n-au tipare: fiecare isi are schema lui, deci intra cu identitatea lui.
+        return "SP:%s" % (_apm.eticheta_din_panel(nume_copil) or nume_copil)
+    return fam
+
+
+def _sufix_fdcp(nume):
+    """„FDCP ETAJ 1" -> „ETAJ 1". Numele poarta nivelul (vezi `_fdcp_pe_nivel`)."""
+    n = str(nume or "").strip()
+    return n[4:].strip() if n.upper().startswith("FDCP") else n
+
+
+def _eticheta_grup(sufixe):
+    """Eticheta unei planşe comasate, in conventia lui Dan: „FDCP ETAJ 1-2".
+
+    Cand nivelurile sunt NEADIACENTE (E1 si E3, cu E2 diferit) nu se poate scrie un interval fara
+    sa minta — atunci se enumera: „FDCP ETAJ 1, 3". Un interval „1-3" ar include E2, care are ALTA
+    schema, si cititorul ar cauta pe planşa asta ceva ce nu-i acolo."""
+    if len(sufixe) == 1:
+        return "FDCP %s" % sufixe[0]
+    parti = [s.rsplit(" ", 1) for s in sufixe]
+    capete = {p[0] for p in parti if len(p) == 2}
+    numere = [p[1] for p in parti if len(p) == 2 and p[1].isdigit()]
+    if len(capete) == 1 and len(numere) == len(sufixe):
+        n = sorted(int(x) for x in numere)
+        cap = capete.pop()
+        if n == list(range(n[0], n[-1] + 1)):          # adiacente -> interval
+            return "FDCP %s %d-%d" % (cap, n[0], n[-1])
+        return "FDCP %s %s" % (cap, ", ".join(str(x) for x in n))
+    return "FDCP %s" % " · ".join(sufixe)
+
+
+def grupuri_fdcp(circuits, tipuri_ap=None):
+    """[{eticheta, membri, domeniu}] — firidele de palier, comasate cand sunt identice.
+
+    `membri` = numele tablourilor FDCP reale, in ordinea nivelurilor. Primul e REPREZENTANTUL:
+    schema se deseneaza din circuitele lui."""
+    circuits = [c for c in (circuits or []) if isinstance(c, dict)]
+    membri_ap = {}
+    for t in (tipuri_ap or []):
+        for m in (t.get("membri") or []):
+            if isinstance(m, (list, tuple)) and len(m) == 2:
+                membri_ap[m[1]] = t.get("nume")
+
+    firide, feed = {}, {}
+    for c in circuits:
+        p = str(c.get("panel") or "").strip()
+        if _pn.panel_family(p) == "FDCP":
+            firide.setdefault(p, [])
+            fp = str(c.get("feeds_panel") or "").strip()
+            if fp:
+                firide[p].append(fp)
+        fp2 = str(c.get("feeds_panel") or "").strip()
+        if _pn.panel_family(fp2) == "FDCP":
+            feed[fp2] = c
+
+    def semnatura(nume):
+        copii = sorted(_descriptor_copil(x, tipuri_ap, membri_ap) for x in firide.get(nume, []))
+        f = feed.get(nume) or {}
+        return (tuple(copii), str(f.get("breaker_type") or ""), int(f.get("breaker_a") or 0),
+                str(f.get("cable_type") or ""))
+
+    grupe = {}
+    for nume in firide:
+        grupe.setdefault(semnatura(nume), []).append(nume)
+
+    def cheie_nivel(n):
+        return _fl.floor_index(_sufix_fdcp(n).lower())
+
+    out = []
+    for g in sorted(grupe.values(), key=lambda g: min(cheie_nivel(x) for x in g)):
+        membri = sorted(g, key=cheie_nivel)
+        sufixe = [_sufix_fdcp(x) for x in membri]
+        out.append({"eticheta": _eticheta_grup(sufixe), "membri": membri,
+                    "domeniu": " · ".join(sufixe)})
+    return out
 
 
 def _cheie_tes(nume):
@@ -139,6 +251,9 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
     circuits = [c for c in (circuits or []) if isinstance(c, dict)]
     graf = _pn.panel_graph(circuits)
     nume_panels = {str(c.get("panel") or "") for c in circuits} | set(graf)
+    # ACEEASI functie pe care o cheama si endpointul care construieste lista de porti. Nu se
+    # recalculeaza altfel aici: gruparea e o singura sursa, altfel „anuntate != livrate".
+    grupe_fd = grupuri_fdcp(circuits, tipuri_ap)
     sarcini, lipsa = [], []
 
     for p in (planse or []):
@@ -164,9 +279,10 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
         elif tip == "schema_sp":
             tinta = _apm.panel_contur(inst, _apm.CONTUR_SP)
         elif tip == "schema_fdcp":
-            tinta = next((n for n in sorted(nume_panels)
-                          if _pn.panel_family(n) == "FDCP"
-                          and inst.upper().replace("FDCP", "").strip() in n.upper()), None)
+            # Numele anuntat e al GRUPULUI („FDCP ETAJ 1-2"), nu al unei firide. Reprezentantul e
+            # primul membru; schema lui e schema tuturor, fiindca de-aia s-au grupat.
+            g = next((g for g in grupe_fd if g["eticheta"] == inst), None)
+            tinta = g["membri"][0] if g else None
         else:
             tinta = next((n for n in sorted(nume_panels) if _pn.panel_family(n) == fam), None)
 
@@ -179,6 +295,12 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
             t = next((t for t in (tipuri_ap or []) if t.get("nume") == inst), None)
             # Schema de TIP isi declara singura domeniul, ca AP-1 de pe IE.25.
             descr = "%s (%s) — %s" % (_DESCRIERI["TE-AP"], inst, t.get("domeniu", "")) if t else None
+        elif tip == "schema_fdcp":
+            # Ca AP-1: o schema care vorbeste pentru mai multe obiecte isi declara domeniul, ca sa
+            # se vada de pe planşa CARE firide se citesc aici. Una singura nu declara nimic.
+            g = next((g for g in grupe_fd if g["eticheta"] == inst), None)
+            if g and len(g["membri"]) > 1:
+                descr = "%s — %s" % (_DESCRIERI["FDCP"], g["domeniu"])
         sarcini.append(_sarcina(tinta, p, circuits, graf, cartus_firma, cartus_proiect, descr))
 
     return {"sarcini": sarcini, "lipsa": lipsa}

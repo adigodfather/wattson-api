@@ -244,23 +244,26 @@ export async function POST(req: NextRequest) {
   // Tipurile de apartament: o schemă per TIP, nu per apartament (25 de apartamente, 2 scheme la
   // Dan). Regula e a autorității — rădăcina lanțului `copiat_din` — deci se cere de la ea.
   let tipuriAp: Array<{ nume?: string }> = [];
+  // FIRIDELE IDENTICE ÎMPART O SINGURĂ PLANȘĂ DE SCHEMĂ (decizia lui Dan). La el FDCP ETAJ 1 și
+  // FDCP ETAJ 2 sunt două firide fizice, amândouă desenate pe IE.20 cu etichetele lor, dar o
+  // singură schemă: IE.22, „FDCP ETAJ 1-2". Gruparea NU se calculează aici — se cere de la
+  // aceeași funcție pe care o folosește și /schema-payloads când desenează schema. Două
+  // implementări ar fi însemnat că numerotarea anunță un grup pe care generatorul nu-l recunoaște.
+  let fdcpNume: string[] = [];
   try {
     const tKey = process.env.ZYNAPSE_INTERNAL_KEY;
     const tr = await fetch(`${FASTAPI}/tipuri-apartament`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(tKey ? { "x-zynapse-key": tKey } : {}) },
-      body: JSON.stringify({ plan_elements: planElements }),
+      body: JSON.stringify({ plan_elements: planElements, circuits }),
     });
     const tj = await tr.json();
     if (tj?.success && Array.isArray(tj.tipuri)) tipuriAp = tj.tipuri;
+    if (tj?.success && Array.isArray(tj.fdcp)) {
+      fdcpNume = (tj.fdcp as Array<{ eticheta?: string }>)
+        .map((g) => String(g?.eticheta || "").trim()).filter(Boolean);
+    }
   } catch { /* fără tipuri -> nicio schemă de apartament anunțată; restul neatins */ }
-
-  const fdcpNume = [...new Set(
-    (planElements as Array<{ element_type?: string; label?: string; floor?: string }>)
-      .filter((e) => (e?.element_type || "") === "tablou_fdcp")
-      .map((e) => String(e?.label || "").trim()
-        || `FDCP ${String(e?.floor || "parter").trim().toUpperCase()}`),
-  )];
   const spatiiNume = [...new Set(
     (planElements as Array<{ element_type?: string; label?: string }>)
       .filter((e) => (e?.element_type || "") === "contur_spatiu_comercial")
@@ -275,7 +278,10 @@ export async function POST(req: NextRequest) {
     has_teg: areTablou((n) => n.toUpperCase() === "TEG"),
     apartamente: tipuriAp.map((t) => String(t?.nume || "")).filter(Boolean),
     spatii: spatiiNume,
-    fdcp: areTablou((n) => /^FDCP/i.test(n)) ? fdcpNume : [],
+    // Grupurile, nu firidele: la Dan 4 firide fizice -> 3 planșe (P · ETAJ 1-2 · ETAJ 3). Lista
+    // vine deja derivată din circuite, deci `areTablou` ar fi fost o a doua verificare a aceluiași
+    // lucru — fără FDCP în circuite, gruparea iese goală de la sine.
+    fdcp: fdcpNume,
     has_bmpt_fdcp: areTablou((n) => /^BMPT/i.test(n)),
     has_tcc: areTablou((n) => n.toUpperCase() === "TCC"),
     has_tecv: areTablou((n) => n.toUpperCase() === "TECV"),
