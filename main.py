@@ -3460,6 +3460,20 @@ async def health():
         except Exception as e:
             sb_err = str(e)
 
+    # Memoria procesului, ca sa se poata VEDEA cat de aproape de limita de 512 MB e instanta —
+    # pana acum se afla doar din „Ran out of memory", adica dupa ce cadea. `/proc` exista pe
+    # Linux (Render); pe Windows lipseste si campurile raman None, fara sa strice nimic.
+    rss = varf = None
+    try:
+        with open("/proc/self/status") as f:
+            for ln in f:
+                if ln.startswith("VmRSS:"):
+                    rss = round(int(ln.split()[1]) / 1024.0, 1)
+                elif ln.startswith("VmHWM:"):          # varful atins de la pornire
+                    varf = round(int(ln.split()[1]) / 1024.0, 1)
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "version": "4.0.0",
@@ -3467,6 +3481,10 @@ async def health():
         "supabase_error": sb_err,
         "env_url": bool(url),
         "env_key": bool(key),
+        "rss_mb": rss,
+        "rss_varf_mb": varf,
+        "prag_primitive": capacitate.PRAG_PRIMITIVE,
+        "concurenta_grea": capacitate.CONCURENTA,
     }
 
 
