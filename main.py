@@ -3446,6 +3446,12 @@ class GenerateMemoriuRequest(BaseModel):
     # le trimitea din iulie degeaba, iar memoriul cadea mereu pe derivarea din circuite. La o casa
     # cu etaj borderoul anunta doar planşele de parter, fara TES. Caietul de sarcini le declara —
     # de-aia asimetria a trecut neobservata.
+    # LISTA AUTORITATII, intreaga (P9): cand vine, borderoul o foloseste ca atare in loc s-o
+    # recalculeze. Declarata AICI din acelasi motiv ca celelalte — si nu teoretic: am trimis-o
+    # inainte s-o declar, `model_dump()` a aruncat-o tacit, si borderoul a tiparit in continuare
+    # lista lui recalculata. Avertismentul de mai sus era scris; l-am citit dupa ce-am pierdut
+    # zece minute asteptand un deploy care n-avea ce sa schimbe.
+    plansa_numbering: Optional[list] = None
     extra_floors: Optional[list] = None
     has_tect: Optional[bool] = None
     has_cs: Optional[bool] = None
