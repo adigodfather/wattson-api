@@ -267,6 +267,12 @@ export async function POST(req: NextRequest) {
       .map((e) => String(e?.label || "").trim()).filter(Boolean),
   )];
   const portiBloc = {
+    // `has_teg` se derivă și el din CIRCUITE, nu se presupune. La un bloc comunul merge pe TCC,
+    // deci nu există tablou general — iar lăsat pornit, borderoul promitea o schemă TEG pe care
+    // nimeni n-o poate desena. Prins de câmpul `lipsa` al lui /schema-payloads, la verificarea pe
+    // Render: exact rolul lui, să facă vizibil ce altfel dispărea.
+    // La o casă TEG există întotdeauna, deci iese `true` și numerotarea rămâne cea de azi.
+    has_teg: areTablou((n) => n.toUpperCase() === "TEG"),
     apartamente: tipuriAp.map((t) => String(t?.nume || "")).filter(Boolean),
     spatii: spatiiNume,
     fdcp: areTablou((n) => /^FDCP/i.test(n)) ? fdcpNume : [],
