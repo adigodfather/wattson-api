@@ -90,6 +90,10 @@ def breaker_type(tri=False, inrush=False, rccb_ma=None, forta_b=False):
     return bt + (" + RCCB %dmA" % rccb_ma if rccb_ma else "")
 
 
+# Gama modulara (MCB) se termina comercial pe la 125 A; peste, aparatul e MCCB.
+_PRAG_MCCB = 125
+
+
 def eticheta(amp, tri=False, inrush=False, tip=None, este_tablou=False, din_general=False,
              rccb_ma=None, prefix="MCB", forta_b=False):
     """Eticheta COMPLETA, in formatul de pe planşele lui Dan:
@@ -99,7 +103,18 @@ def eticheta(amp, tri=False, inrush=False, tip=None, este_tablou=False, din_gene
     din docstring-ul ei era chiar „MCB 3P+N 40A C 10kA", deci formatul era prevazut, doar ca nu
     ajungea niciodata la circuitele obisnuite."""
     poli = "3P+N" if tri else "1P+N"
-    out = "%s %s %dA %s %s" % (prefix, poli, int(amp or 0), curba(tri, inrush, forta_b),
+    a = int(amp or 0)
+    # PESTE 125 A NU MAI EXISTA MCB. Intreruptoarele automate modulare se opresc comercial pe la
+    # 125-160 A; peste, aparatul e MCCB (in carcasa turnata) si nu se mai caracterizeaza prin curba
+    # B/C/D, ci prin reglaj. Pana aici eticheta scria „MCB 1P+N 250A B 10kA" pentru coloana
+    # generala a unui bloc — un aparat care nu se poate cumpara.
+    # Pragul e ales la 125 fiindca acolo se termina gama modulara uzuala. MASURAT inainte de
+    # schimbare: in toata baza (20 de proiecte) amperajul maxim e 100 A si NICIUN circuit nu trece
+    # de 125, deci nicio casa si niciun proiect existent nu-si schimba eticheta. Efectul apare doar
+    # de la coloanele de bloc in sus, unde era gresita.
+    if a > _PRAG_MCCB and prefix == "MCB":
+        return ("MCCB %s %dA %s" % (poli, a, _ka_txt(icn_ka(tip, este_tablou, din_general)))).strip()
+    out = "%s %s %dA %s %s" % (prefix, poli, a, curba(tri, inrush, forta_b),
                                _ka_txt(icn_ka(tip, este_tablou, din_general)))
     if rccb_ma:
         out += " %dmA" % rccb_ma
