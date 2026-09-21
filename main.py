@@ -4675,6 +4675,37 @@ def validate_plan_endpoint(request: ValidatePlanRequest):
 
 
 # -------------------------------------------------
+#  SCHEMA DE DISTRIBUTIE  —  POST /schema-distributie-b64
+#  Arborele tuturor tablourilor, cu Pi/Pa/Ia/protectie/cablu pe fiecare nod. Datele vin din
+#  `panels.panel_graph` — NU se recalculeaza nimic aici.
+# -------------------------------------------------
+
+class SchemaDistributieRequest(ZynModel):
+    circuits: List[dict] = []
+    cartus_firma: dict = {}
+    cartus_proiect: dict = {}
+    plansa_nr: str = ""
+
+
+@app.post("/schema-distributie-b64")
+def schema_distributie_b64(request: SchemaDistributieRequest):
+    try:
+        from schema_distributie import build_schema_distributie
+        pdf = build_schema_distributie(request.circuits or [],
+                                       cartus_firma=request.cartus_firma or {},
+                                       cartus_proiect=request.cartus_proiect or {},
+                                       plansa_nr=request.plansa_nr or None)
+        if not pdf:
+            # Gate pe PREZENTA: un singur tablou nu e o schema de distributie. Nu-i eroare.
+            return {"success": True, "pdf_base64": None, "motiv": "fara arbore de tablouri"}
+        return {"success": True, "pdf_base64": base64.b64encode(pdf).decode("utf-8"),
+                "filename": "schema_distributie.pdf", "size_bytes": len(pdf)}
+    except Exception as e:
+        logger.error("[schema-distributie] %r", e)
+        return {"success": False, "error": str(e), "pdf_base64": None}
+
+
+# -------------------------------------------------
 #  CAMPURILE NECUNOSCUTE  —  GET /campuri-necunoscute  (PASUL 2)
 #  Dovada ca se poate trece la pasul 3 (`extra="forbid"`). Se citeste de aici, nu din logurile
 #  Render: acolo un avertisment se pierde intre mii de linii, si tocmai asta a lasat cele trei
