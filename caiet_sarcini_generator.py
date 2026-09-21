@@ -283,6 +283,61 @@ _CS_CAP4_PRINCIPII = [
           "sunt legate la PE."),
 ]
 
+# ── LEGAREA ECHIPOTENTIALA A MASELOR METALICE ─────────────────────────────────────────────────
+# CE E CONFIRMAT pe proiectul lui Dan, si doar atat:
+#   IE.7, blocul de note: „…respectiv a barei de echipotentializare din TDG la priza de pamant."
+#   Caiet: „Conducta principală de legare la pământ … OLZn 40x6. Conductele de ramificatie se vor
+#          executa din platbandă de otel sau conductor flexibil de cupru, după caz."
+#
+# CE NU E CONFIRMAT, si de-aia NU apare nici aici, nici pe planşa: centuri interioare de 25x3 prin
+# camerele tehnice si legarea glisierelor de ascensor. Le-am cautat in TOATE planşele, in caiet si
+# in memoriul lui: zero aparitii ale cuvintelor „glisiera" / „ascensor" in context de impamantare,
+# iar ce numeste el „centura de impamantare" (IE.7, trei etichete) e chiar banda perimetrala de
+# fundatie, OL-Zn 40x6 — adica obiectul pe care-l desenam deja. Singura sectiune de 25 din tot
+# dosarul e „platbanda din otel zincat 25x4" pentru coborarea de PARATRASNET, sistem pe care
+# Zynapse nu-l modeleaza.
+#
+# Textul de mai jos ramane la nivelul la care avem acoperire: CE se leaga, nu CU CE sectiune si pe
+# ce traseu. O sectiune scrisa fara referinta ar fi ajuns in devizul clientului ca o cifra inventata.
+#
+# GATE PE PREZENTA, nu pe „e bloc": paragraful apare doar cand exista CHIAR obiectul despre care
+# vorbeste — tabloul general de distributie, respectiv tabloul de lift. O casa n-are niciunul, deci
+# caietul ei iese byte-identic.
+
+
+def _echipotential(circuits):
+    """Paragrafele de legare echipotentiala, sau [] cand proiectul n-are despre ce vorbi."""
+    import panels as _pn
+    fam = set()
+    for c in (circuits or []):
+        if not isinstance(c, dict):
+            continue
+        for k in ("panel", "feeds_panel"):
+            f = _pn.panel_family(str(c.get(k) or ""))
+            if f:
+                fam.add(f)
+    are_tgd = bool({"TEGD", "TGD"} & fam)
+    are_lift = "TE-LIFT" in fam
+    if not (are_tgd or are_lift):
+        return []
+    out = [("p", "Legătura principală de echipotenţializare se realizează între bara de "
+                 "echipotenţializare şi priza de pământ, prin piesa de separaţie, care permite "
+                 "măsurarea rezistenţei de dispersie.")]
+    mase = ["conductele metalice de apă, canalizare, încălzire şi gaze, la intrarea în clădire",
+            "jgheaburile şi tuburile metalice de protecţie a cablurilor",
+            "elementele metalice ale construcţiei accesibile atingerii"]
+    if are_lift:
+        # Numai cand EXISTA tablou de lift. Formularea ramane la structura metalica a putului,
+        # fiindca glisierele ca atare nu apar in niciun document de referinta.
+        mase.insert(0, "structura metalică a puţului de ascensor")
+    out.append(("p", "La instalaţia de legare la pământ se racordează, prin conductoare de "
+                     "ramificaţie din platbandă de oţel sau conductor flexibil de cupru:"))
+    out += [("li", m + ";") for m in mase[:-1]] + [("li", mase[-1] + ".")]
+    out.append(("p", "Continuitatea legăturilor de echipotenţializare se verifică la recepţie, "
+                     "odată cu măsurarea rezistenţei de dispersie a prizei de pământ."))
+    return out
+
+
 _CS_CAP5 = [
     ("h1", "5. VERIFICĂRI, PROBE ŞI RECEPŢIA LUCRĂRILOR"),
     ("p", "În timpul execuţiei se face o verificare preliminară, iar după executarea instalaţiei — "
@@ -997,6 +1052,9 @@ def build_caiet_docx(data: dict) -> bytes:
     _add_para(doc, "Instalaţia de legare la pământ este obligatorie conform I7-2011 şi se execută "
                    "cu platbandă OL-Zn " + _banda + " mm, conform " + _plansa_forta_ref(planse) + ".")
     _emit_blocks(doc, _CS_CAP4_PRINCIPII)
+    # Legarea echipotenţială a maselor metalice — doar când proiectul are chiar obiectul
+    # despre care vorbeşte (tablou general de distribuţie / tablou de lift).
+    _emit_blocks(doc, _echipotential(circuits))
 
     _emit_blocks(doc, _CS_CAP5)                     # 5
     _receptie_curenti_slabi(doc, _cs_comp)          # completarea de receptie, doar cu echipamente
