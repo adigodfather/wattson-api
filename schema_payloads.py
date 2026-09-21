@@ -200,7 +200,13 @@ def _circ_payload(c):
     }
 
 
-def _sarcina(nume_tablou, plansa, circuits, graf, cartus_firma, cartus_proiect, descriere=None):
+def _sarcina(nume_tablou, plansa, circuits, graf, cartus_firma, cartus_proiect, descriere=None,
+             nume_afisat=None):
+    """`nume_tablou` = tabloul din care se CITESC circuitele; `nume_afisat` = ce SCRIE pe planşa.
+
+    Cele doua difera exact intr-un caz: schema comasata a mai multor firide identice. Antetul
+    tipareste „<nume> — <descriere>", deci cu reprezentantul ar fi iesit „FDCP ETAJ 1 — … ETAJ 1 ·
+    ETAJ 2" — o planşa care se contrazice singura, in timp ce borderoul o anunta „FDCP ETAJ 1-2"."""
     # Circuitele tabloului = tot ce sta pe el, INCLUSIV coloanele care pleaca spre alte tablouri.
     # Prima varianta le excludea si firidele (FDCP, BMPT) ieseau cu ZERO circuite — la ele coloanele
     # SUNT continutul schemei, n-au consumatori proprii. Si pe un TEG coloana catre TES apare pe
@@ -216,8 +222,8 @@ def _sarcina(nume_tablou, plansa, circuits, graf, cartus_firma, cartus_proiect, 
     return {
         "_plansa_nr": plansa.get("nr"),
         "_plansa_tip": plansa.get("tip"),
-        "_panel": nume_tablou,
-        "tablou_nume": nume_tablou,
+        "_panel": nume_afisat or nume_tablou,
+        "tablou_nume": nume_afisat or nume_tablou,
         "tablou_descriere": descriere or _DESCRIERI.get(fam, "TABLOU ELECTRIC"),
         "pi_total_kw": round(float(nod.get("pi_w") or 0) / 1000.0, 2),
         "pa_total_kw": round(float(nod.get("pa_w") or 0) / 1000.0, 2),
@@ -262,7 +268,7 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
         if not fam:
             continue                                   # planuri, detalii, scheme de sistem
         inst = str(p.get("nivel") or "").strip()
-        tinta = None
+        tinta, afisat = None, None
         if tip == "schema_tes":
             # TES-urile se consuma IN ORDINE: si planşele, si tablourile vin din aceeasi lista de
             # niveluri (`extra_floors`), deci al n-lea TES anuntat e al n-lea tablou TES. Potrivirea
@@ -283,6 +289,9 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
             # primul membru; schema lui e schema tuturor, fiindca de-aia s-au grupat.
             g = next((g for g in grupe_fd if g["eticheta"] == inst), None)
             tinta = g["membri"][0] if g else None
+            # Circuitele se citesc din reprezentant, dar pe planşa scrie GRUPUL — acelasi nume pe
+            # care-l tipareste si borderoul.
+            afisat = inst
         else:
             tinta = next((n for n in sorted(nume_panels) if _pn.panel_family(n) == fam), None)
 
@@ -301,6 +310,7 @@ def sarcini_scheme(planse, circuits, cartus_firma=None, cartus_proiect=None, tip
             g = next((g for g in grupe_fd if g["eticheta"] == inst), None)
             if g and len(g["membri"]) > 1:
                 descr = "%s — %s" % (_DESCRIERI["FDCP"], g["domeniu"])
-        sarcini.append(_sarcina(tinta, p, circuits, graf, cartus_firma, cartus_proiect, descr))
+        sarcini.append(_sarcina(tinta, p, circuits, graf, cartus_firma, cartus_proiect, descr,
+                                nume_afisat=afisat))
 
     return {"sarcini": sarcini, "lipsa": lipsa}
