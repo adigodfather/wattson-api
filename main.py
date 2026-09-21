@@ -4706,6 +4706,41 @@ def schema_distributie_b64(request: SchemaDistributieRequest):
 
 
 # -------------------------------------------------
+#  PLANSELE DE DETALIU  —  POST /detaliu-b64
+#  Doua detalii TIPIZATE, desenate vectorial la noi (vezi `detalii.py` pentru de ce nu se
+#  incorporeaza PDF-ul de referinta). Sectiunea benzii prizei de pamant se cere de la
+#  `bloc.sectiune_banda`, aceeasi sursa ca BOM-ul — apelantul nu trimite nimic pentru ea.
+#
+#  `plan_elements` a existat aici cat timp sectiunea depindea de tipul proiectului. A fost scos
+#  odata cu diferentierea: un camp declarat pe care nu-l citeste nimeni e exact ce va refuza pasul 3
+#  (`extra="forbid"`) fara sa aduca nimic acum. Niciun apelant nu-l trimitea inca.
+# -------------------------------------------------
+
+class DetaliuRequest(ZynModel):
+    tip: str = ""
+    cartus_firma: dict = {}
+    cartus_proiect: dict = {}
+    plansa_nr: str = ""
+
+
+@app.post("/detaliu-b64")
+def detaliu_b64(request: DetaliuRequest):
+    try:
+        from detalii import build_detaliu
+        pdf = build_detaliu(request.tip or "", cartus_firma=request.cartus_firma or {},
+                            cartus_proiect=request.cartus_proiect or {},
+                            plansa_nr=request.plansa_nr or None)
+        if not pdf:
+            return {"success": False, "error": "tip de detaliu necunoscut: %r" % request.tip,
+                    "pdf_base64": None}
+        return {"success": True, "pdf_base64": base64.b64encode(pdf).decode("utf-8"),
+                "filename": "%s.pdf" % (request.tip or "detaliu"), "size_bytes": len(pdf)}
+    except Exception as e:
+        logger.error("[detaliu] %r", e)
+        return {"success": False, "error": str(e), "pdf_base64": None}
+
+
+# -------------------------------------------------
 #  CAMPURILE NECUNOSCUTE  —  GET /campuri-necunoscute  (PASUL 2)
 #  Dovada ca se poate trece la pasul 3 (`extra="forbid"`). Se citeste de aici, nu din logurile
 #  Render: acolo un avertisment se pierde intre mii de linii, si tocmai asta a lasat cele trei
