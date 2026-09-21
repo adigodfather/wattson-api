@@ -989,8 +989,13 @@ def build_caiet_docx(data: dict) -> bytes:
 
     _add_heading(doc, "4. EXECUTAREA INSTALAŢIILOR DE LEGARE LA PĂMÂNT", level=1)
     # Formularea EXACTĂ a lui Dan + referinţa dinamică la planşă.
+    # Sectiunea benzii vine din aceeasi functie ca BOM-ul si legenda planşei
+    # (`bloc.sectiune_banda`). Scrisa fix aici, caietul ar fi putut cere alt material decat devizul
+    # care-l insoteste.
+    import bloc as _blc_c
+    _banda = _blc_c.sectiune_banda().replace("x", "×")
     _add_para(doc, "Instalaţia de legare la pământ este obligatorie conform I7-2011 şi se execută "
-                   "cu platbandă OL-Zn 40×4 mm, conform " + _plansa_forta_ref(planse) + ".")
+                   "cu platbandă OL-Zn " + _banda + " mm, conform " + _plansa_forta_ref(planse) + ".")
     _emit_blocks(doc, _CS_CAP4_PRINCIPII)
 
     _emit_blocks(doc, _CS_CAP5)                     # 5

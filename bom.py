@@ -1147,7 +1147,12 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
         _close = math.hypot(_ground[-1][0] - _ground[0][0], _ground[-1][1] - _ground[0][1])
         if _close > 1e-6:
             _perim += _close
-        rows.append(_row("Priza de pamant locuinta", "Platbanda OL-Zn 40x4", "contur fundatie",
+        # Sectiunea NU se scrie aici: vine din `bloc.sectiune_banda`, aceeasi functie pe care o
+        # cheama si caietul de sarcini, si legenda planşei, si detaliul IE.36. Altfel lista de
+        # materiale ar putea cere o sectiune si planşa sa deseneze alta.
+        import bloc as _blc
+        _banda = _blc.sectiune_banda()
+        rows.append(_row("Priza de pamant locuinta", "Platbanda OL-Zn %s" % _banda, "contur fundatie",
                          round(_perim * scale, 1), "m", sectiune=_sec_pl))
         # [b] platbanda 20x2 = dist(TEG -> cel mai apropiat perete/contur) * scale + 1.5 (coborare) + 2 (fundatie)
         _teg = _panel_xy(plan_elements).get("tablou_teg")

@@ -202,3 +202,30 @@ SP_DDCS_W = 150              # baza DDCS/RACK, fara echipamente de curenti slabi
 # lui castiga si genericul nu mai apare — aceeasi consecventa stricta ca la prizele camerei tehnice
 # (decizia Dan, 18 iul 2026): un plan LUCRAT nu primeste plase peste ce-a facut omul.
 
+
+
+# ── PRIZA DE PAMANT: SECTIUNEA BENZII ─────────────────────────────────────────────────────────
+# 40x4 PESTE TOT, inclusiv la blocuri.
+#
+# Dan foloseste 40x6 pe IE.36 (masurat, de doua ori in text) si o vreme am diferentiat: 40x6 la
+# bloc, 40x4 in rest. Am scos diferentierea dupa documentarea lui, 21 sept 2026: 40x4 e standardul
+# si la blocuri, iar in fundatie 40x6 nu aduce castig tehnic — grosimea conteaza pentru coroziune,
+# iar banda e protejata in beton. Minimul normativ pentru otel zincat ingropat e 30x3,5; 40x4 are
+# 160 mm2, cu marja.
+#
+# FUNCTIA RAMANE, desi intoarce o constanta, fiindca valoarea ei nu era niciodata alegerea, ci
+# UNICITATEA: banda e numita in PATRU documente — lista de materiale, legenda planşei, caietul de
+# sarcini si detaliul IE.36. Scrisa de mana in fiecare, primul care se schimba face devizul sa ceara
+# un material si planşa sa deseneze altul. E acelasi fel de divergenta ca planşa-vs-borderou, doar
+# ca intre documente.
+#
+# N-ARE PARAMETRU, si asta e intentionat. Varianta de dinainte primea `plan_elements` (sau
+# `circuits`); pastrat dupa ce raspunsul a devenit acelasi in toate cazurile, argumentul ar fi
+# sugerat ca sectiunea variaza pe proiect si ar fi pus pe cineva sa caute de ce nu variaza. Cand
+# chiar va trebui sa depinda de ceva, parametrul se adauga atunci, cu motivul lui.
+BANDA_PRIZA = "40x4"
+
+
+def sectiune_banda():
+    """Sectiunea benzii prizei de pamant, ca text („40x4"). Sursa unica — vezi nota de mai sus."""
+    return BANDA_PRIZA

@@ -2473,7 +2473,11 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
     # h) PLATBANDA prizei de pamant (fix Dan): randul LIPSEA desi platbanda se deseneaza pe plan
     # (portocaliu gros continuu) — de-aia parea ca liniutele galbene FV ii poarta textul. DOAR cand
     # plansa are priza de pamant; doar platbanda principala 40x4 (legatura 20x2 acoperita, v1).
-    ground_rows = ([{"kind": "ground", "text": "Platbanda 40 x 4 OL-ZN"}]
+    # Sectiunea vine din aceeasi sursa ca lista de materiale (`bloc.sectiune_banda`): legenda
+    # planşei n-are voie sa spuna altceva decat devizul.
+    import bloc as _blc_g
+    _b_sect = _blc_g.sectiune_banda().replace("x", " x ")
+    ground_rows = ([{"kind": "ground", "text": "Platbanda %s OL-ZN" % _b_sect}]
                    if "ground_electrode_path" in present else [])
 
     # i) BANDA LED trasata (turcoaz pe plansa de iluminat). Doar cand inginerul a desenat-o.
