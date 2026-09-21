@@ -1587,10 +1587,18 @@ export function ZynapseConfigurator() {
       // Non-breaking: plan_base64 (parter) rămâne pentru flow-ul JSON existent; backend-ul
       // actual ignoră plan_floors_base64 până la Faza B.2.
       const planFloorsBase64 = await Promise.all(
-        files.map(async (f) => ({
+        files.map(async (f, i) => ({
           base64: await fileToBase64(f),
           plan_type: f.type || "image/jpeg",
           filename: f.name,
+          // NIVELUL, EXPLICIT. Până aici sensul fiecărui plan stătea doar în POZIȚIA lui din
+          // listă, iar backendul îl presupunea („parterul = primul"). Presupunerea ține câtă
+          // vreme sloturile de încărcare sunt parter/etaj/mansardă, dar se rupe în clipa în care
+          // apare un slot de subsol: acolo primul plan nu mai e parterul, iar suprafața FACTURATĂ
+          // s-ar lua de pe subsol (măsurat pe blocul real: 1153 mp în loc de 697).
+          // Eticheta vine din aceeași convenție pe care o folosește deja interfața pentru numele
+          // planșelor — doar că acum o SPUNE, în loc s-o lase dedusă din ordine.
+          nivel: floorForPlate(i),
         }))
       );
 

@@ -134,20 +134,24 @@ export async function POST(req: NextRequest) {
   // ── F1 (2026-07-14): extra_floors pt. numerotarea din clona finalize (nodul "Numerotare Planse").
   // Sursa PREFERATA = tipurile planurilor STAMPILATE (etichete REALE: P+M da 'mansarda', nu 'etaj' ca
   // derivarea din floor — conteaza pt. borderoul memoriului). Fallback: floor-urile INTREGI din circuite.
-  // [0] = parter (se sare). Oglinda _PLAN_TYPE_LABEL + derive_extra_floors din plansa_numbering.py.
+  // Oglinda _PLAN_TYPE_LABEL + extra_floors_din_planuri din plansa_numbering.py.
   const PLAN_TYPE_LABEL: Record<string, string> = {
     plan_etaj: "etaj", plan_etaj1: "etaj", plan_etaj2: "etaj 2",
     plan_mansarda: "mansarda", plan_demisol: "demisol", plan_subsol: "subsol",
   };
   const planuri = Array.isArray(rd.planuri) ? (rd.planuri as Array<{ type?: string }>) : [];
-  // Tip nerecunoscut: trece întâi prin axă („plan_etaj3" → „etaj 3"), apoi genericul de dinainte.
-  // Saltul `slice(1)` rămâne neatins — în bază sunt 10 proiecte cu `planuri[0].type="plan_generic"`,
-  // iar orice filtrare pe etichetă l-ar citi ca nivel necunoscut și le-ar inventa un etaj.
-  let extraFloors: string[] = planuri.slice(1).map((p) => {
+  // ETICHETA decide, nu poziția. `slice(1)` sărea planșa [0] pe contractul „slotul 0 e parterul":
+  // adevărat pe o casă, fals pe o clădire cu subsol, unde mânca subsolul și inventa un etaj în
+  // locul lui. Măsurat în bază: poziția 0 e `plan_generic` (10) sau `plan_parter` (9) — amândouă
+  // dau „parter" prin axă, deci se sar la fel și numerotarea lor rămâne neschimbată. Poziția
+  // rămâne departajarea doar pentru planurile care nu spun nimic: primul mut = parterul.
+  let vazutParter = false;
+  let extraFloors: string[] = planuri.flatMap((p) => {
     const t = String(p?.type || "").toLowerCase();
-    if (PLAN_TYPE_LABEL[t]) return PLAN_TYPE_LABEL[t];
-    const c = floorCanonic(t);
-    return c !== "parter" ? c : "etaj";
+    const lab = PLAN_TYPE_LABEL[t] || floorCanonic(t);
+    if (lab !== "parter") return [lab];
+    if (!vazutParter) { vazutParter = true; return []; }
+    return ["etaj"];
   });
   if (extraFloors.length === 0) {
     // Sursa PREFERATĂ: `floor_label` de pe circuite (pus de enrich de la P0). Pe axa deschisă

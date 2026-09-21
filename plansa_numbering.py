@@ -345,6 +345,32 @@ _PLAN_TYPE_LABEL = {
 }
 
 
+def extra_floors_din_planuri(planuri):
+    """Nivelurile de PESTE parter, citite din etichetele planselor persistate.
+
+    ETICHETA decide, nu pozitia. Inainte se sarea `planuri[0]` POZITIONAL, pe contractul „slotul 0
+    e parterul" — adevarat pe o casa, fals pe o cladire cu subsol, unde saltul manca subsolul si in
+    locul lui inventa un etaj. Masurat in baza: pozitia 0 e `plan_generic` (10 proiecte) sau
+    `plan_parter` (9), niciodata altceva — amandoua dau `parter` prin axa, deci se sar la fel ca
+    pana acum si numerotarea lor ramane neschimbata.
+
+    Pozitia ramane departajarea DOAR pentru planurile care nu spun nimic despre nivelul lor: primul
+    neetichetat e parterul (contractul de azi), restul „etaj" — exact comportamentul de dinainte.
+    Oglinda din `app/api/finalize/route.ts` (extraFloors) trebuie sa ramana identica.
+    """
+    out, vazut_parter = [], False
+    for p in (planuri or []):
+        t = str((p or {}).get("type") or "").strip().lower()
+        lab = _PLAN_TYPE_LABEL.get(t) or _fl.floor_canonic(t)   # „plan_etaj3" -> „etaj 3"
+        if lab != _fl.PARTER:
+            out.append(lab)
+        elif not vazut_parter:
+            vazut_parter = True                                 # parter / generic / primul mut
+        else:
+            out.append("etaj")                                  # nerecunoscut peste parter, ca inainte
+    return out
+
+
 def pick_plan_entry(result_data, plan_type, floor):
     """Intrarea {nr, nume, ...} pentru PLANUL (iluminat/forta) al nivelului `floor` din autoritatea
     compute_plansa_numbering — folosita de /regenerate-plan ca planul regenerat sa primeasca numarul
@@ -361,22 +387,7 @@ def pick_plan_entry(result_data, plan_type, floor):
     rd = result_data or {}
     circuits = rd.get("circuits") or []
 
-    # `planuri[1:]` = nivelurile peste parter. Saltul POZITIONAL ramane neatins deliberat: in baza
-    # exista 10 proiecte cu `planuri[0].type = "plan_generic"` (masurat), iar orice filtrare pe
-    # eticheta l-ar citi ca nivel necunoscut si le-ar inventa un etaj. Ce se schimba e doar
-    # DERIVAREA numelui pentru tipurile din afara dictionarului: trece intai prin axa, deci
-    # „plan_etaj3" da „etaj 3", nu genericul „etaj".
-    # LIMITA CUNOSCUTA: pe o cladire unde parterul NU e planşa [0] (bloc cu subsol) saltul ar sari
-    # subsolul. Nu se poate intampla inca — ordinea planselor de bloc se decide la P1/P2, odata cu
-    # generarea lor — si o repar acolo, cu ordinea reala in fata, nu ghicind-o acum.
-    extra = []
-    for p in (rd.get("planuri") or [])[1:]:            # [0] = parter
-        t = str((p or {}).get("type") or "").strip().lower()
-        if t in _PLAN_TYPE_LABEL:
-            extra.append(_PLAN_TYPE_LABEL[t])
-            continue
-        _c = _fl.floor_canonic(t)                      # „plan_etaj3" -> „etaj 3"
-        extra.append(_c if _c != _fl.PARTER else "etaj")   # nerecunoscut la nivel>0 -> ca inainte
+    extra = extra_floors_din_planuri(rd.get("planuri"))
     if not extra:
         extra = derive_extra_floors(circuits)
 

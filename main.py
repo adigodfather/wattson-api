@@ -4579,16 +4579,46 @@ def _extract_surface_b64(b64):
 
 
 def extract_surface_from_plans(plan_floors_base64=None, plan_base64=""):
-    """Combina mai multe planuri (multi-etaj): bilantul e pe PARTER (floor 0) dar il cautam in ordine.
-    Intoarce PRIMUL plan cu construita gasita (parterul = floor 0 = primul, are bilantul autoritar)."""
-    plans = []
+    """Combina mai multe planuri (multi-etaj): bilantul e pe PARTER si e autoritar.
+
+    ALEGEREA PLANULUI SE FACE PE ETICHETA NIVELULUI, nu pe pozitie. Pana aici se lua PRIMUL plan
+    care da o valoare, pe presupunerea „parterul = primul". Pe un bloc cu subsol, primul plan e
+    SUBSOLUL — o parcare cu putine etichete de camera, din care una e hala de ~1000 mp. Masurat pe
+    proiectul real al lui Dan: aceleasi cinci planuri, doar alta ordine, dau 1153,14 mp (subsol
+    primul) vs 696,69 mp (parter primul). 456 mp diferenta pe calea care decide FACTURA.
+    E a treia aparitie a aceleiasi presupuneri pozitionale, dupa `pick_plan_entry` si `route.ts`.
+
+    CUM SE AFLA ETICHETA: apelantul o poate trimite pe fiecare intrare (`nivel` / `floor` / `type`).
+    Cand N-O TRIMITE NIMENI, se pastreaza ordinea primita — si asta nu-i lene, ci singurul
+    comportament corect: fara etichete nu exista alta informatie decat pozitia, iar contractul de azi
+    al interfetei chiar garanteaza slotul 0 = parter. Asa cele 10 proiecte cu `plan_generic` din baza
+    raman byte-identice, iar blocul primeste alegerea determinista de indata ce trimite etichete.
+    """
+    import floors as _fl
+    brute = []
     for p in (plan_floors_base64 or []):
         if isinstance(p, str):
-            plans.append(p)
+            brute.append((p, None))
         elif isinstance(p, dict):
-            plans.append(p.get("base64") or p.get("plan_base64") or p.get("pdf_base64") or "")
+            b = p.get("base64") or p.get("plan_base64") or p.get("pdf_base64") or ""
+            # `plan_type` NU e eticheta de nivel — in payload-ul de azi e tipul MIME al fisierului.
+            et = p.get("nivel") or p.get("floor") or p.get("type") or p.get("eticheta")
+            brute.append((b, str(et) if et else None))
     if plan_base64:
-        plans.append(plan_base64)
+        brute.append((plan_base64, None))
+
+    if any(et for _b, et in brute):
+        # Ordonare pe AXA nivelurilor (P0): parterul primul, apoi in sus; subsolul/demisolul dupa,
+        # fiindca bilantul nu-i al lor. Fara eticheta -> la coada, in ordinea primita.
+        def cheie(i_p):
+            i, (_b, et) = i_p
+            if not et:
+                return (2, i)
+            idx = _fl.floor_index(_fl.floor_canonic(et))
+            return (0, idx, i) if idx >= 0 else (1, -idx, i)
+        brute = [q for _i, q in sorted(enumerate(brute), key=cheie)]
+
+    plans = [b for b, _et in brute]
     for b64 in plans:
         r = _extract_surface_b64(b64)
         if r.get("construita_mp") is not None:
