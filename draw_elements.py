@@ -1377,6 +1377,9 @@ _CS_CABLE_SERVESTE = {
     # 12 V c.c.: echipamentele de efractie. Camerele NU mai sunt aici — merg pe PoE din inregistrator
     "alimentare": ("detector_pir", "tastatura_efractie", "sirena_interioara", "sirena_exterioara",
                    "centrala_efractie"),
+    # `fo24` LIPSESTE INTENTIONAT: harta asta inmulteste metrii cu numarul de APARATE servite, iar
+    # fibra nu hraneste aparate, ci doze (DDCS, DTC). Metrii ei sunt ai traseului desenat, o singura
+    # data — pusa aici, coloana ar fi fost numarata de cate ori are un etaj apartamente.
 }
 
 
@@ -1697,6 +1700,16 @@ _CS_CABLE = {
     # citeasca la fel in amandoua documentele.
     "forta_det":  {"nume": "Cablu alimentare desfumare, din tabloul electric general",
                    "bom": "CYY-F 3x2.5", "col": _PRIZA_COLOR, "dash": "[ 3 2 ] 0"},
+    # COLOANA DE DATE A CLADIRII: fibra optica cu 24 de fire, masurata pe planşele lui Dan —
+    # legenda de pe IE.13 o descrie exact: „Cablu din fibra optica cu 24 de fire pentru alimentarea
+    # DTC-urilor". Urca prin FDCS -> DDCS de palier -> DTC-ul fiecarui apartament.
+    #
+    # SE DESENEAZA, nu se calculeaza. Am fi putut inmulti numarul de DTC-uri cu o inaltime de nivel,
+    # dar aia ar fi fost o cifra inventata intr-un deviz: traseul vertical nu-i pe nicio planşa de
+    # nivel, iar cel orizontal difera de la etaj la etaj. Inginerul il traseaza cu `traseu_cs`,
+    # exact ca buclele de detectie (`e30`) — deci niciun tip nou de element si nicio migratie.
+    "fo24":       {"nume": "Cablu fibra optica 24 fire, coloana de date a cladirii",
+                   "bom": "Cablu fibra optica 24 fire", "col": (0.13, 0.55, 0.13), "dash": None},
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},

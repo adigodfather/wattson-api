@@ -540,6 +540,10 @@ const CS_CABLES = [
   // BUCLA DE DETECTIE: lipsea din dropdown, desi backend-ul o cunostea de la pasul 4 — traseul
   // desenat pe planşa de incendiu cadea pe implicitul UTP, deci inginerul nu putea alege E30.
   { value: "e30",        label: "JEH(St)H E30 2x2x0,8 (buclă detecție)", col: COL_DET, dash: undefined },
+  // Coloana de date a clădirii (FDCS → DDCS → DTC), măsurată pe planșele lui Dan. Oglinda lui
+  // `fo24` din _CS_CABLE — dacă cele două listă divergează, inginerul desenează un traseu pe care
+  // planșa nu știe să-l coloreze.
+  { value: "fo24",       label: "Fibră optică 24 fire (coloană date)", col: "#218721", dash: undefined },
 ] as const;
 // traseele desenate înainte de corecție purtau "coax" (zero în baza de date la 30 aug 2026, dar
 // aliasul costă o linie și le ține valide) — oglinda lui _CS_CABLE_ALIAS
