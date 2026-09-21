@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { snapFvPackage } from "@/lib/constants";
+import { culegeDocumente, inregistreaza } from "@/lib/registru-finalizari";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 import { floorCanonic, sortFloors } from "@/lib/floors";   // axa DESCHISĂ de niveluri (oglinda floors.py)
 
 // Faza 2b — "Finalizeaza": proxy server-side catre webhook-ul n8n "zynapse-finalize".
@@ -22,7 +24,11 @@ interface CartusFirma {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { project_id?: string };
+  // `motiv` / `refinalizare_a` / `declansat_de` vin DOAR de la /api/admin/refinalizare, care le
+  // pune dupa ce a verificat `profiles.is_admin`. La o finalizare obisnuita lipsesc, iar randul
+  // din registru le are null.
+  let body: { project_id?: string; motiv?: string; refinalizare_a?: string; declansat_de?: string;
+              ca_user?: string };
   try {
     body = await req.json();
   } catch {
@@ -40,17 +46,40 @@ export async function POST(req: NextRequest) {
   let firma: CartusFirma;
   let planElements: unknown[] = [];   // Faza 2: planul EDITAT -> circuitele schemei/memoriului
   let inputData: Record<string, unknown> = {};   // formularul salvat (has_tech_room/heating_type/echipamente)
+  let userId = "";        // proprietarul proiectului (poate fi altul decat cel logat, la re-finalizare)
+  let declansatDe = "";   // adminul care a cerut re-finalizarea
   try {
     const cookieStore = await cookies();
     const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
     const { data: { user } } = await supa.auth.getUser();
     if (!user) return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
+    userId = user.id;
 
-    const { data: proj } = await supa
+    // ── RE-FINALIZARE CERUTA DE ADMIN ───────────────────────────────────────────────────────
+    // `ca_user` inseamna „ruleaza finalizarea pentru proiectul ACESTUI proprietar". Se accepta
+    // DOAR daca cel autentificat e admin, verificat aici, server-side, pe `profiles.is_admin` —
+    // acelasi mecanism ca /admin si admin_award_bug. Fara campul asta nimic nu se schimba, deci
+    // calea obisnuita de livrare ramane exact cum era.
+    let citire: typeof supa | ReturnType<typeof createAdminClient> = supa;
+    if (body.ca_user && body.ca_user !== user.id) {
+      const { data: eu } = await supa.from("profiles").select("is_admin").eq("id", user.id).single();
+      if (eu?.is_admin !== true) {
+        return NextResponse.json({ error: "Doar admin poate re-finaliza in numele altui user" },
+                                 { status: 403 });
+      }
+      if (!String(body.motiv || "").trim()) {
+        return NextResponse.json({ error: "Re-finalizarea cere un motiv" }, { status: 400 });
+      }
+      userId = body.ca_user;                       // proprietarul, pentru ownership si registru
+      declansatDe = user.id;                       // adminul, pentru registru
+      citire = createAdminClient();                // RLS nu i-ar da adminului proiectul altuia
+    }
+
+    const { data: proj } = await citire
       .from("projects")
       .select("result_data, faza, phase, input_data")
       .eq("id", projectId)
-      .eq("user_id", user.id)   // ownership: RLS + filtru explicit (anti-IDOR, ca la regenerate-plan)
+      .eq("user_id", userId)   // ownership: RLS + filtru explicit (anti-IDOR, ca la regenerate-plan)
       .single();
     if (!proj) return NextResponse.json({ error: "Proiect inexistent sau neautorizat" }, { status: 403 });
 
@@ -59,15 +88,15 @@ export async function POST(req: NextRequest) {
     faza = (proj.faza as string | null) ?? null;
     phase = (proj.phase as string | null) ?? null;
 
-    const { data: prof } = await supa
+    const { data: prof } = await citire
       .from("profiles")
       .select("firma_nume, firma_cui, firma_reg_com, firma_tel, firma_email, firma_adresa, firma_logo_url, proiectant_nume, desenator_nume")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
     firma = (prof as CartusFirma) || ({} as CartusFirma);
 
     // Faza 2: planul EDITAT (plan_elements) -> sursa circuitelor pt. schema+memoriu (RLS: doar owner).
-    const { data: peData } = await supa
+    const { data: peData } = await citire
       .from("plan_elements")
       // `kit_panica` intra in select ODATA cu poarta detaliului de iluminat de siguranta: fara el,
       // ramura „bec cu kit" din poarta ar fi fost moarta si s-ar fi aprins doar pe corp_evacuare.
@@ -435,6 +464,34 @@ export async function POST(req: NextRequest) {
         parsed.bom_source = "plan (unified)";
       } else {
         parsed.bom_source = "n8n (fallback)";   // parsed.bom ramane cel de la n8n
+      }
+    }
+    // ── REGISTRUL DE FINALIZARI ──────────────────────────────────────────────────────────
+    // Se scrie DUPA ce n8n a livrat, si nu are voie sa strice livrarea: orice esec (arhivare sau
+    // rand) se logheaza si raspunsul pleaca neschimbat catre client. `motiv` vine din corpul
+    // cererii doar la re-finalizarea ceruta de un admin — vezi /api/admin/refinalizare.
+    if (resp.ok) {
+      try {
+        const docs = culegeDocumente(parsed);
+        const reg = await inregistreaza(
+          {
+            projectId, userId, faza: phase || faza,
+            motiv: typeof body.motiv === "string" ? body.motiv : null,
+            refinalizareA: typeof body.refinalizare_a === "string" ? body.refinalizare_a : null,
+            declansatDe: body.ca_user ? declansatDe : null,
+          },
+          docs,
+        );
+        if (!reg.id) {
+          console.error("[/api/finalize] finalizarea NU s-a inregistrat (livrarea a mers)");
+        } else if (!reg.arhivat) {
+          console.error("[/api/finalize] finalizare %s inregistrata, ARHIVARE PARTIALA: %s",
+                        reg.id, reg.eroare);
+        }
+        (parsed as Record<string, unknown>).finalizare_id = reg.id;
+        (parsed as Record<string, unknown>).finalizare_arhivata = reg.arhivat;
+      } catch (e) {
+        console.error("[/api/finalize] bloc registru esuat (livrarea a mers):", e);
       }
     }
     return NextResponse.json(parsed, { status: resp.status });

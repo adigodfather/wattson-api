@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
+import { fetchBackend } from "@/lib/backend-fetch";
 // "Obtine plan" sub-pas 1a — proxy server-side catre FastAPI /regenerate-plan.
 // Securitate: verifica proprietatea proiectului (anti-IDOR) inainte de a chema backend-ul,
 // fiindca backend-ul citeste plan_elements cu service-role (ocoleste RLS).
@@ -46,10 +47,9 @@ export async function POST(req: NextRequest) {
   // ── Forward la FastAPI ──
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const resp = await fetch(`${FASTAPI}/regenerate-plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ project_id: projectId, floor, base_pdf_base64: base, plan_type: planType }),
+    const resp = await fetchBackend(`${FASTAPI}/regenerate-plan`, { project_id: projectId, floor, base_pdf_base64: base, plan_type: planType }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 95000,
     });
     const text = await resp.text();
     try {

@@ -473,6 +473,9 @@ export interface ProjectResult {
   memoriu_tehnic: string;
   ai_notes?: string;
   annotated_plan_base64?: string | null;
+  // Etapa 4 Storage: planul anotat (PNG) trece in bucketul privat. Proiectele vechi au inca
+  // base64; cititorul verifica base64 INTAI, apoi calea.
+  annotated_plan_path?: string | null;
   plan_annotated_base64?: string | null;
   schema_pdf?: string | null;
   schema_monofilara_pdf?: string | null;

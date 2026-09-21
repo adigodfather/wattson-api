@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
+import { fetchBackend } from "@/lib/backend-fetch";
 // POARTA DE VALIDARE plan (determinista, fara AI): proxy autentificat catre FastAPI /validate-plan.
 // Ruleaza INAINTE de /api/vision-cartus (primul consum Anthropic) -> input respins = 0 consum.
 // Model: app/api/extract-geometry/route.ts (auth user + x-zynapse-key).
@@ -35,10 +36,9 @@ export async function POST(req: NextRequest) {
   // ── Forward la FastAPI (cu cheia interna) ──
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const resp = await fetch(`${FASTAPI}/validate-plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ pdf_base64: pdf }),
+    const resp = await fetchBackend(`${FASTAPI}/validate-plan`, { pdf_base64: pdf }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 45000,
     });
     const text = await resp.text();
     try {

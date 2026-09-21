@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { isPhasePT, poateGeneraTip } from "@/lib/constants";
 
+import { fetchBackend } from "@/lib/backend-fetch";
+import { mutaScalar, mutaIntrari, rezumat } from "@/lib/storage-pdf";
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 const FASTAPI = "https://wattson-api.onrender.com";
 
@@ -14,13 +16,12 @@ const FASTAPI = "https://wattson-api.onrender.com";
 async function extractConstruitaMp(parsed: Record<string, unknown> | null): Promise<number | null> {
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const r = await fetch(`${FASTAPI}/extract-surface`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({
+    const r = await fetchBackend(`${FASTAPI}/extract-surface`, {
         plan_floors_base64: (parsed?.plan_floors_base64 as unknown[]) ?? [],
         plan_base64: (parsed?.plan_base64 as string) ?? "",
-      }),
+      }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 240000,
     });
     if (!r.ok) return null;
     const j = (await r.json()) as { construita_mp?: unknown };
@@ -444,6 +445,53 @@ export async function POST(req: NextRequest) {
           }
         } catch (e) {
           console.error("[/api/generate] bloc Storage schemas[] esuat (fallback base64):", e);
+        }
+
+        // ── ETAPA 4 Storage: planul ANOTAT + planurile ÎNCĂRCATE de client. ──
+        // Cele două chei cu cei mai mulți octeți din câte au rămas (20 MB + 22 MB peste toate
+        // proiectele) și cu cei mai puțini cititori: `annotated_plan_base64` e citit într-un
+        // singur loc (result-sections), iar planurile de intrare nu sunt RECITITE de nimeni după
+        // generare — verificat: din `input_data` se mai iau doar câmpurile de formular
+        // (`has_tech_room`, `heating_type`, `comercial_subtip`, `extra_equipment`).
+        // Aceeași regulă ca mai sus: base64-ul dispare din rând DOAR după un upload reușit.
+        try {
+          let schimbat = false;
+          let rez = { ...data } as Record<string, unknown>;
+          // PNG, nu PDF: planul anotat vine din /annotate-plan (pdf2image + PIL) si e stocat cu
+          // prefix `data:image/png;base64,` — pe care `mutaScalar` il taie inainte de urcare.
+          const a = await mutaScalar(supa, userId, projectId, rez,
+                                     "annotated_plan_base64", "annotated_plan_path",
+                                     "plan_anotat.png", "image/png");
+          if (a.rez.urcate) { rez = a.parinte; schimbat = true; }
+
+          // `input_data` se citește din DB, nu se reconstruiește din payload: rândul e sursa de
+          // adevăr, iar o reconstrucție ar suprascrie tăcut orice a pus altcineva acolo între timp.
+          const { data: randInput } = await supa
+            .from("projects").select("input_data").eq("id", projectId).single();
+          const inp = await mutaIntrari(
+            supa, userId, projectId,
+            ((randInput?.input_data as Record<string, unknown>) || {}),
+          );
+          const intrariMutate = inp.rez.urcate > 0;
+
+          if (schimbat || intrariMutate) {
+            const patch: Record<string, unknown> = {};
+            if (schimbat) patch.result_data = rez;
+            if (intrariMutate) patch.input_data = inp.input;
+            const { error: updErr } = await supa
+              .from("projects").update(patch).eq("id", projectId);
+            if (updErr) {
+              console.error("[/api/generate] update etapa 4 esuat (fallback base64):", updErr.message);
+            } else if (schimbat) {
+              // răspunsul către client = starea din DB
+              delete (data as Record<string, unknown>).annotated_plan_base64;
+              (data as Record<string, unknown>).annotated_plan_path = rez.annotated_plan_path;
+            }
+          }
+          console.log("[/api/generate] etapa 4: anotat %s · intrari %s",
+                      rezumat(a.rez), rezumat(inp.rez));
+        } catch (e) {
+          console.error("[/api/generate] bloc Storage etapa 4 esuat (fallback base64):", e);
         }
 
         (data as Record<string, unknown>).saved_project_id = projectId;

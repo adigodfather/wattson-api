@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 
+import { fetchBackend } from "@/lib/backend-fetch";
 // Comparație constant-time pe secretul header (anti-timing). Buffer-e de lungimi diferite → false
 // (timingSafeEqual ar arunca). Lungimea se scurge — acceptabil pentru un secret de header.
 function timingSafeEq(a: string, b: string): boolean {
@@ -112,10 +113,9 @@ interface CropResult {
 async function cropToBuilding(base64Pdf: string): Promise<CropResult> {
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const res = await fetch(`${FASTAPI_URL}/crop-to-building`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ pdf_base64: base64Pdf, margin_frac: CROP_MARGIN_FRAC }),
+    const res = await fetchBackend(`${FASTAPI_URL}/crop-to-building`, { pdf_base64: base64Pdf, margin_frac: CROP_MARGIN_FRAC }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 95000,
     });
     if (!res.ok) return { cropped: false };
     return (await res.json()) as CropResult;

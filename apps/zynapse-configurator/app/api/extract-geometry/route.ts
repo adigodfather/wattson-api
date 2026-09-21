@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
+import { fetchBackend } from "@/lib/backend-fetch";
 // P1: extrage peretii din cleanBasePdf -> {walls, doors} (proxy server-side catre FastAPI).
 // Necesita utilizator autentificat (anti-abuz). Fara IDOR: clientul trimite propriul PDF
 // (cleanBasePdf din result_data); backend-ul NU citeste DB, doar extrage geometria din PDF.
@@ -36,10 +37,9 @@ export async function POST(req: NextRequest) {
   // ── Forward la FastAPI ──
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const resp = await fetch(`${FASTAPI}/extract-geometry`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ pdf_base64: pdf, rooms }),
+    const resp = await fetchBackend(`${FASTAPI}/extract-geometry`, { pdf_base64: pdf, rooms }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 45000,
     });
     const text = await resp.text();
     try {

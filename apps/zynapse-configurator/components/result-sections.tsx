@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { sursaPng } from "@/lib/storage-read";
 import { isPhasePT, iluminatPlanseToShow } from "@/lib/constants";
 import type { Circuit, RoomResult, ProjectResult } from "@/lib/constants";
 import { groupBomBySection, hasSections, type BomRow } from "@/lib/bom-sections";
@@ -334,12 +335,22 @@ export function SchemasSection({ schemas }: { schemas: NonNullable<ProjectResult
 }
 
 /* ─── Annotated plan ─── */
-export function AnnotatedPlanSection({ src }: { src: string }) {
-  if (!src) return null;
+export function AnnotatedPlanSection({ src, cale }: { src?: string | null; cale?: string | null }) {
+  // Proiectele vechi au imaginea in rand (base64 cu prefix `data:`), cele noi o au in bucketul
+  // privat. Se accepta AMANDOUA: base64-ul intai (e deja in memorie), altfel un URL semnat.
+  const [sursa, setSursa] = useState<string | null>(src || null);
+  useEffect(() => {
+    let anulat = false;
+    if (!src && cale) {
+      sursaPng(null, cale).then((u) => { if (!anulat) setSursa(u); });
+    }
+    return () => { anulat = true; };
+  }, [src, cale]);
+  if (!sursa) return null;
 
   const handleDownload = () => {
     const a = document.createElement("a");
-    a.href = src;
+    a.href = sursa;
     a.download = "plansa_adnotata.png";
     a.click();
   };
@@ -348,7 +359,7 @@ export function AnnotatedPlanSection({ src }: { src: string }) {
     <ResultSection title="Planșă adnotată" defaultOpen>
       <div className="mt-3">
         <img
-          src={src}
+          src={sursa}
           alt="Planșă electrică adnotată"
           className="w-full rounded-lg"
           style={{ border: "1px solid rgba(255,255,255,0.08)" }}
@@ -483,7 +494,9 @@ export function ProjectResultPanel({ result, projectName }: { result: ProjectRes
           return <p className="text-sm text-center py-8" style={{ color: "#545870" }}>Planul de iluminat nu a fost generat din editor (ciornă).</p>;
         }
         if (planse.length) return <PlanPdfSection planse={planse} />;
-        if (result.annotated_plan_base64) return <AnnotatedPlanSection src={result.annotated_plan_base64} />;
+        if (result.annotated_plan_base64 || result.annotated_plan_path)
+          return <AnnotatedPlanSection src={result.annotated_plan_base64}
+                                       cale={result.annotated_plan_path} />;
         return null;
       })()}
       {result.schemas?.length ? (

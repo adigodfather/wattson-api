@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { fetchBackend } from "@/lib/backend-fetch";
 // Fundal editor FORTA: randeaza baza CURATA (planuri[].pdf_base64) -> PNG + png_meta, prin FastAPI.
 // Proxy simplu (fara DB): clientul trimite PDF-ul lui (deja RLS-scoped din result). Middleware-ul cere
 // sesiune (ruta NU e in PUBLIC_ROUTES). Model: app/api/regenerate-plan/route.ts (fara ownership — zero DB).
@@ -22,10 +23,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
-    const resp = await fetch(`${FASTAPI}/render-base-png`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { "x-zynapse-key": key } : {}) },
-      body: JSON.stringify({ pdf_base64: pdf }),
+    const resp = await fetchBackend(`${FASTAPI}/render-base-png`, { pdf_base64: pdf }, {
+      headers: key ? { "x-zynapse-key": key } : {},
+      bugetMs: 45000,
     });
     const text = await resp.text();
     try {
