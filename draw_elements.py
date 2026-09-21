@@ -301,8 +301,41 @@ _CS_LABEL_FS = 6.0
 # (asa ii zice si lista de cantitati, "Dulap RACK"), la locuinte ramane DDCS.
 _DDCS_NAME_REZ = "DDCS"
 _DDCS_NAME_COM = "RACK"
+_DDCS_NAME_AP = "DTC"
 _DDCS_LEGEND_REZ = "DDCS - DOZA DE LEGATURA CURENTI SLABI"
 _DDCS_LEGEND_COM = "RACK - DULAP ECHIPAMENTE CURENTI SLABI"
+_DDCS_LEGEND_AP = "DTC - DOZA DE CENTRALIZARE CURENTI SLABI (APARTAMENT)"
+
+# A TREIA ETICHETA: DTC, cand doza sta INTR-UN APARTAMENT. Masurata pe IE.32/IE.33 ale lui Dan,
+# unde legenda o descrie exact ca pe DDCS-ul de la casa: „Doza montata in interiorul fiecarui
+# apartament unde se centralizeaza circuitele interioare de TV, telefon si internet".
+#
+# DECI E ACELASI ELEMENT, ca si RACK-ul de la comercial — aceeasi putere, acelasi circuit, acelasi
+# simbol, doar numele difera. De-aia P7a nu adauga NICIUN tip nou: un `element_type` in plus ar fi
+# cerut migratie si sapte locuri de inregistrat pentru ceva ce se distinge din POZITIE.
+#
+# DIFERENTA DE FORMA fata de DDCS-vs-RACK: acolo numele e al PROIECTULUI (sub-tipul comercial),
+# aici e al ELEMENTULUI — pe acelasi nivel de bloc stau si doze in apartamente (DTC), si doza de
+# palier din casa scarii (DDCS). De-aia decizia se ia per element, prin apartenenta la contur, cu
+# mecanismul de la P2 — nu printr-un al doilea criteriu.
+
+
+def _nume_ddcs(el, plan_elements, comercial=False):
+    """Numele dozei de curenti slabi: DTC in apartament, RACK la comercial, DDCS in rest."""
+    try:
+        import apartments as _apm
+        import floors as _fl
+        # `elements` sunt deja ale NIVELULUI curent (planşa se deseneaza per nivel), deci nivelul se
+        # ia chiar de la doza: asa nu se inventeaza o a doua notiune de „ce nivel desenam".
+        _fk = _fl.floor_canonic((el or {}).get("floor"))
+        _cont = _apm.conturi_nivel(plan_elements or [], _fk, _fl.floor_canonic,
+                                   tipuri=(_apm.CONTUR,))
+        if _apm.apartament_al_elementului(el, _cont):
+            return _DDCS_NAME_AP, _DDCS_LEGEND_AP
+    except Exception:
+        pass                       # fara apartments / contur invalid -> exact comportamentul de azi
+    return ((_DDCS_NAME_COM, _DDCS_LEGEND_COM) if comercial
+            else (_DDCS_NAME_REZ, _DDCS_LEGEND_REZ))
 
 
 def _e_comercial(subtip):
@@ -880,7 +913,9 @@ def _legend_label(kind, element_type, power_w=None, label=None, kit=False, comer
     if kind == "receptor":
         return "Alimentare " + (str(label).strip() if label else "receptor")
     if kind == "internet":
-        # la comercial doza devine dulapul RACK (decizia Dan) — DOAR numele, elementul e acelasi
+        # la comercial doza devine dulapul RACK (decizia Dan), in apartament DTC — DOAR numele,
+        # elementul e acelasi. Legenda e a PLANSEI, nu a unui element: cand pe nivel exista si doze
+        # de apartament, si doza de palier, se scriu AMANDOUA randurile (vezi apelantul).
         return _DDCS_LEGEND_COM if comercial else _DDCS_LEGEND_REZ
     # bulb (default)
     if kit:
@@ -2406,8 +2441,18 @@ def build_legend_rows(elements, plan_type="iluminat", feeds=None, circuits=None,
 
     # e) RETEA INTERNET (forta): daca prezenta
     _e_com = _e_comercial(subtip)          # comercial -> doza de curenti slabi se numeste RACK
-    internet_rows = ([{"kind": "internet", "text": _legend_label("internet", None, comercial=_e_com)}]
-                     if "receptor_internet" in present else [])
+    # Pe un nivel de BLOC stau si doze de apartament (DTC), si doza de palier (DDCS) — acelasi
+    # element, nume diferite. Legenda le scrie pe amandoua, in ordinea in care se citesc de pe
+    # planşa: mai intai DTC-urile (sunt mai multe), apoi doza de palier. Un singur rand ar fi
+    # numit gresit jumatate din simbolurile identice de pe foaie.
+    _dz = [el for el in elements if ((el or {}).get("element_type") or "") == "receptor_internet"]
+    _nume_dz = []
+    for _e in _dz:
+        _n2, _l2 = _nume_ddcs(_e, elements, _e_com)
+        if (_n2, _l2) not in _nume_dz:
+            _nume_dz.append((_n2, _l2))
+    _nume_dz.sort(key=lambda q: 0 if q[0] == _DDCS_NAME_AP else 1)
+    internet_rows = [{"kind": "internet", "text": _l2} for _n2, _l2 in _nume_dz]
 
     # f) TABLOURI (ambele): doar tipurile prezente
     panels = [{"kind": "panel", "element_type": et, "text": _legend_label("panel", et)}
@@ -5601,7 +5646,9 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                 _draw_internet(page, x, y)                                            # simbol RETEA (violet + router + WiFi)
                 _nh = _fmt_height(el.get("mount_height_m"))                           # inaltime de montaj (ca la prize)
                 if _nh:
-                    _nt = "%s - h=%sm" % (_DDCS_NAME_COM if _e_com else _DDCS_NAME_REZ, _nh)
+                    # DTC / RACK / DDCS — decis per ELEMENT (vezi `_nume_ddcs`): pe un nivel de
+                    # bloc stau si doze de apartament, si doza de palier.
+                    _nt = "%s - h=%sm" % (_nume_ddcs(el, elements, _e_com)[0], _nh)
                     _nfs = 7.5
                     _nw = len(_nt) * _nfs * 0.46
                     _labels.append({"text": _nt, "x0": x - _nw / 2.0, "y": y + 22.0, "w": _nw,
