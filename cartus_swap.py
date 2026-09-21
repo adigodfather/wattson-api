@@ -594,14 +594,28 @@ def swap_cartus_plan(data: dict) -> dict:
             }
         cartus_fallback = True
 
+    # 4b. ACOPERIREA NU E STERGERE (D3, diagnoza 21.09.2026). Pana aici zonele se albeau doar
+    # GRAFIC: textul de dedesubt ramanea in fisier — datele firmei sursa (denumire, CUI, telefon,
+    # email) si NOTA EI DE PROPRIETATE ieseau la orice cautare, indexare sau copy-paste, desi pe
+    # ecran nu se vedea nimic. `_albeste` face amandoua: acopera ACUM (ca planul sa arate la fel)
+    # si retine zona pentru eliminarea propriu-zisa de la pasul 5c — o singura trecere, INAINTE de
+    # a desena cartusul nostru, altfel ar sterge si ce scriem noi.
+    _redactate = []
+
+    def _albeste(rect):
+        r = fitz.Rect(rect)
+        if r.is_empty or r.is_infinite:
+            return
+        _redactate.append(r)
+        page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1))
+
     # 5. Acoperire cartus vechi cu alb opac. +6pt pe laturi: CHENARUL vectorial al cartusului e
     # putin in AFARA bbox-ului text-detectat (masurat pe c7890: linia de sus la y=1055 vs bbox
     # 1059.6) — altfel ramane un chenar dublu subtire la cartusul Zynapse. Blocul e in colt: safe.
     # FALLBACK: zona e libera prin constructie -> FARA expandarea de 6pt (ar putea musca din desen).
     _pad = 0.0 if cartus_fallback else 6.0
-    page.draw_rect(fitz.Rect(max(0.0, bbox.x0 - _pad), max(0.0, bbox.y0 - _pad),
-                             min(W, bbox.x1 + _pad), min(H, bbox.y1 + _pad)),
-                   color=(1, 1, 1), fill=(1, 1, 1))
+    _albeste(fitz.Rect(max(0.0, bbox.x0 - _pad), max(0.0, bbox.y0 - _pad),
+                       min(W, bbox.x1 + _pad), min(H, bbox.y1 + _pad)))
 
     # 5a. GUNOI DE EXPORT + contact izolat — TINTIT pe BBOX-uri de CUVINTE (nu zone: imposibil sa
     # taie din plan): (1) watermark-ul ArchiCAD 'GSPublisherVersion' + numarul de versiune adiacent,
@@ -633,8 +647,7 @@ def swap_cartus_plan(data: dict) -> dict:
                         or (_re_num.match(_w[4]) and _nsep >= 2)):
                     _marks.append(_w)
         for _w in _marks:
-            page.draw_rect(fitz.Rect(_w[0] - 1.5, _w[1] - 1.5, _w[2] + 1.5, _w[3] + 1.5),
-                           color=(1, 1, 1), fill=(1, 1, 1))
+            _albeste(fitz.Rect(_w[0] - 1.5, _w[1] - 1.5, _w[2] + 1.5, _w[3] + 1.5))
             wiped_words.append(_w[4])
     except Exception:
         pass
@@ -715,14 +728,14 @@ def swap_cartus_plan(data: dict) -> dict:
                 _G = None
             if _G is not None and _right_col_safe(page, W, H, _G, skip=_skip):
                 _top = _TITLE_TOP_FRAC * H
-                page.draw_rect(fitz.Rect(_G, _top, W, H), color=(1, 1, 1), fill=(1, 1, 1))
+                _albeste(fitz.Rect(_G, _top, W, H))
                 right_band = [round(_G, 1), round(_top, 1), round(W, 1), round(H, 1)]
     if tables_bbox is not None:
         G = max(0.55 * H, tables_bbox.y0 - 4.0)
         if _bottom_band_safe(page, W, H, G):
             # banda administrativa COMPLETA (toata latimea, pana jos) — cartusul Zynapse se
             # deseneaza DUPA, peste banda alba (pasul 6), pe pozitia conventionala dreapta-jos.
-            page.draw_rect(fitz.Rect(0.0, G, W, H), color=(1, 1, 1), fill=(1, 1, 1))
+            _albeste(fitz.Rect(0.0, G, W, H))
             bottom_band = [0.0, round(G, 1), round(W, 1), round(H, 1)]
         else:
             # fallback partial (garda a gasit vectori de plan peste granita): L-shape pe zona
@@ -735,11 +748,32 @@ def swap_cartus_plan(data: dict) -> dict:
             rs = (tx0 - 4.0, ty0 - 4.0, min(tx1 + 4.0, cx0 - 2.0), H - 2.0)
             rm = (max(tx0 - 4.0, cx0 - 2.0), ty0 - 4.0, tx1_mijloc, cy0 - 2.0)
             if rs[0] < rs[2] and rs[1] < rs[3]:
-                page.draw_rect(fitz.Rect(*rs), color=(1, 1, 1), fill=(1, 1, 1))
+                _albeste(fitz.Rect(*rs))
                 tables_bbox_stanga = [round(v, 1) for v in rs]
             if rm[0] < rm[2] and rm[1] < rm[3]:
-                page.draw_rect(fitz.Rect(*rm), color=(1, 1, 1), fill=(1, 1, 1))
+                _albeste(fitz.Rect(*rm))
                 tables_bbox_mijloc = [round(v, 1) for v in rm]
+
+    # 5c. ELIMINAREA PROPRIU-ZISA a ce statea sub zonele albite (vezi 4b). O singura trecere,
+    # aici: dupa ce s-au adunat toate zonele, inainte sa desenam noi ceva.
+    #   graphics=REMOVE_IF_COVERED, nu IF_TOUCHED — dispar doar vectorii CUPRINSI integral in
+    #     zona (chenarul cartusului sursa, liniile tabelelor); o cota a planului care doar atinge
+    #     marginea ramane intreaga. Cerinta: nimic din afara zonei nu se pierde.
+    #   images=NONE — pe planurile care sunt o IMAGINE scanata, orice atingere ar gauri desenul.
+    #     Consecinta asumata: un logo-imagine al firmei sursa ramane in fisier, invizibil sub alb.
+    #     Textul — ce se cauta, se indexeaza si se copiaza — nu mai e acolo.
+    # Zonele se redeseneaza alb si de catre redactare (fill), deci acoperirea ramane chiar daca
+    # dreptunghiul nostru alb e el insusi "cuprins" si eliminat.
+    redactate = len(_redactate)
+    if _redactate:
+        try:
+            for _r in _redactate:
+                page.add_redact_annot(_r, fill=(1, 1, 1))
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                                  graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                                  text=fitz.PDF_REDACT_TEXT_REMOVE)
+        except Exception:
+            redactate = -1   # PyMuPDF vechi: raman acoperirile albe (comportamentul de dinainte)
 
     # 6. Cartus nou (acelasi bbox, scara detectata)
     title_rect, title_base, plansa_box = _draw_cartus(page, bbox, cf, cp, plansa_nr, plansa_titlu, scara)
@@ -784,6 +818,7 @@ def swap_cartus_plan(data: dict) -> dict:
             "bottom_band": bottom_band,       # [0,G,W,H] banda de jos albita COMPLET (None = fallback/lateral)
             "right_band": right_band,         # [G,top,W,H] coloana dreapta albita (LANDSCAPE; None = fallback)
             "wiped_words": wiped_words,       # gunoi export (GSPublisherVersion) + contact izolat (bbox-uri albite)
+            "redactate": redactate,           # cate zone au fost ELIMINATE (nu doar acoperite); -1 = redactarea a esuat
             "margins_masked": margins_bbox,   # mereu None (masca Vision dezactivata — taia planul)
         },
     }
