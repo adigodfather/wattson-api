@@ -1606,7 +1606,17 @@ def build_memoriu_docx(data: dict) -> bytes:
     # IE.1..IE.8. DOAR secțiunea de planșe se schimbă; restul memoriului = NEATINS. extra_floors/
     # has_tect: explicit din payload (n8n Faza 2B), altfel derivat din circuite (fallback). Orice
     # eroare -> păstrează `planse` primit / lista standard (backward-compat).
-    if is_pt:
+    # LISTA AUTORITATII, cand o primim: numerotarea s-a calculat DEJA, o singura data, si a ajuns
+    # aici intreaga. A o recalcula ar insemna sa fim a cincea oglinda a aceleiasi functii — si a
+    # cincea sansa de divergenta. S-a si intamplat: la un bloc, apelantul trimitea lista corecta
+    # (9 planse), iar recalcularea de mai jos o refacea cu parametrii pe care-i stia ea (3 planse),
+    # deci borderoul spunea altceva decat planşele livrate.
+    # Absenta ei = exact comportamentul de pana acum, deci casele nu se ating.
+    _autoritate = data.get("plansa_numbering")
+    if is_pt and isinstance(_autoritate, list) and _autoritate:
+        planse = [{"nr": p.get("nr"), "titlu": p.get("nume") or p.get("titlu")}
+                  for p in _autoritate if isinstance(p, dict) and p.get("nr")]
+    elif is_pt:
         try:
             from plansa_numbering import compute_plansa_numbering, derive_extra_floors
             _has_tect = data.get("has_tect")
