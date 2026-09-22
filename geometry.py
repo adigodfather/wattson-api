@@ -309,6 +309,107 @@ def _on_wall(x, y, hlines, vlines, tol=SEED_WALL_TOL):
     return False
 
 
+TRAVERSARE_CAPAT = 2.0     # pt; nu numaram intersectiile lipite de capetele segmentului
+USA_MARJA = 6.0            # pt; marja peste raza arcului de usa (golul e mai lat decat arcul)
+PERETE_SEPARATOR = 22.0    # pt; bucata NELINTRERUPTA de perete sub care nu consideram ca desparte
+# De ce se masoara bucata locala si nu linia intreaga: un spalet, o fata de stalp sau intoarcerea
+# unei nise sunt adesea COLINIARE cu un perete lung, deci linia agregata are lungime mare si trece
+# de MIN_WALL_LINE, desi intervalul din dreptul trecerii are cativa pt. Asa a pierdut „casa testt /
+# Baie 2" seed-urile bune: linia dintre ele si eticheta trecea peste intoarcerea unei nise.
+# Comutator de MASURATOARE, nu de productie: "eticheta" = verificarea se aplica doar cand camera
+# are eticheta proprie pe plan; "eticheta_sau_bbox" = fara eticheta se foloseste centrul bbox-ului.
+# Masurat pe cele 48 de camere gresite: eticheta cade in AFARA conturului strain in 38 din 38 de
+# cazuri, iar centrul bbox-ului cade INAUNTRUL lui in 23 din 38 — deci centrul n-ar avea ce sa
+# respinga, dar ar putea respinge seed-uri BUNE cand Vision e decalat. De aia productia e pe
+# "eticheta".
+ANCORA_TRAVERSARE = "eticheta"
+# A doua conditie, masurata separat: conturul pe care il da seed-ul trebuie sa CONTINA ancora.
+# „Nu taie un perete" se poate satisface si ocolind capatul peretelui, prin gol — exact ce s-a
+# intamplat la `casa testt / Baie 2`, unde eticheta e dincolo de un perete fata de TOT bbox-ul.
+SEED_CERE_ANCORA_IN_RECT = True
+
+
+def _in_usa(x, y, doors):
+    """Punctul cade intr-un gol de usa? Arcul de usa are centrul in balama si raza = latimea ei."""
+    for (cx, cy, r) in doors:
+        if math.hypot(x - cx, y - cy) <= r + USA_MARJA:
+            return True
+    return False
+
+
+def _traverseaza_perete(x0, y0, x1, y1, hlines, vlines, doors):
+    """Segmentul (x0,y0)-(x1,y1) taie o linie de perete (altfel decat printr-o usa)?
+
+    Se folosesc ACELEASI linii agregate pe care le foloseste `_room_rect`, nu o detectie noua:
+    daca o linie nu e perete pentru cautarea camerei, nu e perete nici aici. Doua consecinte utile
+    pe gratis: liniile scurte (stalpi, spaleti — sub MIN_WALL_LINE) nu blocheaza, iar golurile de
+    usa raman goluri, fiindca agregarea uneste doar pauzele sub MERGE_GAP (14 pt), mult sub o usa.
+    """
+    dx, dy = x1 - x0, y1 - y0
+    lung = math.hypot(dx, dy)
+    if lung < 1e-6:
+        return False
+    marja = TRAVERSARE_CAPAT / lung
+    for (pos, ivs, total) in vlines:
+        if total < MIN_WALL_LINE or abs(dx) < 1e-9:
+            continue
+        s = (pos - x0) / dx
+        if not (marja < s < 1.0 - marja):
+            continue
+        y = y0 + s * dy
+        if any(a <= y <= b and (b - a) >= PERETE_SEPARATOR for a, b in ivs) and not _in_usa(pos, y, doors):
+            return True
+    for (pos, ivs, total) in hlines:
+        if total < MIN_WALL_LINE or abs(dy) < 1e-9:
+            continue
+        s = (pos - y0) / dy
+        if not (marja < s < 1.0 - marja):
+            continue
+        x = x0 + s * dx
+        if any(a <= x <= b and (b - a) >= PERETE_SEPARATOR for a, b in ivs) and not _in_usa(x, pos, doors):
+            return True
+    return False
+
+
+def _eticheta_camerei(nume, vroom, labels, sigura=False):
+    """Eticheta desenata a camerei (coordonate normalizate 0-1), sau None.
+
+    O SINGURA notiune de „eticheta camerei", folosita si de ancora verificarii de traversare, si de
+    fallback-ul V4 — altfel cele doua s-ar putea desparti tacut pe un plan cu nume duplicate.
+
+    `sigura=True` cere o eticheta NEAMBIGUA: cu doua etichete «Hol acces» pe plan, alegerea „cea mai
+    apropiata de bbox" se sprijina exact pe lucrul despre care stim ca e decalat (bbox-ul Vision) si
+    poate cadea pe geamana gresita. Dezambiguarea se incearca intai pe ARIA pe care si-o scrie
+    eticheta: daca o singura omonima are aria camerei, ea e. Altfel nu exista ancora de incredere.
+    """
+    nn = _norm_room_name(nume)
+    cands = [lb for lb in (labels or []) if _norm_room_name(lb.get("name")) == nn]
+    if not cands:
+        return None
+    if len(cands) > 1:
+        try:
+            decl = float((vroom or {}).get("area_m2") or 0)
+        except (TypeError, ValueError):
+            decl = 0.0
+        if decl > 0:
+            pe_arie = [lb for lb in cands if lb.get("area_m2")
+                       and abs(float(lb["area_m2"]) - decl) <= max(0.05, 0.02 * decl)]
+            if len(pe_arie) == 1:
+                return pe_arie[0]
+        if sigura:
+            return None
+    elif sigura:
+        return cands[0]
+    bb = (vroom or {}).get("bbox") or {}
+    try:
+        bxc = float(bb.get("x", 0)) + float(bb.get("w", 0)) / 2.0
+        byc = float(bb.get("y", 0)) + float(bb.get("h", 0)) / 2.0
+    except (TypeError, ValueError):
+        bxc = byc = 0.0
+    # dubluri de nume ramase nedespartite -> eticheta cea mai apropiata de bbox-ul Vision
+    return min(cands, key=lambda lb: (lb["label_x"] - bxc) ** 2 + (lb["label_y"] - byc) ** 2)
+
+
 def _walls_in_rect(h_segs, v_segs, l, r, t, b, pad=8.0):
     """Segmentele de perete (H/V) ale caror mijloc cade in dreptunghiul [l,r]x[t,b] (cu pad)."""
     out = []
@@ -481,6 +582,12 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             _text_lines = _collect_text_lines(page)
         except Exception:
             _text_lines = []
+        # etichetele se calculeaza AICI, o singura data: au doi consumatori — ancora verificarii de
+        # traversare (in bucla pe camere) si fallback-ul V4 (dupa bucla)
+        try:
+            _labels = _room_labels_from_lines(_text_lines, W, H) if _text_lines else []
+        except Exception:
+            _labels = []
         doc.close()   # RAM: documentul nu mai e folosit dupa extragerea peretilor/usilor
     except Exception as e:  # pragma: no cover - plan invalid
         try:
@@ -535,17 +642,48 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             # REGULA 1 — PLAFON de arie vs Vision (doar limita de sus; nu respinge sub Vision)
             ceiling = MAX_AREA_RATIO * area_vision if area_vision > 0 else float("inf")
 
+            # ANCORA verificarii de traversare: un punct despre care stim ca e IN camera cautata.
+            # Eticheta desenata e in camera ei prin constructie; bbox-ul Vision, nu — masurat pe
+            # cele 48 de camere cu contur gresit, eticheta proprie cade in AFARA conturului strain
+            # in 38 din 38 de cazuri, iar bbox-ul Vision e el insusi decalat (eticheta cade in
+            # afara lui la 28 din 38). Fara eticheta -> fara ancora de incredere -> fara verificare.
+            _lab = _eticheta_camerei(name, r, _labels, sigura=True)
+            if _lab is not None:
+                anc = (_lab["label_x"] * W, _lab["label_y"] * H)
+            elif ANCORA_TRAVERSARE == "eticheta_sau_bbox":
+                anc = (cx0, cy0)
+            else:
+                anc = None
+
             # FIX 1 — multi-seed: grila de seed-uri in bbox; sari peste cele cazute pe perete
             cands = []   # (l, r, t, b, area_geom, aspect)
             n_over_ceiling = 0
+            n_traversare = 0
             for fx in SEED_FRACS:
                 for fy in SEED_FRACS:
                     sx = bx + fx * bw
                     sy = by + fy * bh
                     if _on_wall(sx, sy, hlines, vlines):
                         continue
+                    # SEED-UL CARE TRAVERSEAZA UN PERETE nu e in camera cautata, e in vecina.
+                    # Cautarea arunca seed-uri in bbox-ul Vision si accepta primul contur pe care
+                    # cad de acord; cand bbox-ul e decalat peste un perete, conturul intors e al
+                    # vecinului si trece de toate celelalte verificari (e mai MIC, deci sub plafon;
+                    # incape in bbox; are aspect bun). Asa a primit `casa test / Dormitor 2`
+                    # (13,60 mp declarati) conturul de 9,41 mp al BAII, cu eticheta BAII inauntru.
+                    if anc is not None and _traverseaza_perete(sx, sy, anc[0], anc[1],
+                                                               hlines, vlines, doors):
+                        n_traversare += 1
+                        continue
                     l, rr, t, b = _room_rect(sx, sy, hlines, vlines, max_reach)
                     if None in (l, rr, t, b) or rr <= l or b <= t:
+                        continue
+                    # conturul seed-ului trebuie sa cuprinda eticheta camerei: daca nu o cuprinde,
+                    # seed-ul si eticheta sunt in incaperi diferite chiar daca linia dintre ele a
+                    # ocolit peretele printr-un gol
+                    if (SEED_CERE_ANCORA_IN_RECT and anc is not None
+                            and not (l <= anc[0] <= rr and t <= anc[1] <= b)):
+                        n_traversare += 1
                         continue
                     w = rr - l; h = b - t
                     aspect = max(w, h) / min(w, h)
@@ -655,6 +793,9 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                     elif area_geom < MIN_AREA_M2:
                         rec["reason"] = "respins: arie %.1fm2 < %.1f (sub-spatiu/colaps)" % (
                             area_geom, MIN_AREA_M2)
+                    elif n_traversare:
+                        rec["reason"] = ("respins: niciun seed in camera (%d din grila traversau un "
+                                         "perete pana la eticheta)" % n_traversare)
                     else:
                         rec["reason"] = "respins: niciun seed valid (toate pe perete)"
                 else:
@@ -736,25 +877,15 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
     for r in out:
         if r.get("geom_bbox"):
             r["geom_source"] = "wall"             # sursa clasica: contur inchis de pereti
-    try:
-        _labels = _room_labels_from_lines(_text_lines, W, H) if _text_lines else []
-    except Exception:
-        _labels = []
     if _labels and have_geom:
         for rec, vroom in zip(out, (vision_rooms or [])):
             if rec.get("geom_bbox") is not None:
                 continue                          # aditiv: doar None-urile
             try:
-                nn = _norm_room_name(rec.get("name"))
-                cands = [lb for lb in _labels if _norm_room_name(lb["name"]) == nn]
-                if not cands:
+                lab = _eticheta_camerei(rec.get("name"), vroom, _labels)
+                if lab is None:
                     rec["reason"] = (rec.get("reason") or "") + " | fara eticheta text -> fallback Vision"
                     continue
-                # dubluri de nume (ex. 'Hol acces' x2) -> eticheta cea mai apropiata de bbox-ul Vision
-                bb = (vroom or {}).get("bbox") or {}
-                bxc = float(bb.get("x", 0)) + float(bb.get("w", 0)) / 2.0
-                byc = float(bb.get("y", 0)) + float(bb.get("h", 0)) / 2.0
-                lab = min(cands, key=lambda lb: (lb["label_x"] - bxc) ** 2 + (lb["label_y"] - byc) ** 2)
                 area = lab.get("area_m2") or rec.get("area_vision_m2") or 0.0
                 if not area or area <= 0:
                     continue
