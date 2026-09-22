@@ -232,6 +232,57 @@ def save_project_file(
         pass
 
 
+# ── Plansele din Storage ──────────────────────────────────────────────────────
+# De la mutarea blob-urilor in Storage (etapa 2), `result_data.planuri[]` nu mai tine PDF-ul in
+# rand, ci o referinta: `pdf_base64_path` + `pdf_base64_sha256` (amprenta OCTETILOR PDF, verificata
+# pe toate cele 23 de planse din baza). Cititorii care doar AFISEAZA au fost mutati atunci; cei
+# care CALCULEAZA au scapat, fiindca nu arata nimic cand raman fara date — se multumesc cu „lipsa"
+# si trec mai departe. Asa a stat ramura geometrica din `/bom` fara sa se execute.
+# Functia asta e singurul loc din backend care stie de unde vine o plansa.
+
+BUCKET_PLANSE = "project-files"
+
+
+def plansa_bytes(plansa: dict) -> Optional[bytes]:
+    """Octetii PDF ai unei planse din `result_data.planuri[]`, din rand sau din Storage.
+
+    Fail-safe prin contract: ORICE esec intoarce None, iar apelantul cade pe comportamentul lui de
+    dinainte. Amprenta se verifica atunci cand randul o are — un fisier care nu e cel anuntat nu e
+    mai bun decat lipsa lui.
+    """
+    if not isinstance(plansa, dict):
+        return None
+    b64 = plansa.get("pdf_base64") or ""
+    if b64:
+        try:
+            import base64 as _b64
+            return _b64.b64decode(b64.split(",", 1)[-1])
+        except Exception:
+            return None
+    cale = plansa.get("pdf_base64_path")
+    if not cale:
+        return None
+    sb = _sb()
+    if sb is None:
+        return None
+    try:
+        raw = sb.storage.from_(BUCKET_PLANSE).download(cale)
+    except Exception as e:
+        logger.warning("[plansa_bytes] descarcare esuata pentru %s: %r", cale, e)
+        return None
+    if not raw:
+        return None
+    amprenta = plansa.get("pdf_base64_sha256")
+    if amprenta:
+        import hashlib as _h
+        real = _h.sha256(raw).hexdigest()
+        if real != amprenta:
+            logger.warning("[plansa_bytes] amprenta nu se potriveste pentru %s (rand %s, fisier %s)",
+                           cale, str(amprenta)[:12], real[:12])
+            return None
+    return raw
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 def log_action(

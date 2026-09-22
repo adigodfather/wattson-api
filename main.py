@@ -1375,6 +1375,7 @@ class BomRequest(ZynModel):
 
 
 @app.post("/bom")
+@_protejat
 def bom_endpoint(request: BomRequest):
     """Lista de cantitati din circuitele UNIFICATE (enrich) + plan_elements. Fail-safe: eroare ->
     success:False. Citeste plan_elements + result_data (rooms/area_m2 + circuits) din DB (service-role)."""
@@ -1459,11 +1460,14 @@ def bom_endpoint(request: BomRequest):
                 if _i >= len(_order2):
                     break
                 try:
-                    _b64 = (_p or {}).get("pdf_base64") or ""
-                    if not _b64:
+                    # plansa vine din rand SAU din Storage (vezi supabase_client.plansa_bytes).
+                    # Inainte se citea numai `pdf_base64`, iar mutarea in Storage l-a golit: ramura
+                    # asta a incetat sa se mai execute la TOATE proiectele, fara nicio eroare, si
+                    # metrii de cablu au cazut tacut pe rutarea veche.
+                    from supabase_client import plansa_bytes as _plb
+                    _pdf2 = _plb(_p or {})
+                    if not _pdf2:
                         continue
-                    _raw2 = _b64.split(",", 1)[1] if "," in _b64 else _b64
-                    _pdf2 = base64.b64decode(_raw2)
                     _doc2 = fitz.open(stream=_pdf2, filetype="pdf")
                     _w2, _h2 = _doc2[0].rect.width, _doc2[0].rect.height
                     _doc2.close()
@@ -1500,7 +1504,12 @@ def bom_endpoint(request: BomRequest):
                              rooms=_rooms, power_summary=rd.get("power_summary") or {},
                              W=(_p_wh[0] or None), H=(_p_wh[1] or None), horizontal_m=horiz_m,
                              fv_grounding=_fvg)
+        # `geom_rooms` face RAMURA GEOMETRICA vizibila din afara: cate camere au intrat in rutare
+        # cu conturul lor real, per etaj. Pana acum nimic nu o pazea — cand mutarea in Storage a
+        # golit campul din care se citea plansa, ramura a incetat sa se execute, raspunsul a ramas
+        # 200, iar metrii au cazut tacut pe rutarea veche. Un test poate cere acum > 0.
         return {"success": True, "scale_m_per_px": round(scale, 6), "scale_source": ssrc,
+                "geom_rooms": {k: len(v) for k, v in (_floor_geoms or {}).items()},
                 "floors": {k: {"scale": round(v["scale"], 6), "scale_source": v["scale_source"],
                                "n_elements": v["n_elements"], "n_rooms": v["n_rooms"]}
                            for k, v in _flinfo.items()},
@@ -1904,7 +1913,17 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                     # plansa etajului N = planuri[N] sortate pe plansa_nr (IE.1=parter, IE.2=etaj, ...)
                     _order = ["parter", "etaj", "mansarda"]
                     _pls = sorted((_rdX.get("planuri") or []), key=lambda p: str((p or {}).get("plansa_nr") or ""))
-                    _pdf_of = {_order[i]: (p or {}).get("pdf_base64") or "" for i, p in enumerate(_pls) if i < len(_order)}
+                    # AL DOILEA cititor de calcul ramas pe campul golit de mutarea in Storage:
+                    # fara plansele celor doua niveluri, `floor_offset` cade pe „identity", adica
+                    # proiectia TES-ului pe plansa TEG-ului ateriza netranslatata. Tacut, ca si la
+                    # /bom. `floor_offset` cere base64, deci octetii se reimbraca aici.
+                    from supabase_client import plansa_bytes as _plb2
+                    _pdf_of = {}
+                    for _i2, _p2 in enumerate(_pls):
+                        if _i2 >= len(_order):
+                            break
+                        _raw2 = _plb2(_p2 or {})
+                        _pdf_of[_order[_i2]] = base64.b64encode(_raw2).decode() if _raw2 else ""
                     if request.floor == _f_teg:
                         # plansa cu TEG: proiecteaza TES aici -> coloana + simbol URCA
                         _dx, _dy, _osrc = draw_elements.floor_offset(_pdf_of.get(_f_tes, ""), _pdf_of.get(_f_teg, ""))
