@@ -76,6 +76,74 @@ BBOX_CONTAIN_TOL = 12.0    # REGULA 3: toleranta MINIMA (px) la bbox-containment
 CONTAIN_FRAC = 0.15        # fractiune din latura mica a bbox-ului tolerata la iesirea centroidului
 
 
+# ── PARSERUL NOU, IN MOD DE UMBRA (etapa 3) ──────────────────────────────────────────────────
+# `page.get_drawings()` materializeaza fiecare primitiva: ~1,85 KB bucata, deci 1726 MB pe planul
+# de parter al blocului, pe o instanta de 512. `geom_parser` citeste aceleasi trasee direct din
+# content stream: 59 MB, de 29 de ori mai putin.
+#
+# NU e inca sursa de adevar. Pe planurile masurate da aceleasi segmente, dar cu o deplasare de
+# pana la 0,22 pt (0,08 mm) pe unele coordonate — destul cat ~1,5% din liniile de perete AGREGATE
+# sa iasa altfel, si nimeni nu stie inca daca asta schimba vreo camera pe un plan real de client.
+# De aceea ruleaza pe langa: rezultatul folosit ramane cel VECHI, iar diferentele se logheaza.
+# Comutarea se face cand logul e curat pe trafic real — nu pe baza masuratorilor de aici.
+#
+# PRAGUL: in umbra ruleaza AMANDOUA, deci memoria se ADUNA — iar cea mare e a lui get_drawings.
+# Nu se masoara in octeti de content stream: raportul octeti/primitive variaza de noua ori intre
+# planuri (masurat la poarta de la etapa 1), deci stream-ul nu prezice memoria. Se refoloseste
+# chiar numaratoarea ieftina a portii, `capacitate.numara_primitive` (0,01-0,44 s).
+#
+# 200 000 de tokeni inseamna ~100 000 de primitive materializate de get_drawings (raportul masurat
+# e cel mult 0,50), adica ~185 MB, plus ~20 MB pentru parser si ~172 MB repaus pe Linux: ~377 MB
+# din 512. Pragul portii (300 000) ar fi dus la ~480 MB — prea aproape.
+# `santandrei`, cea mai mare casa din baza, are 178 972 de tokeni: intra in umbra.
+UMBRA_PARSER = True          # comutatorul modului de umbra
+UMBRA_PRAG_PRIMITIVE = 200_000
+_umbra_log = []
+
+
+def _umbra(page, h_vechi, v_vechi, d_vechi):
+    """Ruleaza parserul pe langa si logheaza diferenta. Nu intoarce nimic si nu arunca niciodata."""
+    import logging
+    try:
+        import capacitate
+        import geom_parser
+        if capacitate.numara_primitive(page.parent, page.number) > UMBRA_PRAG_PRIMITIVE:
+            return          # prea mare: cele doua metode nu incap simultan in 512 MB
+        h2, v2, d2 = [], [], []
+        for dd in geom_parser.deseneaza(page):
+            lay = dd.get("layer")
+            iw, idr = _is_wall_layer(lay), _is_door_layer(lay)
+            if not (iw or idr):
+                continue
+            for it in dd.get("items", []):
+                if it[0] == "l" and iw:
+                    p1, p2 = it[1], it[2]
+                    dx, dy = abs(p1.x - p2.x), abs(p1.y - p2.y)
+                    if dx > MIN_WALL_LEN and dy < AXIS_TOL:
+                        h2.append((min(p1.x, p2.x), max(p1.x, p2.x), (p1.y + p2.y) / 2.0))
+                    elif dy > MIN_WALL_LEN and dx < AXIS_TOL:
+                        v2.append((min(p1.y, p2.y), max(p1.y, p2.y), (p1.x + p2.x) / 2.0))
+                elif it[0] == "c" and idr:
+                    pts = [it[1], it[2], it[3], it[4]]
+                    r = math.hypot(pts[0].x - pts[3].x, pts[0].y - pts[3].y) / math.sqrt(2.0)
+                    if DOOR_R_MIN <= r <= DOOR_R_MAX:
+                        d2.append((sum(p.x for p in pts) / 4.0, sum(p.y for p in pts) / 4.0, r))
+        # ce conteaza nu e numarul de segmente, ci LINIILE AGREGATE — ele decid camerele
+        ah, av = len(_aggregate(h_vechi)), len(_aggregate(v_vechi))
+        bh, bv = len(_aggregate(h2)), len(_aggregate(v2))
+        egal = (ah == bh and av == bv and len(d_vechi) == len(d2))
+        _umbra_log.append({"h": (len(h_vechi), len(h2)), "v": (len(v_vechi), len(v2)),
+                           "usi": (len(d_vechi), len(d2)), "agregat": ((ah, av), (bh, bv)),
+                           "egal": egal})
+        logging.getLogger(__name__).log(
+            logging.INFO if egal else logging.WARNING,
+            "[umbra parser] %s · segmente h %d/%d v %d/%d · usi %d/%d · AGREGAT h %d/%d v %d/%d",
+            "identic" if egal else "DIFERIT", len(h_vechi), len(h2), len(v_vechi), len(v2),
+            len(d_vechi), len(d2), ah, bh, av, bv)
+    except Exception as e:      # umbra nu are voie sa strice nimic
+        logging.getLogger(__name__).warning("[umbra parser] esuata: %r", e)
+
+
 def _collect(page):
     """Extrage o singura data toate segmentele H/V de pe layerele de pereti + arcele de usa.
     h_segs: (x0, x1, y) orizontale; v_segs: (y0, y1, x) verticale; doors: (cx, cy, r)."""
@@ -101,6 +169,8 @@ def _collect(page):
                     cx = sum(p.x for p in pts) / 4.0
                     cy = sum(p.y for p in pts) / 4.0
                     doors.append((cx, cy, r))
+    if UMBRA_PARSER:
+        _umbra(page, h_segs, v_segs, doors)
     return h_segs, v_segs, doors
 
 
