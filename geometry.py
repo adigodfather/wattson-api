@@ -98,12 +98,23 @@ CONTAIN_FRAC = 0.15        # fractiune din latura mica a bbox-ului tolerata la i
 # `santandrei`, cea mai mare casa din baza, are 178 972 de tokeni: intra in umbra.
 UMBRA_PARSER = True          # comutatorul modului de umbra
 UMBRA_PRAG_PRIMITIVE = 200_000
+# ESANTIONARE: umbra ruleaza IN TIMPUL cererii, iar masurat costa +3,19 s pe cea mai mare casa din
+# baza (`santandrei`: 1,37 s -> 4,55 s) si +0,22..0,26 s pe cele obisnuite. Clientul n-are de ce sa
+# plateasca verificarea noastra la fiecare cerere, iar ca sa se stranga diferente nici nu e nevoie:
+# una din cinci e de ajuns, si costul mediu scade de cinci ori. Nu s-a mutat pe un fir separat
+# fiindca documentul fitz se inchide odata cu cererea — umbra ar citi de sub picioarele ei.
+UMBRA_UNA_DIN = 5
+_umbra_contor = 0
 _umbra_log = []
 
 
 def _umbra(page, h_vechi, v_vechi, d_vechi):
     """Ruleaza parserul pe langa si logheaza diferenta. Nu intoarce nimic si nu arunca niciodata."""
     import logging
+    global _umbra_contor
+    _umbra_contor += 1
+    if _umbra_contor % UMBRA_UNA_DIN != 1:
+        return
     try:
         import capacitate
         import geom_parser
