@@ -4,7 +4,7 @@ import { createServerClient } from "@/lib/supabase";
 import { isPhasePT, poateGeneraTip } from "@/lib/constants";
 
 import { fetchBackend } from "@/lib/backend-fetch";
-import { mutaScalar, mutaIntrari, rezumat } from "@/lib/storage-pdf";
+import { mutaScalar, mutaIntrari, mutaLista, rezumat } from "@/lib/storage-pdf";
 const N8N_WEBHOOK = "https://www.ai-nord-vest.com/webhook/zynapse-electrical";
 const FASTAPI = "https://wattson-api.onrender.com";
 
@@ -493,6 +493,50 @@ export async function POST(req: NextRequest) {
                       rezumat(a.rez), rezumat(inp.rez));
         } catch (e) {
           console.error("[/api/generate] bloc Storage etapa 4 esuat (fallback base64):", e);
+        }
+
+        // ── ETAPA 5 Storage: planșele editorului — ultimele blob-uri din rând. ──
+        // 57 MB peste proiecte, în patru chei: PDF-urile de iluminat și forță, fundalurile curate
+        // (`planuri`) și previzualizările PNG. Sunt ultimele fiindcă editorul nu doar le citește,
+        // ci le și SCRIE înapoi la regenerare — deci mutarea lor cere și calea de scriere, nu doar
+        // cititorii (vezi /api/regenerate-plan).
+        //
+        // Fără pasul ăsta, golirea rândurilor existente ar fi fost o amânare: fiecare proiect nou
+        // s-ar fi născut cu aceleași 2-3 MB de base64 în rând.
+        try {
+          const rez5 = { ...data } as Record<string, unknown>;
+          let ceva = false;
+          const tot = { urcate: 0, esuate: 0, octeti: 0 };
+          for (const [cheie, dosar, campuri] of [
+            ["planse_iluminat", "planse", [{ camp: "pdf_base64", ext: "pdf", tip: "application/pdf" },
+                                           { camp: "png_base64", ext: "png", tip: "image/png" }]],
+            ["planse_forta", "planse", [{ camp: "pdf_base64", ext: "pdf", tip: "application/pdf" }]],
+            ["planuri", "planuri", [{ camp: "pdf_base64", ext: "pdf", tip: "application/pdf" }]],
+          ] as Array<[string, string, Array<{ camp: string; ext: string; tip: string }>]>) {
+            const l = await mutaLista(supa, userId, projectId, rez5[cheie], `${dosar}/${cheie}`, campuri);
+            if (l.rez.urcate) {
+              rez5[cheie] = l.lista;
+              ceva = true;
+            }
+            tot.urcate += l.rez.urcate;
+            tot.esuate += l.rez.esuate;
+            tot.octeti += l.rez.octeti;
+          }
+          if (ceva) {
+            const { error: e5 } = await supa
+              .from("projects").update({ result_data: rez5 }).eq("id", projectId);
+            if (e5) {
+              console.error("[/api/generate] update etapa 5 esuat (fallback base64):", e5.message);
+            } else {
+              // răspunsul către client = starea din DB
+              for (const cheie of ["planse_iluminat", "planse_forta", "planuri"]) {
+                (data as Record<string, unknown>)[cheie] = rez5[cheie];
+              }
+            }
+          }
+          console.log("[/api/generate] etapa 5: %s", rezumat(tot));
+        } catch (e) {
+          console.error("[/api/generate] bloc Storage etapa 5 esuat (fallback base64):", e);
         }
 
         (data as Record<string, unknown>).saved_project_id = projectId;

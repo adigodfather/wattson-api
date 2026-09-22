@@ -134,6 +134,19 @@ export async function mutaIntrari(
   return { input: o, rez: tot };
 }
 
+/**
+ * Urcă un singur document la o cale dată și întoarce calea, sau null dacă n-a mers.
+ * Pentru cazurile în care documentul nu vine dintr-un rând, ci dintr-un răspuns proaspăt —
+ * planșa regenerată în editor, de pildă.
+ */
+export async function urcaPdf(
+  supa: SupabaseClient, userId: string, projectId: string, subcale: string, b64: string,
+  tip = "application/pdf",
+): Promise<string | null> {
+  const cale = `${userId}/${projectId}/${subcale}`;
+  return (await urca(supa, cale, b64, tip)) ? cale : null;
+}
+
 export function rezumat(r: Rezultat): string {
   return `${r.urcate} urcate (${(r.octeti / 1048576).toFixed(1)} MB)` +
          (r.esuate ? `, ${r.esuate} ESUATE — base64 ramane pe loc` : "");

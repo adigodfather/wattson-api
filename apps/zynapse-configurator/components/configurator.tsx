@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import AppHeader from "@/components/AppHeader";
 import { createClient } from "@/lib/supabase";
+import { base64Pdf } from "@/lib/storage-read";
 import { floorLevels, floorForPlate, floorLabel, platePos, floorIndex } from "@/lib/floors";
 import { COMERCIAL_CATEGORII, SUBTIP_DEFAULT } from "@/lib/comercial";   // sub-tipul comercial (categorie -> sub-tip)
 import { heatingEquipmentFromCircuits } from "@/lib/heating-equipment";   // T3: echipamentele auto-plasabile   // M2a: un singur sistem de etaje (canonic)
@@ -1164,7 +1165,12 @@ export function ZynapseConfigurator() {
   // deci prezența nu poate fi semnal aici (oul și găina); la finalizare semnalul devine planșele
   // chiar generate (finalize/route.ts → has_det).
   const hasDetectie = !!equipment.detectie_incendiu?.enabled;
-  const fortaCleanBase = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr)?.pdf_base64 || null;
+  // Fundalul curat al editorului de forță: proiectele vechi îl au ca base64 în rând, cele noi ca
+  // o cale în Storage. Se trimit amândouă mai jos, iar ruta alege — cu calea, PDF-ul nu mai trece
+  // prin client deloc.
+  const fortaCleanEl = (result?.planuri || []).find(p => p.plansa_nr === editorPlansa?.source_plansa_nr);
+  const fortaCleanBase = fortaCleanEl?.pdf_base64 || null;
+  const fortaCleanPath = (fortaCleanEl as { pdf_base64_path?: string } | undefined)?.pdf_base64_path || null;
   // CONSECVENȚĂ nume (Dan): numerotarea REALĂ din mirror (compute_plansa_numbering) — schemele din
   // result_data au plansa_nr STALE (numerotate în universul lor: prima schemă = IE.1, coliziune cu
   // planurile). Afișajul + numele fișierului se derivă local, universal (și pe proiectele vechi).
@@ -1179,12 +1185,13 @@ export function ZynapseConfigurator() {
   // trece pe forta, PNG-ul e deja gata (timp mort ~ZERO). Bulletproof: r.ok + success verificate; esec ->
   // NICIODATA dump JSON in UI (doar console.error) + fallback pe fundalul iluminat (calculat mai jos).
   useEffect(() => {
-    if (!fortaCleanBase) { setFortaBg(null); setFortaBgErr(false); return; }
+    if (!fortaCleanBase && !fortaCleanPath) { setFortaBg(null); setFortaBgErr(false); return; }
     let cancelled = false;
     setFortaBg(null); setFortaBgErr(false);
     fetch("/api/render-base-png", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdf_base64: fortaCleanBase }),
+      body: JSON.stringify(fortaCleanBase ? { pdf_base64: fortaCleanBase }
+                                         : { pdf_path: fortaCleanPath }),
     })
       .then(async r => {
         if (!r.ok) throw new Error(`render-base-png HTTP ${r.status}`);
@@ -1197,11 +1204,27 @@ export function ZynapseConfigurator() {
       })
       .catch(err => { if (!cancelled) { console.error("[render-base-png]", err); setFortaBgErr(true); } });
     return () => { cancelled = true; };
-  }, [fortaCleanBase, editorPlansaIdx]);
+  }, [fortaCleanBase, fortaCleanPath, editorPlansaIdx]);
+
+  // PREVIZUALIZAREA planșei curente: proiectele vechi o au ca base64 în rând, cele noi în Storage.
+  // Se aduce o singură dată per planșă, ca base64 — editorul o desenează pe pânză, deci are nevoie
+  // de conținut, nu de un URL.
+  const [pngDinStorage, setPngDinStorage] = useState<string | null>(null);
+  const plansaPngPath = (editorPlansa as { png_base64_path?: string } | undefined)?.png_base64_path || null;
+  useEffect(() => {
+    let anulat = false;
+    setPngDinStorage(null);
+    if (!editorPlansa?.png_base64 && plansaPngPath) {
+      base64Pdf(null, plansaPngPath).then((b) => { if (!anulat) setPngDinStorage(b); });
+    }
+    return () => { anulat = true; };
+  }, [editorPlansa?.png_base64, plansaPngPath]);
+  const plansaPng = editorPlansa?.png_base64 || pngDinStorage;
   // Etajele EDITABILE (cu PNG) = opțiunile selectorului de etaj. >1 -> multi-etaj (selector vizibil).
   const editablePlanse = planseIluminat
     .map((p, idx) => ({ idx, p }))
-    .filter((x) => !!x.p.png_base64);
+    // PNG-ul poate sta acum in Storage: semnalul e „ARE previzualizare", nu „are base64".
+    .filter((x) => !!(x.p.png_base64 || (x.p as { png_base64_path?: string }).png_base64_path));
   const multiFloor = editablePlanse.length > 1;
   // NIVELURILE PROIECTULUI, în ordinea planșelor. Până acum numele nivelului se lua dintr-un tabel
   // fix de trei, indexat cu poziția planșei — a patra planșă ieșea „Parter" a doua oară, iar
@@ -1282,7 +1305,13 @@ export function ZynapseConfigurator() {
         if (Number.isFinite(mf)) setManualFloors(mf);
         // ETAPA: vreo plansa de iluminat (editabila, cu PNG) fara "Obtine plan iluminat" -> ILUMINAT;
         // iluminat complet + proiect PT -> FORTA (gating-ul existent fazaFlux ramane autoritar la randare).
-        const il = (rd.planse_iluminat || []).filter(p => (p as { png_base64?: string })?.png_base64);
+        // SEMNAL, nu continut: „planse editabile" = cele cu previzualizare, oriunde ar sta ea.
+        // Cu verificarea doar pe base64, mutarea PNG-urilor in Storage ar fi readus fluxul la
+        // etapa „iluminat" pe toate proiectele, tacut.
+        const il = (rd.planse_iluminat || []).filter(p => {
+          const o = p as { png_base64?: string; png_base64_path?: string };
+          return !!(o.png_base64 || o.png_base64_path);
+        });
         const ilDone = il.length > 0 && il.every(p => (p as { regenerated?: boolean })?.regenerated === true);
         resumeModeRef.current = (ilDone && isPhasePT((rd as { phase?: string }).phase)) ? "forta" : "iluminat";
         setResult(rd);
@@ -1312,8 +1341,24 @@ export function ZynapseConfigurator() {
   const fazaFlux: "iluminat-nedefinitivat" | "iluminat-gata" | "forta" =
     !iluminatFinalizat ? "iluminat-nedefinitivat" : modeEditor !== "iluminat" ? "forta" : "iluminat-gata";
 
+  /** Varianta pentru BAZA a unui result: planșa tocmai regenerată ține calea, nu base64-ul. */
+  function curataPentruDb(r: ProjectResult, mode: PlanMode, idx: number, cale: string): ProjectResult {
+    const cheie = ({ forta: "planse_forta", detectie_incendiu: "planse_detectie",
+                     curenti_slabi: "planse_curenti_slabi" } as Record<string, string>)[mode]
+                  || "planse_iluminat";
+    const lista = (r as unknown as Record<string, unknown>)[cheie];
+    if (!Array.isArray(lista)) return r;
+    return { ...r, [cheie]: lista.map((el, i) => {
+      if (i !== idx || !el || typeof el !== "object") return el;
+      const o = { ...(el as Record<string, unknown>) };
+      o.pdf_base64_path = cale;
+      delete o.pdf_base64;
+      return o;
+    }) } as ProjectResult;
+  }
+
   // "Obține plan" (1d): PDF regenerat (cabluri + editări) INLOCUIESTE ciorna Vision in result + se persista.
-  async function handleRegenerated(pdfBase64: string, mode: PlanMode, plansaNr?: string) {
+  async function handleRegenerated(pdfBase64: string, mode: PlanMode, plansaNr?: string, pdfPath?: string) {
     if (!result || !editorPlansa || !savedProjectId) return;
     // M3: construiește result_data pe mod, apoi PERSISTĂ o singură dată în Supabase.
     let updated: ProjectResult;
@@ -1380,7 +1425,11 @@ export function ZynapseConfigurator() {
     setResult(updated);
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("projects").update({ result_data: updated }).eq("id", savedProjectId);
+      // STAREA pastreaza base64-ul (afisarea e instantanee, fara nicio cerere); RANDUL primeste
+      // doar calea din Storage. Fara despartirea asta, fiecare „Obtine plan" ar scrie iar 1-2 MB
+      // in rand si toata mutarea ar fi fost o amanare.
+      const pentruDb = pdfPath ? curataPentruDb(updated, mode, editorPlansaIdx, pdfPath) : updated;
+      const { error } = await supabase.from("projects").update({ result_data: pentruDb }).eq("id", savedProjectId);
       if (error) console.error("[regenerate] persist result_data esuat:", error.message);
     } catch (e) {
       console.error("[regenerate] persist exception:", e);
@@ -2921,7 +2970,7 @@ export function ZynapseConfigurator() {
                   // Forta: fundalul CURAT (fortaBg); daca a esuat definitiv SAU lipseste baza -> fallback pe
                   // PNG-ul iluminat (valid, scale corect) ca sa nu ramana gol/eroare; cat se incarca efectiv
                   // (baza exista, fetch in curs) -> null + spinner (bgLoading). Spinner DOAR cand chiar se incarca.
-                  pngBase64={modeEditor !== "iluminat" ? (fortaBg?.png_base64 ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_base64 : null)) : editorPlansa.png_base64}
+                  pngBase64={modeEditor !== "iluminat" ? (fortaBg?.png_base64 ?? ((fortaBgErr || (!fortaCleanBase && !fortaCleanPath)) ? plansaPng : null)) : plansaPng}
                   pngMeta={modeEditor !== "iluminat" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
                   bgLoading={modeEditor !== "iluminat" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}

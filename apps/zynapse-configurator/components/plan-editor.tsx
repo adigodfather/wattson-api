@@ -1002,7 +1002,7 @@ export default function PlanEditor({
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
   comercialSubtip = null, nivelFundatie = "parter",
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
-     onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string) => void; mode?: PlanMode;
+     onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string, pdfPath?: string) => void; mode?: PlanMode;
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
      heatingDistribution?: string | null; heatingType?: string | null; enabledEquipment?: string[];
@@ -2363,7 +2363,11 @@ export default function PlanEditor({
         // M2b: semnalează finalizarea la părinte pentru AMBELE faze. Iluminat -> persistă IE.1 (regenerated);
         // forța -> marchează etajul ca finalizat (tracking în sesiune; persistarea ca planșă = M3).
         // PAS 2: plansa_nr = numarul FINAL IE.N stampat de backend (autoritate) -> parintele il persista
-        onRegenerated?.(data.pdf_base64, mode, typeof data.plansa_nr === "string" && data.plansa_nr ? data.plansa_nr : undefined);
+        // `pdf_path` vine de la /api/regenerate-plan, care a urcat deja plansa in Storage.
+        // Lipseste doar daca urcarea a picat — caz in care se persista base64-ul, ca inainte.
+        onRegenerated?.(data.pdf_base64, mode,
+                        typeof data.plansa_nr === "string" && data.plansa_nr ? data.plansa_nr : undefined,
+                        typeof data.pdf_path === "string" ? data.pdf_path : undefined);
         setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
       }
     } catch (e) {

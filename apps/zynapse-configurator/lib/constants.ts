@@ -490,7 +490,9 @@ export interface ProjectResult {
   has_tect?: boolean;   // emis de n8n in result_data (folosit de numerotarea-mirror)
   // Planuri de arhitectura cu cartus Zynapse (swap cartus) — separate de schemas[]
   planuri?: Array<{
-    name: string; plansa_nr: string; pdf_base64: string;
+    name: string; plansa_nr: string; pdf_base64?: string | null;
+    // Etapa 5 Storage: planșele trec în bucketul privat; proiectele vechi au încă base64.
+    pdf_base64_path?: string | null;
     description?: string; filename?: string; size_bytes?: number;
     type?: string; panel?: string | null; expanded?: boolean;
   }> | null;
@@ -499,13 +501,16 @@ export interface ProjectResult {
   planse_iluminat?: Array<{
     type?: string;
     name: string;
-    pdf_base64: string;
+    pdf_base64?: string | null;
+    // Etapa 5 Storage: planșele trec în bucketul privat; proiectele vechi au încă base64.
+    pdf_base64_path?: string | null;
     filename?: string;
     source_plansa_nr?: string;
     rooms_found?: number;
     elements_drawn?: number;
     // ADITIV (editor interactiv): forwardate din /draw-plan-elements prin n8n
     png_base64?: string | null;
+    png_base64_path?: string | null;
     png_meta?: {
       dpi?: number; scale?: number;
       pdf_width_pt?: number; pdf_height_pt?: number;
@@ -523,7 +528,9 @@ export interface ProjectResult {
   planse_forta?: Array<{
     type?: string;
     name: string;
-    pdf_base64: string;
+    pdf_base64?: string | null;
+    // Etapa 5 Storage: planșele trec în bucketul privat; proiectele vechi au încă base64.
+    pdf_base64_path?: string | null;
     filename?: string;
     source_plansa_nr?: string;
     regenerated?: boolean;
@@ -533,7 +540,9 @@ export interface ProjectResult {
   planse_curenti_slabi?: Array<{
     type?: string;
     name: string;
-    pdf_base64: string;
+    pdf_base64?: string | null;
+    // Etapa 5 Storage: planșele trec în bucketul privat; proiectele vechi au încă base64.
+    pdf_base64_path?: string | null;
     filename?: string;
     source_plansa_nr?: string;
     regenerated?: boolean;
@@ -543,7 +552,9 @@ export interface ProjectResult {
   planse_detectie?: Array<{
     type?: string;
     name: string;
-    pdf_base64: string;
+    pdf_base64?: string | null;
+    // Etapa 5 Storage: planșele trec în bucketul privat; proiectele vechi au încă base64.
+    pdf_base64_path?: string | null;
     filename?: string;
     source_plansa_nr?: string;
     regenerated?: boolean;
@@ -601,7 +612,10 @@ export interface ProjectResult {
 
 // Planșa de iluminat REGENERATĂ (după "Obține plan": cabluri + editări) ÎNLOCUIEȘTE tot ce se afișează;
 // draftul Vision (neregenerat) se ASCUNDE (e doar ciornă). DTAC (fără planse_iluminat) -> planuri ca înainte.
-type ShownPlansa = { name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string; ie_label?: string };
+// `pdf_base64` e OPTIONAL de la etapa 5 Storage: planșele noi au `pdf_base64_path` în loc.
+type ShownPlansa = { name: string; pdf_base64?: string | null; pdf_base64_path?: string | null;
+                     filename?: string; plansa_nr?: string; source_plansa_nr?: string;
+                     type?: string; ie_label?: string };
 
 // ── NUMEROTAREA PLANSELOR — OGLINDA compute_plansa_numbering (plansa_numbering.py): modifici una
 // -> modifici AMBELE. Ordinea: iluminat (toate nivelurile) -> forta (toate) -> TEG -> TES/nivel ->

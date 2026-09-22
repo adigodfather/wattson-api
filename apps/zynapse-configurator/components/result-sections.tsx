@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { sursaPng } from "@/lib/storage-read";
+import { sursaPng, sursaPdf } from "@/lib/storage-read";
 import { isPhasePT, iluminatPlanseToShow } from "@/lib/constants";
 import type { Circuit, RoomResult, ProjectResult } from "@/lib/constants";
 import { groupBomBySection, hasSections, type BomRow } from "@/lib/bom-sections";
@@ -383,8 +383,25 @@ export function AnnotatedPlanSection({ src, cale }: { src?: string | null; cale?
 }
 
 /* ─── Planșe PDF cu straturi (iluminat cu becuri, forță... — fiecare planșă separată) ─── */
+/** O planșă: previzualizare din base64 (proiecte vechi) sau din Storage (cele noi). */
+function PlansaFrame({ p }: { p: { name: string; pdf_base64?: string | null; pdf_base64_path?: string | null } }) {
+  const [src, setSrc] = useState<string | null>(
+    p.pdf_base64 ? `data:application/pdf;base64,${p.pdf_base64}` : null);
+  useEffect(() => {
+    let anulat = false;
+    if (!p.pdf_base64 && p.pdf_base64_path) {
+      sursaPdf(null, p.pdf_base64_path).then((u) => { if (!anulat) setSrc(u); });
+    }
+    return () => { anulat = true; };
+  }, [p.pdf_base64, p.pdf_base64_path]);
+  if (!src) return null;
+  return <iframe src={src} className="w-full" style={{ height: 600, border: "none" }} title={p.name} />;
+}
+
 export function PlanPdfSection({ planse }: {
-  planse: Array<{ name: string; pdf_base64: string; filename?: string; plansa_nr?: string; source_plansa_nr?: string; type?: string; ie_label?: string }>;
+  planse: Array<{ name: string; pdf_base64?: string | null; pdf_base64_path?: string | null;
+                  filename?: string; plansa_nr?: string; source_plansa_nr?: string;
+                  type?: string; ie_label?: string }>;
 }) {
   if (!planse?.length) return null;
   return (
@@ -400,15 +417,11 @@ export function PlanPdfSection({ planse }: {
                   {nr ? `${nr} — ` : ""}{p.name}
                 </span>
               </div>
-              <iframe
-                src={`data:application/pdf;base64,${p.pdf_base64}`}
-                className="w-full"
-                style={{ height: 600, border: "none" }}
-                title={p.name}
-              />
+              <PlansaFrame p={p} />
               <div className="px-4 py-3">
                 <SchemaDownloadButton
                   base64Pdf={p.pdf_base64}
+                  storagePath={p.pdf_base64_path}
                   label={`Descarcă ${p.name} PDF`}
                   fileName={p.filename || `Plan-${p.name.toLowerCase().replace(/\s+/g, "-")}.pdf`}
                 />
