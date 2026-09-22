@@ -96,6 +96,46 @@ CONTAIN_FRAC = 0.15        # fractiune din latura mica a bbox-ului tolerata la i
 # e cel mult 0,50), adica ~185 MB, plus ~20 MB pentru parser si ~172 MB repaus pe Linux: ~377 MB
 # din 512. Pragul portii (300 000) ar fi dus la ~480 MB — prea aproape.
 # `santandrei`, cea mai mare casa din baza, are 178 972 de tokeni: intra in umbra.
+# ── REGULA NOASTRA DE ECHIVALENTA ────────────────────────────────────────────────────────────
+# Parserul livreaza TOATE traseele din plan. `get_drawings` nu: unele patrulatere le grupeaza
+# intr-un item `qu`, pe care `_collect` nu-l citeste — deci geometria de azi nu le vede. Regula de
+# mai jos alege, EXPLICIT, sa ignore aceleasi trasee.
+#
+# DE CE nu reproducem regula PyMuPDF: e interna, nedocumentata, si s-ar putea schimba tacut la o
+# actualizare. Trei incercari de a o ghici au esuat, fiecare reparand un plan si stricand altul
+# (908 segmente -> 722, apoi 743, pe planurile de bloc).
+#
+# DE CE ignoram, desi sunt pereti REALI: masurat pe proiectul Casa Borcan, unde sunt 22 de astfel
+# de trasee. Cu ele incluse, camera „Dormitor 2" primeste conturul BAII — 5,3 mp in loc de 14,40,
+# validat cu incredere din sase seed-uri, iar becul ar ajunge in baie. Fara ele, geometria nu se
+# inchide si camera cade pe bbox-ul Vision: mai putin precis, dar corect. Respingerea e mai buna
+# decat acceptarea gresita.
+#
+# CUM le recunoastem — pe MODUL DE PICTARE, nu pe forma. Formele se suprapun complet (pe bloc
+# latura 0,1..1077 pt si aspect 1..380; pe Borcan 11,9..52 si 1,17..3,49), deci niciun prag nu
+# separa: la orice combinatie incercata, blocul pierdea intre 265 si 455 de segmente. Ce separa
+# curat e cum sunt desenate:
+#     Borcan  traseele inchise vin cu `S`  (contur gol; hasura e desenata separat)  -> 68 segmente
+#     bloc    traseele inchise vin cu `f*` (suprafata plina, perete in sectiune)    -> 1542 segmente
+# Zero suprapunere: pe Borcan niciun traseu inchis umplut, pe bloc niciunul doar conturat.
+#
+# ASTA E O ALEGERE A NOASTRA, nu o copie a purtarii PyMuPDF. Daca maine se decide ca peretii astia
+# TREBUIE folositi, se sterge regula si se repara cautarea prin seed-uri — vezi nota din raport.
+_CONTUR = (b"S", b"s")
+
+
+def trasee_de_ignorat(desen):
+    """Traseu inchis din 3-4 laturi drepte, desenat DOAR ca contur -> se ignora. Vezi nota de sus."""
+    if desen.get("pictat") not in _CONTUR:
+        return False
+    itemi = desen.get("items") or []
+    linii = [it for it in itemi if it[0] == "l"]
+    if not (3 <= len(linii) == len(itemi) <= 4):
+        return False
+    p0, sf = linii[0][1], linii[-1][2]
+    return abs(sf.x - p0.x) < 1e-6 and abs(sf.y - p0.y) < 1e-6
+
+
 UMBRA_PARSER = True          # comutatorul modului de umbra
 UMBRA_PRAG_PRIMITIVE = 200_000
 # ESANTIONARE: umbra ruleaza IN TIMPUL cererii, iar masurat costa +3,19 s pe cea mai mare casa din
@@ -125,6 +165,8 @@ def _umbra(page, h_vechi, v_vechi, d_vechi):
             lay = dd.get("layer")
             iw, idr = _is_wall_layer(lay), _is_door_layer(lay)
             if not (iw or idr):
+                continue
+            if trasee_de_ignorat(dd):
                 continue
             for it in dd.get("items", []):
                 if it[0] == "l" and iw:

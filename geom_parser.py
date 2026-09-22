@@ -8,7 +8,8 @@ Parserul asta citeste aceleasi trasee direct din stream: 59 MB si 3,3 s in loc d
 
 CE PRODUCE — exact subsetul pe care-l foloseste `geometry`, nici mai mult, nici mai putin
 (inventariat pe toti cei opt apelanti ai lui get_drawings inainte de a scrie un rand):
-    {"layer": <numele OCG sau None>, "items": [("l", P, P) | ("c", P, P, P, P)], "rect": Rect}
+    {"layer": <numele OCG sau None>, "items": [("l", P, P) | ("c", P, P, P, P)], "rect": Rect,
+     "pictat": <operatorul care a incheiat traseul: b"S", b"f*", ...>}
 Nimeni nu citeste grosimea, culoarea, umplerea sau tipul; zona de decupare nu se foloseste nicaieri
 (singurul `clip` din geometry e la randare, `get_pixmap`). Daca vreodata va fi nevoie de ele, se
 adauga aici — dar nu se emit degeaba, fiindca fiecare camp costa memorie inmultita cu 925 000.
@@ -319,7 +320,11 @@ def deseneaza(page, filtru_strat=None, _max_adancime=12):
                             xs.append(pp.x)
                             ys.append(pp.y)
                         itemi.append((it[0],) + tuple(pct))
-                    yield {"layer": strat, "items": itemi,
+                    # `pictat` = operatorul care a incheiat traseul. Parserul NU decide nimic pe
+                    # baza lui — il livreaza, fiindca e singurul lucru care deosebeste un patrulater
+                    # CONTURAT (simbol) de unul UMPLUT (perete in sectiune), iar regula care se
+                    # foloseste de distinctia asta sta in `geometry`, nu aici. Vezi acolo de ce.
+                    yield {"layer": strat, "items": itemi, "pictat": op,
                            "rect": fitz.Rect(min(xs), min(ys), max(xs), max(ys))}
                 cale = []
             elif op in _INCHEIE_FARA_DESEN:
