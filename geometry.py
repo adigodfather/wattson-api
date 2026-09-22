@@ -62,6 +62,19 @@ RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acel
 
 # BALUSTRADA — taie over-merge-ul, pastreaza clusterul sanatos (~1.38x)
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
+MIN_AREA_RATIO = 0.45      # REGULA 1b: PODEA area_geom >= 0.45 x area_vision (vezi mai jos)
+# REGULA 1b exista fiindca plafonul singur nu prinde nimerirea in ALTA camera. Cautarea porneste
+# de la mai multe seed-uri in bbox-ul Vision; daca un seed cade dincolo de un perete, ray-cast-ul
+# intoarce conturul VECINULUI, iar acel contur trece de plafon (e mai mic, nu mai mare), trece de
+# aspect si trece si de bbox-containment (un contur mic incape oriunde intr-un bbox larg).
+#   Casa Borcan, cu parserul de geometrie: „Dormitor 2" (14,40 mp declarati) primea conturul BAII,
+#   5,30 mp — raport 0,37 — si becul camerei ar fi ajuns in baie.
+# Pragul e MASURAT, nu ales: pe toate planurile din baza (130 de camere validate azi), cea mai mica
+# camera al carei contur isi contine PROPRIA eticheta de pe plan sta la 0,505; tot ce e sub 0,50 ori
+# contine eticheta altei camere (defectul de mai sus, 3 cazuri), ori nu contine nicio eticheta.
+# 0,45 sta la mijlocul intervalului liber (0,368 .. 0,505): respinge cazul Borcan cu 22% marja si
+# lasa 12% marja sub cea mai mica camera corecta. Camera respinsa nu se pierde — cade pe bbox-ul
+# Vision, ca orice camera nevalidata. Fara arie declarata (area_vision = 0) poarta NU se aplica.
 SELECT_AREA_RATIO = 1.5    # SELECTIE: prefera cel mai mare rect cu arie <= 1.5x aria cartus
                            # (evita over-merge-ul in vecin -> bec pe perete la camere mici inchise)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
@@ -581,6 +594,19 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 # din bbox-ul Vision (cazul open-plan). Validat post-bucla pe REGULA 2 (non-overlap).
                 rec["_grect"] = (l, rr, t, b)
 
+                # REGULA 1b — PODEA pe arie (vezi MIN_AREA_RATIO). Un contur mult mai mic decat aria
+                # declarata nu e camera asta, ci una din spatele unui perete. Spre deosebire de
+                # REGULA 3 (unde rect-ul e al camerei, doar decalat), aici conturul e al ALTEI camere,
+                # deci pleaca TOT ce s-a dedus din el: centroidul, `_grect` (din care se face
+                # geom_bbox, perimetrul pe care se aseaza elementele) si peretii/usile. Altfel becul
+                # s-ar repara, dar prizele ar ramane pe peretii vecinului. Camera cade pe fallback-ul
+                # ancora-eticheta (V4) sau pe bbox-ul Vision — amandoua pe camera ei.
+                sub_podea = area_vision > 0 and area_geom < MIN_AREA_RATIO * area_vision
+                if sub_podea:
+                    rec.pop("_grect", None)
+                    rec["wall_segments"] = []
+                    rec["doors"] = []
+
                 # REGULA 3 (relaxata calibrat) — bbox-containment ADAPTIV la marimea camerei.
                 # Tol = max(TOL, CONTAIN_FRAC * latura_mica). Camerele mari tolereaza o deplasare
                 # mai mare a bbox-ului Vision; o evadare reala (sute de px) ramane respinsa, iar
@@ -588,7 +614,12 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 tol = max(BBOX_CONTAIN_TOL, CONTAIN_FRAC * min(bw, bh))
                 inside = (bx - tol <= cgx <= bx + bw + tol and
                           by - tol <= cgy <= by + bh + tol)
-                if not inside:
+                if sub_podea:
+                    # geometric ramane False, centroid None -> fallback Vision (centru bbox)
+                    rec["reason"] = ("respins REGULA 1b: arie %.1fm2 = %.0f%% din %.1fm2 declarati "
+                                     "(prag %.0f%%) - contur probabil al camerei vecine") % (
+                        area_geom, 100.0 * area_geom / area_vision, area_vision, 100.0 * MIN_AREA_RATIO)
+                elif not inside:
                     # geometric ramane False, centroid None -> fallback Vision (centru bbox)
                     rec["reason"] = "respins bbox-containment: centroid (%d,%d) iese din bbox Vision (tol %.0f)" % (
                         cgx, cgy, tol)
