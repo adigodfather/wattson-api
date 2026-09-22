@@ -203,10 +203,6 @@ def _serpentina_spec(n_disp, lat_disp, h_disp):
     return _ultim
 
 
-def _serpentina_h(n_disp, lat_disp, h_disp=1e9):
-    """Inaltimea de care are nevoie o buclă, ca sa se poata rezerva spatiul INAINTE de a desena."""
-    _s = _serpentina_spec(n_disp, lat_disp, h_disp)
-    return _s[0], _s[1], _s[2]
 
 
 def _serpentina(page, els, lmap, bucla, x0, y0, lat_disp, x_ecs=None, y_ecs=None, h_disp=1e9):

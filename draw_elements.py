@@ -574,12 +574,6 @@ def _resolve_label_overlaps(specs, pad=1.0, max_steps=40):
     return specs
 
 
-def _draw_bulb_label(page, cx, cy, element_type, power_w, circuit_id=None):
-    """Eticheta DEASUPRA becului, centrata orizontal pe cx (rosu, lizibil). Prefix circuit (C1/C2/C1-TECT).
-    Desen IMEDIAT (fara anti-coliziune) — redraw_from_plan_elements foloseste spec+resolve in loc."""
-    sp = _bulb_label_spec(cx, cy, element_type, power_w, circuit_id)
-    if sp:
-        _draw_label_spec(page, sp)
 
 
 # ── C4: simbol PRIZA pe PDF (semicerc curba SUS + 2 contacte) + eticheta "C{circuit} - h={h}m". ──
@@ -834,11 +828,6 @@ def _priza_label_spec(cx, cy, el, inward=None):
             "font": "hebo", "color": _PRIZA_COLOR}
 
 
-def _draw_priza_label(page, cx, cy, el, inward=None):
-    """Eticheta prizei, desen IMEDIAT (fara anti-coliziune) — redraw foloseste spec+resolve in loc."""
-    sp = _priza_label_spec(cx, cy, el, inward=inward)
-    if sp:
-        _draw_label_spec(page, sp)
 
 
 # ── LEGENDA (L2/L3): randuri din plan_elements + text DESCRIPTIV (separat de etichetele de pe plan) ──
@@ -3286,23 +3275,6 @@ def _cable_l_path(a, b):
 
 
 # ── SOL B: routing pe "dunga" (traseu) trasa de inginer pe hol. ──
-def _extract_stripe(elements):
-    """Punctele dungii 'traseu' (cable_path) din elements, ca lista de (x,y) tuple (>=2 puncte).
-    None daca nu exista dunga sau e malformata -> consumatorul cade pe L direct (fallback)."""
-    for el in (elements or []):
-        if (el.get("element_type") or "") != "traseu":
-            continue
-        cp = el.get("cable_path")
-        if not isinstance(cp, (list, tuple)) or len(cp) < 2:
-            return None
-        pts = []
-        for p in cp:
-            try:
-                pts.append((float(p[0]), float(p[1])))
-            except (TypeError, ValueError, IndexError):
-                return None
-        return pts if len(pts) >= 2 else None
-    return None
 
 
 def _extract_stripes(elements):
@@ -3589,62 +3561,9 @@ def _arc_of_proj(xy, pts, arcs):
     seg_len = (arcs[seg_i + 1] - arcs[seg_i]) if seg_i + 1 < len(arcs) else 0.0
     return arcs[seg_i] + t * seg_len, proj
 
-def _point_at_arc(pts, arcs, target):
-    if target <= 0: return pts[0]
-    if target >= arcs[-1]: return pts[-1]
-    for i in range(1, len(arcs)):
-        if arcs[i] >= target:
-            seg = arcs[i] - arcs[i - 1]
-            t = (target - arcs[i - 1]) / seg if seg > 1e-9 else 0.0
-            return (pts[i - 1][0] + t * (pts[i][0] - pts[i - 1][0]),
-                    pts[i - 1][1] + t * (pts[i][1] - pts[i - 1][1]))
-    return pts[-1]
 
-def _subpath_between(pts, arcs, a0, a1):
-    lo, hi = (a0, a1) if a0 <= a1 else (a1, a0)
-    out = [_point_at_arc(pts, arcs, lo)]
-    for i in range(len(pts)):
-        if lo < arcs[i] < hi:
-            out.append(pts[i])
-    out.append(_point_at_arc(pts, arcs, hi))
-    return out
 
-def _mk_cable(path, kind, room, count):
-    length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
-                 for i in range(len(path) - 1)) if path and len(path) >= 2 else 0.0
-    return {"from_type": None, "from_xy": path[0] if path else None, "to_type": None,
-            "to_xy": path[-1] if path else None, "path": path, "kind": kind,
-            "length": round(length, 1), "room": room, "via_stripe": True, "stripe_idx": None,
-            "count": count}
 
-def _stripe_thickness(grp, spts):
-    """Inlocuieste manunchiul de pe o dunga cu: (1) cozile priza->punct de intrare pe dunga (grosime =
-    count-ul circuitului) + (2) coloana comuna de pe dunga, SPARTA pe segmente cu count CUMULAT (toate
-    ies la tablou -> segmentul de langa tablou = suma tuturor -> cel mai gros). spts <2 -> grup neschimbat."""
-    if not spts or len(spts) < 2 or not grp:
-        return grp
-    arcs = _arc_lengths(spts)
-    drain_xy = grp[0].get("to_xy")                        # tabloul (comun pe dunga)
-    drain_arc, drain_proj = _arc_of_proj(drain_xy, spts, arcs)
-    kind0, room0 = grp[0].get("kind"), grp[0].get("room")
-    entries = []                                          # (entry_arc, weight, from_xy, entry_pt)
-    for c in grp:
-        ea, ep = _arc_of_proj(c.get("from_xy"), spts, arcs)
-        entries.append((ea, int(c.get("count") or 1), c.get("from_xy"), ep))
-    out = []
-    for ea, w, fxy, ep in entries:                        # coada: priza(cap lant) -> intrare pe dunga
-        out.append(_mk_cable(_cable_l_path(fxy, ep), kind0, room0, w))
-    bps = sorted(set([e[0] for e in entries] + [drain_arc]))
-    for i in range(len(bps) - 1):                         # coloana comuna, cumsum pe segmente
-        lo, hi = bps[i], bps[i + 1]
-        mid = (lo + hi) / 2.0
-        cum = sum(w for ea, w, _, _ in entries if min(ea, drain_arc) <= mid <= max(ea, drain_arc))
-        if cum <= 0:
-            continue
-        out.append(_mk_cable(_subpath_between(spts, arcs, lo, hi), kind0, room0, cum))
-    total = sum(w for _, w, _, _ in entries)
-    out.append(_mk_cable(_cable_l_path(drain_proj, drain_xy), kind0, room0, total))   # dunga -> tablou
-    return out
 
 
 _BUNDLE_CAP = 5   # cate manunchiuri PARALELE distincte incap pe o dunga (surplusul se cumuleaza in slotul exterior)
@@ -4184,11 +4103,6 @@ def _perimeter_path(t1, t2, R, direction=None):
     out.append(_point_at_t(t2, R))
     return out
 
-def _perim_dist(t1, t2, P):
-    if P <= 0:
-        return 0.0
-    d = (t2 - t1) % P
-    return min(d, P - d)
 
 
 def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, room_geoms=None):

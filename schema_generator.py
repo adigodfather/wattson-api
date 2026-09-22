@@ -213,8 +213,6 @@ def pick_layout(n_circuits: int, preference: str = "auto") -> Dict:
     }
 
 
-def split_circuits(circuits: List[Circuit], cap: int) -> List[List[Circuit]]:
-    return [circuits[i:i + cap] for i in range(0, len(circuits), cap)]
 
 
 def get_zones(page_height_mm: int) -> Dict:
@@ -779,30 +777,6 @@ def draw_bus_bars(c, x_start, x_end, racord: str):
 # RCCB GROUP BRACKETS
 # =============================================================================
 
-def draw_rccb_brackets(c, page_circuits, columns_x, rccb_groups):
-    """Deseneaza brackets orizontale deasupra grupelor de circuite
-    care impart un RCCB comun."""
-    if not rccb_groups or not page_circuits:
-        return
-
-    bus_bottom = BUS_Y_TOP + 3 * BUS_LINE_SPACING + 2
-    groups_to_indices = {}
-    for i, circuit in enumerate(page_circuits):
-        gid = circuit.rccb_group
-        if gid:
-            groups_to_indices.setdefault(gid, []).append(i)
-
-    groups_by_id = {g.id: g for g in rccb_groups}
-
-    bracket_y = bus_bottom + 1.5
-    bracket_drop = 2
-
-    for gid, indices in groups_to_indices.items():
-        x1 = columns_x[indices[0]] - 4
-        x2 = columns_x[indices[-1]] + 4
-        draw_line(c, x1, bracket_y, x1, bracket_y + bracket_drop, width=0.5)
-        draw_line(c, x1, bracket_y, x2, bracket_y, width=0.5)
-        draw_line(c, x2, bracket_y, x2, bracket_y + bracket_drop, width=0.5)
         # DEPRECATED — eliminat per polish UX: eticheta text RCCB ("30mA tip A")
         # de pe magistrala se suprapunea vizual. Pastram doar bracket-ul (liniile
         # de mai sus). Simbolul ∆ 30mA ramane sub breaker (draw_rccb_box).
@@ -986,18 +960,6 @@ def draw_schema_full(c, width_mm: float, request, page_circuits,
                            BUS_Y_TOP, schema_bottom - 4)
 
 
-def draw_schema_stub(c, width_mm: float, circuits: List[Circuit]):
-    """Stub gri pentru zona schemei. Înlocuit în Pasul 3b."""
-    y_start = 30
-    draw_rect(c, 6, y_start, width_mm - 12, SCHEMA_HEIGHT_MM,
-              stroke_width=0.3, stroke=HexColor('#cccccc'))
-    draw_text(c, width_mm / 2, y_start + SCHEMA_HEIGHT_MM / 2 - 5,
-              f"[ Zona schemei — {len(circuits)} circuite ]",
-              size=11, anchor="center", color=HexColor('#888888'),
-              font=FONT_BOLD)
-    draw_text(c, width_mm / 2, y_start + SCHEMA_HEIGHT_MM / 2 + 3,
-              "se umple în Pasul 3b (main breaker · RCCB · MCB · cabluri · simboluri)",
-              size=8, anchor="center", color=HexColor('#999999'))
 
 
 def draw_table_full(c, width_mm: float, page_circuits,
@@ -1098,14 +1060,6 @@ def draw_table_full(c, width_mm: float, page_circuits,
         draw_text(c, col_x[6] + 2, cy, tub, size=font_size)
 
 
-def draw_table_stub(c, width_mm: float, circuits: List[Circuit]):
-    y_start = 162
-    h = TABLE_HEIGHT_MM
-    draw_rect(c, 6, y_start, width_mm - 12, h,
-              stroke_width=0.3, stroke=HexColor('#cccccc'))
-    draw_text(c, width_mm / 2, y_start + h / 2,
-              f"[ Tabel date — Nr / Pi / Ia / Cablu / Tub — {len(circuits)} rânduri ]",
-              size=9, anchor="center", color=HexColor('#888888'))
 
 
 def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
@@ -1247,31 +1201,6 @@ def draw_legend_notes_full(c, width_mm: float, y_start: int, y_end: int,
         ny += 5
 
 
-def draw_legend_notes_stub(c, width_mm: float):
-    y_start = 214
-    h = LEGEND_NOTES_HEIGHT_MM
-    # Legendă (stânga)
-    draw_rect(c, 6, y_start, width_mm * 0.35, h, stroke_width=0.5)
-    draw_text(c, 6 + (width_mm * 0.35) / 2, y_start + 4,
-              "LEGENDA", font=FONT_BOLD, size=9, anchor="center")
-    draw_text(c, 10, y_start + 10,
-              "MCB · RCCB · corp iluminat · priza · receptor dedicat",
-              size=7)
-    # Note (dreapta)
-    nx = 6 + width_mm * 0.35 + 4
-    nw = width_mm - 10 - nx
-    draw_rect(c, nx, y_start, nw, h, stroke_width=0.5)
-    draw_text(c, nx + nw / 2, y_start + 4, "NOTE",
-              font=FONT_BOLD, size=9, anchor="center")
-    draw_text(c, nx + 2, y_start + 10,
-              "Nota 1: I7-2011 Tab. 3.5 — coeficient de utilizare ku conform tip cladire.",
-              size=7)
-    draw_text(c, nx + 2, y_start + 15,
-              "Nota 2: Executantul va respecta I7-2011, SR EN 60364, Legea 10/1995.",
-              size=7)
-    draw_text(c, nx + 2, y_start + 20,
-              "Nota 3: Protectiile se reverifca daca Isc difera de calcul.",
-              size=7)
 
 
 # =============================================================================

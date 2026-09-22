@@ -109,9 +109,6 @@ def floor_canonic(value):
     return PARTER if c is None else c
 
 
-def floor_known(value):
-    """Sirul NUMESTE un nivel? Pentru cazurile unde „nerecunoscut" nu inseamna „parter"."""
-    return _parse(value) is not None
 
 
 def _from_int(i):

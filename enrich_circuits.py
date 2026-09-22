@@ -444,13 +444,6 @@ def _fdcp_pe_nivel(plan_elements, floor_key):
     return None
 
 
-def _coborare_pe_nivel(plan_elements, floor):
-    """Punctul de coborare al nivelului (sau None). UNUL singur per nivel — primul plasat castiga."""
-    fk = _floor_key(floor)
-    for el in (plan_elements or []):
-        if ((el or {}).get("element_type") or "") == COBORARE and _floor_key((el or {}).get("floor")) == fk:
-            return el
-    return None
 
 def _bulb_w(el):
     pw = el.get("power_w")

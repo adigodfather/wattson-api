@@ -137,16 +137,6 @@ def _cablu(page, x0, y0, x1, y1, kind, eticheta=None, fs=5.6):
               anchor="center")
 
 
-def _spre_cutie(page, x_bus, y_bus, x_cutie, y_cutie, kind, eticheta):
-    """Legatura magistrala -> cutie, in L (orizontal, apoi vertical, apoi scurt in cutie).
-    Eticheta sta pe segmentul ORIZONTAL, ancorata la stanga langa magistrala — asa nu mai intra
-    peste cutie, cum se intampla cand era centrata pe o diagonala."""
-    x_mij = x_cutie - 22.0
-    _cablu(page, x_bus, y_bus, x_mij, y_bus, kind)
-    _cablu(page, x_mij, y_bus, x_mij, y_cutie, kind)
-    _cablu(page, x_mij, y_cutie, x_cutie, y_cutie, kind)
-    spec = _CS_CABLE.get(kind) or _CS_CABLE[DE._CS_CABLE_DEFAULT]
-    _text(page, x_bus + 8, y_bus - 3.5, eticheta, fs=5.6, col=spec["col"])
 
 
 _PAS_STEA = 2.6        # distanta intre liniile paralele ale unei stele (linia are 1,0 pt)
@@ -238,17 +228,6 @@ def _stea(page, puncte, x_cutie, intrari, kind, eticheta, y_sus=None, x_lane=Non
         _text(page, puncte[0][0] + 8, _y, "%d × %s" % (n, eticheta), fs=5.6, col=spec["col"])
 
 
-def _peste_coloane(page, x_bus, y_bus, x_cutie, y_cutie, y_sus, kind, eticheta):
-    """Legatura coloanei DIN STANGA spre cutie, rutata PE DEASUPRA celeilalte coloane: sus din
-    magistrala, orizontal peste capul coloanei vecine, apoi jos in cutie. Ruta directa ar fi trecut
-    ORIZONTAL prin randurile coloanei din dreapta, taind prin etichete."""
-    x_mij = x_cutie - 22.0
-    _cablu(page, x_bus, y_bus, x_bus, y_sus, kind)
-    _cablu(page, x_bus, y_sus, x_mij, y_sus, kind)
-    _cablu(page, x_mij, y_sus, x_mij, y_cutie, kind)
-    _cablu(page, x_mij, y_cutie, x_cutie, y_cutie, kind)
-    spec = _CS_CABLE.get(kind) or _CS_CABLE[DE._CS_CABLE_DEFAULT]
-    _text(page, x_bus + 8, y_sus - 3.5, eticheta, fs=5.6, col=spec["col"])
 
 
 def _incape_in_cutie(linii, lat):

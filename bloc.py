@@ -47,12 +47,6 @@ FAMILIE_E90 = "NHXH E90"
 # de SCHEMA a corpului, nu de cablu, si n-o inventez aici.
 
 
-def cablu_e90(fire, sectiune):
-    """„NHXH E90 5x16" — acelasi format ca „CYY-F 5x16", doar cu alta familie.
-
-    `fire` = „3x" / „5x" (cum le da `enrich_circuits.cable_type`), `sectiune` in mmp."""
-    s = ("%.1f" % float(sectiune or 0)).rstrip("0").rstrip(".")
-    return "%s %s%s" % (FAMILIE_E90, str(fire or "3x"), s)
 
 
 # ── ELEMENTELE VITALE ─────────────────────────────────────────────────────────────────────────
@@ -96,9 +90,6 @@ def este_vital(el):
     return _tip(el) in VITALE
 
 
-def are_vitali(plan_elements):
-    """Exista echipamente vitale desenate? — conditia de EXISTENTA a tabloului TECV."""
-    return any(este_vital(el) for el in (plan_elements or []))
 
 
 def camera_pompe(plan_elements):
@@ -119,9 +110,6 @@ def camera_pompe(plan_elements):
     return None
 
 
-def are_tep(plan_elements):
-    """Exista camera de pompe? — conditia de EXISTENTA a tabloului TEP."""
-    return camera_pompe(plan_elements) is not None
 
 
 def tablou_sursa(plan_elements, fallback):

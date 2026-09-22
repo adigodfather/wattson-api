@@ -116,10 +116,6 @@ def _fam_row(name):
     return None
 
 
-def panel_element_type(name):
-    """Tipul de element de plan al tabloului (sau None daca nu-i recunoscut)."""
-    row = _fam_row(name)
-    return row[1] if row else None
 
 
 def panel_ku(name):
@@ -129,9 +125,6 @@ def panel_ku(name):
     return row[3] if row else KU_IMPLICIT
 
 
-def panel_is_firida(name):
-    row = _fam_row(name)
-    return bool(row[4]) if row else False
 
 
 _FIRIDE_ET = frozenset(f[1] for f in _FAMILII if f[4])
@@ -143,10 +136,6 @@ def element_is_firida(element_type):
     return str(element_type or "") in _FIRIDE_ET
 
 
-def panel_short(name):
-    """Eticheta scurta (pentru desen). Nerecunoscut -> chiar numele lui, ca sa se vada ce e."""
-    row = _fam_row(name)
-    return row[2] if row else (str(name or "").strip() or "TAB")
 
 
 # ── GALETILE DE IESIRE ────────────────────────────────────────────────────────────────────────

@@ -423,22 +423,6 @@ class ProjectData(ZynModel):
 # -------------------------------------------------
 
 
-def detect_building_category(building_type: str) -> str:
-    t = building_type.lower()
-    for category, types in BUILDING_CATEGORY_MAP.items():
-        if any(bt in t for bt in types):
-            return category
-    if any(k in t for k in ["casa", "duplex", "apart"]):
-        return "rezidential"
-    if any(k in t for k in ["hala", "fabrica", "atelier", "depozit", "productie"]):
-        return "industrial"
-    if any(k in t for k in ["bloc"]):
-        return "bloc"
-    if any(k in t for k in ["magazin", "restaurant", "hotel", "mall", "comercial"]):
-        return "comercial"
-    if any(k in t for k in ["scoala", "spital", "camin", "birou", "institutie"]):
-        return "public"
-    return "rezidential"
 
 
 
@@ -456,39 +440,14 @@ def detect_building_category(building_type: str) -> str:
 
 
 
-def calc_pdc_power_kw(building: Building, heating: Heating, climate_zone: str) -> float:
-    if not heating.type.startswith("pdc") and heating.type != "geothermal":
-        return 0.0
-    w_per_m2 = INSULATION_W_M2.get(building.insulation_level, 50.0)
-    zone_delta = {"I": -5.0, "II": 0.0, "III": 3.0, "IV": 5.0, "V": 8.0}
-    w_per_m2 += zone_delta.get(climate_zone, 0.0)
-    if building.total_area_m2 <= 250 and building.insulation_level in ["buna", "foarte_buna"]:
-        return 10.0
-    return round(building.total_area_m2 * w_per_m2 / 1000.0, 1)
 
 
 
 
-def choose_boiler_circuit(building: Building, heating: Heating) -> Optional[dict]:
-    if not heating.has_acm_boiler:
-        return None
-    p_kw = 2.0 if building.total_area_m2 <= 200 else 3.0
-    breaker = 16 if p_kw <= 2.5 else 20
-    return {
-        "device": "Boiler ACM", "power_kw": p_kw, "breaker_a": breaker,
-        "cable": "3x2,5 mm² CYYF", "notes": "Circuit monofazat dedicat pentru boiler ACM.",
-    }
 
 
 
 
-def choose_ventilation_circuit(heating: Heating) -> Optional[dict]:
-    if not heating.has_ventilation and not heating.has_hrv:
-        return None
-    return {
-        "device": "Ventilatie / recuperare", "power_kw": 0.2, "breaker_a": 10,
-        "cable": "3x1,5 mm² CYYF", "notes": "Circuit monofazat pentru unitate de ventilatie / HRV.",
-    }
 
 
 # -------------------------------------------------
@@ -881,49 +840,12 @@ _BREAKER_SIZES = [10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125]
 OVERFLOW_LIMIT = 16
 
 
-def _detect_floor(level: Optional[str], room: Optional[str], cid: str = "") -> str:
-    """Return canonical floor key: PARTER / ETAJ1 / ETAJ2 / MANSARDA / DEMISOL / SUBSOL."""
-    txt = " " + " ".join(p.upper() for p in [level or "", room or "", cid or ""] if p) + " "
-    for floor_key, patterns in _FLOOR_PATTERNS:
-        if any(p in txt for p in patterns):
-            return floor_key
-    return "PARTER"
 
 
 
 
 
 
-def _sort_and_number_circuits(circuits: List[dict]) -> List[dict]:
-    """Sort in I7-2011 order, renumber C1…Cn, append REZERVA at end."""
-    def _key(c):
-        t    = c.get("type", "prize")
-        bath = c.get("is_bathroom", False)
-        pw   = c.get("power_w", 0)
-        room = (c.get("room") or "").lower()
-        if t == "iluminat" and not bath: return (0, room, 0)
-        if t == "prize"    and not bath: return (1, room, 0)
-        if t == "dedicat":               return (2, "", -pw)
-        if t == "prize"    and bath:     return (3, room, 0)
-        if t == "iluminat" and bath:     return (4, room, 0)
-        return (5, room, 0)
-
-    out = [dict(c) for c in sorted(circuits, key=_key)]
-    for i, c in enumerate(out):
-        c["id"] = f"C{i + 1}"
-
-    max_ba = max((c.get("breaker_a", 16) for c in out), default=16)
-    rez_ba = max(10, round(max_ba * 0.3 / 10) * 10)
-    out.append({
-        "id": f"C{len(out) + 1}", "type": "rezerva",
-        "description": "REZERVA", "power_w": 0,
-        "breaker_a": rez_ba, "breaker_type": "MCB-1P-C",
-        "cable_type": "—", "pozare": "—",
-        "outlets": 0, "lighting_points": 0,
-        "is_bathroom": False, "is_dedicated": False,
-        "room": None, "rccb_group": None,
-    })
-    return out
 
 
 # ── Page format registry ─────────────────────────────────────────────────────
@@ -937,13 +859,6 @@ _PAGE_FMT_INFO: dict = {
 }
 
 
-def _auto_page_format(n: int) -> str:
-    """Select the smallest format that fits n circuits on one page."""
-    if n <= 10: return "A4"
-    if n <= 18: return "A3"
-    if n <= 30: return "A2"
-    if n <= 50: return "A1"
-    return "A2"   # 50+ → auto-split into A2 pages
 
 
 

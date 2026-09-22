@@ -131,10 +131,6 @@ def panel_contur(eticheta, tip=CONTUR):
     return _panel_din(eticheta, pre, tab)
 
 
-def panel_apartament(eticheta):
-    """Numele TABLOULUI apartamentului: „P1_5" -> „TE-AP 1.5"; „P3" -> „TE-AP 3".
-    Pastrata ca nume propriu fiindca o cheama P2/P4; `panel_contur` e forma generala."""
-    return panel_contur(eticheta, CONTUR)
 
 
 def eticheta_din_panel(panel):
@@ -156,13 +152,6 @@ def eticheta_din_panel(panel):
     return None
 
 
-def tip_din_panel(panel):
-    """Tipul de contur al unui tablou („TE-SP 1" -> CONTUR_SP). None daca nu-i tablou de contur."""
-    e = str(panel or "").strip().upper()
-    for tip, (_pre, tab) in _PREFIX.items():
-        if e.startswith(tab.upper()):
-            return tip
-    return None
 
 
 def conturi_nivel(plan_elements, floor_key, floor_canonic, tipuri=CONTURI):
@@ -219,10 +208,6 @@ def contur_al_punctului(x, y, conturi):
     return min(hits, key=lambda c: (c["aria"], str(c.get("eticheta") or "")))
 
 
-def apartament_al_punctului(x, y, conturi):
-    """Eticheta conturului care contine punctul, sau None. Forma pastrata pentru P2/P4."""
-    c = contur_al_punctului(x, y, conturi)
-    return c["eticheta"] if c else None
 
 
 def apartament_al_elementului(el, conturi):
@@ -265,25 +250,6 @@ def elemente_orfane(els, conturi):
     return sum(1 for e in (els or []) if apartament_al_elementului(e, conturi) is None)
 
 
-def camere_ale_apartamentelor(rooms, conturi, W, H):
-    """{nume camera (lowercase) -> eticheta apartament}. O camera apartine apartamentului al carui
-    contur ii contine CENTRUL bbox-ului.
-
-    Bbox-urile Vision sunt fractii 0..1 normalizate PER NIVEL, deci se inmultesc cu (W, H) ale
-    planşei nivelului — acelasi calcul ca `_room_of_point`. Camerele COMUNE (casa scarii, holul de
-    palier) nu cad in niciun contur si raman pe nivel, ca azi."""
-    out = {}
-    for r in (rooms or []):
-        bb = (r or {}).get("bbox") or {}
-        try:
-            cx = (float(bb["x"]) + float(bb["w"]) / 2.0) * W
-            cy = (float(bb["y"]) + float(bb["h"]) / 2.0) * H
-        except (TypeError, ValueError, KeyError):
-            continue
-        ap = apartament_al_punctului(cx, cy, conturi)
-        if ap:
-            out[str((r or {}).get("name") or "").strip().lower()] = ap
-    return out
 
 
 # ── P4: COPIEREA CONTINUTULUI INTRE APARTAMENTE IDENTICE ──────────────────────────────────────
@@ -514,13 +480,6 @@ def tipuri_apartament(plan_elements, floor_canonic, floor_index):
     return out
 
 
-def tip_al_apartamentului(tipuri, nivel, eticheta):
-    """Numele tipului („AP-2") pentru un apartament, sau None. Drumul invers al lui
-    `tipuri_apartament`, ca schema unui apartament sa stie carui tip ii apartine."""
-    for t in (tipuri or []):
-        if (nivel, eticheta) in t["membri"]:
-            return t["nume"]
-    return None
 
 
 def copieri_pentru_nivel(plan_elements, floor_tinta, project_id, floor_canonic, floor_index):
