@@ -137,8 +137,13 @@ CONTAIN_FRAC = 0.15        # fractiune din latura mica a bbox-ului tolerata la i
 _CONTUR = (b"S", b"s")
 
 
+IGNORA_TRASEE_CONTUR = True   # comutator: False = peretii din quad-uri devin VIZIBILI (vezi nota)
+
+
 def trasee_de_ignorat(desen):
     """Traseu inchis din 3-4 laturi drepte, desenat DOAR ca contur -> se ignora. Vezi nota de sus."""
+    if not IGNORA_TRASEE_CONTUR:
+        return False
     if desen.get("pictat") not in _CONTUR:
         return False
     itemi = desen.get("items") or []
@@ -158,6 +163,12 @@ UMBRA_PRAG_PRIMITIVE = 200_000
 # fiindca documentul fitz se inchide odata cu cererea — umbra ar citi de sub picioarele ei.
 UMBRA_UNA_DIN = 5
 _umbra_contor = 0
+# Umbra aduna dovezi de saptamani, dar pana acum le scria NUMAI in logul instantei: ca sa afli daca
+# s-a strans vreo diferenta trebuia sa derulezi logul Render. Contoarele de mai jos si `/health` o
+# fac citibila oricand. Lista e MARGINITA (doar diferentele, ultimele cateva): o lista care creste
+# la fiecare cerere ar fi exact felul de scurgere pe care etapa 1 a venit s-o repare.
+UMBRA_PASTREAZA = 20
+_umbra_stare = {"rulari": 0, "identice": 0, "diferite": 0, "sarite_prag": 0}
 _umbra_log = []
 
 
@@ -172,6 +183,7 @@ def _umbra(page, h_vechi, v_vechi, d_vechi):
         import capacitate
         import geom_parser
         if capacitate.numara_primitive(page.parent, page.number) > UMBRA_PRAG_PRIMITIVE:
+            _umbra_stare["sarite_prag"] += 1
             return          # prea mare: cele doua metode nu incap simultan in 512 MB
         h2, v2, d2 = [], [], []
         for dd in geom_parser.deseneaza(page):
@@ -198,9 +210,14 @@ def _umbra(page, h_vechi, v_vechi, d_vechi):
         ah, av = len(_aggregate(h_vechi)), len(_aggregate(v_vechi))
         bh, bv = len(_aggregate(h2)), len(_aggregate(v2))
         egal = (ah == bh and av == bv and len(d_vechi) == len(d2))
-        _umbra_log.append({"h": (len(h_vechi), len(h2)), "v": (len(v_vechi), len(v2)),
-                           "usi": (len(d_vechi), len(d2)), "agregat": ((ah, av), (bh, bv)),
-                           "egal": egal})
+        _umbra_stare["rulari"] += 1
+        _umbra_stare["identice" if egal else "diferite"] += 1
+        if not egal:
+            # doar diferentele se pastreaza, si doar ultimele: ele sunt tot ce se cauta in log
+            _umbra_log.append({"h": (len(h_vechi), len(h2)), "v": (len(v_vechi), len(v2)),
+                               "usi": (len(d_vechi), len(d2)), "agregat": ((ah, av), (bh, bv)),
+                               "pagina": [round(page.rect.width, 1), round(page.rect.height, 1)]})
+            del _umbra_log[:-UMBRA_PASTREAZA]
         logging.getLogger(__name__).log(
             logging.INFO if egal else logging.WARNING,
             "[umbra parser] %s · segmente h %d/%d v %d/%d · usi %d/%d · AGREGAT h %d/%d v %d/%d",
@@ -210,11 +227,31 @@ def _umbra(page, h_vechi, v_vechi, d_vechi):
         logging.getLogger(__name__).warning("[umbra parser] esuata: %r", e)
 
 
+SURSA_DESENE = "get_drawings"   # "parser" = geom_parser; NECOMUTAT (vezi nota de la UMBRA_PARSER)
+
+
+def _desene(page):
+    """De unde vin desenele: `get_drawings` (azi) sau parserul din content stream.
+
+    Comutatorul sta aici, nu imprastiat prin apelanti, ca trecerea pe parser sa fie o linie — si ca
+    masuratorile sa treaca prin ACELASI cod ca productia, nu printr-o reconstructie a lui.
+    """
+    if SURSA_DESENE == "parser":
+        import geom_parser
+        return geom_parser.deseneaza(page)
+    return page.get_drawings()
+
+
 def _collect(page):
     """Extrage o singura data toate segmentele H/V de pe layerele de pereti + arcele de usa.
     h_segs: (x0, x1, y) orizontale; v_segs: (y0, y1, x) verticale; doors: (cx, cy, r)."""
     h_segs, v_segs, doors = [], [], []
-    for d in page.get_drawings():
+    din_parser = (SURSA_DESENE == "parser")
+    for d in _desene(page):
+        # regula de ignorare are sens DOAR pe parser: `get_drawings` grupeaza patrulaterele ca
+        # itemi `qu`, pe care bucla de mai jos nici nu-i citeste
+        if din_parser and trasee_de_ignorat(d):
+            continue
         lay = d.get("layer")
         is_wall = _is_wall_layer(lay)
         is_door = _is_door_layer(lay)
@@ -235,7 +272,9 @@ def _collect(page):
                     cx = sum(p.x for p in pts) / 4.0
                     cy = sum(p.y for p in pts) / 4.0
                     doors.append((cx, cy, r))
-    if UMBRA_PARSER:
+    # umbra compara parserul cu `get_drawings`; daca sursa E DEJA parserul, s-ar compara cu ea
+    # insasi si ar raporta „identic" despre nimic
+    if UMBRA_PARSER and not din_parser:
         _umbra(page, h_segs, v_segs, doors)
     return h_segs, v_segs, doors
 

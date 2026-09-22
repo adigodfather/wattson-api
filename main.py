@@ -1041,6 +1041,15 @@ def generate_schema_test():
 # kept for internal reference — no longer exposed as endpoint
 
 
+def _umbra_stare():
+    """Contoarele umbrei parserului; orice esec -> None, `/health` nu are voie sa cada pe asta."""
+    try:
+        import geometry
+        return dict(geometry._umbra_stare, ultimele_diferente=geometry._umbra_log[-5:])
+    except Exception:
+        return None
+
+
 @app.get("/health")
 async def health():
     import os
@@ -1086,6 +1095,10 @@ async def health():
         "rss_varf_mb": varf,
         "prag_primitive": capacitate.PRAG_PRIMITIVE,
         "concurenta_grea": capacitate.CONCURENTA,
+        # starea UMBREI parserului: pana acum traia doar in liniile de log ale instantei, deci ca
+        # sa stii daca s-a strans vreo diferenta trebuia sa derulezi logul Render. Aici se vede.
+        # (`geometry` se importa local — in main nu e la nivel de modul, ca pornirea sa ramana usoara)
+        "umbra": _umbra_stare(),
     }
 
 
