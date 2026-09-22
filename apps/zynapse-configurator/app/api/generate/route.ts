@@ -112,26 +112,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Verificare cont eșuată: ${message}` }, { status: 500 });
   }
 
-  // ── POARTA TIPULUI DE CLĂDIRE ("Curând") — server-side ─────────────────────────────────────
-  // `soon: true` bloca DOAR butonul din configurator (SubtypeList), iar ruta asta doar STOCA
-  // `building_type` fără să-l privească: oricine autentificat putea genera un tip nelansat trimițând
-  // direct payload-ul. O impunem aici, ca la suprafață și la sold, și ÎNAINTE de `extractConstruitaMp`
-  // + lock + n8n — o cerere pe care oricum o refuzăm n-are de ce să consume backend.
-  //
-  // ADMIN: portița rămâne, e deliberată (Dan lucrează logica fiecărui tip înainte de lansare) și
-  // folosește ACELAȘI criteriu ca butonul — `ADMIN_USER_ID`, nu `profiles.is_admin`. Cu două noțiuni
-  // diferite de admin, serverul și interfața ar putea spune lucruri diferite despre același user.
-  //
-  // `comercial_subtip` NU se validează aici: niciunul dintre cele 18 sub-tipuri comerciale n-are
-  // marcaj „Curând" (COMERCIAL_CATEGORII n-are nici măcar câmpul), deci n-ar avea ce respinge. Când
-  // va avea, îi trebuie și badge-ul din selector, nu doar poarta.
-  if (!poateGeneraTip(String(parsed?.building_type ?? ""), userId)) {
-    return NextResponse.json(
-      { error: "Tipul de clădire ales nu este încă disponibil pentru generare. Alege alt tip de clădire." },
-      { status: 403 }
-    );
-  }
-
   // suprafata CONSTRUITA determinista (re-extrasa server-side) — calculata O DATA aici, refolosita la SUCCES.
   let construitaMp: number | null = null;
   // ── SOLD-CHECK (server-side, pe greatest(CONSTRUITA determinista, MANUAL)) — pornim DOAR dacă e acoperit ──
@@ -142,6 +122,27 @@ export async function POST(req: NextRequest) {
   try {
     const { data: prof } = await supa
       .from("profiles").select("is_admin, credits_balance").eq("id", userId).single();
+
+    // ── POARTA TIPULUI DE CLĂDIRE („Curând") ────────────────────────────────────────────────
+    // `soon: true` bloca DOAR butonul din configurator; ruta doar STOCA `building_type` fără să-l
+    // privească, deci oricine autentificat putea genera un tip nelansat trimițând direct payload-ul.
+    // Stă AICI, nu mai sus, fiindcă are nevoie de `is_admin` din profil — dar tot ÎNAINTE de
+    // `extractConstruitaMp`, de lock și de n8n: o cerere pe care oricum o refuzăm n-are de ce să
+    // consume backend.
+    //
+    // ADMIN: portița rămâne deliberată (tipurile se lucrează înainte de lansare) și folosește
+    // `profiles.is_admin`, ACEEAȘI noțiune ca interfața, ca panoul de administrare și ca registrul
+    // de finalizări. Un admin nou se adaugă acum din baza de date, fără schimbare de cod.
+    //
+    // `comercial_subtip` NU se validează aici: niciunul dintre cele 18 sub-tipuri comerciale n-are
+    // marcaj „Curând", deci n-ar avea ce respinge. Când va avea, îi trebuie și badge-ul din selector.
+    if (!poateGeneraTip(String(parsed?.building_type ?? ""), prof?.is_admin === true)) {
+      return NextResponse.json(
+        { error: "Tipul de clădire ales nu este încă disponibil pentru generare. Alege alt tip de clădire." },
+        { status: 403 }
+      );
+    }
+
     const surface = Number(parsed?.surface_mp) || 0;
     // FIX billing (P0-1): suprafata declarata TREBUIE sa fie > 0. Fara ea, cost=0 -> poarta trecea
     // SI consume_credits(p_surface_mp<=0) intorcea EARLY "Suprafata invalida" cu 0 debit / fara tranzactie

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   BUILDING_CATEGORIES_3, BUILDING_SUBTYPES,
   INSULATION, visibleHeatingGeneration, HEATING_DISTRIBUTION,
-  EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow, ADMIN_USER_ID,
+  EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow,
   plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName, schemaTipFor,
   defaultTechRoom, ALIMENTARE_OPTIONS, defaultAlimentare,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
@@ -2310,7 +2310,7 @@ export function ZynapseConfigurator() {
           <CategoryCards value={form.building_category} onChange={handleCategoryChange} />
           {form.building_category && (
             <SubtypeList category={form.building_category} value={form.building_type}
-              onChange={v => update("building_type", v)} isAdmin={user?.id === ADMIN_USER_ID} />
+              onChange={v => update("building_type", v)} isAdmin={isAdmin} />
           )}
           {form.building_type === "spatiu_comercial_bloc" && (
             <ComercialSubtipSelector value={form.comercial_subtip || SUBTIP_DEFAULT}
@@ -2583,7 +2583,7 @@ export function ZynapseConfigurator() {
               </div>
               {/* Export JSON = dump-ul brut result_data (debug) — DOAR admin (Dan), ca toggle-ul
                   de pereți din editor; clienții nu au ce face cu el (structura interna + base64). */}
-              {user?.id === ADMIN_USER_ID && (
+              {isAdmin && (
                 <button onClick={exportJSON}
                   className="px-4 py-2 rounded-lg text-[13px] font-semibold font-[inherit] cursor-pointer transition-colors duration-150"
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#8B8FA8" }}
@@ -2934,7 +2934,7 @@ export function ZynapseConfigurator() {
                   heatingDistribution={form.heating_distribution}
                   heatingType={form.heating_type}
                   enabledEquipment={Object.keys(equipment).filter(t => equipment[t]?.enabled)}
-                  isAdmin={user?.id === ADMIN_USER_ID}
+                  isAdmin={isAdmin}
                   heatingEquipment={heatingEquipmentFromCircuits(result?.circuits as never[] | undefined)}
                   hasTechRoom={form.has_tech_room}
                   hasFv={!!equipment.solar?.enabled}

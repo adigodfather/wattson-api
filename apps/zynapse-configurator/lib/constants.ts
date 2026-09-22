@@ -56,12 +56,14 @@ export function isSoonSubtype(buildingType: string | null | undefined): boolean 
 // Regula porții din /api/generate, ca funcție PURĂ: tipurile „Curând" se refuză, cu excepția
 // adminului (portița deliberată — vezi `SubtypeList`); orice altceva trece. Ruta o cheamă pe ea, nu
 // rescrie condiția, ca ce se testează să fie exact ce rulează în producție.
-// ADMIN aici = `ADMIN_USER_ID`, ACELAȘI criteriu ca butonul — nu `profiles.is_admin`, care e a doua
-// noțiune de admin (panoul de administrare). Cu două reguli, serverul și interfața ar putea spune
-// lucruri diferite despre același user.
+// ADMIN aici = `profiles.is_admin`, SINGURA noțiune de admin din aplicație. Până acum poarta asta
+// folosea un `ADMIN_USER_ID` hardcodat, iar panoul de administrare și registrul de finalizări
+// foloseau `is_admin` — două reguli care puteau spune lucruri diferite despre același user, și care
+// cereau o schimbare de cod pentru fiecare admin nou. Primește un FLAG, nu un id: cine îl cheamă îl
+// ia din profil (serverul din baza de date, interfața din auth-provider).
 export function poateGeneraTip(buildingType: string | null | undefined,
-                               userId: string | null | undefined): boolean {
-  return !isSoonSubtype(buildingType) || userId === ADMIN_USER_ID;
+                               esteAdmin: boolean): boolean {
+  return !isSoonSubtype(buildingType) || esteAdmin === true;
 }
 
 // ─── Faza proiect (Epic 3.11) — pentru moment DOAR DTAC e activă ───────────────
@@ -79,10 +81,6 @@ export const FAZA_PROIECT_OPTIONS = [
 export function isPhasePT(faza: string | null | undefined): boolean {
   return (faza || "").toLowerCase().replace(/[^a-z]/g, "").includes("pt");
 }
-
-// Admin gate: user_id-ul inginerului (Dan). Uneltele de debug (ex. overlay "pereti" din editor) sunt
-// vizibile DOAR lui in productie, dar codul lor ramane functional (nu-l stergem).
-export const ADMIN_USER_ID = "1ff11302-b070-43b2-95bc-9f880388e87b";
 
 // ─── Alimentarea (branșament propriu vs punct de distribuție existent) ────────
 // Un spațiu comercial dintr-un bloc NU are branșament propriu: se alimentează din firida blocului,
