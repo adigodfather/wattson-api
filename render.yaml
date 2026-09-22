@@ -6,3 +6,18 @@ services:
     envVars:
       - key: PORT
         value: 8000
+
+    # Backendul nu se mai reconstruieste la commituri care ating DOAR frontendul.
+    #
+    # Pe 22 sept, `dad356a` — opt fisiere, toate sub `apps/`, niciun byte de Python — a declansat
+    # totusi un deploy pe Render. Build-ul a trecut, uvicorn a pornit la 14:04:58, si portul n-a
+    # fost deschis niciodata: „Port scan timeout" la 14:19:51, fara nicio eroare in log. Acelasi
+    # cod Python pornise curat la deploy-ul anterior, si porneste curat si acum — deci a fost un
+    # blocaj de moment al platformei, nu un defect. Dar l-a putut provoca doar fiindca un commit
+    # de frontend a repornit un serviciu care n-avea niciun motiv sa reporneasca.
+    #
+    # `ignoredPaths`, nu `paths`: asa, orice fisier NOU din radacina declanseaza build (fail-safe).
+    # Cu o lista de incluziuni, un fisier nou de date ar fi fost ignorat in tacere.
+    buildFilter:
+      ignoredPaths:
+        - apps/**
