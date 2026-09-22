@@ -1,23 +1,37 @@
+# ⚠️ FIȘIERUL ĂSTA NU SE APLICĂ SERVICIULUI DIN PRODUCȚIE.
+#
+# `wattson-api` NU e legat de un Blueprint: a fost creat manual din dashboard, deci Render nu
+# citește render.yaml pentru el. Orice modifici aici NU schimbă nimic în producție — nici acum,
+# nici după push. Verificat pe 22 sept 2026: Build Filters era gol în dashboard, deși fișierul
+# ăsta avea deja `buildFilter` scris.
+#
+# UNDE TRĂIESC SETĂRILE REALE: Render → serviciul `wattson-api` → Settings.
+#   Build Filters → Ignored Paths: `apps/**`   (setat manual de Dan, 22 sept 2026)
+#
+# Ce rămâne aici e intenția, nu configurația: dacă serviciul va fi vreodată recreat din Blueprint,
+# fișierul devine sursa de adevăr și trebuie să spună același lucru ca dashboard-ul. Până atunci,
+# cele două se pot despărți în tăcere — deci când schimbi una, schimb-o pe amândouă.
+
 services:
   - type: web
-    name: zynapse-api
+    name: zynapse-api          # atenție: serviciul din producție se numește `wattson-api`
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: 8000
 
-    # Backendul nu se mai reconstruieste la commituri care ating DOAR frontendul.
+    # De ce există filtrul (și de ce l-a pus Dan manual în dashboard):
     #
-    # Pe 22 sept, `dad356a` — opt fisiere, toate sub `apps/`, niciun byte de Python — a declansat
-    # totusi un deploy pe Render. Build-ul a trecut, uvicorn a pornit la 14:04:58, si portul n-a
-    # fost deschis niciodata: „Port scan timeout" la 14:19:51, fara nicio eroare in log. Acelasi
-    # cod Python pornise curat la deploy-ul anterior, si porneste curat si acum — deci a fost un
-    # blocaj de moment al platformei, nu un defect. Dar l-a putut provoca doar fiindca un commit
-    # de frontend a repornit un serviciu care n-avea niciun motiv sa reporneasca.
+    # Pe 22 sept, `dad356a` — opt fișiere, toate sub `apps/`, niciun byte de Python — a declanșat
+    # totuși un deploy. Build-ul a trecut, uvicorn a pornit la 14:04:58, și portul n-a fost deschis
+    # niciodată: „Port scan timeout" la 14:19:51, fără nicio eroare în log. Același cod Python
+    # pornise curat înainte și pornește curat și acum — a fost un blocaj de moment al platformei,
+    # nu un defect. Dar l-a putut provoca doar fiindcă un commit de frontend a repornit un serviciu
+    # care n-avea niciun motiv să repornească.
     #
-    # `ignoredPaths`, nu `paths`: asa, orice fisier NOU din radacina declanseaza build (fail-safe).
-    # Cu o lista de incluziuni, un fisier nou de date ar fi fost ignorat in tacere.
+    # `ignoredPaths`, nu `paths`: așa, un fișier NOU din rădăcină declanșează build (fail-safe).
+    # Cu o listă de incluziuni, un fișier nou de date ar fi fost ignorat în tăcere.
     buildFilter:
       ignoredPaths:
         - apps/**
