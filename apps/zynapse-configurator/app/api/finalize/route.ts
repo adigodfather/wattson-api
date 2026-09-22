@@ -367,7 +367,11 @@ export async function POST(req: NextRequest) {
     panels: panelsCurate,
     rooms: rd.rooms || [],
     project_info: rd.project_info || {},
-    annotated_plan_base64: rd.annotated_plan_base64 ? "1" : null,
+    // FLAG DE PREZENTA, nu continut: nodurile de memoriu si caiet il folosesc doar ca sa stie
+    // daca planul anotat exista, ca sa-l treaca in borderou ca IE.1. De cand planul anotat se
+    // muta in Storage, prezenta lui se vede din CALE, nu din base64 — fara `|| path` aici,
+    // golirea randurilor ar fi sters tacit o plansa din borderoul fiecarui memoriu.
+    annotated_plan_base64: (rd.annotated_plan_base64 || rd.annotated_plan_path) ? "1" : null,
     has_tect: hasTect,
     // F1/F2-v2/memoriu: sursa EXPLICITA pt. clona finalize (numerotare corecta + FV regenerat + capitol memoriu).
     // Fara acestea, clona cade pe fallback-urile in-nod (numerotarea merge; FV regen + memoriu FV stau pe has_fv).
