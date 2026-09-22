@@ -2760,6 +2760,76 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
     return moved
 
 
+def _brate_holuri(rooms, W, H, geoms, h_segs, v_segs):
+    """{index_camera: [brate]} pentru camerele de CIRCULATIE care azi n-au contur propriu.
+
+    Holul si accesul n-au pereti proprii si n-au usi — sunt golul dintre celelalte camere, deci
+    cautarea de contur n-are ce inchide si camera cade pe dreptunghiul Vision. Aici se ia golul
+    dintre camerele CUNOSCUTE si se imparte in brate drepte; fiecare brat isi primeste becul.
+
+    Se aplica STRICT: doar circulatie, si doar cea care azi cade pe Vision sau pe ancora etichetei.
+    Camerele normale si cele care au deja contur din pereti nu intra — au ceva mai bun. Orice esec
+    (plan fara vectori, fara arie declarata, brat prea lat) -> camera ramane exact cum e azi.
+    """
+    if not (rooms and geoms and h_segs is not None and v_segs is not None):
+        return {}
+    try:
+        import holuri
+        eligibile = []
+        for i, r in enumerate(rooms):
+            g = (geoms[i] if i < len(geoms) else None) or {}
+            if not holuri.e_circulatie((r or {}).get("name")):
+                continue
+            if g.get("geom_source") == "wall" or (g.get("geometric") and g.get("centroid")):
+                continue                      # are deja contur propriu: nu se atinge
+            eligibile.append(i)
+        if not eligibile:
+            return {}
+        import bom as _bom
+        scara, _sursa = _bom.derive_scale(rooms, W, H)
+        if not scara or scara <= 0:
+            return {}
+        cunoscute = []
+        for i, r in enumerate(rooms):
+            g = (geoms[i] if i < len(geoms) else None) or {}
+            gb = g.get("geom_bbox")
+            if g.get("geom_source") == "wall" and gb:
+                cunoscute.append((gb["x"] * W, gb["y"] * H,
+                                  (gb["x"] + gb["w"]) * W, (gb["y"] + gb["h"]) * H))
+        hm = holuri.harta_plan(h_segs, v_segs, cunoscute, W, H, scara)
+        out, motive = {}, {}
+        for i in eligibile:
+            r = rooms[i] or {}
+            g = (geoms[i] if i < len(geoms) else None) or {}
+            # ancora = eticheta desenata daca geometria a gasit-o, altfel centrul bbox-ului Vision
+            gb = g.get("geom_bbox")
+            if g.get("geom_source") == "label_anchor" and gb:
+                anc = ((gb["x"] + gb["w"] / 2.0) * W, (gb["y"] + gb["h"] / 2.0) * H)
+            else:
+                bb = r.get("bbox") or {}
+                try:
+                    anc = ((float(bb["x"]) + float(bb["w"]) / 2.0) * W,
+                           (float(bb["y"]) + float(bb["h"]) / 2.0) * H)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            try:
+                decl = float(r.get("area_m2") or 0)
+            except (TypeError, ValueError):
+                decl = 0.0
+            br = holuri.brate_camerei(hm, anc, decl, scara)
+            bune = [b for b in br if b.get("rect")]
+            if bune:
+                out[i] = bune
+            else:
+                # motivul respingerii ramane la indemana masuratorii, sub o cheie care nu e index
+                motive[i] = (br[0].get("respinse") if br else {}) or {}
+        out["_motive"] = motive
+        return out
+    except Exception as e:                    # pragma: no cover — nicio cadere pe seama holurilor
+        print("[brate hol] skip:", e)
+        return {}
+
+
 def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     """PASĂ AUTORITARĂ de plasare becuri (consolidează gărzile-plasture anterioare).
     rooms = [{ name, area_m2, bbox:{x,y,w,h} }] (fracții 0-1). geoms = PARALEL cu rooms (geometry).
@@ -2772,6 +2842,8 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     LIMITĂ: terase/open-plan fără pereți -> clip degenerează -> centru bbox (nefixabil geometric)."""
     centers = []
     h_segs, v_segs = (walls if walls else (None, None))   # R2 holuri: necesită liniile de perete
+    _brate_hol = _brate_holuri(rooms, W, H, geoms, h_segs, v_segs)   # {idx: [brate]} — vezi holuri.py
+    _brate_hol.pop("_motive", None)                                  # diagnostic, nu plasare
     # C — bbox-uri SANITIZATE (clamp la domeniul valid), aliniate cu rooms; None = invalid.
     # Aceleași boxe le folosește și garda anti-intruziune (verificare cross-cameră).
     boxes = []
@@ -2952,9 +3024,37 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     if h_segs is not None:
         bulbs_separated = _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H)
 
+    # HOLURILE PE BRATE, la FINAL si prin INLOCUIRE. Pipeline-ul de mai sus (dedup, invariantul de
+    # bec/camera, separarea suprapunerilor) ruleaza exact ca pana acum, cu becul vechi al holului la
+    # locul lui — deci camerele vecine vad aceeasi lista ca inainte si nu se misca. Abia dupa aceea
+    # becul holului e inlocuit cu cate unul per brat. Masurat: cu becurile de brat bagate IN pipeline,
+    # un dormitor de pe `casa santandrei` se muta cu 18 cm, fiindca dedup-ul e cross-camera.
+    bulbs_holuri = 0
+    if _brate_hol:
+        centers = [c for c in centers if c.get("room") not in _brate_hol]
+        for _idx, _lista in _brate_hol.items():
+            _label = str(((rooms or [])[_idx] or {}).get("name") or "") if _idx < len(rooms or []) else ""
+            for _b in _lista:
+                _l, _t, _r, _bo = _b["rect"]
+                # HALL_2BULB_M e PASUL, nu un prag: „in L = 2 becuri" (unul per brat) si „hol mai
+                # lung de 3 m -> 2 becuri" se bat cap in cap daca il tratezi ca prag — doua brate de
+                # 3,8 m ar da patru becuri intr-un hol in L de 13 mp. Ca pas, un brat de 3,8 m ia
+                # unul singur, iar un hol drept de 6 m ia doua.
+                _k = max(1, int(_b["lung_m"] / HALL_2BULB_M + 0.5))
+                for _j in range(_k):
+                    _f = (2 * _j + 1) / (2.0 * _k)
+                    if _b["o"] == "H":
+                        _px, _py = _l + (_r - _l) * _f, (_t + _bo) / 2.0
+                    else:
+                        _px, _py = (_l + _r) / 2.0, _t + (_bo - _t) * _f
+                    centers.append({"x": _px, "y": _py, "label": _label, "room": _idx,
+                                    "geometric": True, "protected": True})
+                    bulbs_holuri += 1
+
     stats = {
         "rooms_geometric": rooms_geometric,   # câte camere au folosit centroid CAD
         "rooms_fallback": rooms_fallback,      # câte au căzut pe clip bbox∩pereți
+        "bulbs_holuri": bulbs_holuri,          # câte becuri de hol, pe brate
         "bbox_fixed": bbox_fixed,              # câte bbox-uri Vision corectate
         "bulbs_dedup": bulbs_dedup,            # câte becuri duplicate (open-plan) eliminate
         "bulbs_guaranteed": bulbs_guaranteed,  # câte becuri re-adăugate de invariantul final
@@ -5753,7 +5853,8 @@ def draw_plan_elements(data: dict) -> dict:
             source = "text_regex"
             centers = _find_room_centers(page, W, H)
             vision_stats = {"rooms_geometric": 0, "rooms_fallback": 0, "bbox_fixed": 0,
-                            "bulbs_dedup": 0, "bulbs_guaranteed": 0, "bulbs_separated": 0}
+                            "bulbs_dedup": 0, "bulbs_guaranteed": 0, "bulbs_separated": 0,
+                            "bulbs_holuri": 0}
 
         # NOTĂ: garanția "fiecare cameră are bec" + plasarea off-wall sunt acum ÎN _vision_centers
         # (pasă autoritară: ancoră geometric/clip + invariant final). Aici nu mai sunt gărzi separate.
