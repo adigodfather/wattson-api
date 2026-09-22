@@ -92,8 +92,17 @@ def main():
     d.close()
 
     umbra, colect = geometry.UMBRA_PARSER, geometry._collect
+    ancora = geometry.ANCORA_TRAVERSARE
     geometry.UMBRA_PARSER = False
     geometry._collect = _collect_prin_parser(geometry, geom_parser)
+    # Filtrul de seed-uri se dezactiveaza AICI, intentionat: de cand etichetele se citesc si pe
+    # planurile cu text rotit, el prinde cazul Borcan INAINTEA portii, iar testul ar ajunge sa
+    # verifice alta plasa decat cea despre care vorbeste. Ca poarta sa fie pazita, trebuie masurata
+    # singura. Ca plasele sa se acopere una pe alta e bine — dar atunci nici una nu mai e testata.
+    # Se scoate ANCORA, nu comutatorul: `ANCORA_TRAVERSARE` guverneaza doar cazul fara eticheta.
+    geometry.ANCORA_TRAVERSARE = "fara-ancora"
+    eticheta = geometry._eticheta_camerei
+    geometry._eticheta_camerei = lambda *a, **k: None
     try:
         rez = geometry.extract_room_geometry(raw, CAMERE_BORCAN, W, H)
         d2 = next(r for r in rez if r["name"] == "Dormitor 2")
@@ -124,6 +133,8 @@ def main():
     finally:
         geometry._collect = colect
         geometry.UMBRA_PARSER = umbra
+        geometry.ANCORA_TRAVERSARE = ancora
+        geometry._eticheta_camerei = eticheta
 
     print("\n".join("ESUAT: " + r for r in rele) if rele else "OK — poarta de arie se poarta cum trebuie")
     return 1 if rele else 0

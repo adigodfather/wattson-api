@@ -509,47 +509,88 @@ _AREA_LABEL_PATTERN = r'[AS]\s*[:=]\s*([\d.,]+)'
 
 
 def _collect_text_lines(page):
-    """Liniile de text vectorial ale paginii: [(bbox, text)]. get_text('dict') asambleaza
-    corect randurile (nu 'words' — titlurile pot fi fragmentate per litera)."""
+    """Liniile de text vectorial ale paginii: [(bbox, text, directie)]. get_text('dict') asambleaza
+    corect randurile (nu 'words' — titlurile pot fi fragmentate per litera).
+
+    `directie` = campul `dir` al liniei, (cos, sin) al directiei de scriere: (1,0) orizontal,
+    (0,-1) rotit 90° in sus, (0,1) in jos. Fara el nu se poate spune ce inseamna „deasupra" pe un
+    plan cu textul rotit — vezi `_room_labels_from_lines`.
+    """
     lines = []
     for b in page.get_text("dict")["blocks"]:
         for l in b.get("lines", []):
             t = "".join(s["text"] for s in l.get("spans", [])).strip()
             if t:
-                lines.append((l["bbox"], t))
+                d = l.get("dir") or (1.0, 0.0)
+                lines.append((l["bbox"], t, (round(float(d[0]), 3), round(float(d[1]), 3))))
     return lines
 
 
+_ORIZONTAL = (1.0, 0.0)
+
+
+def _cadru_text(bbox, directie):
+    """Caseta unei linii, dusa in cadrul de coordonate AL TEXTULUI: (u0, v0, u1, v1).
+
+    u creste de-a lungul scrisului, v perpendicular „in jos" fata de text. Pentru text orizontal
+    (dir = (1,0)) iese u=x, v=y — adica exact coordonatele paginii, deci calculul ramane cel de azi,
+    neatins.
+    """
+    dx, dy = directie
+    us, vs = [], []
+    for (x, y) in ((bbox[0], bbox[1]), (bbox[2], bbox[1]), (bbox[0], bbox[3]), (bbox[2], bbox[3])):
+        us.append(x * dx + y * dy)
+        vs.append(-x * dy + y * dx)
+    return min(us), min(vs), max(us), max(vs)
+
+
 def _room_labels_from_lines(lines, W, H, y_max_ratio=None, label_pattern=_AREA_LABEL_PATTERN):
-    """Etichetele de camera din liniile de text: [{name, area_m2, label_x, label_y}] (normalizat 0-1)."""
+    """Etichetele de camera din liniile de text: [{name, area_m2, label_x, label_y}] (normalizat 0-1).
+
+    Numele e linia de deasupra ariei — dar „deasupra" se masoara in cadrul de coordonate AL
+    TEXTULUI, nu al paginii. Pe un plan cu textul rotit 90°, deasupra textului inseamna in stanga
+    sau in dreapta pe pagina, iar cautarea in coordonatele paginii nu gaseste NIMIC: pe `Casa
+    Borcan` (singurul plan din 30 cu liniile de arie rotite) se gaseau 10 linii de arie si zero
+    etichete, deci si V4, si ancora filtrului de seed-uri erau oprite acolo. Pentru text orizontal
+    transformarea e identitatea, deci celelalte planuri raman neatinse.
+
+    Numele se cauta doar printre liniile scrise in ACEEASI directie: pe aceeasi pagina cartusul e
+    orizontal si n-are ce cauta ca nume pentru o arie rotita.
+    """
     rx = re.compile(label_pattern)
     out = []
-    for (abb, at) in lines:
+    for linie in lines:
+        abb, at = linie[0], linie[1]
+        ad = linie[2] if len(linie) > 2 else _ORIZONTAL      # tolerant la formatul vechi
         m = rx.match(at)                          # ancorat -> nu prinde "Suprafata: NN" din cartus
         if not m:
             continue
         if y_max_ratio is not None and abb[1] / H > y_max_ratio:
             continue
+        au = _cadru_text(abb, ad)
         best = None
-        for (nbb, nt) in lines:                   # numele = linia imediat deasupra, aliniata
-            if nbb == abb:
+        for nlinie in lines:                      # numele = linia imediat deasupra, aliniata
+            nbb, nt = nlinie[0], nlinie[1]
+            nd = nlinie[2] if len(nlinie) > 2 else _ORIZONTAL
+            if nbb == abb or nd != ad:
                 continue
-            line_h = max(abb[3] - abb[1], 6.0)
-            dy = abb[1] - nbb[3]
+            nu = _cadru_text(nbb, nd)
+            line_h = max(au[3] - au[1], 6.0)
+            dy = au[1] - nu[3]
             if not (-2.0 <= dy <= 1.8 * line_h):
                 continue
-            overlap = min(nbb[2], abb[2]) - max(nbb[0], abb[0])
-            if overlap <= 0 and abs((nbb[0] + nbb[2]) / 2 - (abb[0] + abb[2]) / 2) > 60:
+            overlap = min(nu[2], au[2]) - max(nu[0], au[0])
+            if overlap <= 0 and abs((nu[0] + nu[2]) / 2 - (au[0] + au[2]) / 2) > 60:
                 continue
             if not re.search(r'[A-Za-zĂÂÎȘȚăâîșț]', nt):
                 continue
             if rx.match(nt) or re.match(r'^[+\-±]?\d', nt):
                 continue
-            if best is None or nbb[3] > best[0][3]:
-                best = (nbb, nt)
+            if best is None or nu[3] > best[2]:
+                best = (nbb, nt, nu[3])
         if best is None:
             continue
-        nbb, name = best
+        nbb, name = best[0], best[1]
         try:
             area = float(m.group(1).replace(",", "."))
         except (ValueError, IndexError):
@@ -820,7 +861,12 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                     aspect = max(w, h) / min(w, h)
                     rec["area_geometric_m2"] = round(area_geom, 2)
                     over = area_vision > 0 and area_geom > ceiling
-                    if not over:
+                    # Seed-ul central e tot un seed din bbox-ul Vision. Daca tocmai am respins TOATE
+                    # seed-urile fiindca trebuiau sa treaca un perete ca sa ajunga la camera, atunci
+                    # nici asta nu e in ea — iar peretii scosi din el sunt ai vecinului. Fara gardul
+                    # asta, becul se repara si prizele raman pe peretii de alaturi: exact defectul pe
+                    # care filtrul de seed-uri a venit sa-l inchida, intrat pe usa din dos.
+                    if not over and not n_traversare:
                         rec["wall_segments"] = _walls_in_rect(h_segs, v_segs, l, rr, t, b)
                         rec["doors"] = _doors_in_rect(doors, l, rr, t, b)
                     if over:
