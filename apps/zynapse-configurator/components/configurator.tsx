@@ -493,21 +493,29 @@ function PowerPhaseSelector({ value, onChange, suggestTri }: {
 /* ─── Equipment toggle cards ─── */
 interface EquipState { enabled: boolean; power_kw: number; phase: string; soil_type?: string; }
 
+// Detecția incendiu și desfumarea sunt cerințe de clădire publică / bloc — la o casă unifamilială
+// opțiunea doar încarcă formularul. Se ascunde DOAR dacă nu e deja bifată: un proiect reluat cu bifa
+// pusă trebuie să-și poată vedea și scoate alegerea, nu s-o piardă dintr-o regulă de afișare.
+// Efracția rămâne (decizia lui Dan): nu e cerință de normă, dar un proprietar de casă o poate vrea.
+const FARA_LA_CASA = new Set(["detectie_incendiu"]);
+
 function EquipmentCards({
-  equipment, setEquipment, customEquipment, setCustomEquipment,
+  equipment, setEquipment, customEquipment, setCustomEquipment, buildingType,
 }: {
   equipment: Record<string, EquipState>;
   setEquipment: React.Dispatch<React.SetStateAction<Record<string, EquipState>>>;
   customEquipment: { name: string; room: string; power_kw: number; phase: string }[];
   setCustomEquipment: React.Dispatch<React.SetStateAction<{ name: string; room: string; power_kw: number; phase: string }[]>>;
+  buildingType?: string;
 }) {
+  const eCasa = (buildingType || "").startsWith("casa");
   const inputStyle = {
     background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
     color: "#E2E4E9", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit",
   };
   return (
     <div className="flex flex-col gap-2">
-      {EXTRA_EQUIPMENT_DEFAULTS.map(eq => {
+      {EXTRA_EQUIPMENT_DEFAULTS.filter(eq => !(eCasa && FARA_LA_CASA.has(eq.type) && !equipment[eq.type]?.enabled)).map(eq => {
         const st = equipment[eq.type];
         return (
           <div key={eq.type}
@@ -1852,7 +1860,11 @@ export function ZynapseConfigurator() {
           // NU afectează proiectul/planul (deja salvate + afișate) — doar log. Proiect nou la fiecare
           // generare (uuid nou) -> fără duplicate. Faza DTAC (fără planse_iluminat/centers) -> 0 elemente.
           try {
-            if (projectUuid) {
+            // Serverul le scrie acum el (vezi `/api/generate`, blocul plan_elements): generarea
+            // dureaza minute, iar insertul din browser se pierdea tacut daca se intampla ceva in
+            // fereastra aia. Blocul de aici ramane REZERVA — ruleaza doar daca serverul n-a reusit.
+            const scriseDeServer = Number((data as { plan_elements_saved?: number }).plan_elements_saved || 0);
+            if (projectUuid && !scriseDeServer) {
               const planElements: Array<Record<string, unknown>> = [];
               // M2a: floor CANONIC din POZIȚIA planșei — aliniat cu rooms[].floor + plan_elements.
               // P0: lista nivelurilor vine din `planuri[].type` (numele REAL al nivelului), nu dintr-un
@@ -2432,7 +2444,8 @@ export function ZynapseConfigurator() {
           <SectionLabel>Opțiuni suplimentare</SectionLabel>
           <EquipmentCards
             equipment={equipment} setEquipment={setEquipment}
-            customEquipment={customEquipment} setCustomEquipment={setCustomEquipment} />
+            customEquipment={customEquipment} setCustomEquipment={setCustomEquipment}
+            buildingType={form.building_type} />
 
           {/* Câmpuri specifice bloc */}
           {form.building_type === "bloc_locuinte" && (

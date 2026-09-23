@@ -539,6 +539,58 @@ export async function POST(req: NextRequest) {
           console.error("[/api/generate] bloc Storage etapa 5 esuat (fallback base64):", e);
         }
 
+        // ── ELEMENTELE EDITORULUI, SCRISE DE SERVER ────────────────────────────────────────────
+        // Pana acum becurile si intrerupatoarele erau inserate de BROWSER, dupa ce primea raspunsul.
+        // Generarea dureaza minute, iar orice se intampla in fereastra aia (sesiune reimprospatata,
+        // tab inchis, eroare prinsa intr-un catch care scrie doar in consola) lasa proiectul FARA
+        // elemente: plansa iese corecta, dar editorul spune „0 camere · 0 elemente" si nu se poate
+        // selecta nimic. Masurat pe proiectul din 22 sept 23:26: 19 centre si 16 intrerupatoare in
+        // raspuns, ZERO randuri ajunse in baza, desi payload-ul si RLS-ul erau in regula (verificat
+        // rejucand insertul ca utilizator). Aici nu mai depinde de browser, si esecul se vede in log.
+        // Clientul ramane ca rezerva: sare peste bloc doar daca gaseste `plan_elements_saved`.
+        try {
+          const { floorLevels, floorForPlate } = await import("@/lib/floors");
+          const planse = (data.planse_iluminat as Array<Record<string, unknown>> | undefined) || [];
+          const nivele = floorLevels(
+            data.planuri as Array<{ type?: string | null }> | undefined, planse.length);
+          const randuri: Array<Record<string, unknown>> = [];
+          for (const [idx, plansa] of planse.entries()) {
+            const floor = floorForPlate(idx, nivele);
+            for (const c of ((plansa.centers as Array<Record<string, unknown>>) || [])) {
+              randuri.push({
+                project_id: projectId, floor,
+                element_type: (c.element_type as string) || "aplica_tavan",
+                plan_type: "iluminat", label: null, room: (c.label as string) ?? null,
+                x: c.x, y: c.y, wall_mounted: false, rotation: 0,
+                power_w: c.power_w ?? 25, kit_panica: c.kit_panica ?? false,
+              });
+            }
+            for (const s of ((plansa.switches as Array<Record<string, unknown>>) || [])) {
+              randuri.push({
+                project_id: projectId, floor,
+                element_type: "intrerupator_simplu",
+                plan_type: "iluminat", label: null, room: (s.room as string) || null,
+                x: s.x, y: s.y, wall_mounted: true, rotation: s.angle ?? 0,
+              });
+            }
+          }
+          if (randuri.length > 0) {
+            // ROL DE SERVICIU, nu sesiunea userului: tocmai dependenta de sesiune o scoatem de aici.
+            // Proiectul a fost creat cu o randuri mai sus pentru ACEST user, deci scrierea nu deschide
+            // nimic in plus — doar nu mai depinde de un token care poate expira in timpul generarii.
+            const { createAdminClient } = await import("@/lib/supabaseAdmin");
+            const { error: ePE } = await createAdminClient().from("plan_elements").insert(randuri);
+            if (ePE) {
+              console.error("[/api/generate] plan_elements insert esuat (clientul ramane rezerva):", ePE.message);
+            } else {
+              (data as Record<string, unknown>).plan_elements_saved = randuri.length;
+              console.log("[/api/generate] plan_elements: %d elemente scrise server-side", randuri.length);
+            }
+          }
+        } catch (e) {
+          console.error("[/api/generate] bloc plan_elements esuat (clientul ramane rezerva):", e);
+        }
+
         (data as Record<string, unknown>).saved_project_id = projectId;
       }
       // proiectId null -> NU setăm saved_project_id -> clientul face fallback (insert+consume+increment)
