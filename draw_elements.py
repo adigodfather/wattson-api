@@ -426,6 +426,31 @@ def bulb_area_step(name, subtip=None):
     return None
 
 
+# ── SPATIILE EXTERIOARE: nimic automat (decizia Dan, 24 sept 2026) ────────────────────────────
+# Terasa si balconul raman camere vizibile in editor, cu rubrica lor, dar NU primesc nici bec nici
+# priza din reguli: la exterior decizia tine de proiect, nu de o regula generala.
+#
+# LISTA E OGLINDA EXACTA a lui `EXTERIOR_KW` din `apps/zynapse-configurator/lib/auto-prize.ts`, iar
+# `test_exterior.py` citeste fisierul .ts si pica daca cele doua se despart. Doua liste care „se
+# tin una de alta" prin bunavointa diverg; una pazita de un test, nu.
+#
+# „acces" NU e in lista, desi era in EXTERIOR_KW de la banda LED. Masurat pe baza: ar fi golit
+# SAPTE camere interioare reale — «Hol acces» (13,5 mp) in sase variante si «Platforma acces».
+# Terasele care-l contin («Terasa acces», «Terasa acoperita acces») sunt oricum prinse de „teras".
+#
+# balcon/loggia/logie au GRANITA DE CUVANT la inceput, nu potrivire libera de substring: „logie"
+# liber prinde „RadioLOGIE", „TehnoLOGIE", „BioLOGIE". Capcana asta a fost deja platita o data, la
+# `BALCONY_RX` din auto-prize.ts, si n-o reintroduc aici. Granita e DOAR la inceput, ca „Balconul"
+# sa se potriveasca in continuare.
+_EXTERIOR_RX_SRC = r"(teras|podest|curte|exterior|\b(?:balcon|loggia|logie))"
+_EXTERIOR_RX = re.compile(_EXTERIOR_RX_SRC, re.I)
+
+
+def _e_exterior(name):
+    """True daca numele camerei o arata ca spatiu exterior (vezi `_EXTERIOR_RX_SRC`)."""
+    return bool(_EXTERIOR_RX.search((name or "").strip()))
+
+
 def _bulb_rule_for_room(name, subtip=None):
     """Regula TIP + PUTERE corp de iluminat pe camera (oglinda prizeRuleForRoom; valori BASIC,
     inginerul le schimba in editor). Decide DOAR tip+putere — CATE corpuri decide _vision_centers.
@@ -2901,11 +2926,16 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
                 except (TypeError, ValueError, KeyError):
                     pass
 
+    # Spatiile EXTERIOARE nu primesc bec automat (vezi `_EXTERIOR_KW`). Se calculeaza O SINGURA
+    # data, fiindca aceeasi multime trebuie sarita in DOUA locuri: bucla de mai jos SI invariantul
+    # „fiecare camera are bec" de la final — altfel invariantul le-ar pune becul inapoi.
+    _ext = {i for i, r in enumerate(rooms or []) if _e_exterior((r or {}).get("name"))}
+
     rooms_geometric = 0
     rooms_fallback = 0
     for idx, r in enumerate(rooms or []):
         box = boxes[idx] if idx < len(boxes) else None
-        if box is None:
+        if box is None or idx in _ext:
             continue
         x, y, w, h = box
         label = str((r or {}).get("name") or "")
@@ -3020,7 +3050,7 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     present = {c["room"] for c in centers}
     bulbs_guaranteed = 0
     for idx, box in enumerate(boxes):
-        if box is None or idx in present:
+        if box is None or idx in present or idx in _ext:   # `_ext`: exterioarele raman fara bec
             continue
         x, y, w, h = box
         g = geoms[idx] if (geoms and idx < len(geoms)) else None

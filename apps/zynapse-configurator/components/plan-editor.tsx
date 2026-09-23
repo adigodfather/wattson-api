@@ -11,7 +11,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, typ
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group, Wedge } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
-import { prizeRuleForRoom, placePrizasInRoom } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare
+import { prizeRuleForRoom, placePrizasInRoom, esteSpatiuExterior } from "@/lib/auto-prize";   // R1+F5a: reguli prize + plasare; sursa unica „exterior"
 import { cameraCanonica, CAMERE_COMERCIALE } from "@/lib/comercial";   // numele de pe plan -> camera canonica (sub-tip comercial)
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors, commercialReceptorDef } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
@@ -58,15 +58,15 @@ const SIGURANTA_ROOM = "Iluminat de siguranță";
 const DISPLAY_W_FALLBACK = 1200;  // lățime inițială până măsurăm containerul (editor full-width)
 const NO_ROOM = "(fără cameră)";  // grupul pentru elemente cu room null
 
-// Banda LED se pune DOAR in interior: exclude terasele/balcoanele/podestele si accesele. Criteriul
-// e pe NUME (editorul lucreaza exclusiv cu numele camerei — room_type-ul Vision nu ajunge aici),
-// in oglinda cu BALCONY_KW din auto-prize.ts si _TERRACE_KW din enrich_circuits.py. Garajul si
-// spatiul tehnic sunt PERMISE (regula e "nu in exterior", nu "doar camere de locuit").
-const EXTERIOR_KW = ["teras", "balcon", "loggia", "logie", "podest", "acces", "curte", "exterior"];
+// Banda LED se pune DOAR in interior. Criteriul e pe NUME (editorul lucreaza exclusiv cu numele
+// camerei — room_type-ul Vision nu ajunge aici). Garajul si spatiul tehnic sunt PERMISE (regula e
+// „nu in exterior", nu „doar camere de locuit").
+// Lista proprie de cuvinte a disparut de aici: era a DOUA definitie a aceleiasi notiuni, si
+// continea „acces" — masurat pe baza, ar fi exclus SAPTE camere interioare reale („Hol acces",
+// „Platforma acces"). Acum se cheama sursa unica din auto-prize.ts, aceeasi care decide prizele.
 function isCameraInterioara(name: string): boolean {
   if (!name || name === NO_ROOM) return false;   // fara camera -> desenare libera din rubrica globala
-  const n = name.toLowerCase().trim();
-  return !EXTERIOR_KW.some(k => n.includes(k));
+  return !esteSpatiuExterior(name);
 }
 // coloanele citite (read + re-select după insert) — aceeași listă, o singură sursă
 // A TREIA PLANSA (curenti slabi): tipul e exportat ca sa nu ramana literale binare imprastiate —
@@ -1274,12 +1274,28 @@ export default function PlanEditor({
 
   // ADD: element nou ÎN camera dată — refolosește EXACT tiparul de INSERT din populare (configurator.tsx).
   // Poziție: lângă elementul de referință al camerei (offset lateral, puncte PDF). NON-BLOCANT.
+  // Ancora unei camere pentru adăugarea MANUALĂ. Până acum se lua primul element al camerei, cu
+  // nota „camera apare în accordion doar dacă are ≥1 element". De când spațiile exterioare nu mai
+  // primesc nimic automat, nota nu mai e adevărată: rubrica lor există și GOALĂ, iar `list[0]` e
+  // undefined — elementul ar fi aterizat în centrul planșei, pe un etaj presupus. Fără bbox-ul
+  // camerei rămâne vechiul centru de imagine, ca să nu existe cale fără răspuns.
+  function ancoraCamera(roomKey: string, list: PlanElement[]) {
+    const ref = list[0];
+    if (ref) return { x: ref.x, y: ref.y, floor: floorCanonic(ref.floor) };
+    const cam = (rooms || []).find(r => (r?.name || "").trim() === roomKey);
+    const b = cam?.bbox;
+    const Wp = pngW > 0 ? pngW / scale : 0, Hp = pngH > 0 ? pngH / scale : 0;
+    if (b && Wp > 0 && Hp > 0)
+      return { x: (b.x + b.w / 2) * Wp, y: (b.y + b.h / 2) * Hp, floor: floorCanonic(cam?.floor) };
+    return { x: Wp > 0 ? Wp / 2 : 100, y: Hp > 0 ? Hp / 2 : 100, floor: floorCanonic(cam?.floor) };
+  }
+
   async function addElement(roomKey: string, category: "bulb" | "switch") {
     const list = elements.filter(e => (e.room || NO_ROOM) === roomKey);
-    const ref = list[0];   // camera apare în accordion doar dacă are ≥1 element -> ref există
-    const floor = floorCanonic(ref?.floor);
-    const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
-    const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
+    const anc = ancoraCamera(roomKey, list);
+    const floor = anc.floor;
+    const baseX = anc.x;
+    const baseY = anc.y;
     const stagger = list.length;   // evită suprapunerea exactă la adăugări repetate
     const row = {
       project_id: projectId,
@@ -1376,23 +1392,28 @@ export default function PlanEditor({
   // -> acelasi tipar ca addElement. plan_type=forta, wall_mounted. Auto-select -> dropdown Tip apare imediat.
   async function addPrizaInRoom(roomKey: string) {
     const list = elements.filter(e => (e.room || NO_ROOM) === roomKey);
-    const ref = list[0];   // camera apare in accordion doar cu >=1 element -> ref exista
-    const floor = floorCanonic(ref?.floor);
-    const baseX = ref ? ref.x : (pngW > 0 ? (pngW / scale) / 2 : 100);
-    const baseY = ref ? ref.y : (pngH > 0 ? (pngH / scale) / 2 : 100);
+    const anc = ancoraCamera(roomKey, list);
+    const floor = anc.floor;
+    const baseX = anc.x;
+    const baseY = anc.y;
     const stagger = list.filter(e => (e.element_type || "").startsWith("priza")).length;   // evita suprapunerea
     const rule = prizeRuleForRoom(roomKey === NO_ROOM ? null : roomKey, null, comercialSubtip);   // FIX-P: h per camera (baie 1.2 / terasa+balcon 0.4)
+    // Pe EXTERIOR regula intoarce acum `null` (nimic automat), deci n-are de unde da inaltimea si
+    // tipul. Priza pusa MANUAL pe terasa trebuie sa ramana totusi conforma: IP44 la 0,40 m — altfel
+    // ajunge o priza simpla pe un circuit pe care `_TERRACE_RX` ii da RCCB 10 mA, exact nepotrivirea
+    // impotriva careia e scris comentariul de la BATH_RX.
+    const ext = roomKey !== NO_ROOM && esteSpatiuExterior(roomKey);
     const row = {
       project_id: projectId,
       floor,
-      element_type: "priza_simpla",   // default; retipabil din dropdown-ul "Tip"
+      element_type: ext ? "priza_exterior_ip44" : "priza_simpla",   // default; retipabil din dropdown-ul "Tip"
       plan_type: "forta",             // prizele/alimentarile = planul de forta
       label: null as string | null,
       room: roomKey === NO_ROOM ? null : roomKey,
       x: baseX + 40 + stagger * 6,
       y: baseY + stagger * 6,
       wall_mounted: true,
-      mount_height_m: rule?.heightM ?? 0.6,   // inaltime precompletata pe regula camerei (editabila in panou)
+      mount_height_m: rule?.heightM ?? (ext ? 0.4 : 0.6),   // inaltime precompletata pe regula camerei (editabila in panou)
       rotation: 0,
       status: null as string | null,
     };
@@ -2418,6 +2439,14 @@ export default function PlanEditor({
 
   // grupare pe cameră (numele) — fiecare cameră o secțiune de accordion
   const byRoom = new Map<string, PlanElement[]>();
+  // Camerele EXTERIOARE nu mai primesc nimic automat, dar raman camere: rubrica lor trebuie sa
+  // existe si GOALA, ca inginerul sa aiba de unde adauga manual. Pana acum rubricile se nasteau
+  // exclusiv din elemente, deci o camera fara elemente disparea din editor cu totul — cazul care
+  // nu se putea intampla inainte, fiindca fiecare camera avea macar un bec.
+  for (const r of rooms || []) {
+    const nume = (r?.name || "").trim();
+    if (nume && esteSpatiuExterior(nume) && !byRoom.has(nume)) byRoom.set(nume, []);
+  }
   for (const el of elements) {
     const key = el.room || NO_ROOM;
     const arr = byRoom.get(key);

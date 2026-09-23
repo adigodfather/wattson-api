@@ -50,12 +50,25 @@ export type PrizaRule = { count: number; type: PrizaType; circuitGroup: string; 
 // abrevierea pură, dar DELIMITATĂ — vechiul „gs" ca substring liber era un fals-pozitiv în așteptare.
 // Dacă se schimbă una, se schimbă AMÂNDOUĂ: altfel prizele primesc IP44 iar circuitul rămâne fără RCCB.
 const BATH_RX = /(baie|bath|\bwc\b|sanitar|\bg\s*\.?\s*s\.?\b)/i;
-// BALCON/LOGGIA — regex cu granită de CUVÂNT la început, OGLINDA lui _TERRACE_RX din
-// enrich_circuits.py. „logie" ca substring liber prindea „RadioLOGIE"/„TehnoLOGIE"/„BioLOGIE":
-// camere uscate care primeau priză IP44 la 0,40 m și, pe partea cealaltă, RCCB 10 mA. Exact
-// falsul-pozitiv în așteptare descris mai sus pentru „gs". Granița e DOAR la început, ca
-// „Balconul" să se potrivească în continuare.
-const BALCONY_RX = /\b(balcon|loggia|logie)/i;
+// SPAȚII EXTERIOARE — SURSA UNICĂ (decizia Dan, 24 sept 2026): terasa și balconul rămân camere
+// vizibile în editor, cu rubrica lor, dar NU primesc nimic automat — nici priză, nici bec. La
+// exterior decizia ține de proiect, nu de o regulă.
+// Se folosește în TREI locuri: aici (prize), în plan-editor.tsx (banda LED + rubricile golite) și,
+// oglindit, în `draw_elements._EXTERIOR_RX_SRC` (becuri). `test_exterior.py` citește FIȘIERUL ĂSTA
+// și pică dacă Python-ul s-a depărtat de el — două liste ținute în sincron prin bunăvoință diverg.
+// „acces" NU e aici, deși era în vechiul EXTERIOR_KW al benzii LED: măsurat pe bază, ar fi golit
+// ȘAPTE camere interioare reale („Hol acces" 13,5 mp în șase variante, „Platforma acces"), iar
+// terasele care-l conțin sunt oricum prinse de „teras".
+// balcon/loggia/logie păstrează granița de cuvânt a vechiului BALCONY_RX (pe care îl înlocuiește):
+// „logie" ca substring liber prinde „RadioLOGIE"/„TehnoLOGIE"/„BioLOGIE" — camere uscate care
+// primeau priză IP44 la 0,40 m și RCCB 10 mA pe cealaltă parte. Granița e DOAR la început, ca
+// „Balconul" să se potrivească mai departe. Restul cuvintelor sunt substring, că n-au omonime.
+// `_TERRACE_RX` din enrich_circuits.py RĂMÂNE neatins: dacă inginerul pune manual o priză pe
+// terasă, ea trebuie să ajungă tot pe RCCB 10 mA.
+export const EXTERIOR_RX = /(teras|podest|curte|exterior|\b(?:balcon|loggia|logie))/i;
+export function esteSpatiuExterior(name: string | null | undefined): boolean {
+  return EXTERIOR_RX.test((name ?? "").trim());
+}
 
 // SPAȚII COMERCIALE — regex pe nume normalizat, oglinda lui _COMERCIAL_RULES din draw_elements.py.
 // [count fix, pas_mp] — pasul adaugă +1 priză la fiecare X mp (null = doar fixul).
@@ -115,14 +128,10 @@ export function prizeRuleForRoom(
   // 0. BAIE/G.S./WC (prima, ca in enrich.rccb_zone) -> 1 IP44 la h=1.2, grup comun BAIE
   if (BATH_RX.test(n))
     return { count: 1, type: IP44, circuitGroup: "BAIE", heightM: 1.2 };
-  // 1-2. TERASA: "acces" -> 0 (manual) INAINTE de terasa generica (acoperita -> 2 IP65->IP44, h=0.4)
-  if (n.includes("teras"))
-    return n.includes("acces")
-      ? { count: 0, type: S, circuitGroup: own, heightM: 0.4 }
-      : { count: 2, type: IP44, circuitGroup: own, heightM: 0.4 };
-  // 2b. BALCON/LOGGIA -> 1 IP44 la h=0.4 (decizia Dan: 1, nu 2 ca terasa)
-  if (BALCONY_RX.test(n))
-    return { count: 1, type: IP44, circuitGroup: own, heightM: 0.4 };
+  // 1. SPATIILE EXTERIOARE -> SKIP, nimic automat (vezi EXTERIOR_RX). Inainte era: terasa cu
+  // "acces" -> 0, terasa -> 2 x IP44 la 0,40 m, balcon -> 1 x IP44. `null` inseamna SKIP peste tot
+  // in R2 (acelasi drum ca "spatiu tehnic"), deci camera nu primeste nici priza, nici circuit gol.
+  if (esteSpatiuExterior(n)) return null;
   // 3. SPATIU TEHNIC -> SKIP (camera TE-CT, gestionata de schema/T1, nu auto-repartizata)
   if (n.includes("spatiu tehnic") || n.includes("tehnic")) return null;
   // 4. DEPOZIT/CAMARA/DRESSING -> 2 (ATENTIE: "camara" NU prinde "camera" -> inainte de living)
