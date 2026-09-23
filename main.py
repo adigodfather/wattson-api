@@ -2378,6 +2378,18 @@ class ValidatePlanRequest(ZynModel):
     pdf_base64: str = ""
 
 
+# Sub atatea segmente de perete, plansa nu poarta informatie de pereti utilizabila.
+#
+# MASURAT pe cele 11 planse distincte din baza (27 de perechi plan-proiect):
+#     0, 0, 0 · 120, 151, 217, 229, 235, 559, 575, 779
+# Intre 0 si 120 nu exista nimic — cel mai lat gol din distributie. Iar cele trei planse cu ZERO
+# pereti sunt exact cele in care NICIO camera nu primeste contur (0% din camere), pe cand toate
+# celelalte dau cel putin 27%. Deci pragul nu desparte „mai bine" de „mai rau", ci „exista
+# informatie de pereti" de „nu exista deloc". 20 e numarul pe care poarta il folosea deja pentru
+# cealalta conditie; se pastreaza unul singur, ca sa nu existe doua praguri care spun acelasi lucru.
+PRAG_PERETI = 20
+
+
 @app.post("/validate-plan")
 @_protejat
 def validate_plan_endpoint(request: ValidatePlanRequest):
@@ -2385,8 +2397,13 @@ def validate_plan_endpoint(request: ValidatePlanRequest):
     Discriminanti dovediti empiric (schema reala: 0 pereti + 0 etichete arie; planuri reale:
     sute de pereti + etichete = exact nr. camerelor; raster: 0 text):
       - raster (words==0)                  -> rejected (blocare HARD in frontend)
-      - 0 etichete arie SI < 20 pereti     -> warning  (override in frontend, faza 1)
+      - 0 etichete arie SI < 20 pereti     -> warning „not_a_plan" (schema sau alt document)
+      - < 20 pereti, DAR are etichete      -> warning „fara_pereti" (e plan, dar exportat aplatizat)
       - altfel                             -> ok
+    Cele doua avertismente sunt despre lucruri diferite si nu se suprapun: primul spune „poate nu-i
+    un plan", al doilea „e un plan, dar fara informatie de pereti". Inainte, al doilea caz trecea
+    `ok` daca plansa avea etichete de arie — masurat, o plansa din unsprezece — si userul platea
+    fara sa stie ca prizele vor fi aproximative.
     Refoloseste geometry._collect (pereti) + draw_elements.AREA_RE (etichete "A: NN.N mp").
     DEFENSIV: orice eroare INTERNA a portii -> ok cu nota (poarta nu blocheaza useri pe bug-ul ei)."""
     doc = None
@@ -2416,9 +2433,28 @@ def validate_plan_endpoint(request: ValidatePlanRequest):
         # FIX BILLING faza 1: suprafata CONSTRUITA determinista din text vectorial (planul e deja deschis).
         # Modalul o afiseaza; /api/generate o RE-extrage server-side (nu se increde in client) -> billing.
         surface = extract_surface(pdf_bytes)
-        if n_area == 0 and n_walls < 20:
+        if n_area == 0 and n_walls < PRAG_PERETI:
             return {"status": "warning", "reason": "not_a_plan", "detected": detected, "surface": surface,
-                    "message": "Fișierul nu pare un plan de arhitectură (nicio cameră cu suprafață, aproape niciun perete detectat). Poate fi o schemă sau alt document."}
+                    "message": "Fișierul nu pare un plan de arhitectură (nicio cameră cu suprafață, "
+                               "aproape niciun perete detectat). Poate fi o schemă sau alt document. "
+                               "Dacă totuși este un plan, a fost exportat fără layere: prizele și "
+                               "traseele vor fi puse pe conturul aproximativ al camerei, nu pe pereții "
+                               "reali."}
+        # Plansa ESTE un plan (are camere cu suprafata scrisa), dar nu poarta pereti. Se intampla la
+        # exportul aplatizat, in care toate liniile ajung pe un singur layer fara nume: liniile sunt
+        # in fisier, dar nu se pot deosebi de mobilier si de cote, deci nu se colecteaza.
+        # MASURAT: pe planse fara pereti, ZERO camere primesc contur — prizele ajung pe laturile
+        # dreptunghiului aproximativ, iar traseele merg in linie dreapta prin camere. Avertismentul
+        # sta AICI fiindca `/validate-plan` e ultima poarta dinaintea consumului: dupa ea urmeaza
+        # Vision (Anthropic), lock-ul si debitarea. Frontendul il arata deja, cu „Continua oricum?".
+        if n_walls < PRAG_PERETI:
+            camere = ("%d camere cu suprafață scrisă" % n_area) if n_area else "camere"
+            return {"status": "warning", "reason": "fara_pereti", "detected": detected, "surface": surface,
+                    "message": "Planul are %s, dar nu am găsit pereți în el (%d detectați). "
+                               "Prizele și traseele se vor pune pe conturul aproximativ al camerei, "
+                               "nu pe pereții reali. Planul pare exportat aplatizat, fără layere — "
+                               "pentru poziții exacte, cereți arhitectului exportul PDF cu layere."
+                               % (camere, n_walls)}
         return {"status": "ok", "detected": detected, "surface": surface}
     except Exception as e:
         logger.error("[validate-plan] eroare interna -> permis defensiv: %r", e)
