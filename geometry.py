@@ -601,6 +601,73 @@ def _room_labels_from_lines(lines, W, H, y_max_ratio=None, label_pattern=_AREA_L
     return out
 
 
+# REGULA 1c — o eticheta STRAINA in contur. Cat de adanc trebuie sa cada ca sa conteze:
+# 0 = fix pe margine, 1 = fix in centru. Masurat pe toate cele 135 de contururi validate din baza:
+# 13 contin o eticheta straina, iar adancimile lor sunt 0,28 0,46 0,46 0,46 0,46 0,46 0,65 0,67
+# 0,67 0,67 0,69 0,83 0,91 — NICIUNA sub 0,28. Pragul sta in banda goala de dedesubt, si exista
+# tocmai pentru cazul care azi nu apare: o eticheta desenata PE granita unui contur bun.
+ADANCIME_STRAINA = 0.12
+
+
+def _poate_fi_a_camerei(nume_camera, decl, lb):
+    """Eticheta `lb` AR PUTEA fi a camerei: nume identic, unul prefixul celuilalt, sau aceeasi arie.
+
+    Deliberat mai LARGA decat `_eticheta_camerei`, si in sens invers ca siguranta. Ancora trebuie sa
+    fie sigura ca eticheta e a camerei, deci cere nume identic. Aici se raspunde la „s-ar putea sa
+    fie a ei?", iar raspunsul e folosit ca sa NU respingem un contur — deci generozitatea greseste
+    in partea buna: cel mult lasam o comasare sa treaca, niciodata nu taiem un contur bun.
+    Masurat de ce e nevoie: Vision adauga calificative pe care desenul nu le are („Camera de zi +
+    l.l.m. (parter)" vs «Camera de zi + l.l.m.»). Cu potrivire stricta, pe `test debug` NICIUNA din
+    cele 7 etichete nu se lega de vreo camera, si net-ul n-avea cum sa se aprinda.
+    """
+    a, b = _norm_room_name(nume_camera), _norm_room_name(lb.get("name"))
+    if a and b and (a == b or a.startswith(b) or b.startswith(a)):
+        return True
+    try:
+        ar = float(lb.get("area_m2") or 0)
+    except (TypeError, ValueError):
+        ar = 0.0
+    return bool(ar) and decl > 0 and abs(ar - decl) <= max(0.05, 0.02 * decl)
+
+
+def _harta_etichete(labels, vision_rooms):
+    """[(eticheta, [indecsi de camere carora AR PUTEA sa le apartina])] — o trecere, inainte de bucla.
+
+    O eticheta care nu se potriveste cu NICIO camera din lista ramane fara indecsi si nu e „straina"
+    pentru nimeni: net-ul respinge doar cand eticheta apartine altei camere DIN LISTA. Asa, un text
+    desenat care nu e nume de camera (o terasa nelistata, o nota) nu poate respinge nimic.
+    """
+    out = []
+    for lb in (labels or []):
+        idxs = []
+        for i, r in enumerate(vision_rooms or []):
+            try:
+                decl = float((r or {}).get("area_m2") or 0)
+            except (TypeError, ValueError):
+                decl = 0.0
+            if _poate_fi_a_camerei((r or {}).get("name"), decl, lb):
+                idxs.append(i)
+        out.append((lb, idxs))
+    return out
+
+
+def _eticheta_straina_in(idx_camera, l, r, t, b, harta, W, H):
+    """Prima eticheta a ALTEI camere cazuta bine in interiorul dreptunghiului, sau None."""
+    if r <= l or b <= t:
+        return None
+    for lb, idxs in harta:
+        if not idxs or idx_camera in idxs:
+            continue
+        x, y = lb["label_x"] * W, lb["label_y"] * H
+        if not (l <= x <= r and t <= y <= b):
+            continue
+        adanc = min(min(x - l, r - x) / ((r - l) / 2.0),
+                    min(y - t, b - y) / ((b - t) / 2.0))
+        if adanc >= ADANCIME_STRAINA:
+            return lb
+    return None
+
+
 def _norm_room_name(s):
     """Nume normalizat pentru matching etichete<->camere Vision (lowercase, fara diacritice)."""
     s = unicodedata.normalize("NFKD", s or "")
@@ -686,7 +753,8 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
             })
         return out
 
-    for r in (vision_rooms or []):
+    _harta = _harta_etichete(_labels, vision_rooms)
+    for idx_cam, r in enumerate(vision_rooms or []):
         name = str((r or {}).get("name") or "")
         try:
             area_vision = float((r or {}).get("area_m2") or 0) or 0.0
@@ -820,7 +888,27 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 # s-ar repara, dar prizele ar ramane pe peretii vecinului. Camera cade pe fallback-ul
                 # ancora-eticheta (V4) sau pe bbox-ul Vision — amandoua pe camera ei.
                 sub_podea = area_vision > 0 and area_geom < MIN_AREA_RATIO * area_vision
+                motiv_respins = None
                 if sub_podea:
+                    motiv_respins = ("respins REGULA 1b: arie %.1fm2 = %.0f%% din %.1fm2 declarati "
+                                     "(prag %.0f%%) - contur probabil al camerei vecine") % (
+                        area_geom, 100.0 * area_geom / area_vision, area_vision,
+                        100.0 * MIN_AREA_RATIO)
+                elif _harta:
+                    # REGULA 1c — CONTURUL CARE INGHITE ALTA CAMERA. Simetrica cu verificarea pe
+                    # care o face de mult masuratoarea („conturul isi contine propria eticheta"),
+                    # dar pe fata cealalta: daca inauntru cade eticheta ALTEI camere, conturul e o
+                    # comasare peste doua incaperi, si becul poate ajunge in cealalta.
+                    # Poarta de arie (1b) nu prinde asta — o comasare e mai MARE, nu mai mica, deci
+                    # trece de podea; nici plafonul (REGULA 1). Masurat: 13 din 135 de contururi
+                    # validate azi contin o eticheta straina si sunt folosite ca atare in productie.
+                    _str = _eticheta_straina_in(idx_cam, l, rr, t, b, _harta, W, H)
+                    if _str is not None:
+                        motiv_respins = ("respins REGULA 1c: conturul contine eticheta «%s», "
+                                         "deci acopera si alta camera") % str(_str.get("name"))[:30]
+                if motiv_respins:
+                    # ca la 1b, pleaca TOT ce s-a dedus din contur, nu doar centroidul: altfel becul
+                    # s-ar repara, dar prizele ar ramane pe peretii camerei inghitite
                     rec.pop("_grect", None)
                     rec["wall_segments"] = []
                     rec["doors"] = []
@@ -832,11 +920,9 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 tol = max(BBOX_CONTAIN_TOL, CONTAIN_FRAC * min(bw, bh))
                 inside = (bx - tol <= cgx <= bx + bw + tol and
                           by - tol <= cgy <= by + bh + tol)
-                if sub_podea:
-                    # geometric ramane False, centroid None -> fallback Vision (centru bbox)
-                    rec["reason"] = ("respins REGULA 1b: arie %.1fm2 = %.0f%% din %.1fm2 declarati "
-                                     "(prag %.0f%%) - contur probabil al camerei vecine") % (
-                        area_geom, 100.0 * area_geom / area_vision, area_vision, 100.0 * MIN_AREA_RATIO)
+                if motiv_respins:
+                    # geometric ramane False, centroid None -> fallback ancora-eticheta sau Vision
+                    rec["reason"] = motiv_respins
                 elif not inside:
                     # geometric ramane False, centroid None -> fallback Vision (centru bbox)
                     rec["reason"] = "respins bbox-containment: centroid (%d,%d) iese din bbox Vision (tol %.0f)" % (
