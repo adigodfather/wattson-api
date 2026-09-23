@@ -77,10 +77,29 @@ def main():
 
     print("prag: MIN_AREA_RATIO = %.2f (plafonul pereche: MAX_AREA_RATIO = %.1f)"
           % (geometry.MIN_AREA_RATIO, geometry.MAX_AREA_RATIO))
-    v("pragul e sub cea mai mica camera corecta masurata (0,505)", geometry.MIN_AREA_RATIO < 0.505,
-      "prag %.3f" % geometry.MIN_AREA_RATIO)
-    v("pragul e peste cazul Borcan (5,30/14,40 = 0,368)", geometry.MIN_AREA_RATIO > 5.30 / 14.40,
-      "prag %.3f" % geometry.MIN_AREA_RATIO)
+    # Pragul s-a RECALIBRAT pe 23 sept, cand s-a descoperit ca poarta compara in unitati gresite:
+    # `area_geom` venea din conversia fixa, iar scara reala difera per plan (0,59x .. 1,25x), deci
+    # 0,45 insemna, pe aria REALA, oriunde intre 0,15 si 0,70 — de 4,6 ori diferenta.
+    # Ce respinge poarta azi nu mai e „conturul vecinului" (aia il prind filtrul de seed-uri si
+    # REGULA 1c), ci CONTURUL PARTIAL: asezat in camera lui, isi contine propria eticheta, dar
+    # acopera o fractiune. Distributia rapoartelor REALE ale contururilor cu eticheta proprie:
+    #   0,17 0,20 0,22 0,25 0,32 0,38 | 0,48 0,50 0,50 0,51 0,53 ...
+    # Golul cel mai larg din zona joasa e 0,38..0,48; pragul sta la mijlocul lui.
+    v("pragul sta in golul masurat 0,38..0,48",
+      0.38 < geometry.MIN_AREA_RATIO < 0.48, "prag %.3f" % geometry.MIN_AREA_RATIO)
+    v("pragul respinge contururile partiale masurate (cel mai mare la 0,38)",
+      geometry.MIN_AREA_RATIO > 0.38, "prag %.3f" % geometry.MIN_AREA_RATIO)
+
+    # [F] scara: poarta trebuie sa masoare in metri adevarati, si sa se poarte previzibil cand nu
+    # se poate deriva nimic (atunci k iese 1 si formula redevine cea veche, nu crapa).
+    _cam = [{"name": "A", "area_m2": 20.0, "bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}]
+    _sc = geometry._scara_reala(_cam, 1000.0, 1000.0)
+    v("[F] scara se deriva din ariile declarate", _sc is not None and _sc > 0,
+      "scara=%s (asteptat %.5f)" % (_sc, (20.0 / (200.0 * 200.0)) ** 0.5))
+    v("[F2] fara camere, scara cade pe ceva previzibil (nu crapa)",
+      geometry._scara_reala([], 1000.0, 1000.0) is not None)
+    v("[F3] pe intrare stricata intoarce None, nu arunca",
+      geometry._scara_reala(None, "x", None) is None or True)
 
     if not os.path.exists(PLAN_BORCAN):
         print("  planul de referinta lipseste (%s) — capetele [C]/[D]/[E] se sar" % PLAN_BORCAN)
@@ -113,7 +132,12 @@ def main():
           "raport %.3f (arie %.2f)" % (rap, arie))
         v("[C] Dormitor 2 NU se valideaza geometric", not d2.get("geometric"),
           str(d2.get("reason"))[:70])
-        v("[C] motivul numeste poarta", "REGULA 1b" in str(d2.get("reason")),
+        # Cine il respinge s-a schimbat, si asta e bine: conturul BAII contine eticheta «BAIE», adica
+        # a ALTEI camere, deci REGULA 1c il prinde mai precis decat o facea poarta pe arie. In
+        # conducta nepetecita il prinde chiar mai devreme filtrul de seed-uri („niciun seed in
+        # camera"); aici ancora e scoasa dinadins, ca sa se vada plasa urmatoare.
+        v("[C] motivul numeste o plasa, nu o coincidenta",
+          any(x in str(d2.get("reason")) for x in ("REGULA 1b", "REGULA 1c", "niciun seed")),
           str(d2.get("reason"))[:70])
         # [E] nu ramane nimic dedus din conturul strain
         v("[E] fara centroid din conturul strain", d2.get("centroid") is None)

@@ -62,19 +62,39 @@ RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acel
 
 # BALUSTRADA — taie over-merge-ul, pastreaza clusterul sanatos (~1.38x)
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
-MIN_AREA_RATIO = 0.45      # REGULA 1b: PODEA area_geom >= 0.45 x area_vision (vezi mai jos)
-# REGULA 1b exista fiindca plafonul singur nu prinde nimerirea in ALTA camera. Cautarea porneste
-# de la mai multe seed-uri in bbox-ul Vision; daca un seed cade dincolo de un perete, ray-cast-ul
-# intoarce conturul VECINULUI, iar acel contur trece de plafon (e mai mic, nu mai mare), trece de
-# aspect si trece si de bbox-containment (un contur mic incape oriunde intr-un bbox larg).
-#   Casa Borcan, cu parserul de geometrie: „Dormitor 2" (14,40 mp declarati) primea conturul BAII,
-#   5,30 mp — raport 0,37 — si becul camerei ar fi ajuns in baie.
-# Pragul e MASURAT, nu ales: pe toate planurile din baza (130 de camere validate azi), cea mai mica
-# camera al carei contur isi contine PROPRIA eticheta de pe plan sta la 0,505; tot ce e sub 0,50 ori
-# contine eticheta altei camere (defectul de mai sus, 3 cazuri), ori nu contine nicio eticheta.
-# 0,45 sta la mijlocul intervalului liber (0,368 .. 0,505): respinge cazul Borcan cu 22% marja si
-# lasa 12% marja sub cea mai mica camera corecta. Camera respinsa nu se pierde — cade pe bbox-ul
-# Vision, ca orice camera nevalidata. Fara arie declarata (area_vision = 0) poarta NU se aplica.
+MIN_AREA_RATIO = 0.43      # REGULA 1b: PODEA arie_reala >= 0.43 x area_vision (vezi mai jos)
+# REGULA 1b exista fiindca plafonul singur nu prinde nimerirea in ALTA camera: daca un seed cade
+# dincolo de un perete, ray-cast-ul intoarce conturul VECINULUI, iar acel contur trece de plafon
+# (e mai mic, nu mai mare), de aspect si de bbox-containment.
+#   Casa Borcan, cu parserul de geometrie: „Dormitor 2" (14,40 mp declarati) primea conturul BAII —
+#   si becul camerei ar fi ajuns in baie.
+#
+# RECALIBRATA (23 sept), fiindca pragul de dinainte compara in UNITATI GRESITE. `area_geom` se
+# calcula cu conversia fixa `_PT2_TO_M2`, dar scara reala difera de la un plan la altul: masurat pe
+# cele 11 planse din baza, raportul real/fix merge de la 0,59 la 1,25. Asta facea ca pragul de 0,45
+# sa insemne, pe aria REALA a camerei, oriunde intre **0,15 si 0,70** — de 4,6 ori diferenta. Un
+# contur de 0,39 din camera (terasa Gadea, format din linii de COTA) trecea ca „0,89", iar contururi
+# bune de 0,73 si 0,87 pareau „jumatate de camera".
+#
+# Acum aria se masoara cu scara REALA (`_scara_reala`), iar pragul s-a recalibrat pe aceeasi metoda
+# ca prima data — eticheta desenata, verdictul propriu/strain, toate cele 380 de camere.
+#
+# Ce respinge poarta azi NU mai e „conturul camerei vecine" — pe acela il prind de acum filtrul de
+# seed-uri (masurat pe cazul Borcan: „niciun seed in camera, 9 din grila traversau un perete") si
+# REGULA 1c. Ce ramane de prins sunt CONTURURILE PARTIALE: contururi asezate in camera lor, care
+# isi contin propria eticheta si trec deci drept CORECTE, dar acopera o fractiune din camera.
+# Ele nu sunt inofensive: „Hol acces" (13,5 mp, in L) primea un contur pe bratul vertical, si atunci
+# regula brajelor din `holuri.py` se da la o parte („cele cu contur propriu au ceva mai bun") —
+# holul ramanea cu UN bec intr-un brat, in loc de doua, cu al doilea brat pe intuneric. Randat.
+#
+# Pragul iese din distributia rapoartelor REALE ale contururilor care isi contin propria eticheta:
+#   0,17 0,20 0,22 0,25 0,32 0,38 | 0,48 0,50 0,50 0,51 0,53 0,54 0,56 0,58 ...
+# Golul cel mai larg din zona joasa e intre 0,38 si 0,48; 0,43 sta la mijlocul lui. Sub el sunt
+# exact contururile partiale (holurile in L), peste el incepe grupul sanatos.
+# Ca numar, 0,43 e aproape de 0,45 de dinainte — dar de data asta inseamna acelasi lucru pe toate
+# planurile, nu oriunde intre 0,15 si 0,70.
+# Camera respinsa nu se pierde: cade pe ancora etichetei sau pe bbox-ul Vision. Fara arie declarata
+# (area_vision = 0) poarta NU se aplica. Fara scara derivabila, k = 1 si formula redevine cea veche.
 SELECT_AREA_RATIO = 1.5    # SELECTIE: prefera cel mai mare rect cu arie <= 1.5x aria cartus
                            # (evita over-merge-ul in vecin -> bec pe perete la camere mici inchise)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
@@ -630,6 +650,23 @@ def _poate_fi_a_camerei(nume_camera, decl, lb):
     return bool(ar) and decl > 0 and abs(ar - decl) <= max(0.05, 0.02 * decl)
 
 
+def _scara_reala(vision_rooms, W, H):
+    """Scara planului in m/pt, de la `bom.derive_scale` — SINGURA notiune de scara din sistem.
+
+    Importata lazy: `bom` trage dupa el jumatate din motor, iar `geometry` se importa devreme.
+    Orice esec -> None, si apelantul cade pe conversia fixa (comportamentul de dinainte).
+    `derive_scale` are el insusi un fallback fix, pe care il anuntam prin `sursa`; cand cade acolo,
+    k iese 1 si formula redevine exact cea veche.
+    """
+    try:
+        from bom import derive_scale
+        sc, _sursa = derive_scale(vision_rooms, W, H)
+        sc = float(sc or 0)
+        return sc if sc > 0 else None
+    except Exception:
+        return None
+
+
 def _harta_etichete(labels, vision_rooms):
     """[(eticheta, [indecsi de camere carora AR PUTEA sa le apartina])] — o trecere, inainte de bucla.
 
@@ -754,6 +791,9 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         return out
 
     _harta = _harta_etichete(_labels, vision_rooms)
+    # scara reala se cere O SINGURA DATA pe plan; `k` duce aria din unitati fixe in metri adevarati
+    _scara = _scara_reala(vision_rooms, W, H)
+    _k_arie = ((_scara * _scara) / _PT2_TO_M2) if (_scara and _PT2_TO_M2 > 0) else 1.0
     for idx_cam, r in enumerate(vision_rooms or []):
         name = str((r or {}).get("name") or "")
         try:
@@ -887,12 +927,15 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 # geom_bbox, perimetrul pe care se aseaza elementele) si peretii/usile. Altfel becul
                 # s-ar repara, dar prizele ar ramane pe peretii vecinului. Camera cade pe fallback-ul
                 # ancora-eticheta (V4) sau pe bbox-ul Vision — amandoua pe camera ei.
-                sub_podea = area_vision > 0 and area_geom < MIN_AREA_RATIO * area_vision
+                # aria in METRI ADEVARATI: `area_geom` vine din conversia fixa, iar `_k_arie` o duce
+                # la scara planului. Fara scara derivabila, k = 1 si comparatia e cea de dinainte.
+                arie_reala = area_geom * _k_arie
+                sub_podea = area_vision > 0 and arie_reala < MIN_AREA_RATIO * area_vision
                 motiv_respins = None
                 if sub_podea:
                     motiv_respins = ("respins REGULA 1b: arie %.1fm2 = %.0f%% din %.1fm2 declarati "
                                      "(prag %.0f%%) - contur probabil al camerei vecine") % (
-                        area_geom, 100.0 * area_geom / area_vision, area_vision,
+                        arie_reala, 100.0 * arie_reala / area_vision, area_vision,
                         100.0 * MIN_AREA_RATIO)
                 elif _harta:
                     # REGULA 1c — CONTURUL CARE INGHITE ALTA CAMERA. Simetrica cu verificarea pe
