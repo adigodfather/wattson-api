@@ -60,8 +60,14 @@ MAX_ASPECT = 6.0           # raportul laturilor (max/min) admis
 MIN_AREA_M2 = 2.0          # arie geometrica minima plauzibila pentru o camera reala
 RECT_SAME_TOL = 10.0       # pt; doua dreptunghiuri mai apropiate de atat = acelasi (pt. support)
 
-# BALUSTRADA — taie over-merge-ul, pastreaza clusterul sanatos (~1.38x)
+# BALUSTRADA — taie over-merge-ul, pastreaza clusterul sanatos (~1.38x in unitatile de atunci)
 MAX_AREA_RATIO = 1.8       # REGULA 1: PLAFON area_geom <= 1.8 x area_vision (NU si jos)
+# Valoarea RAMANE 1,8, dar de pe 23 sept inseamna ce scrie: pana atunci `area_geom` venea din
+# conversia fixa, si masurat pe 21 de planse „1,8x" insemna de fapt intre 1,04x si 3,54x — de 3,4
+# ori diferenta. Pe «casa test» un contur cu 4% mai mare decat camera declarata pica drept
+# „over-merge"; pe «santandrei» trecea unul de trei camere si jumatate. Clusterul sanatos de ~1,38x
+# din unitatile vechi inseamna ~1,0x in metri adevarati, deci 1,8 ramane cu marja peste el.
+# Baleiat: plafonul strans (1,00..1,35) NU ajuta (238-246 CORECT); capul de selectie face treaba.
 MIN_AREA_RATIO = 0.43      # REGULA 1b: PODEA arie_reala >= 0.43 x area_vision (vezi mai jos)
 # REGULA 1b exista fiindca plafonul singur nu prinde nimerirea in ALTA camera: daca un seed cade
 # dincolo de un perete, ray-cast-ul intoarce conturul VECINULUI, iar acel contur trece de plafon
@@ -95,7 +101,15 @@ MIN_AREA_RATIO = 0.43      # REGULA 1b: PODEA arie_reala >= 0.43 x area_vision (
 # planurile, nu oriunde intre 0,15 si 0,70.
 # Camera respinsa nu se pierde: cade pe ancora etichetei sau pe bbox-ul Vision. Fara arie declarata
 # (area_vision = 0) poarta NU se aplica. Fara scara derivabila, k = 1 si formula redevine cea veche.
-SELECT_AREA_RATIO = 1.5    # SELECTIE: prefera cel mai mare rect cu arie <= 1.5x aria cartus
+SELECT_AREA_RATIO = 1.0    # SELECTIE: prefera cel mai mare rect cu arie <= 1.0x aria cartus
+# RECALIBRAT (23 sept) odata cu mutarea ariei in metri adevarati. „1,5x" se compara cu o arie in
+# unitati fixe, deci insemna pe plansa reala intre 0,87x si 2,95x. Acum inseamna acelasi lucru
+# peste tot, si valoarea are sens fizic: conturul perete-la-perete al unei camere e cam cat aria
+# utila declarata, deci „cel mai mare candidat care nu depaseste aria declarata" e potrivirea
+# stransa. Capul e o PREFERINTA, nu un filtru (`pool = [...] or strong`): cand niciun candidat nu
+# intra sub el, raman toti — respingerea dura o face tot plafonul de mai sus.
+# Baleiat pe toate cele 380 de camere: 0,90 -> 245 CORECT · 0,95 -> 246 · **1,00 -> 248** ·
+# 1,05 si 1,10 -> 248 dar COMASAT urca de la 4 la 5 · 1,20 -> 247. Varful e la 1,00.
                            # (evita over-merge-ul in vecin -> bec pe perete la camere mici inchise)
 OVERLAP_REJECT = 0.40      # REGULA 2: doua camere cu overlap > 40% din cea mica = conflict
 CLUSTER_RATIO = 1.38       # mediana clusterului sanatos (referinta pt. tie-break la overlap)
@@ -791,9 +805,14 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
         return out
 
     _harta = _harta_etichete(_labels, vision_rooms)
-    # scara reala se cere O SINGURA DATA pe plan; `k` duce aria din unitati fixe in metri adevarati
+    # Scara reala se cere O SINGURA DATA pe plan. De aici incolo `area_geom` se calculeaza DIRECT in
+    # metri adevarati (arie in pt^2 x scara^2), nu cu conversia fixa corectata pe urma intr-un singur
+    # loc: aceeasi arie e citita de PATRU consumatori — plafonul REGULA 1, capul de selectie
+    # SELECT_AREA_RATIO, podeaua MIN_AREA_M2 si `area_geometric_m2` raportata mai departe — si pana
+    # acum doar poarta 1b o corecta. Masurat pe 21 de planse: „1,8x" insemna intre 1,04x si 3,54x.
+    # Fara scara derivabila, `_M2_PE_PT2` redevine conversia fixa, adica numarul de dinainte.
     _scara = _scara_reala(vision_rooms, W, H)
-    _k_arie = ((_scara * _scara) / _PT2_TO_M2) if (_scara and _PT2_TO_M2 > 0) else 1.0
+    _M2_PE_PT2 = (_scara * _scara) if (_scara and _scara > 0) else _PT2_TO_M2
     for idx_cam, r in enumerate(vision_rooms or []):
         name = str((r or {}).get("name") or "")
         try:
@@ -875,7 +894,7 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                         continue
                     w = rr - l; h = b - t
                     aspect = max(w, h) / min(w, h)
-                    area_geom = w * h * _PT2_TO_M2
+                    area_geom = w * h * _M2_PE_PT2
                     # FIX 2 — plauzibilitate geometrica INTERNA (nu vs aria Vision)
                     if aspect > MAX_ASPECT or area_geom < MIN_AREA_M2:
                         continue
@@ -902,8 +921,20 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 # perete). Daca niciunul sub plafon -> cel mai mare disponibil (degradare gratioasa).
                 if area_vision > 0:
                     cap = SELECT_AREA_RATIO * area_vision
-                    pool = [g for g in strong if g[4] <= cap] or strong
-                    best = max(pool, key=lambda g: (round(g[4], 1), g[6]))
+                    pool = [g for g in strong if g[4] <= cap]
+                    if pool:
+                        best = max(pool, key=lambda g: (round(g[4], 1), g[6]))
+                    else:
+                        # NICIUN candidat sub cap. Pana acum `... or strong` punea inapoi in joc TOTI
+                        # candidatii, iar `max` alegea cel mai MARE — adica exact conturul care
+                        # inghite camera vecina, ales tocmai cand nu era nimic cuminte de ales.
+                        # («test / Bucatarie»: dreptunghiul perete-la-perete trece putin peste aria
+                        # declarata, deci pool-ul iese gol, si castiga conturul care cuprindea HOL-ul.)
+                        # Nici „cel mai mic" nu e raspunsul: pe un spatiu DESCHIS (terasa) candidatii
+                        # sunt toti peste cap, iar cel mai mic e o bucata de nicaieri — masurat, becul
+                        # terasei de pe «casa test» ajungea in afara cladirii. Se ia cel mai APROPIAT
+                        # de aria declarata: si camera inchisa, si terasa, primesc ce trebuie.
+                        best = min(strong, key=lambda g: (round(abs(g[4] - area_vision), 1), -g[6]))
                 else:
                     best = max(strong, key=lambda g: (round(g[4], 1), -abs(g[4] - area_vision)))
                 l, rr, t, b, area_geom, aspect, support = best
@@ -927,9 +958,9 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 # geom_bbox, perimetrul pe care se aseaza elementele) si peretii/usile. Altfel becul
                 # s-ar repara, dar prizele ar ramane pe peretii vecinului. Camera cade pe fallback-ul
                 # ancora-eticheta (V4) sau pe bbox-ul Vision — amandoua pe camera ei.
-                # aria in METRI ADEVARATI: `area_geom` vine din conversia fixa, iar `_k_arie` o duce
-                # la scara planului. Fara scara derivabila, k = 1 si comparatia e cea de dinainte.
-                arie_reala = area_geom * _k_arie
+                # `area_geom` e DEJA in metri adevarati (vezi `_M2_PE_PT2`): corectia nu se mai face
+                # aici, in dreptul unei singure porti, ci la sursa, pentru toti consumatorii ariei.
+                arie_reala = area_geom
                 sub_podea = area_vision > 0 and arie_reala < MIN_AREA_RATIO * area_vision
                 motiv_respins = None
                 if sub_podea:
@@ -986,7 +1017,7 @@ def extract_room_geometry(pdf_bytes, vision_rooms, W, H):
                 l, rr, t, b = _room_rect(cx0, cy0, hlines, vlines, max_reach)
                 if None not in (l, rr, t, b) and rr > l and b > t:
                     w = rr - l; h = b - t
-                    area_geom = w * h * _PT2_TO_M2
+                    area_geom = w * h * _M2_PE_PT2
                     aspect = max(w, h) / min(w, h)
                     rec["area_geometric_m2"] = round(area_geom, 2)
                     over = area_vision > 0 and area_geom > ceiling

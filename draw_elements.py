@@ -2711,7 +2711,7 @@ def _wall_clear(px, py, h_segs, v_segs):
     return best
 
 
-def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
+def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H, geom_boxes=None):
     """Niciun bec nu trebuie să cadă în bbox-ul ALTEI camere (Vision dă bbox-uri DEPLASATE/suprapuse ->
     becul unei camere ajunge vizual în zona vecinei = a 2-a 'lumină' acolo). Pentru fiecare astfel de bec,
     îl mută în propriul bbox la un punct care: NU e în bbox-ul altei camere, e off-wall, și departe de alte
@@ -2727,6 +2727,16 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
                 return True
         return False
 
+    # PLICUL CLADIRII, din pereti. Grila de mai jos cauta un loc liber IN bbox-ul Vision al camerei,
+    # dar bbox-ul Vision poate iesi din casa: pe «casa test», terasa il avea cu 77 pt in afara
+    # zidariei, iar becul relocat ajungea desenat langa plan, pe hartie goala. Punctele din afara
+    # plicului se sar. Fara pereti (plan raster) nu se taie nimic, iar daca TOT bbox-ul e afara nu
+    # se alege niciun punct si becul ramane unde era — aceeasi degradare ca la „bbox inghitit".
+    _xs = [s for (x0, x1, _y) in h_segs for s in (x0, x1)] + [x for (_y0, _y1, x) in v_segs]
+    _ys = [y for (_x0, _x1, y) in h_segs] + [s for (y0, y1, _x) in v_segs for s in (y0, y1)]
+    _env = (min(_xs), min(_ys), max(_xs), max(_ys)) if (_xs and _ys) else None
+    _ENV_TOL = 12.0                                  # un bec chiar pe peretele exterior e in regula
+
     moved = 0
     for c in centers:
         ri = c["room"]
@@ -2741,6 +2751,17 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
         # Becurile non-geometrice (clip/hall) se reloca ca înainte (cad în bbox-ul altei camere).
         if c.get("geometric") and (bx0 <= c["x"] <= bx1 and by0 <= c["y"] <= by1):
             continue
+        # …SI „acasa" inseamna si CONTURUL GEOMETRIC, nu doar bbox-ul Vision. Blocul V4 de mai sus
+        # muta autoritatea pe geom_bbox doar la camerele FARA centroid; o camera CU centroid ramane
+        # pe bbox-ul Vision, care poate fi decalat — iar atunci becul asezat corect pe peretii ei
+        # apare „driftat" si se relocheaza in bbox-ul decalat. Masurat: becul terasei de pe
+        # «casa test» sarea 294 pt intr-un colt, fiindca `Camera de zi` tocmai isi castigase
+        # conturul si bbox-ul ei Vision acoperea locul bun. Peretii sunt masurati, bbox-ul Vision e
+        # ghicit: cand cele doua se contrazic, becul geometric ramane unde l-au pus peretii.
+        _gb = (geom_boxes or [None] * len(boxes))[ri] if ri < len(geom_boxes or []) else None
+        if c.get("geometric") and _gb and (_gb[0]*W <= c["x"] <= (_gb[0]+_gb[2])*W
+                                           and _gb[1]*H <= c["y"] <= (_gb[1]+_gb[3])*H):
+            continue
         best = None; bestscore = -1e9
         for gi in range(1, 12):
             for gj in range(1, 12):
@@ -2748,6 +2769,9 @@ def _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H):
                 py = by0 + (by1 - by0) * gj / 12.0
                 if in_other(px, py, ri):
                     continue                       # tot în vecin -> sare
+                if _env and not (_env[0] - _ENV_TOL <= px <= _env[2] + _ENV_TOL
+                                 and _env[1] - _ENV_TOL <= py <= _env[3] + _ENV_TOL):
+                    continue                       # în afara clădirii -> sare
                 wc = _wall_clear(px, py, h_segs, v_segs)
                 if wc < 10.0:
                     continue                       # pe perete -> sare
@@ -3022,7 +3046,14 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     # camere (bbox-uri Vision suprapuse -> dublare vizuală în vecină). Geometricul rămâne pe loc.
     bulbs_separated = 0
     if h_segs is not None:
-        bulbs_separated = _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H)
+        _gbx = []
+        for _g in (geoms or []):
+            _b = (_g or {}).get("geom_bbox")
+            try:
+                _gbx.append((float(_b["x"]), float(_b["y"]), float(_b["w"]), float(_b["h"])) if _b else None)
+            except (TypeError, ValueError, KeyError):
+                _gbx.append(None)
+        bulbs_separated = _resolve_overlaps(centers, boxes, h_segs, v_segs, W, H, geom_boxes=_gbx)
 
     # HOLURILE PE BRATE, la FINAL si prin INLOCUIRE. Pipeline-ul de mai sus (dedup, invariantul de
     # bec/camera, separarea suprapunerilor) ruleaza exact ca pana acum, cu becul vechi al holului la
@@ -3032,8 +3063,19 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
     bulbs_holuri = 0
     if _brate_hol:
         centers = [c for c in centers if c.get("room") not in _brate_hol]
+        # Bratele intra DUPA dedup (vezi nota de mai sus), deci nimic nu le mai compara cu vecinii.
+        # Masurat pe «casa test»: un brat de hol a aterizat EXACT peste becul din «Sas» — doua
+        # simboluri unul peste altul in desen. Un brat care cade peste becul altei camere se sare;
+        # daca ar cadea toate, holul pastreaza primul, ca sa nu ramana pe intuneric.
+        # Pragul NU e `DEDUP_D` (85 px ~ 2,1 m): ala e criteriul pentru becuri DUPLICATE in
+        # open-plan, si cu el s-ar sterge becuri de hol perfect legitime de dincolo de un perete —
+        # masurat, noua bucati. Bratele sunt becuri `geometric`, pe care `_dedup_centers` nu le-ar
+        # atinge oricum; aici se taie strict SUPRAPUNEREA DE SIMBOL, nu apropierea.
+        _SUPRAPUS = 25.0                                 # px (~0,6 m): simbolurile se ating pe desen
+        _vecini = [(c["x"], c["y"]) for c in centers]
         for _idx, _lista in _brate_hol.items():
             _label = str(((rooms or [])[_idx] or {}).get("name") or "") if _idx < len(rooms or []) else ""
+            _poz = []
             for _b in _lista:
                 _l, _t, _r, _bo = _b["rect"]
                 # HALL_2BULB_M e PASUL, nu un prag: „in L = 2 becuri" (unul per brat) si „hol mai
@@ -3047,9 +3089,20 @@ def _vision_centers(rooms, W, H, geoms=None, walls=None, subtip=None):
                         _px, _py = _l + (_r - _l) * _f, (_t + _bo) / 2.0
                     else:
                         _px, _py = (_l + _r) / 2.0, _t + (_bo - _t) * _f
-                    centers.append({"x": _px, "y": _py, "label": _label, "room": _idx,
-                                    "geometric": True, "protected": True})
-                    bulbs_holuri += 1
+                    _poz.append((_px, _py))
+            _bune = [p for p in _poz
+                     if not any(math.hypot(p[0] - _ox, p[1] - _oy) < _SUPRAPUS for _ox, _oy in _vecini)]
+            _bune = _bune or _poz[:1]
+            for _px, _py in _bune:
+                centers.append({"x": _px, "y": _py, "label": _label, "room": _idx,
+                                "geometric": True, "protected": True})
+                bulbs_holuri += 1
+            # Bratele asezate intra si ele in lista vecinilor: doua camere pot fi AMANDOUA holuri
+            # («casa test»: «Hol» si «Sas»), iar atunci niciuna nu e in `centers` cand se verifica
+            # cealalta — exact perechea care ramasese suprapusa dupa prima incercare de garda.
+            # Se adauga DUPA bucla, nu in ea: bratele aceluiasi hol trebuie sa se poata aseza unul
+            # langa altul, ca ele sunt distantate prin constructie.
+            _vecini.extend(_bune)
 
     stats = {
         "rooms_geometric": rooms_geometric,   # câte camere au folosit centroid CAD
