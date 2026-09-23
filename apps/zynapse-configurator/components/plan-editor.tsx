@@ -1000,7 +1000,7 @@ export default function PlanEditor({
   projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
-  comercialSubtip = null, nivelFundatie = "parter",
+  comercialSubtip = null, nivelFundatie = "parter", buildingType = null,
 }: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string, pdfPath?: string) => void; mode?: PlanMode;
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
@@ -1017,6 +1017,9 @@ export default function PlanEditor({
      // FIX 4 (prize automat): gardul "nefinalizat" — pe proiecte finalizate re-deschise (resume)
      // NU se auto-genereaza prize (zero scrieri automate in DB pe proiecte inchise)
      finalized?: boolean;
+     // Tipul cladirii: corpurile de evacuare sunt cerinta de cladire PUBLICA, deci rubrica de
+     // iluminat de siguranta nu se arata la locuinta individuala (vezi `renderSigurantaSection`).
+     buildingType?: string | null;
      // Sub-tipul comercial (categorie -> sub-tip). Da intelesul numelor GENERICE de camere de pe
      // plan: „Sala" e sala de aparate pe fitness, sala de servire pe restaurant, spatiu de vanzare
      // pe magazin. null pe orice alt tip de cladire -> regulile rezidentiale, neatinse.
@@ -3034,7 +3037,7 @@ export default function PlanEditor({
   // (addLegend/addTraseu/removeElement) NEATINSE; se schimbă doar wrapper-ul + poziția. Fără mod-gate (ca înainte:
   // legenda + traseele apar în ambele moduri — iluminat + forța).
   const renderPlanDesenSection = () => (
-    <Rubrica title="Plan / desen" hint="Legendă și trasee de cabluri, desenate pe plan.">
+    <Rubrica title="Plan / desen">
       {renderLegendSection()}
       {renderTraseuSection()}
     </Rubrica>
@@ -3174,10 +3177,10 @@ export default function PlanEditor({
     const trasee = elements.filter(e => e.element_type === "traseu_cs");
     return (
       <>
-        <Rubrica title="Efracție" hint="Centrală, tastatură, detectoare, contacte, sirene, buton de panică. Se plasează manual; înălțimea de montaj e pe fiecare element.">
+        <Rubrica title="Efracție">
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_EFRACTIE)}</div>
         </Rubrica>
-        <Rubrica title="Supraveghere video" hint="Camere, NVR, rack, sursă și doze. Camera are un singur tip — interior/exterior se alege pe element.">
+        <Rubrica title="Supraveghere video">
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_VIDEO)}</div>
         </Rubrica>
         <Rubrica title="Distribuție date și TV" hint="Prize de date RJ45, TV coaxiale și mixte. Se plasează manual, ca restul; înălțimea implicită e 0,3 m la date și 1,2 m la TV (editabilă pe element).">
@@ -3243,12 +3246,19 @@ export default function PlanEditor({
   // ILUMINAT DE SIGURANȚĂ — rubrică proprie, DOAR pe planul de iluminat. Vizibilă chiar și fără
   // corpuri: butonul trebuie să existe ca inginerul să poată adăuga primul. Plasarea e manuală
   // (regula de 15 m pe căile de evacuare cere un graf de uși care nu există).
+  //
+  // NU se arată la LOCUINȚĂ INDIVIDUALĂ (casă, duplex): corpurile de evacuare autonome sunt cerință
+  // de clădire publică. La comercial și la bloc rămâne neatinsă. Se ascunde doar când nu e nimic
+  // plasat — un proiect reluat trebuie să-și poată scoate ce a pus, nu să piardă accesul la el.
+  // Bifa de kit de panică NU trece pe aici: ea stă pe becul selectat, deci rămâne disponibilă.
   const renderSigurantaSection = () => {
     if (mode !== "iluminat") return null;
     const evac = elements.filter(e => e.element_type === EVAC_TYPE);
     const kits = elements.filter(e => isBulbType(e.element_type) && e.kit_panica);
+    const eLocuinta = ["casa_unifamiliala", "duplex"].includes(String(buildingType || ""));
+    if (eLocuinta && evac.length === 0 && kits.length === 0) return null;
     return (
-      <Rubrica title="Iluminat de siguranță" hint="Corpuri de evacuare autonome (2h), plasate manual deasupra ieșirilor și pe căile de evacuare. Kitul de panică se bifează pe becul normal, din rubrica camerei lui.">
+      <Rubrica title="Iluminat de siguranță">
         <div style={{ fontSize: 11, color: "#8B8FA8", marginBottom: 7, paddingLeft: 2, lineHeight: 1.5 }}>
           {evac.length} corp{evac.length === 1 ? "" : "uri"} de evacuare · {kits.length} bec{kits.length === 1 ? "" : "uri"} cu kit de panică
         </div>
@@ -3297,7 +3307,7 @@ export default function PlanEditor({
     const benzi = elements.filter(e => isBandaLedPathType(e.element_type));
     const drivere = elements.filter(e => e.element_type === "banda_led_driver");
     return (
-      <Rubrica title="Bandă LED" hint="Rezumatul benzilor din proiect. Adaugă-le din rubrica fiecărei camere; aici doar pentru zone fără cameră detectată.">
+      <Rubrica title="Bandă LED">
         {benzi.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
             {benzi.map((el, i) => (
@@ -3319,11 +3329,12 @@ export default function PlanEditor({
               <button type="button" className="zy-add-btn" onClick={cancelDrawBandaLed}>Anulează</button>
             </div>
           </div>
-        ) : (
-          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn" onClick={() => startDrawBandaLed(null)}>+ Bandă LED (fără cameră)</button>
-          </div>
-        )}
+        ) : null}
+        {/* Banda si sursa ei se adauga DOAR din rubrica camerei. Butoanele „fara camera" de aici au
+            fost scoase (decizia lui Dan): pe o zona nedetectata ca incapere nu se mai poate desena
+            banda. Masurat inainte de a le scoate: din cele 1 banda si 1 driver existente in baza,
+            NICIUNA nu era fara camera, deci nu ramane nimic orfan. Rezumatul si butoanele de
+            stergere raman — ce e deja plasat se vede si se poate scoate. */}
 
         {/* DRIVERE (surse 24V): plasate manual, oricate. Circuitul lor e SEPARAT de becuri — max 4
             drivere pe circuit (inrush-ul cumulat al surselor LED). */}
@@ -3351,12 +3362,7 @@ export default function PlanEditor({
           )}
           {/* Sursa se adauga din rubrica CAMEREI (butonul "+ Sursă" apare acolo dupa ce camera are
               banda). Aici ramane doar rezumatul + desenarea LIBERA, pentru zone nedetectate. */}
-          <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-            <button type="button" className="zy-add-btn"
-                    onClick={() => startPlaceReceptor("banda_led_driver", "Driver bandă LED")}>
-              + Sursă (fără cameră)
-            </button>
-          </div>
+
         </div>
       </Rubrica>
     );
@@ -3470,7 +3476,7 @@ export default function PlanEditor({
     const extraRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && !isTechReceptor(e));
     if (eqExtra.length === 0 && extraRecs.length === 0) return null;   // empty-state (nimic extra) -> nu apare
     return (
-      <Rubrica title="Echipamente extra" hint="Aer condiționat, cuptor, radiator electric, ventilație, încărcare auto, internet.">
+      <Rubrica title="Echipamente extra">
         {eqExtra.length > 0 && (
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
             {eqExtra.map(b => (
