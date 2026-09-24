@@ -273,8 +273,28 @@ def parte_baza():
             v("randurile de proba s-au sters", ramas == 0)
 
 
+def parte_middleware():
+    """Ruta zilnica trebuie sa TREACA de middleware, altfel cheia nu se verifica niciodata.
+
+    Gasit pe deploy, nu prin citit: `/api/abonamente/run` primea 307 catre /login, fiindca
+    middleware-ul cere sesiune Supabase pe tot ce nu e in PUBLIC_ROUTES — iar fluxul n8n n-are
+    cookie. Efectul ar fi fost cel mai rau posibil: n8n primea o PAGINA, nu un JSON cu `esuate`,
+    deci nici alarma nu s-ar fi aprins. Testul citeste fisierul, ca sa nu se stinga garda din nou.
+    """
+    p = os.path.join(APP, "middleware.ts")
+    t = io.open(p, encoding="utf-8").read()
+    lista = t.split("PUBLIC_ROUTES", 1)[-1].split("]", 1)[0]
+    v("[G] /api/abonamente/run e in PUBLIC_ROUTES (protejata IN ruta, cu cheia)",
+      '"/api/abonamente/run"' in lista)
+    ruta = io.open(os.path.join(APP, "app", "api", "abonamente", "run", "route.ts"),
+                   encoding="utf-8").read()
+    v("[G] si ruta chiar cere cheia, nu doar o pomeneste",
+      'x-zynapse-key' in ruta and 'status: 401' in ruta and 'status: 503' in ruta)
+
+
 def main():
     parte_js()
+    parte_middleware()
     parte_baza()
     if rele:
         print("\n".join("ESUAT: " + x for x in rele))

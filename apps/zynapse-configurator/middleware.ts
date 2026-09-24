@@ -6,7 +6,8 @@ const PUBLIC_ROUTES = ["/", "/login", "/register", "/reset-password", "/auth/cal
   "/terms", "/privacy", "/refund", "/livrare",
   // API server-to-server (apelate de n8n / Netopia, fără cookie) — protejate ÎN route:
   //   vision-rooms = x-zynapse-key; payment/ipn = decriptare RSA private.key + anti-tampering pe sumă
-  "/api/vision-rooms", "/api/payment/ipn"];
+  //   abonamente/run = x-zynapse-key (o cheamă fluxul n8n zilnic, care n-are sesiune)
+  "/api/vision-rooms", "/api/payment/ipn", "/api/abonamente/run"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
