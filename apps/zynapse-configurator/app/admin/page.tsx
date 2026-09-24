@@ -11,6 +11,25 @@ import { isPhasePT } from "@/lib/constants";
 import AppHeader from "@/components/AppHeader";
 import BugsSection, { type BugRow } from "./BugsSection";
 import FacturiSection, { type FacturaRow } from "./FacturiSection";
+import ServiciiSection, { type ClientRow, type AbonamentRow, type FacturaServiciuRow } from "./ServiciiSection";
+import { seriesFor } from "@/lib/smartbill";
+
+// Urmatoarea scadenta a unui abonament: ziua Z din luna curenta daca n-a trecut, altfel din luna
+// urmatoare — dar niciodata inainte de data de start. Z e mereu <= 28, deci ziua exista in orice luna.
+function urmatoareaScadenta(zi: number, dataStart: string): string {
+  const azi = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  let an = azi.getFullYear(), luna = azi.getMonth();
+  if (azi.getDate() > zi) { luna += 1; if (luna > 11) { luna = 0; an += 1; } }
+  let iso = `${an}-${p(luna + 1)}-${p(zi)}`;
+  if (dataStart && iso < dataStart) {
+    const d = new Date(dataStart);
+    let a2 = d.getFullYear(), l2 = d.getMonth();
+    if (d.getDate() > zi) { l2 += 1; if (l2 > 11) { l2 = 0; a2 += 1; } }
+    iso = `${a2}-${p(l2 + 1)}-${p(zi)}`;
+  }
+  return iso;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";   // mereu proaspat, niciodata cache static
@@ -33,7 +52,7 @@ export default async function AdminPage() {
 
   // ── DATE (service role, server-only; doar adminul a ajuns aici) ──────────────
   const admin = createAdminClient();
-  const [profilesRes, paymentsRes, projectsRes, bugsRes, facturiRes] = await Promise.all([
+  const [profilesRes, paymentsRes, projectsRes, bugsRes, facturiRes, clientiRes, abonamenteRes, facturiServRes] = await Promise.all([
     admin.from("profiles").select("id, email, credits_balance"),
     admin.from("payments").select("user_id, credits, amount_ron, status, credited"),
     admin.from("projects").select("user_id, faza"),
@@ -47,6 +66,10 @@ export default async function AdminPage() {
     admin.from("payments")
       .select("order_id, user_id, amount_ron, created_at, invoice_series, invoice_number, invoice_email_status, invoice_email_to, invoice_email_at, invoice_email_error, invoice_email_attempts")
       .eq("invoiced", true).order("created_at", { ascending: false }).limit(200),
+    // Facturarea de SERVICII: clienti, abonamente, facturi. Tabele separate de `payments`.
+    admin.from("clienti_servicii").select("id, denumire, cui, reg_com, adresa, judet, localitate, email, persoana_contact, activ").order("denumire"),
+    admin.from("abonamente_servicii").select("id, client_id, descriere, suma_ron, zi_emitere, data_start, activ, ultima_rulare_at, ultima_eroare, ultima_perioada").order("created_at", { ascending: false }),
+    admin.from("facturi_servicii").select("id, client_id, abonament_id, descriere, suma_ron, status, serie, numar, smartbill_error, created_at, invoice_email_status, invoice_email_to, invoice_email_error").order("created_at", { ascending: false }).limit(200),
   ]);
 
   const profiles = profilesRes.data ?? [];
@@ -54,6 +77,9 @@ export default async function AdminPage() {
   const projects = projectsRes.data ?? [];
   const bugsRaw = bugsRes.data ?? [];
   const facturiRaw = facturiRes.data ?? [];
+  const clientiRaw = clientiRes.data ?? [];
+  const abonamenteRaw = abonamenteRes.data ?? [];
+  const facturiServRaw = facturiServRes.data ?? [];
 
   // ZONA 1 — agregate globale (zero date personale)
   const totalUsers = profiles.length;
@@ -104,6 +130,39 @@ export default async function AdminPage() {
     email_error: (f.invoice_email_error as string) ?? null,
     email_attempts: (f.invoice_email_attempts as number) ?? 0,
   }));
+  // ── FACTURARE SERVICII ──
+  const clienti: ClientRow[] = clientiRaw.map((c) => ({
+    id: c.id as string, denumire: c.denumire as string, cui: c.cui as string,
+    reg_com: (c.reg_com as string) ?? null, adresa: c.adresa as string,
+    judet: c.judet as string, localitate: c.localitate as string, email: c.email as string,
+    persoana_contact: (c.persoana_contact as string) ?? null, activ: c.activ === true,
+  }));
+  const numeClient = new Map(clienti.map((c) => [c.id, c.denumire]));
+  const abonamente: AbonamentRow[] = abonamenteRaw.map((a) => ({
+    id: a.id as string, client_id: a.client_id as string,
+    client: numeClient.get(a.client_id as string) ?? "(client șters)",
+    descriere: a.descriere as string, suma_ron: Number(a.suma_ron ?? 0),
+    zi_emitere: Number(a.zi_emitere ?? 1), data_start: (a.data_start as string) ?? "",
+    activ: a.activ === true,
+    urmatoarea: urmatoareaScadenta(Number(a.zi_emitere ?? 1), (a.data_start as string) ?? ""),
+    ultima_rulare: a.ultima_rulare_at
+      ? new Date(a.ultima_rulare_at as string).toLocaleDateString("ro-RO", { day: "2-digit", month: "short" })
+      : null,
+    ultima_eroare: (a.ultima_eroare as string) ?? null,
+  }));
+  const facturiServicii: FacturaServiciuRow[] = facturiServRaw.map((f) => ({
+    id: f.id as string, client: numeClient.get(f.client_id as string) ?? "(client șters)",
+    descriere: f.descriere as string, suma_ron: Number(f.suma_ron ?? 0),
+    status: (f.status as string) ?? "pending", serie: (f.serie as string) ?? null,
+    numar: (f.numar as string) ?? null, smartbill_error: (f.smartbill_error as string) ?? null,
+    created_at: (f.created_at as string) ?? "",
+    email_status: (f.invoice_email_status as string) ?? null,
+    email_to: (f.invoice_email_to as string) ?? null,
+    email_error: (f.invoice_email_error as string) ?? null,
+    din_abonament: !!f.abonament_id,
+  }));
+  const serieConfigurata = !!seriesFor("servicii");
+
   const top10: TopRow[] = [...byUser.entries()]
     .sort((a, b) => b[1].credits - a[1].credits || b[1].ron - a[1].ron)
     .slice(0, 10)
@@ -176,6 +235,10 @@ export default async function AdminPage() {
 
         {/* ZONA 3 — facturile emise si starea livrarii pe email */}
         <FacturiSection facturi={facturi} />
+
+        {/* ZONA 3b — facturarea de SERVICII: clienti, abonamente, facturi */}
+        <ServiciiSection clienti={clienti} abonamente={abonamente} facturi={facturiServicii}
+                        serieConfigurata={serieConfigurata} />
 
         {/* ZONA 4 — rapoartele de bug din chat + acordarea Z-coins (Faza 1.5) */}
         <BugsSection bugs={bugs} />

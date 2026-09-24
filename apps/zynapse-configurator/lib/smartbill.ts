@@ -188,7 +188,10 @@ export function seriesFor(kind: SeriesKind = "credite"): string {
 export function buildInvoicePayload(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind }
+  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind;
+           // `produs` inlocuieste DOAR linia de pe factura, pentru facturile de SERVICII (unde
+           // descrierea o scrie Dan). Absent -> linia de credite, byte-identica cu ce era.
+           produs?: { name: string; unit?: string } }
 ): SmartbillInvoicePayload {
   const price = Math.round(Number(payment.amount_ron) * 100) / 100;
   const adminName = (opts?.billing?.adminName || "").trim();
@@ -202,8 +205,8 @@ export function buildInvoicePayload(
     ...(adminName ? { observations: `Reprezentant: ${adminName}` } : {}),
     products: [
       {
-        name: `${payment.credits} Z-Coins — credite Zynapse`,
-        measuringUnitName: "buc",
+        name: opts?.produs?.name || `${payment.credits} Z-Coins — credite Zynapse`,
+        measuringUnitName: opts?.produs?.unit || "buc",
         currency: "RON",
         quantity: 1,
         price,
@@ -223,7 +226,8 @@ export function buildInvoicePayload(
 export async function createInvoice(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind }
+  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind;
+           produs?: { name: string; unit?: string } }
 ): Promise<SmartbillResult> {
   const username = (process.env.SMARTBILL_USERNAME || "").trim();
   const token = (process.env.SMARTBILL_TOKEN || "").trim();

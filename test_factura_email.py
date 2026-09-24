@@ -211,8 +211,110 @@ def parte_baza():
             v("[D] randul de proba s-a sters", False, str(e)[:80])
 
 
+def parte_livrare():
+    """[E] Ce se SCRIE in baza la succes si la esec — pe comportament, cu un client Supabase fals.
+
+    Partea asta nu se putea verifica altfel: cheia Resend traieste in Vercel, nu aici. Dar intrebarea
+    care conteaza nu e „pleaca mailul" (aia o dovedeste un mail primit), ci „daca NU pleaca, se
+    VEDE?". Deci se stubeaza si reteaua, si baza, si se citesc patch-urile scrise.
+    """
+    tmp = tempfile.mkdtemp(prefix="facliv_")
+    r = subprocess.run(["npx", "tsc", os.path.join("lib", "invoiceDelivery.ts"), "--outDir", tmp,
+                        "--module", "commonjs", "--target", "es2020", "--skipLibCheck",
+                        "--moduleResolution", "node"],
+                       cwd=APP, capture_output=True, shell=(os.name == "nt"))
+    liv = os.path.join(tmp, "invoiceDelivery.js")
+    if not os.path.exists(liv):
+        v("[E] modulele se compileaza", False, (r.stdout or r.stderr).decode("utf-8", "replace")[:200])
+        return
+
+    sablon = """
+const liv = require(__LIV__);
+process.env.SMARTBILL_USERNAME='u'; process.env.SMARTBILL_TOKEN='t'; process.env.SMARTBILL_VAT_CODE='1';
+process.env.RESEND_API_KEY='re_fals_pentru_test';
+
+function adminFals(stare, scrieri) {
+  return { from(tabel) {
+    const b = { tabel, op:null, patch:null, cols:null };
+    b.update = (p) => { b.op='update'; b.patch=p; return b; };
+    b.select = (c) => { if(!b.op) b.op='select'; b.cols=c; return b; };
+    b.eq = () => b; b.or = () => b;
+    b.single = () => ({ then:(res)=>res({data: stare.profil, error:null}) });
+    b.then = (res) => {
+      if (b.op==='update') { scrieri.push(b.patch);
+        return res({ data: b.cols ? (stare.claim ? [stare.plata] : []) : null, error:null }); }
+      return res({ data: stare.profil, error:null });
+    };
+    return b;
+  }};
+}
+
+async function ruleaza(raspunsResend) {
+  const scrieri = [];
+  const stare = { claim:true,
+    plata: { order_id:'X', user_id:'u1', amount_ron:19, credits:100,
+             billing_type:'individual', billing_data:{county:'Cluj', city:'Cluj-Napoca'},
+             invoice_series:'ZN', invoice_number:'0001', invoice_email_attempts:0 },
+    profil: { email:'dan@exemplu.ro', full_name:'Adrian Dan' } };
+  global.fetch = async (url) => {
+    if (String(url).includes('smartbill')) return { ok:true, status:200,
+      arrayBuffer: async () => Buffer.from('PDFMAGIC-1.4 continut') };
+    return raspunsResend;
+  };
+  const rez = await liv.deliverInvoiceEmail(adminFals(stare, scrieri), 'X');
+  return { rez, scrieri };
+}
+
+(async () => {
+  const out = {};
+  out.esec = await ruleaza({ ok:false, status:422,
+    text: async () => JSON.stringify({ message: 'Invalid `to` field' }) });
+  out.succes = await ruleaza({ ok:true, status:200,
+    text: async () => JSON.stringify({ id: 'e-123' }) });
+  out.claim_ratat = await (async () => {
+    const scrieri = []; const stare = { claim:false, plata:null, profil:null };
+    global.fetch = async () => { throw new Error('nu trebuia chemat'); };
+    const rez = await liv.deliverInvoiceEmail(adminFals(stare, scrieri), 'X');
+    return { rez, scrieri };
+  })();
+  console.log(JSON.stringify(out));
+})();
+"""
+    cod = sablon.replace("__LIV__", json.dumps(liv.replace("\\", "/"))).replace("PDFMAGIC", chr(37) + "PDF")
+    d = _node(tmp, cod)
+    if not d:
+        v("[E] scenariile ruleaza", False)
+        return
+
+    e = d["esec"]
+    ultim = e["scrieri"][-1] if e["scrieri"] else {}
+    v("[E] la esec NU crapa, intoarce failed", e["rez"]["status"] == "failed", json.dumps(e["rez"])[:120])
+    v("[E] la esec scrie status='failed' in baza", ultim.get("invoice_email_status") == "failed", json.dumps(ultim)[:140])
+    v("[E] la esec scrie MOTIVUL, nu doar starea",
+      "Invalid" in str(ultim.get("invoice_email_error")), str(ultim.get("invoice_email_error")))
+    v("[E] la esec scrie si adresa incercata", ultim.get("invoice_email_to") == "dan@exemplu.ro")
+    v("[E] la esec numara incercarea", ultim.get("invoice_email_attempts") == 1, json.dumps(ultim)[:120])
+
+    su = d["succes"]
+    ult = su["scrieri"][-1] if su["scrieri"] else {}
+    v("[E] la succes intoarce sent + adresa", su["rez"]["status"] == "sent" and su["rez"]["to"] == "dan@exemplu.ro",
+      json.dumps(su["rez"]))
+    v("[E] la succes scrie toate cele cinci coloane",
+      ult.get("invoice_email_status") == "sent" and ult.get("invoice_email_to") == "dan@exemplu.ro"
+      and bool(ult.get("invoice_email_at")) and ult.get("invoice_email_error") is None
+      and ult.get("invoice_email_attempts") == 1, json.dumps(ult)[:200])
+    v("[E] primul lucru scris e claim-ul 'sending'",
+      su["scrieri"] and su["scrieri"][0].get("invoice_email_status") == "sending",
+      json.dumps(su["scrieri"][:1]))
+
+    cr = d["claim_ratat"]
+    v("[E] daca claim-ul NU prinde randul, nu se trimite nimic",
+      cr["rez"]["status"] == "skipped" and not cr["scrieri"][1:], json.dumps(cr["rez"]))
+
+
 def main():
     parte_js()
+    parte_livrare()
     parte_baza()
     print("\n".join("ESUAT: " + x for x in rele) if rele
           else "OK — textul, adresa, PDF-ul si garda anti-dublare se poarta cum trebuie")
