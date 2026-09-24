@@ -31,10 +31,13 @@ export interface BillingChoice {
   address?: string;    // company_custom: adresă ; individual: stradă+nr (opțional)
   email?: string;      // company_custom: email facturare
   adminName?: string;  // nume administrator/reprezentant -> "Reprezentant: X" pe factură
-  // e-Factura B2C (2026-07): ANAF cere adresă completă pt. cumpărător INCLUSIV la persoane fizice —
-  // fără județ + localitate, trimiterea în SPV e respinsă ("Județ client incorect").
-  county?: string;     // individual: județul (nume complet, ex. "Cluj") — OBLIGATORIU
-  city?: string;       // individual: localitatea — OBLIGATORIU
+  // e-Factura: ANAF cere adresă completă pentru cumpărător — aceleași câmpuri la firmă și la
+  // persoană fizică (BT-52 localitatea, BT-54 județul). Fără ele, factura se EMITE dar trimiterea
+  // în SPV e respinsă ("Județ client incorect"), tăcut din punctul nostru de vedere.
+  // 2026-07: cerute doar la `individual`. 2026-09: cerute pe TOATE cele trei ramuri — o firmă
+  // trecea fără ele, adică același defect pe altă ramură.
+  county?: string;     // județul (nume complet, ex. "Cluj") — OBLIGATORIU pe toate ramurile
+  city?: string;       // localitatea — OBLIGATORIU pe toate ramurile (la București: sectorul)
   cnp?: string;        // individual: CNP (OPȚIONAL; fără el, factura merge cu codul generic de PF)
 }
 

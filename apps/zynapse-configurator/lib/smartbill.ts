@@ -127,8 +127,18 @@ export function mapSmartbillClient(p: SmartbillProfile, billing?: BillingInput |
     return {
       name: (billing.name || p.full_name || "Client").trim() || "Client",
       vatCode: cui || undefined,
+      // ⚠️ `isTaxPayer` descrie CLIENTUL, nu pe noi, şi se deduce din prefixul „RO" al CUI-ului.
+      // Un CUI scris fără prefix (ex. „46403400") marchează un plătitor de TVA drept NEplătitor.
+      // Azi nu schimbă sumele, fiindcă Zynapse e neplătitoare şi emite cu taxPercentage 0 — dar în
+      // ziua în care Zynapse devine plătitoare, câmpul ăsta decide taxarea, iar un CUI tastat fără
+      // „RO" devine o factură greşită. De verificat la ANAF, nu de ghicit din text.
       isTaxPayer: /^ro/i.test(cui),
       address: (billing.address || "").trim() || undefined,
+      // e-Factura cere localitatea (BT-52) şi judeţul (BT-54) pentru ORICE cumpărător, firmă sau
+      // persoană. Până acum se trimiteau doar pe ramura B2C: pe firme se COLECTAU (sau nici atât)
+      // şi se pierdeau aici, adică transmiterea în SPV pica fără ca nimeni să vadă.
+      ...((billing.city || "").trim() ? { city: (billing.city || "").trim() } : {}),
+      ...((billing.county || "").trim() ? { county: (billing.county || "").trim() } : {}),
       country: "Romania",
       email: (billing.email || p.email || "").trim(),
       saveToDb: false,
@@ -143,7 +153,12 @@ export function mapSmartbillClient(p: SmartbillProfile, billing?: BillingInput |
       name: (p.firma_nume || p.full_name || "Client").trim() || "Client",
       vatCode: cui,
       isTaxPayer: /^ro/i.test(cui),          // CUI cu prefix "RO" = plătitor TVA; altfel neplătitor
+                                             // (vezi nota de la `company_custom`: descrie CLIENTUL)
       address: (p.firma_adresa || "").trim() || undefined,
+      // Judeţ + localitate vin din `billing`, nu din profil: `profiles` n-are coloane pentru ele,
+      // aşa că se cer la checkout (şi se pre-completează din ultima plată). Vezi nota de mai sus.
+      ...((billing?.city || "").trim() ? { city: (billing!.city || "").trim() } : {}),
+      ...((billing?.county || "").trim() ? { county: (billing!.county || "").trim() } : {}),
       country: "Romania",                    // toți clienții sunt din România (platformă RO)
       email: (p.firma_email || p.email || "").trim(),
       saveToDb: false,
@@ -153,10 +168,27 @@ export function mapSmartbillClient(p: SmartbillProfile, billing?: BillingInput |
 }
 
 /** Construiește payload-ul facturii. PUR (fără rețea) -> testabil. */
+// ── SERIILE ─────────────────────────────────────────────────────────────────
+// Contorul numerelor NU e la noi: îl ține SmartBill, per serie, iar `seriesName` se trimite în
+// FIECARE cerere. Două serii au deci contoare independente prin construcție — n-avem ce sincroniza
+// și n-avem cum să sărim sau să dublăm un număr din codul nostru.
+// Structura de aici doar ALEGE seria. `credite` e singura folosită azi și citește exact aceeași
+// variabilă ca înainte, deci factura de credite iese byte-identică.
+export type SeriesKind = "credite" | "servicii";
+const SERIES_ENV: Record<SeriesKind, string> = {
+  credite: "SMARTBILL_SERIES",
+  servicii: "SMARTBILL_SERIES_SERVICII",
+};
+
+/** Numele seriei pentru un tip de document, din env. Gol = neconfigurat (apelantul oprește). */
+export function seriesFor(kind: SeriesKind = "credite"): string {
+  return (process.env[SERIES_ENV[kind]] || "").trim();
+}
+
 export function buildInvoicePayload(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean; billing?: BillingInput | null }
+  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind }
 ): SmartbillInvoicePayload {
   const price = Math.round(Number(payment.amount_ron) * 100) / 100;
   const adminName = (opts?.billing?.adminName || "").trim();
@@ -164,7 +196,7 @@ export function buildInvoicePayload(
     companyVatCode: (process.env.SMARTBILL_VAT_CODE || "").trim(),
     client: mapSmartbillClient(profile, opts?.billing),
     issueDate: todayYmd(),
-    seriesName: (process.env.SMARTBILL_SERIES || "").trim(),
+    seriesName: seriesFor(opts?.seriesKind),
     isDraft: opts?.draft === true,
     // nume administrator/reprezentant pe factură (SmartBill n-are câmp dedicat -> observations)
     ...(adminName ? { observations: `Reprezentant: ${adminName}` } : {}),
@@ -191,14 +223,18 @@ export function buildInvoicePayload(
 export async function createInvoice(
   profile: SmartbillProfile,
   payment: SmartbillPayment,
-  opts?: { draft?: boolean; billing?: BillingInput | null }
+  opts?: { draft?: boolean; billing?: BillingInput | null; seriesKind?: SeriesKind }
 ): Promise<SmartbillResult> {
   const username = (process.env.SMARTBILL_USERNAME || "").trim();
   const token = (process.env.SMARTBILL_TOKEN || "").trim();
   const vat = (process.env.SMARTBILL_VAT_CODE || "").trim();
-  const series = (process.env.SMARTBILL_SERIES || "").trim();
+  const kind: SeriesKind = opts?.seriesKind ?? "credite";
+  const series = seriesFor(kind);
+  // Seria cerută TREBUIE să fie configurată. Fără verificarea asta, o factură de servicii cu
+  // `SMARTBILL_SERIES_SERVICII` nesetat ar cădea pe seria de credite și ar consuma un număr din ZN —
+  // un document fiscal pe seria greșită, imposibil de retras altfel decât prin stornare.
   if (!username || !token || !vat || !series) {
-    return { success: false, error: "SmartBill env lipsă (USERNAME/TOKEN/VAT_CODE/SERIES)" };
+    return { success: false, error: `SmartBill env lipsă (USERNAME/TOKEN/VAT_CODE/${SERIES_ENV[kind]})` };
   }
 
   const payload = buildInvoicePayload(profile, payment, opts);

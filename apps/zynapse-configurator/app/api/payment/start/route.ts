@@ -54,6 +54,18 @@ export async function POST(req: NextRequest) {
     }
     const { data: bProf } = await admin
       .from("profiles").select("firma_cui, full_name").eq("id", user.id).single();
+    // JUDEŢ + LOCALITATE — obligatorii pe TOATE cele trei ramuri, nu doar la persoană fizică.
+    // e-Factura cere aceeaşi adresă de cumpărător indiferent dacă e firmă sau persoană (BT-52
+    // localitate, BT-54 judeţ); fără ele SPV respinge TRANSMITEREA, deşi factura se emite — exact
+    // ce s-a întâmplat la ZN0001, reparată manual în SmartBill. Validarea din 26 iulie le-a cerut
+    // doar la `individual`, deci o firmă putea trece fără ele: acelaşi defect, altă ramură.
+    // Poarta stă ÎNAINTEA plăţii, ca omul să nu plătească şi abia apoi să afle că factura nu poate
+    // fi transmisă.
+    const county = String(billing.county || "").trim();
+    const city = String(billing.city || "").trim();
+    if (!county || !city) {
+      return NextResponse.json({ error: "Completează județul și localitatea (cerute de ANAF pentru e-Factură)." }, { status: 400 });
+    }
     let billingData: Record<string, string> = {};
     if (bType === "company_profile") {
       if (!String(bProf?.firma_cui || "").trim()) {
@@ -61,7 +73,7 @@ export async function POST(req: NextRequest) {
       }
       const adminName = String(billing.adminName || "").trim();
       if (!adminName) return NextResponse.json({ error: "Numele administratorului e obligatoriu." }, { status: 400 });
-      billingData = { admin_name: adminName };
+      billingData = { admin_name: adminName, county, city };
     } else if (bType === "company_custom") {
       const name = String(billing.name || "").trim();
       const vatCode = String(billing.vatCode || "").trim();
@@ -69,17 +81,11 @@ export async function POST(req: NextRequest) {
       if (!name || !vatCode || !address) {
         return NextResponse.json({ error: "Completează denumirea firmei, CIF-ul și adresa." }, { status: 400 });
       }
-      billingData = { name, vatCode, address, email: String(billing.email || "").trim(), admin_name: String(billing.adminName || "").trim() };
+      billingData = { name, vatCode, address, county, city,
+                      email: String(billing.email || "").trim(), admin_name: String(billing.adminName || "").trim() };
     } else {
       if (!String(bProf?.full_name || "").trim()) {
         return NextResponse.json({ error: "Numele lipsește din cont." }, { status: 400 });
-      }
-      // e-Factura B2C: ANAF cere adresă completă pt. cumpărător şi la persoane fizice — fără judeţ +
-      // localitate factura se emite, dar trimiterea în SPV e respinsă ("Județ client incorect").
-      const county = String(billing.county || "").trim();
-      const city = String(billing.city || "").trim();
-      if (!county || !city) {
-        return NextResponse.json({ error: "Completează județul și localitatea (cerute de ANAF pentru e-Factură)." }, { status: 400 });
       }
       billingData = {
         county, city,

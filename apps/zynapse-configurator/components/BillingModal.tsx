@@ -53,8 +53,12 @@ export default function BillingModal({
   const [cAddr, setCAddr] = useState("");
   const [cEmail, setCEmail] = useState("");
   // e-Factura B2C: adresa persoanei fizice (judeţ + localitate OBLIGATORII pt. validarea ANAF)
-  const [iCounty, setICounty] = useState("");
-  const [iCity, setICity] = useState("");
+  // Judeţ + localitate sunt ale CUMPĂRĂTORULUI, oricare ar fi el: e-Factura le cere la fel pentru
+  // firmă şi pentru persoană (BT-52 localitate, BT-54 judeţ). De aceea prefixul e `b` (buyer), nu
+  // `i` (individual) — până acum trăiau doar pe ramura de persoană fizică, iar o firmă trecea fără
+  // ele şi transmiterea în SPV pica tăcut.
+  const [bCounty, setBCounty] = useState("");
+  const [bCity, setBCity] = useState("");
   const [iAddr, setIAddr] = useState("");
   const [iCnp, setICnp] = useState("");
 
@@ -76,22 +80,28 @@ export default function BillingModal({
           setAdminName(p.admin_name || "");
           setType(isType(p.last_billing_type) ? p.last_billing_type : "individual");
         });
-      // PRESET B2C: datele din ULTIMA plată ca persoană fizică (RLS payments_select_own).
+      // PRESET: datele din plăţile ANTERIOARE (RLS payments_select_own).
       // Sursa = ce s-a facturat efectiv -> zero coloane noi în profiles, mereu sincron.
+      // Se iau mai multe rânduri, nu doar ultimul: judeţul şi localitatea se caută în prima plată
+      // care le ARE, indiferent de tip, fiindcă până azi doar ramura B2C le cerea — altfel un
+      // client care a cumpărat ultima dată pe firmă ar fi văzut câmpurile goale deşi le completase.
       supabase
         .from("payments")
-        .select("billing_data, created_at")
+        .select("billing_type, billing_data, created_at")
         .eq("user_id", user.id)
-        .eq("billing_type", "individual")
         .order("created_at", { ascending: false })
-        .limit(1)
+        .limit(10)
         .then(({ data }) => {
           if (cancelled || !data?.length) return;
-          const bd = (data[0].billing_data || {}) as Record<string, string>;
-          setICounty(bd.county || "");
-          setICity(bd.city || "");
-          setIAddr(bd.address || "");
-          setICnp(bd.cnp || "");
+          const bds = data.map(r => (r.billing_data || {}) as Record<string, string>);
+          const cu = bds.find(b => (b.county || "").trim() && (b.city || "").trim());
+          if (cu) { setBCounty(cu.county || ""); setBCity(cu.city || ""); }
+          const pf = data.find(r => r.billing_type === "individual");
+          if (pf) {
+            const b = (pf.billing_data || {}) as Record<string, string>;
+            setIAddr(b.address || "");
+            setICnp(b.cnp || "");
+          }
         });
     });
     return () => { cancelled = true; };
@@ -100,21 +110,27 @@ export default function BillingModal({
   if (!open) return null;
 
   const hasFirma = !!(prof?.firma_cui || "").trim();
-  const valid =
-    // B2C: numele + judeţul + localitatea sunt obligatorii (fără ele e-Factura e respinsă la SPV)
-    type === "individual" ? !!(prof?.full_name || "").trim() && !!iCounty.trim() && !!iCity.trim()
+  // Judeţul şi localitatea se cer pe TOATE ramurile (vezi nota de la `bCounty`), deci condiţia e
+  // comună şi stă în faţă; restul rămâne ce era, per ramură.
+  const adresaFiscala = !!bCounty.trim() && !!bCity.trim();
+  // Lista `JUDETE` e scrisă FĂRĂ diacritice („Bucuresti"), aşa că o comparaţie cu „București" n-ar
+  // fi potrivit niciodată — iar o regulă care nu se aprinde arată la fel cu una care nu există.
+  // Se normalizează, ca indiciul de sector să apară indiferent cum e scris judeţul.
+  const esteBucuresti = bCounty.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().startsWith("bucure");
+  const valid = adresaFiscala && (
+    type === "individual" ? !!(prof?.full_name || "").trim()
     : type === "company_profile" ? hasFirma && !!adminName.trim()
-    : !!cName.trim() && !!cVat.trim() && !!cAddr.trim();
+    : !!cName.trim() && !!cVat.trim() && !!cAddr.trim());
 
   function confirm() {
     if (!valid || submitting) return;
+    const adr = { county: bCounty.trim(), city: bCity.trim() };
     if (type === "individual") onConfirm({
-      type: "individual",
-      county: iCounty.trim(), city: iCity.trim(),
+      type: "individual", ...adr,
       address: iAddr.trim(), cnp: iCnp.trim(),
     });
-    else if (type === "company_profile") onConfirm({ type: "company_profile", adminName: adminName.trim() });
-    else onConfirm({ type: "company_custom", name: cName.trim(), vatCode: cVat.trim(), address: cAddr.trim(), email: cEmail.trim(), adminName: adminName.trim() });
+    else if (type === "company_profile") onConfirm({ type: "company_profile", ...adr, adminName: adminName.trim() });
+    else onConfirm({ type: "company_custom", ...adr, name: cName.trim(), vatCode: cVat.trim(), address: cAddr.trim(), email: cEmail.trim(), adminName: adminName.trim() });
   }
 
   const opt = (val: BillingChoice["type"], title: string, sub: string) => {
@@ -203,24 +219,40 @@ export default function BillingModal({
             <div style={{ fontSize: 12.5, color: "#C8CAD6" }}>
               Factură pe: <strong style={{ color: "#E2E4E9" }}>{prof?.full_name || "—"}</strong>
             </div>
-            {/* e-Factura: ANAF cere judeţ + localitate şi pentru persoane fizice (altfel SPV respinge factura). */}
+            {/* Judeţul şi localitatea au urcat în blocul COMUN de mai jos: se cer pe toate ramurile. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-              <label>
-                <span style={lbl}>Județ *</span>
-                <select style={{ ...inputStyle, appearance: "none", cursor: "pointer" }} value={iCounty} onChange={(e) => setICounty(e.target.value)}>
-                  <option value="" style={{ background: "#0E1014" }}>Alege județul…</option>
-                  {JUDETE.map(j => <option key={j} value={j} style={{ background: "#0E1014" }}>{j}</option>)}
-                </select>
-              </label>
-              <label><span style={lbl}>Localitate *</span><input style={inputStyle} value={iCity} onChange={(e) => setICity(e.target.value)} placeholder="Cluj-Napoca" /></label>
               <label><span style={lbl}>Adresă</span><input style={inputStyle} value={iAddr} onChange={(e) => setIAddr(e.target.value)} placeholder="Str. Exemplu nr. 1, ap. 2" /></label>
               <label><span style={lbl}>CNP</span><input style={inputStyle} value={iCnp} onChange={(e) => setICnp(e.target.value)} placeholder="opțional" inputMode="numeric" /></label>
               <div style={{ fontSize: 11.5, color: "#8B8FA8", lineHeight: 1.5 }}>
-                Județul și localitatea sunt cerute de ANAF pentru e-Factură. Fără CNP, factura se emite cu codul generic de persoană fizică.
+                Fără CNP, factura se emite cu codul generic de persoană fizică.
               </div>
             </div>
           </div>
         )}
+
+        {/* ADRESA FISCALĂ A CUMPĂRĂTORULUI — comună celor trei opţiuni.
+            e-Factura cere localitatea (BT-52) şi judeţul (BT-54) pentru orice cumpărător, firmă sau
+            persoană. Blocul stă în AFARA ramurilor dinadins: cât timp trăia doar la „persoană
+            fizică", o factură pe firmă pleca fără ele şi SPV-ul refuza transmiterea, deşi factura
+            se emitea — adică fără niciun semn de partea noastră. */}
+        <div style={{ margin: "4px 0 10px", padding: "10px 12px", borderRadius: 9, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <label>
+            <span style={lbl}>Județ *</span>
+            <select style={{ ...inputStyle, appearance: "none", cursor: "pointer" }} value={bCounty} onChange={(e) => setBCounty(e.target.value)}>
+              <option value="" style={{ background: "#0E1014" }}>Alege județul…</option>
+              {JUDETE.map(j => <option key={j} value={j} style={{ background: "#0E1014" }}>{j}</option>)}
+            </select>
+          </label>
+          <label>
+            <span style={lbl}>Localitate *</span>
+            <input style={inputStyle} value={bCity} onChange={(e) => setBCity(e.target.value)}
+                   placeholder={esteBucuresti ? "Sector 1" : "Cluj-Napoca"} />
+          </label>
+          <div style={{ fontSize: 11.5, color: "#8B8FA8", lineHeight: 1.5 }}>
+            Cerute de ANAF pentru e-Factură, la fel pentru firmă și pentru persoană fizică.
+            {esteBucuresti && " În București, la localitate se trece sectorul (ex. „Sector 1”)."}
+          </div>
+        </div>
 
         {error && (
           <div style={{ margin: "6px 0 0", padding: "9px 12px", borderRadius: 9, fontSize: 12.5, background: "rgba(226,75,74,0.1)", border: "1px solid rgba(226,75,74,0.22)", color: "#F09595" }}>{error}</div>
