@@ -71,7 +71,44 @@ export default function FacturiSection({ facturi }: { facturi: FacturaRow[] }) {
       {facturi.length === 0 ? (
         <p className="px-5 py-6 text-sm text-slate-500">Nicio factură emisă încă.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        {/* ── TELEFON (sub 768px): un rand = o cartela ─────────────────────────────────────────
+            Capul cartelei e ce IDENTIFICA factura: numarul si suma. Apoi starea livrarii, care e
+            singurul motiv pentru care Dan deschide ecranul asta din mers. Eroarea se vede INTREAGA
+            (in tabel era taiata la 60 de caractere, fiindca nu incapea pe un rand). */}
+        <div className="divide-y divide-slate-100 md:hidden">
+          {facturi.map((f) => {
+            const e = f.email_status ? (ETICHETA[f.email_status] || NETRIMIS) : NETRIMIS;
+            return (
+              <div key={f.order_id} className="px-5 py-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="font-semibold text-slate-900">{(f.series || "") + (f.number || "") || "Fără număr"}</p>
+                  <p className="shrink-0 tabular-nums text-sm font-medium text-slate-700">
+                    {f.amount_ron != null ? `${Number(f.amount_ron).toFixed(2)} lei` : "—"}
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${e.cls}`}>{e.text}</span>
+                  <span className="text-xs text-slate-400">{String(f.created_at).slice(0, 10)}</span>
+                  {(f.email_attempts ?? 0) > 1 && <span className="text-xs text-slate-400">· {f.email_attempts} încercări</span>}
+                </div>
+                <p className="mt-2 break-all text-xs text-slate-600">
+                  {f.email_to || <span className="text-slate-400">netrimisă · cont: {f.email}</span>}
+                  {f.email_at && <span className="text-slate-400"> · {String(f.email_at).slice(0, 16).replace("T", " ")}</span>}
+                </p>
+                {f.email_error && <p className="mt-1 text-xs text-red-600">{f.email_error}</p>}
+                {f.email_status !== "sent" && (
+                  <button type="button" onClick={() => retrimite(f.order_id)} disabled={busy === f.order_id}
+                    className="mt-3 min-h-[44px] w-full rounded-md bg-slate-900 px-3 text-sm font-medium text-white disabled:opacity-50">
+                    {busy === f.order_id ? "Se trimite…" : "Trimite factura"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -128,6 +165,7 @@ export default function FacturiSection({ facturi }: { facturi: FacturaRow[] }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

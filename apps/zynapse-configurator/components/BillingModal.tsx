@@ -164,12 +164,39 @@ export default function BillingModal({
   const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: ".04em", color: "#8B8FA8", textTransform: "uppercase" };
 
   return (
-    <div onClick={onCancel} style={{
+    <div onClick={onCancel} className="zn-bm-overlay" style={{
       position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center",
       background: "rgba(0,0,0,0.78)", backdropFilter: "blur(4px)", padding: 18,
       fontFamily: "'DM Sans', system-ui, sans-serif",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      {/* Telefon (sub 768px): foaie de jos, cu butoanele LIPITE de marginea de jos.
+          Regulile stau INTR-UN media query max-width, deci pe calculator nu se aplica niciuna —
+          de-aia `!important` nu strica nimic acolo: la >=768px selectorii nici nu se potrivesc.
+          Problema reala nu era latimea (panoul de 324px incapea), ci ca „Continua spre plata" statea
+          la capatul unei zone de derulare de 930px inaltime, intr-o fereastra de 575px: cumparatorul
+          completa campurile si nu mai gasea butonul. */}
+      <style jsx>{`
+        @media (max-width: 767px) {
+          .zn-bm-overlay { padding: 0 !important; align-items: flex-end !important; }
+          .zn-bm-panel {
+            max-width: none !important; max-height: 92dvh !important;
+            border-radius: 16px 16px 0 0 !important;
+            padding: 18px 16px 0 !important;
+          }
+          .zn-bm-actions {
+            position: sticky !important; bottom: 0 !important;
+            margin: 14px -16px 0 !important;
+            padding: 12px 16px calc(12px + env(safe-area-inset-bottom)) !important;
+            background: #0E1014 !important; border-top: 1px solid rgba(255,255,255,0.09) !important;
+          }
+          /* 16px pe campuri: sub atat, iOS mareste pagina la focus si cumparatorul ramane cu
+             formularul decalat. Plus tinta de atingere peste 40px. */
+          .zn-bm-panel :global(input), .zn-bm-panel :global(select) {
+            font-size: 16px !important; padding-top: 11px !important; padding-bottom: 11px !important;
+          }
+        }
+      `}</style>
+      <div onClick={(e) => e.stopPropagation()} className="zn-bm-panel" style={{
         width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", borderRadius: 16,
         background: "#0E1014", border: "1px solid rgba(255,255,255,0.09)", padding: "24px 22px",
         boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
@@ -258,7 +285,7 @@ export default function BillingModal({
           <div style={{ margin: "6px 0 0", padding: "9px 12px", borderRadius: 9, fontSize: 12.5, background: "rgba(226,75,74,0.1)", border: "1px solid rgba(226,75,74,0.22)", color: "#F09595" }}>{error}</div>
         )}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+        <div className="zn-bm-actions" style={{ display: "flex", gap: 10, marginTop: 18 }}>
           <button type="button" onClick={onCancel} disabled={submitting} style={{
             flex: "0 0 auto", padding: "11px 18px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, fontFamily: "inherit",
             background: "transparent", border: "1px solid rgba(255,255,255,0.12)", color: "#8B8FA8", cursor: "pointer",

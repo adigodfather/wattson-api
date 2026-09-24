@@ -958,6 +958,12 @@ function Rubrica({ title, hint, children }: { title: string; hint?: string; chil
 // Stări de interacțiune injectate o dată (focus/hover/placeholder + accordion + butoane add/remove).
 // border+background pe câmpuri trăiesc aici (nu inline) ca focus-ul accent să suprascrie fără !important.
 const FIELD_CSS = `
+.zn-ed-nota { display: none; }
+@media (max-width: 1023px) {
+  .zn-ed-nota { display: flex; align-items: flex-start; gap: 10px; flex-basis: 100%;
+    margin: 0 0 4px; padding: 11px 13px; border-radius: 10px; line-height: 1.45;
+    background: rgba(55,138,221,0.08); border: 1px solid rgba(55,138,221,0.22); }
+}
 .zy-ed-field { border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);
   transition: border-color .15s ease, background-color .15s ease; }
 .zy-ed-field:hover:not(:focus):not(:disabled) { border-color: rgba(255,255,255,0.18); }
@@ -1027,6 +1033,10 @@ export default function PlanEditor({
      // Nivelul CEL MAI DE JOS al proiectului = nivelul fundatiei, acolo unde se deseneaza
      // priza de pamant. Implicit „parter": o casa fara subsol se poarta exact ca azi.
      nivelFundatie?: string }) {
+  // Nota de ecran mic: editorul ramane DESCHIS pe telefon (decizia lui Dan), dar planul e desenat
+  // la 1200px si se taie. Spunem de ce, ca sa nu para eroare. Sub 1024px, fiindca si pe tableta
+  // (768px) se pierd 749px din plansa — nu e doar o problema de telefon.
+  const [notaEcranMic, setNotaEcranMic] = useState(true);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [elements, setElements] = useState<PlanElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3599,6 +3609,21 @@ export default function PlanEditor({
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <style>{FIELD_CSS}</style>
+
+      {notaEcranMic && (
+        <div className="zn-ed-nota">
+          <span style={{ fontSize: 12.5, color: "#C8CAD6", flex: 1 }}>
+            Editorul e făcut pentru ecran mare. Pe telefon vezi doar o parte din planșă și poți
+            lucra doar în zona vizibilă — de pe calculator ai tot planul în față.
+          </span>
+          <button type="button" onClick={() => setNotaEcranMic(false)} aria-label="Am înțeles"
+            style={{ flexShrink: 0, minWidth: 44, minHeight: 44, marginTop: -11, marginRight: -13,
+                     background: "none", border: "none", color: "#8B8FA8", fontSize: 12.5,
+                     fontFamily: "inherit", cursor: "pointer" }}>
+            Am înțeles
+          </button>
+        </div>
+      )}
 
       {/* antet editor — afordanță (ce poți face aici), pe toată lățimea, deasupra coloanelor */}
       <div style={{ flexBasis: "100%", display: "flex", alignItems: "baseline", gap: 10, marginBottom: 2 }}>

@@ -208,6 +208,27 @@ export default async function AdminPage() {
               Nicio achizitie confirmata inca. Clientii apar aici cand o plata e creditata.
             </p>
           ) : (
+            <>
+            {/* ── TELEFON (sub 768px): un client = o cartela ──────────────────────────────────
+                Capul e locul si emailul; la dreapta VENITUL, fiindca pentru cifra aia se deschide
+                clasamentul. Creditele si proiectele vin dedesubt. */}
+            <div className="divide-y divide-slate-100 md:hidden">
+              {top10.map((r, i) => (
+                <div key={r.email} className="px-5 py-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="min-w-0 break-all text-sm font-medium text-slate-800">
+                      <span className="mr-1.5 text-slate-400">{i + 1}.</span>{r.email}
+                    </p>
+                    <p className="shrink-0 font-semibold tabular-nums text-slate-900">{fmtRon(r.ronConfirmed)}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {fmtInt(r.creditsConfirmed)} credite · {fmtInt(r.projects)} proiecte
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
@@ -230,6 +251,8 @@ export default async function AdminPage() {
                 ))}
               </tbody>
             </table>
+            </div>
+            </>
           )}
         </section>
 
