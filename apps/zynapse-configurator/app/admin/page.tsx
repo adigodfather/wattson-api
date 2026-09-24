@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabaseAdmin";
 import { isPhasePT } from "@/lib/constants";
 import AppHeader from "@/components/AppHeader";
 import BugsSection, { type BugRow } from "./BugsSection";
+import FacturiSection, { type FacturaRow } from "./FacturiSection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";   // mereu proaspat, niciodata cache static
@@ -32,19 +33,27 @@ export default async function AdminPage() {
 
   // ── DATE (service role, server-only; doar adminul a ajuns aici) ──────────────
   const admin = createAdminClient();
-  const [profilesRes, paymentsRes, projectsRes, bugsRes] = await Promise.all([
+  const [profilesRes, paymentsRes, projectsRes, bugsRes, facturiRes] = await Promise.all([
     admin.from("profiles").select("id, email, credits_balance"),
     admin.from("payments").select("user_id, credits, amount_ron, status, credited"),
     admin.from("projects").select("user_id, faza"),
     // Faza 1.5: rapoartele de bug din chat (cele mai noi primele; 100 = suficient pt. V1)
     admin.from("bug_reports").select("id, user_id, content, status, z_coins_awarded, created_at")
       .order("created_at", { ascending: false }).limit(100),
+    // Facturile emise + starea livrării pe email. Interogare SEPARATĂ de `payments` de mai sus:
+    // aceea agregă sume pe utilizator şi n-are nevoie de câmpurile de factură.
+    // NB: şirul de `select` stă pe UN rând, nu concatenat: supabase-js deduce tipul rândului din
+    // literalul de şir, iar o concatenare îl face `GenericStringError` şi pică la compilare.
+    admin.from("payments")
+      .select("order_id, user_id, amount_ron, created_at, invoice_series, invoice_number, invoice_email_status, invoice_email_to, invoice_email_at, invoice_email_error, invoice_email_attempts")
+      .eq("invoiced", true).order("created_at", { ascending: false }).limit(200),
   ]);
 
   const profiles = profilesRes.data ?? [];
   const payments = paymentsRes.data ?? [];
   const projects = projectsRes.data ?? [];
   const bugsRaw = bugsRes.data ?? [];
+  const facturiRaw = facturiRes.data ?? [];
 
   // ZONA 1 — agregate globale (zero date personale)
   const totalUsers = profiles.length;
@@ -81,6 +90,19 @@ export default async function AdminPage() {
     status: (b.status as string) ?? "nou",
     z_coins_awarded: (b.z_coins_awarded as number) ?? 0,
     created_at: (b.created_at as string) ?? "",
+  }));
+  const facturi: FacturaRow[] = facturiRaw.map((f) => ({
+    order_id: f.order_id as string,
+    email: emailById.get(f.user_id as string) ?? "(necunoscut)",
+    series: (f.invoice_series as string) ?? null,
+    number: (f.invoice_number as string) ?? null,
+    amount_ron: (f.amount_ron as number) ?? null,
+    created_at: (f.created_at as string) ?? "",
+    email_status: (f.invoice_email_status as string) ?? null,
+    email_to: (f.invoice_email_to as string) ?? null,
+    email_at: (f.invoice_email_at as string) ?? null,
+    email_error: (f.invoice_email_error as string) ?? null,
+    email_attempts: (f.invoice_email_attempts as number) ?? 0,
   }));
   const top10: TopRow[] = [...byUser.entries()]
     .sort((a, b) => b[1].credits - a[1].credits || b[1].ron - a[1].ron)
@@ -152,7 +174,10 @@ export default async function AdminPage() {
           )}
         </section>
 
-        {/* ZONA 3 — rapoartele de bug din chat + acordarea Z-coins (Faza 1.5) */}
+        {/* ZONA 3 — facturile emise si starea livrarii pe email */}
+        <FacturiSection facturi={facturi} />
+
+        {/* ZONA 4 — rapoartele de bug din chat + acordarea Z-coins (Faza 1.5) */}
         <BugsSection bugs={bugs} />
         </div>
       </main>

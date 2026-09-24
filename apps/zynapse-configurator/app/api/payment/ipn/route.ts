@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabaseAdmin";
 import { decryptIpn } from "@/lib/netopia/crypto";
 import { parseIpnXml, buildIpnResponse } from "@/lib/netopia/xml";
 import { createInvoice } from "@/lib/smartbill";
+import { deliverInvoiceEmail } from "@/lib/invoiceDelivery";
 
 function xml(body: string): NextResponse {
   return new NextResponse(body, {
@@ -110,6 +111,29 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           console.error(`[ipn] SmartBill exceptie (order ${orderId}):`, e instanceof Error ? e.message : e);
         }
+      }
+
+      // ── LIVRAREA FACTURII pe email — DUPĂ emitere, dar ÎN AFARA blocului de mai sus. ──
+      // SmartBill emite şi transmite în SPV, dar mailul către client e un buton manual în interfaţa
+      // lor: până acum clienţii care plăteau NU primeau factura. Aici se descarcă PDF-ul şi se
+      // trimite de la noi, de pe office@zynapse.org.
+      // De ce în afara lui `if (!pay.invoiced)`: dacă factura s-a emis dar mailul a picat, un IPN
+      // repetat trebuie să poată RELUA trimiterea. Înăuntru, blocul ar fi fost sărit pe veci.
+      // Dublarea e oprită de garda ATOMICĂ din `deliverInvoiceEmail` (un UPDATE condiţionat care
+      // trece starea în 'sending'), nu de vreun `if` citit înainte de scris.
+      // Best-effort absolut: factura e deja emisă şi în SPV, iar creditele date — orice eroare de
+      // aici se scrie în `payments` şi se vede în admin, dar nu schimbă răspunsul către Netopia.
+      try {
+        // Timp SCURT aici, nu cel implicit de 15s: raspunsul catre Netopia asteapta dupa noi, iar
+        // emiterea facturii de mai sus poate consuma deja 15s. Cu doua apeluri in plus la 15s,
+        // IPN-ul ar putea ajunge la ~45s. Pasul e retryabil din admin, deci o asteptare scurta nu
+        // pierde nimic: ce nu apuca acum se reia de la buton.
+        const liv = await deliverInvoiceEmail(admin, orderId, { timeoutMs: 7000 });
+        if (liv.status === "failed") {
+          console.error(`[ipn] livrare factura esuata (order ${orderId}): ${liv.error}`);
+        }
+      } catch (e) {
+        console.error(`[ipn] livrare factura exceptie (order ${orderId}):`, e instanceof Error ? e.message : e);
       }
 
       return xml(buildIpnResponse({ crc: parsed.crc }));

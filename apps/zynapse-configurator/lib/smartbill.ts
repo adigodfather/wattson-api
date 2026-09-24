@@ -282,3 +282,64 @@ export async function createInvoice(
     clearTimeout(timer);
   }
 }
+
+// ── PDF-ul facturii ─────────────────────────────────────────────────────────
+// Raspunsul la emitere NU contine PDF-ul: intoarce doar `series` + `number` (si `errorText` la
+// eroare). Deci e nevoie de o A DOUA cerere, pe acelasi cont si cu aceleasi credentiale.
+// Calea e confirmata din SDK-urile client publice (ag84ark/smartbill, `src/Endpoints/`):
+//   GET /invoice/pdf?cif=%s&seriesname=%s&number=%s   cu `Accept: application/octet-stream`
+// si intoarce PDF-ul BINAR, nu base64 si nu JSON.
+// Documentatia web a SmartBill nu se poate citi programatic (pagina randeaza doar meniul), asa ca
+// daca raspunsul nu e un PDF, se raporteaza inceputul lui ca text: e singurul fel in care se vede
+// un „Unauthorized" sau un mesaj de eroare returnat cu 200.
+export interface SmartbillPdfResult {
+  success: boolean;
+  pdfBase64?: string;
+  error?: string;
+  status?: number;
+}
+
+export async function fetchInvoicePdf(
+  series: string,
+  number: string,
+  timeoutMs?: number,
+): Promise<SmartbillPdfResult> {
+  const username = (process.env.SMARTBILL_USERNAME || "").trim();
+  const token = (process.env.SMARTBILL_TOKEN || "").trim();
+  const vat = (process.env.SMARTBILL_VAT_CODE || "").trim();
+  if (!username || !token || !vat) {
+    return { success: false, error: "SmartBill env lipsă (USERNAME/TOKEN/VAT_CODE)" };
+  }
+  const s = (series || "").trim(), n = (number || "").trim();
+  if (!s || !n) return { success: false, error: "serie sau număr lipsă" };
+
+  const url = `${SMARTBILL_API}/invoice/pdf?cif=${encodeURIComponent(vat)}`
+    + `&seriesname=${encodeURIComponent(s)}&number=${encodeURIComponent(n)}`;
+  const auth = "Basic " + Buffer.from(`${username}:${token}`).toString("base64");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: auth, Accept: "application/octet-stream" },
+      signal: controller.signal,
+    });
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!res.ok) {
+      return { success: false, status: res.status, error: buf.toString("utf-8").slice(0, 200) || `HTTP ${res.status}` };
+    }
+    // Un PDF incepe MEREU cu „%PDF". Fara verificarea asta, un mesaj de eroare returnat cu 200 ar
+    // ajunge atasat la mail ca „factura" — clientul primeste un fisier care nu se deschide.
+    if (buf.length < 5 || buf.subarray(0, 4).toString("ascii") !== "%PDF") {
+      return { success: false, status: res.status,
+               error: `răspuns care nu e PDF: ${buf.toString("utf-8").slice(0, 160)}` };
+    }
+    return { success: true, pdfBase64: buf.toString("base64"), status: res.status };
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError" ? "SmartBill timeout"
+              : e instanceof Error ? e.message : "eroare necunoscută";
+    return { success: false, error: msg };
+  } finally {
+    clearTimeout(timer);
+  }
+}
