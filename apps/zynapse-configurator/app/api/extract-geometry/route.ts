@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
 import { fetchBackend } from "@/lib/backend-fetch";
+import { pdfDinStorage } from "@/lib/pdf-din-storage";
 import { masoara } from "@/lib/rateLimit";
 // P1: extrage peretii din cleanBasePdf -> {walls, doors} (proxy server-side catre FastAPI).
 // Necesita utilizator autentificat (anti-abuz). Fara IDOR: clientul trimite propriul PDF
@@ -13,16 +14,20 @@ export const maxDuration = 60;
 const FASTAPI = "https://wattson-api.onrender.com";
 
 export async function POST(req: NextRequest) {
-  let body: { pdf_base64?: string; rooms?: unknown[] };
+  let body: { pdf_base64?: string; pdf_path?: string; rooms?: unknown[] };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const pdf = String(body.pdf_base64 || "");
+  let pdf = String(body.pdf_base64 || "");
+  const cale = String(body.pdf_path || "");
   const rooms = Array.isArray(body.rooms) ? body.rooms : [];   // V4: optional -> room_geoms per camera
-  if (!pdf) {
-    return NextResponse.json({ error: "pdf_base64 necesar" }, { status: 400 });
+  // De cand fundalul curat sta in Storage, clientul n-are base64-ul: trimite CALEA, iar ruta il
+  // aduce ea. Pana acum ruta stia doar de base64, deci extragerea peretilor tacea pe toate
+  // proiectele — o gardă care nu se aprinde arata exact ca una care nu exista.
+  if (!pdf && !cale) {
+    return NextResponse.json({ error: "pdf_base64 sau pdf_path necesar" }, { status: 400 });
   }
 
   // ── Auth: utilizatorul trebuie sa fie autentificat ──
@@ -40,6 +45,17 @@ export async function POST(req: NextRequest) {
   // ── Limita de rata, PE UTILIZATOR (nu pe IP: un birou iese pe aceeasi adresa) ──
   const rl = await masoara(uid, "extract-geometry");
   if (rl.refuz) return rl.refuz;
+
+  // Aducerea din Storage se face DUPA autentificare si DUPA limita: cu sesiunea utilizatorului,
+  // deci politica `pf_owner_select` decide — calea nu e o portita spre fisierul altuia.
+  if (!pdf) {
+    const adus = await pdfDinStorage(cale);
+    if (!adus) {
+      await rl.gata(false);
+      return NextResponse.json({ error: "Fundalul nu s-a putut citi din Storage" }, { status: 403 });
+    }
+    pdf = adus;
+  }
 
   // ── Forward la FastAPI ──
   try {

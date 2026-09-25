@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
 import { fetchBackend } from "@/lib/backend-fetch";
+import { pdfDinStorage } from "@/lib/pdf-din-storage";
 import { masoara } from "@/lib/rateLimit";
 import { urcaPdf } from "@/lib/storage-pdf";
 // "Obtine plan" sub-pas 1a — proxy server-side catre FastAPI /regenerate-plan.
@@ -14,7 +15,7 @@ export const maxDuration = 120;
 const FASTAPI = "https://wattson-api.onrender.com";
 
 export async function POST(req: NextRequest) {
-  let body: { project_id?: string; floor?: string; base_pdf_base64?: string; plan_type?: string };
+  let body: { project_id?: string; floor?: string; base_pdf_base64?: string; base_pdf_path?: string; plan_type?: string };
   try {
     body = await req.json();
   } catch {
@@ -22,15 +23,18 @@ export async function POST(req: NextRequest) {
   }
   const projectId = String(body.project_id || "");
   const floor = String(body.floor || "parter");
-  const base = String(body.base_pdf_base64 || "");
+  let base = String(body.base_pdf_base64 || "");
+  const calePdf = String(body.base_pdf_path || "");
   // Poarta era BINARA (`=== "forta" ? "forta" : "iluminat"`), deci orice tip necunoscut devenea
   // tacut planşa de iluminat. Acum lista e explicita: ce nu-i in ea cade tot pe iluminat, dar
   // curenti_slabi trece.
   const PLAN_TYPES = ["iluminat", "forta", "curenti_slabi", "detectie_incendiu"] as const;
   const planType = (PLAN_TYPES as readonly string[]).includes(String(body.plan_type))
     ? String(body.plan_type) : "iluminat";
-  if (!projectId || !base) {
-    return NextResponse.json({ error: "project_id + base_pdf_base64 necesare" }, { status: 400 });
+  // Fundalul curat vine ORI ca base64 (proiecte vechi), ORI ca o cale in Storage (toate cele de
+  // azi). Ruta accepta amandoua; fara asta, „Obtine plan" era rupt pe TOATE proiectele.
+  if (!projectId || (!base && !calePdf)) {
+    return NextResponse.json({ error: "project_id + base_pdf_base64 sau base_pdf_path necesare" }, { status: 400 });
   }
 
   // ── Ownership: utilizatorul autentificat trebuie sa detina proiectul ──
@@ -54,6 +58,17 @@ export async function POST(req: NextRequest) {
   // ── Limita de rata, PE UTILIZATOR (nu pe IP: un birou iese pe aceeasi adresa) ──
   const rl = await masoara(userId, "regenerate-plan");
   if (rl.refuz) return rl.refuz;
+
+  // DUPA verificarea de proprietate si dupa limita: se aduce cu sesiunea utilizatorului, deci
+  // politica din Storage decide daca are voie.
+  if (!base) {
+    const adus = await pdfDinStorage(calePdf);
+    if (!adus) {
+      await rl.gata(false);
+      return NextResponse.json({ error: "Planul original nu s-a putut citi din Storage" }, { status: 403 });
+    }
+    base = adus;
+  }
 
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;

@@ -1003,11 +1003,14 @@ const panelStyle: CSSProperties = {
 };
 
 export default function PlanEditor({
-  projectId, pngBase64, pngMeta, cleanBasePdf, floor, onRegenerated, mode = "iluminat", rooms = [],
+  projectId, pngBase64, pngMeta, cleanBasePdf, cleanBasePath, floor, onRegenerated, mode = "iluminat", rooms = [],
   heatingDistribution = null, heatingType = null, enabledEquipment = [], bgLoading = false, isAdmin = false,
   heatingEquipment = [], hasTechRoom = true, hasFv = false, fvKw = 0, finalized = false,
   comercialSubtip = null, nivelFundatie = "parter", buildingType = null,
-}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null; floor?: string;
+}: { projectId: string; pngBase64?: string | null; pngMeta?: PngMeta; cleanBasePdf?: string | null;
+     // Fundalul curat vine ORI ca base64 (proiecte vechi), ORI ca o cale in Storage (toate cele
+     // de azi). Ruta il aduce ea dupa cale, deci PDF-ul nu mai trece prin browser.
+     cleanBasePath?: string | null; floor?: string;
      onRegenerated?: (pdfBase64: string, mode: PlanMode, plansaNr?: string, pdfPath?: string) => void; mode?: PlanMode;
      rooms?: { name?: string | null; floor?: string | number | null; area_m2?: number | null; bbox?: { x: number; y: number; w: number; h: number } | null }[];
      // H5: emisia (heating_distribution) -> butoane termice ; H6: heating_type (boiler) + echipamentele bifate -> restul receptoarelor
@@ -1229,13 +1232,14 @@ export default function PlanEditor({
   // DEBUG P1: extrage peretii din cleanBasePdf O DATA (statici) -> state `walls`. NON-BLOCANT.
   // V4: trimite si camerele -> primeste room_geoms (geom_bbox per camera, wall/label_anchor).
   useEffect(() => {
-    if (!cleanBasePdf) return;
+    if (!cleanBasePdf && !cleanBasePath) return;
     let cancelled = false;
     const roomsNow = (roomsRef.current || []).filter(r => r?.bbox);
     fetch("/api/extract-geometry", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdf_base64: cleanBasePdf, rooms: roomsNow }),
+      body: JSON.stringify(cleanBasePdf ? { pdf_base64: cleanBasePdf, rooms: roomsNow }
+                                        : { pdf_path: cleanBasePath, rooms: roomsNow }),
     })
       .then(r => r.json())
       .then(d => {
@@ -1252,7 +1256,7 @@ export default function PlanEditor({
       })
       .catch(() => { /* non-blocant: fara pereti -> editorul merge normal */ });
     return () => { cancelled = true; };
-  }, [cleanBasePdf]);
+  }, [cleanBasePdf, cleanBasePath]);
 
   // mută elementul în state imediat (optimist) — lista + planul reflectă schimbarea instant
   function setLocalField(id: string, patch: Partial<PlanElement>) {
@@ -2381,13 +2385,20 @@ export default function PlanEditor({
   // "Obține plan" (1a): trimite baza curată + project_id/floor -> backend citește plan_elements EDITAT
   // și redesenează -> primim PDF nou. Baza curată lipsă -> mesaj clar; erori -> mesaj, fără crash.
   async function handleRegenerate() {
-    if (!cleanBasePdf) { setRegenErr("Baza curată (planul fără becuri) lipsește pentru acest proiect."); return; }
+    if (!cleanBasePdf && !cleanBasePath) {
+      setRegenErr("Planul original (fără becuri) nu mai e disponibil pentru acest proiect. "
+                  + "Generează proiectul din nou, încărcând planul, ca să poți obține planșele.");
+      return;
+    }
     setRegenLoading(true); setRegenErr(null); setRegenPdf(null);
     try {
       const res = await fetch("/api/regenerate-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, floor: floorCanonic(floor), base_pdf_base64: cleanBasePdf, plan_type: mode }),
+        body: JSON.stringify({
+          project_id: projectId, floor: floorCanonic(floor), plan_type: mode,
+          ...(cleanBasePdf ? { base_pdf_base64: cleanBasePdf } : { base_pdf_path: cleanBasePath }),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success || !data?.pdf_base64) {

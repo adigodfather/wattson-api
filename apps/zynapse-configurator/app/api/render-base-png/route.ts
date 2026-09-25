@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { BUCKET } from "@/lib/storage-pdf";
 import { fetchBackend } from "@/lib/backend-fetch";
+import { pdfDinStorage } from "@/lib/pdf-din-storage";
 import { masoara, idUtilizator } from "@/lib/rateLimit";
 // Fundal editor FORTA: randeaza baza CURATA (planuri[].pdf_base64) -> PNG + png_meta, prin FastAPI.
 // Clientul trimite fie PDF-ul (proiecte vechi, base64 in rand), fie CALEA lui din Storage —
@@ -37,17 +38,14 @@ export async function POST(req: NextRequest) {
   // utilizatorului: RLS-ul `pf_owner_select` decide daca are voie, deci calea nu e o portita.
   // Backendul de pe Render primeste tot base64 — el n-are credentiale Supabase.
   if (!pdf && body.pdf_path) {
-    try {
-      const cookieStore = await cookies();
-      const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
-      const { data, error } = await supa.storage.from(BUCKET).download(String(body.pdf_path));
-      if (error || !data) {
-        return NextResponse.json({ error: "Fundalul nu s-a putut citi din Storage" }, { status: 403 });
-      }
-      pdf = Buffer.from(await data.arrayBuffer()).toString("base64");
-    } catch {
-      return NextResponse.json({ error: "Citirea fundalului a esuat" }, { status: 500 });
+    // Aceeasi functie ca la extract-geometry si regenerate-plan: o singura implementare a
+    // „adu PDF-ul din Storage cu sesiunea utilizatorului". Cand codul asta exista DOAR aici,
+    // celelalte doua rute n-au stiut de cai si „Obtine plan" s-a rupt pe toate proiectele.
+    const adus = await pdfDinStorage(String(body.pdf_path));
+    if (!adus) {
+      return NextResponse.json({ error: "Fundalul nu s-a putut citi din Storage" }, { status: 403 });
     }
+    pdf = adus;
   }
   if (!pdf) {
     return NextResponse.json({ error: "pdf_base64 sau pdf_path necesar" }, { status: 400 });

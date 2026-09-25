@@ -2984,9 +2984,10 @@ export function ZynapseConfigurator() {
                   // PNG-ul iluminat (valid, scale corect) ca sa nu ramana gol/eroare; cat se incarca efectiv
                   // (baza exista, fetch in curs) -> null + spinner (bgLoading). Spinner DOAR cand chiar se incarca.
                   pngBase64={modeEditor !== "iluminat" ? (fortaBg?.png_base64 ?? ((fortaBgErr || (!fortaCleanBase && !fortaCleanPath)) ? plansaPng : null)) : plansaPng}
-                  pngMeta={modeEditor !== "iluminat" ? (fortaBg?.png_meta ?? ((fortaBgErr || !fortaCleanBase) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
-                  bgLoading={modeEditor !== "iluminat" && !!fortaCleanBase && !fortaBg && !fortaBgErr}
+                  pngMeta={modeEditor !== "iluminat" ? (fortaBg?.png_meta ?? ((fortaBgErr || (!fortaCleanBase && !fortaCleanPath)) ? editorPlansa.png_meta : null)) : editorPlansa.png_meta}
+                  bgLoading={modeEditor !== "iluminat" && (!!fortaCleanBase || !!fortaCleanPath) && !fortaBg && !fortaBgErr}
                   cleanBasePdf={fortaCleanBase}
+                  cleanBasePath={fortaCleanPath}
                   floor={floorForPlate(editorPlansaIdx, nivele)}
                   // Nivelul fundatiei = cel mai de jos al proiectului (priza de pamant e
                   // INTOTDEAUNA in fundatie). Fara subsol iese „parter", deci casele nu simt nimic.
