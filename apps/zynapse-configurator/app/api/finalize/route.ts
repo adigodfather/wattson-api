@@ -24,9 +24,11 @@ interface CartusFirma {
 }
 
 export async function POST(req: NextRequest) {
-  // `motiv` / `refinalizare_a` / `declansat_de` vin DOAR de la /api/admin/refinalizare, care le
-  // pune dupa ce a verificat `profiles.is_admin`. La o finalizare obisnuita lipsesc, iar randul
-  // din registru le are null.
+  // `motiv` / `refinalizare_a` / `declansat_de` / `ca_user` sunt campuri de RE-FINALIZARE.
+  // NU exista o ruta `/api/admin/refinalizare` care sa le filtreze inainte (a fost planificata, nu
+  // construita), deci poarta trebuie sa fie AICI, la locul folosirii — si este: vezi verificarea de
+  // `is_admin` de mai jos, care refuza `ca_user` oricui nu e admin. La o finalizare obisnuita
+  // campurile lipsesc, iar randul din registru le are null.
   let body: { project_id?: string; motiv?: string; refinalizare_a?: string; declansat_de?: string;
               ca_user?: string };
   try {

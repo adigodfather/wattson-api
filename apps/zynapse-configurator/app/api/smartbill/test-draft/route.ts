@@ -10,20 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { createAdminClient } from "@/lib/supabaseAdmin";
+import { cerAdmin } from "@/lib/adminGuard";
 import { createInvoice, buildInvoicePayload, type BillingInput } from "@/lib/smartbill";
-
-async function isAdmin(): Promise<boolean> {
-  try {
-    const cookieStore = await cookies();
-    const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
-    const { data: { user } } = await supa.auth.getUser();
-    if (!user) return false;
-    const { data: prof } = await supa.from("profiles").select("is_admin").eq("id", user.id).single();
-    return prof?.is_admin === true;
-  } catch {
-    return false;
-  }
-}
 
 async function handle(orderId: string, billingOverride?: BillingInput) {
   if (!orderId) return NextResponse.json({ error: "order_id lipsă" }, { status: 400 });
@@ -58,14 +46,16 @@ async function handle(orderId: string, billingOverride?: BillingInput) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAdmin())) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
+  const refuz = await cerAdmin();
+  if (refuz) return refuz;
   let body: { order_id?: string; billing?: BillingInput } = {};
   try { body = await req.json(); } catch { /* gol */ }
   return handle(String(body.order_id || ""), body.billing);
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await isAdmin())) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
+  const refuz = await cerAdmin();
+  if (refuz) return refuz;
   // billing din QUERY PARAMS (browser-friendly): ?order_id=...&type=company_custom&name=...&vatCode=...
   // &address=...&adminName=... — ca să poţi testa cele 3 opţiuni direct din browser (GET n-are body).
   const sp = req.nextUrl.searchParams;

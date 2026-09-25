@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";   // citește process.env la fiecare request (status proaspăt)
 
 import { NextResponse } from "next/server";
+import { cerAdmin } from "@/lib/adminGuard";
 
 // prezență (set + ne-gol), fără a întoarce valoarea
 function present(name: string): string {
@@ -18,7 +19,15 @@ function normalizePem(raw: string): string {
   return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
 }
 
-export function GET() {
+export async function GET() {
+  // ADMIN-ONLY. Ruta nu intoarce valori, doar booleeni — dar spune exact ce e si ce nu e configurat
+  // in plati (env, semnatura, certificat, cheie privata). E o harta a punctelor slabe, utila doar
+  // celui care le repara. Middleware-ul cerea deja o sesiune; acum cere si rolul.
+  // Nimeni nu o cheama din interfata (zero referinte in `app/` si `components/`): e un instrument
+  // de diagnostic, deci inchiderea ei nu poate rupe niciun flux.
+  const refuz = await cerAdmin();
+  if (refuz) return refuz;
+
   // env NU e secret — Dan vrea să vadă "live". Default "sandbox" (ca în config.ts).
   const env = present("NETOPIA_ENV").toLowerCase() === "live" ? "live" : "sandbox";
 

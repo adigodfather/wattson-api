@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
+import { cerAdmin } from "@/lib/adminGuard";
 
 // Acordare Z-coins pentru un raport de bug (dashboard admin, Faza 1.5). Ruleaza CA adminul
 // (cookie session) -> functia DB admin_award_bug e SECURITY DEFINER si RE-verifica is_admin,
@@ -8,12 +9,14 @@ import { createServerClient } from "@/lib/supabase";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  // Poarta e cea COMUNA (`cerAdmin`), nu o copie locala: verificarea era identica pana la caracter
+  // cu ea, iar o poarta copiata de patru ori e o poarta care intr-o zi va fi copiata gresit.
+  const refuz = await cerAdmin();
+  if (refuz) return refuz;
+  // `supa` ramane necesar dupa poarta: RPC-ul trebuie sa ruleze CA adminul, ca `auth.uid()` din
+  // `admin_award_bug` (SECURITY DEFINER care RE-verifica is_admin) sa-l vada.
   const cookieStore = await cookies();
   const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
-  const { data: { user } } = await supa.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
-  const { data: prof } = await supa.from("profiles").select("is_admin").eq("id", user.id).single();
-  if (prof?.is_admin !== true) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
 
   let bugId = "", amount = 0;
   try {

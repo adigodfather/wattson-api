@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 import { createAdminClient } from "@/lib/supabaseAdmin";
+import { cerAdmin } from "@/lib/adminGuard";
 import { deliverInvoiceEmail } from "@/lib/invoiceDelivery";
 
 // Reîncercarea trimiterii unei facturi pe email (dashboard admin). Acelaşi tipar de autorizare ca
-// la award-bug: sesiunea pe cookie + `is_admin` re-verificat aici.
+// la award-bug: poarta comuna `cerAdmin` (sesiune pe cookie + `is_admin` verificat server-side).
 //
 // `force: true` reia şi o livrare rămasă agăţată în 'sending' (proces căzut între claim şi
 // finalizare). Fără el, factura aia n-ar mai putea fi trimisă niciodată — o gardă care se blochează
@@ -15,12 +16,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const cookieStore = await cookies();
-  const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
-  const { data: { user } } = await supa.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
-  const { data: prof } = await supa.from("profiles").select("is_admin").eq("id", user.id).single();
-  if (prof?.is_admin !== true) return NextResponse.json({ error: "Doar admin" }, { status: 403 });
+  // Poarta COMUNA, nu o copie locala (vezi nota din award-bug).
+  const refuz = await cerAdmin();
+  if (refuz) return refuz;
 
   let orderId = "";
   try {
