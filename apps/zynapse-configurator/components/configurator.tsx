@@ -1911,6 +1911,12 @@ export function ZynapseConfigurator() {
                     y: sw.y,
                     wall_mounted: true,             // întrerupătoarele sunt pe perete
                     rotation: sw.angle || 0,
+                    // Aceleași chei ca la becuri, obligatoriu: la o inserare în BLOC, supabase-js
+                    // trimite `?columns=` cu REUNIUNEA cheilor, iar rândurile cărora le lipsește una
+                    // primesc NULL, nu valoarea implicită a coloanei. `kit_panica` e NOT NULL, deci
+                    // un singur rând fără ea respingea TOT blocul — și proiectul rămânea gol.
+                    power_w: null,
+                    kit_panica: false,
                   });
                 }
               }

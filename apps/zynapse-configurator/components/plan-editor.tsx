@@ -7,7 +7,7 @@
 // Add = INSERT cu ACELAȘI tipar ca popularea (configurator.tsx); id e gen_random_uuid() în DB.
 // Remove = DELETE manual (cu confirm inline), fără paritate automată.
 // react-konva e client-only (canvas/window) -> importat cu dynamic ssr:false în configurator.
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Component, Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Stage, Layer, Image as KonvaImage, Circle, Rect, Line, Arc, Text, Group, Wedge } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { createClient } from "@/lib/supabase";
@@ -835,6 +835,38 @@ export function LegaturiLayer({ legaturi, grupAprins, scale }:
       })}
     </>
   );
+}
+
+// ── BARIERA DE ERoARE in jurul panzei ───────────────────────────────────────────────────────
+// De ce exista: aplicatia N-AVEA niciuna. Orice exceptie la randare — un element cu o forma
+// neasteptata, salvat de o versiune de acum doua luni — darama TOATA pagina, cu „Application error:
+// a client-side exception has occurred", si inginerul isi vede proiectul disparut. Datele erau
+// intacte tot timpul; doar nu mai avea cum sa ajunga la ele.
+// Cu bariera, planul nu se mai deseneaza, dar restul ecranului (lista de elemente, butoanele,
+// proiectul) ramane. Mesajul spune si ca nu s-a pierdut nimic — fiindca chiar nu s-a pierdut.
+class PanzaBariera extends Component<{ children: ReactNode }, { err: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { err: null };
+  }
+  static getDerivedStateFromError(err: Error) { return { err }; }
+  componentDidCatch(err: Error) { console.error("[plan-editor] randarea planului a esuat:", err); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div style={{ padding: 24, border: "1px solid #F5A524", borderRadius: 8, background: "#FFFBEB",
+                    color: "#7A4F01", fontSize: 14, lineHeight: 1.6 }}>
+        <strong>Planul nu s-a putut desena.</strong>
+        <div style={{ marginTop: 6 }}>
+          Elementele proiectului sunt neatinse in baza de date — nu s-a pierdut nimic. Reincarca
+          pagina; daca se repeta, trimite-ne textul de mai jos.
+        </div>
+        <code style={{ display: "block", marginTop: 10, fontSize: 12, opacity: 0.85, wordBreak: "break-word" }}>
+          {this.state.err.message}
+        </code>
+      </div>
+    );
+  }
 }
 
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
@@ -3898,6 +3930,7 @@ export default function PlanEditor({
         <div style={{ width: stageW || "100%", maxWidth: "100%", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
           {/* bgLoading face early-return (spinner) INAINTE de acest render — aici fundalul e mereu prezent. */}
           {stageW > 0 && stageH > 0 && (
+            <PanzaBariera>
             <Stage width={stageW} height={stageH} scaleX={displayScale} scaleY={displayScale}>
               <Layer>
                 {img && <KonvaImage image={img} width={pngW} height={pngH} listening={false} />}
@@ -3914,6 +3947,10 @@ export default function PlanEditor({
                   if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
                       || isBandaLedPathType(el.element_type) || isConturType(el.element_type)
                       || el.element_type === "traseu_cs") return null;   // traseu + priza de pamant + lant FV + banda LED + contururi randate separat
+                  // Un element pe care nu-l putem aseza nu se deseneaza — dar nu darama planul. Regula
+                  // e aceeasi ca la legaturi: ce nu intelegem dispare, nu crapa. Conteaza pentru
+                  // proiectele VECHI, salvate de versiuni de dinainte, pe care nu le putem prevedea.
+                  if (!Number.isFinite(el.x) || !Number.isFinite(el.y)) return null;
                   const px = el.x * scale;
                   const py = el.y * scale;
                   const isBulb = isBulbType(el.element_type);
@@ -4380,6 +4417,7 @@ export default function PlanEditor({
                 })()}
               </Layer>
             </Stage>
+            </PanzaBariera>
           )}
         </div>
       </div>

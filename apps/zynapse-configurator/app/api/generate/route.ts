@@ -571,6 +571,13 @@ export async function POST(req: NextRequest) {
                 element_type: "intrerupator_simplu",
                 plan_type: "iluminat", label: null, room: (s.room as string) || null,
                 x: s.x, y: s.y, wall_mounted: true, rotation: s.angle ?? 0,
+                // `power_w` si `kit_panica` NU lipsesc din intamplare: la o inserare in BLOC,
+                // supabase-js trimite `?columns=` cu REUNIUNEA cheilor din toate randurile, iar
+                // randurile carora le lipseste o cheie primesc NULL — nu valoarea implicita a
+                // coloanei. `kit_panica` e NOT NULL, deci un singur rand fara ea respingea TOT
+                // blocul si proiectul ramanea fara niciun element. Cheile trebuie sa fie IDENTICE
+                // pe toate randurile din bloc.
+                power_w: null, kit_panica: false,
               });
             }
           }
