@@ -38,3 +38,8 @@ apps/zynapse-configurator/public/video-zynapse.jpg
 
 # Dependencies (belt-and-suspenders; app-ul are deja .gitignore nested)
 node_modules/
+
+# Chei server-to-server tinute pe disc (valoarea reala traieste in Vercel/Render/n8n).
+# Nu erau acoperite de nicio regula de mai sus - de-aia un `git add -A` le-ar fi putut comite.
+ZYNAPSE_INTERNAL_KEY.txt
+N8N_WEBHOOK_SECRET.txt
