@@ -4344,10 +4344,16 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         if et == _EVAC_TYPE:
             evacs.append({"et": et, "x": x, "y": y, "room": room})
         elif et in _BULB_TYPES:
-            bulbs.append({"et": et, "x": x, "y": y, "room": room})
+            # `id` + `comutat_de`: asocierea stocata (pachetul 1) e acum SURSA cablarii, nu apropierea.
+            # `comutat_de` None = necalculata inca -> camera cade pe logica veche (vezi mai jos).
+            bulbs.append({"et": et, "x": x, "y": y, "room": room,
+                          "id": (el.get("id") and str(el["id"])) or None,
+                          "sw_ids": ([str(v) for v in el["comutat_de"]]
+                                     if isinstance(el.get("comutat_de"), (list, tuple)) else None)})
         elif et in _SWITCH_TYPES:
             if room:                       # skip intrerupator cu room null (legacy)
-                switches.append({"et": et, "x": x, "y": y, "room": room})
+                switches.append({"et": et, "x": x, "y": y, "room": room,
+                                 "id": (el.get("id") and str(el["id"])) or None})
         elif et in _PANEL_TYPES:
             panels[et] = (x, y)            # de obicei 1 per tip
         elif et == COBORARE_TYPE:
@@ -4469,6 +4475,55 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             continue
         if not rsw:                        # bec non-senzor fara intrerupator -> skip v1
             stats["skip_bec_fara_sw"] += len(normale)
+            continue
+
+        # ── ASOCIEREA STOCATA are prioritate (pachetul 2) ───────────────────────────────────
+        # Poarta e PE CAMERA si e „toate sau niciunul": daca fiecare bec al camerei are `comutat_de`
+        # calculat, cablarea il urmeaza; daca macar unul lipseste, TOATA camera cade pe logica veche
+        # de mai jos, byte-identic. De ce pe camera si nu pe bec: altfel o camera ar putea primi si un
+        # lant vechi, si ramificatii noi, in acelasi desen.
+        # CAZUL LIPSA E REAL, NU TEORETIC: proiectele de dinainte de pachetul 1 au coloana goala pana
+        # la prima regenerare, iar `bom.py` cheama compute_cables cu randuri citite direct din baza.
+        # In fluxul /regenerate-plan asocierea e deja pusa IN MEMORIE inainte de desen, deci acolo
+        # poarta e mereu deschisa.
+        harta_sw = {s["id"]: s for s in rsw if s.get("id")}
+        if normale and all(b.get("sw_ids") is not None for b in normale) and harta_sw:
+            # un bec cu DOUA (sau mai multe) intrerupatoare = cap-scara: se ramifica spre fiecare,
+            # iar amandoua ajung la tablou prin bucla switch->tablou de mai jos. Regula nu mai depinde
+            # de „exact doua cap_scara in camera", ci de ce spun DATELE.
+            for bec in normale:
+                ids = [i for i in (bec.get("sw_ids") or []) if i in harta_sw]
+                if len(ids) < 2:
+                    continue
+                bxy = (bec["x"], bec["y"])
+                for i in ids:
+                    sw = harta_sw[i]
+                    add(sw["et"], (sw["x"], sw["y"]), bec["et"], bxy, "cap_scara", room)
+                stats["cap_scara"] += 1
+            # restul: grupate pe intrerupatorul lor, si cablate dupa TIPUL lui
+            per_sw = {}
+            for bec in normale:
+                ids = [i for i in (bec.get("sw_ids") or []) if i in harta_sw]
+                if len(ids) == 1:
+                    per_sw.setdefault(ids[0], []).append(bec)
+                elif not ids:
+                    stats["skip_bec_fara_sw"] += 1      # lista goala, sau arata spre altceva
+            for sid in sorted(per_sw):
+                sw = harta_sw[sid]
+                rb2 = per_sw[sid]
+                swxy = (sw["x"], sw["y"])
+                if sw["et"] in ("intrerupator_simplu", "intrerupator_cap_scara"):
+                    rem = list(rb2); prev_xy = swxy; prev_type = sw["et"]; cur = swxy
+                    while rem:                 # LANT, ca la un singur intrerupator simplu
+                        nb = nearest(cur, rem); rem.remove(nb)
+                        bxy = (nb["x"], nb["y"])
+                        add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room)
+                        stats["bec_sw"] += 1
+                        prev_xy = bxy; prev_type = nb["et"]; cur = bxy
+                else:                          # dublu/triplu -> cate o RAMIFICATIE per bec
+                    for nb in rb2:
+                        add(nb["et"], (nb["x"], nb["y"]), sw["et"], swxy, "bec_paralel", room)
+                        stats["bec_sw"] += 1
             continue
 
         # CAP-SCARA: EXACT 2 intrerupatoare cap_scara in camera -> comanda ACELASI bec: sw1 -> bec -> sw2.

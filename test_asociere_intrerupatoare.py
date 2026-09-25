@@ -125,13 +125,16 @@ def main():
       all(not u["changed"] for u in r2["updates"]),
       str([u for u in r2["updates"] if u["changed"]])[:80])
 
-    # ── [G] DIVERGENTA fata de compute_cables: masurata, nu tacuta ─────────────────────────
-    # O camera cu 2 intrerupatoare si 2 becuri: compute_cables le pune pe AMANDOUA pe unul singur,
-    # asocierea le imparte. Atat timp cat nimeni nu citeste `comutat_de` la desen, planşa nu se
-    # schimba. Cand pachetul 2 le uneste, capul asta trebuie sa pice — si atunci se rescrie.
+    # ── [G] RESCRIS in pachetul 2: divergenta a DISPARUT, asa cum s-a prevazut ─────────────
+    # Pana la pachetul 2, capul asta verifica exact CONTRARIUL: `compute_cables` punea toate becurile
+    # pe un singur intrerupator, iar asocierea le impartea, si divergenta trebuia sa fie VIZIBILA.
+    # Pachetul 2 a pus cablarea sa CITEASCA `comutat_de`, deci cele doua spun acum acelasi lucru.
+    # Capul ramane, intors: daca vreodata cablarea se intoarce la apropiere, se vede aici.
     s1, s2 = el(1, "intrerupator_simplu", 0, 0), el(2, "intrerupator_simplu", 200, 0)
     b1, b2 = el(3, "lustra_led", 30, 0), el(4, "lustra_led", 170, 0)
-    cab, _ = de.compute_cables([s1, s2, b1, b2])
+    scena_g = [s1, s2, b1, b2]
+    A(scena_g)                                        # pune `comutat_de` in memorie, ca in flux
+    cab, _ = de.compute_cables(scena_g)
     # ATENTIE: intr-un LANT, `from_xy` e intrerupatorul DOAR la primul segment; de la al doilea
     # incolo e becul anterior. Deci se filtreaza pe TIP, nu pe pozitie — prima varianta a probei a
     # picat tocmai fiindca numara si un bec drept intrerupator.
@@ -140,17 +143,19 @@ def main():
                  for tip, xy in ((c["from_type"], c["from_xy"]), (c["to_type"], c["to_xy"]))
                  if tip in de._SWITCH_TYPES}
     h = harta(A([s1, s2, b1, b2]))
-    v("[G] compute_cables foloseste UN intrerupator; asocierea foloseste DOUA",
-      len(sw_cu_bec) == 1 and len({x for vv in h.values() for x in vv}) == 2,
+    v("[G] cablarea si asocierea folosesc ACELEASI doua intrerupatoare (divergenta a disparut)",
+      len(sw_cu_bec) == 2 and len({x for vv in h.values() for x in vv}) == 2,
       "cabluri=%s asociere=%s" % (sw_cu_bec, h))
 
-    # ── [H] Desenul NU citeste asocierea (altfel planşele s-ar schimba) ────────────────────
+    # ── [H] Cablarea CITESTE asocierea; restul desenului nu se atinge de ea ────────────────
     dr = io.open(os.path.join(RADACINA, "draw_elements.py"), encoding="utf-8").read()
-    corp = dr[dr.index("def compute_cables("):dr.index("def _cid_coboara(")] \
-        if "def _cid_coboara(" in dr else dr[dr.index("def compute_cables("):]
-    v("[H] compute_cables nu se uita la comutat_de", "comutat_de" not in corp)
+    corp = dr[dr.index("def compute_cables("):dr.index("def asociaza_intrerupatoare(")]
+    v("[H] compute_cables citeste comutat_de", "comutat_de" in corp)
+    v("[H] si are poarta pentru cazul in care lipseste",
+      'all(b.get("sw_ids") is not None for b in normale)' in corp)
     desen = dr[dr.index("def redraw_from_plan_elements("):]
-    v("[H] redraw_from_plan_elements nu se uita la comutat_de", "comutat_de" not in desen)
+    v("[H] redraw-ul nu se uita SINGUR la comutat_de (doar prin compute_cables)",
+      "comutat_de" not in desen)
 
     # ── [I] Asocierea nu se COPIAZA intre apartamente (ar arata spre alt apartament) ───────
     ap = io.open(os.path.join(RADACINA, "apartments.py"), encoding="utf-8").read()
