@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
 import { fetchBackend } from "@/lib/backend-fetch";
+import { masoara } from "@/lib/rateLimit";
 import { urcaPdf } from "@/lib/storage-pdf";
 // "Obtine plan" sub-pas 1a — proxy server-side catre FastAPI /regenerate-plan.
 // Securitate: verifica proprietatea proiectului (anti-IDOR) inainte de a chema backend-ul,
@@ -50,12 +51,17 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Forward la FastAPI ──
+  // ── Limita de rata, PE UTILIZATOR (nu pe IP: un birou iese pe aceeasi adresa) ──
+  const rl = await masoara(userId, "regenerate-plan");
+  if (rl.refuz) return rl.refuz;
+
   try {
     const key = process.env.ZYNAPSE_INTERNAL_KEY;
     const resp = await fetchBackend(`${FASTAPI}/regenerate-plan`, { project_id: projectId, floor, base_pdf_base64: base, plan_type: planType }, {
       headers: key ? { "x-zynapse-key": key } : {},
       bugetMs: 95000,
     });
+    await rl.gata(resp.ok);
     const text = await resp.text();
     try {
       const j = JSON.parse(text) as Record<string, unknown>;

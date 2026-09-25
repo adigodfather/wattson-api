@@ -9,3 +9,5 @@ out/
 !.env.example
 *.tsbuildinfo
 next-env.d.ts
+# compilari temporare ale probelor (test_limite_rata.py) — se sterg singure, dar nu si daca proba pica
+.tmp-proba-*/

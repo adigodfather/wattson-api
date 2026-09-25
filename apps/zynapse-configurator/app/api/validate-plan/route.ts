@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
 
 import { fetchBackend } from "@/lib/backend-fetch";
+import { masoara } from "@/lib/rateLimit";
 // POARTA DE VALIDARE plan (determinista, fara AI): proxy autentificat catre FastAPI /validate-plan.
 // Ruleaza INAINTE de /api/vision-cartus (primul consum Anthropic) -> input respins = 0 consum.
 // Model: app/api/extract-geometry/route.ts (auth user + x-zynapse-key).
@@ -24,14 +25,20 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Auth: utilizatorul trebuie sa fie autentificat (anti-abuz) ──
+  let uid = "";
   try {
     const cookieStore = await cookies();
     const supa = createServerClient({ get: (n) => cookieStore.get(n), set: () => {} });
     const { data: { user } } = await supa.auth.getUser();
     if (!user) return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
+    uid = user.id;
   } catch {
     return NextResponse.json({ error: "Verificare autentificare esuata" }, { status: 500 });
   }
+
+  // ── Limita de rata, PE UTILIZATOR (nu pe IP: un birou iese pe aceeasi adresa) ──
+  const rl = await masoara(uid, "validate-plan");
+  if (rl.refuz) return rl.refuz;
 
   // ── Forward la FastAPI (cu cheia interna) ──
   try {
@@ -40,6 +47,7 @@ export async function POST(req: NextRequest) {
       headers: key ? { "x-zynapse-key": key } : {},
       bugetMs: 45000,
     });
+    await rl.gata(resp.ok);
     const text = await resp.text();
     try {
       return NextResponse.json(JSON.parse(text), { status: resp.status });

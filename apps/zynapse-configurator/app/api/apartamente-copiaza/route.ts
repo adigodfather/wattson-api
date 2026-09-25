@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { masoara, idUtilizator } from "@/lib/rateLimit";
 
 // P4: ce conținut ar trebui să primească apartamentele de pe un nivel, de la cele identice de
 // dedesubt. Proxy simplu spre FastAPI, pe modelul render-base-png (fără DB, fără ownership —
@@ -13,6 +14,12 @@ export const maxDuration = 60;
 const FASTAPI = "https://wattson-api.onrender.com";
 
 export async function POST(req: NextRequest) {
+  // Vezi nota din render-base-png: identitatea e necesara pentru limita pe utilizator.
+  const uid = await idUtilizator();
+  if (!uid) return NextResponse.json({ error: "Neautentificat" }, { status: 401 });
+  const rl = await masoara(uid, "apartamente-copiaza");
+  if (rl.refuz) return rl.refuz;
+
   let body: { plan_elements?: unknown; floor?: string; project_id?: string };
   try {
     body = await req.json();
@@ -34,6 +41,7 @@ export async function POST(req: NextRequest) {
         project_id: String(body.project_id || ""),
       }),
     });
+    await rl.gata(resp.ok);
     const text = await resp.text();
     try {
       return NextResponse.json(JSON.parse(text), { status: resp.status });
