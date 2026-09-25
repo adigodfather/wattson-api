@@ -889,9 +889,9 @@ export default function Landing() {
         <CalculatorPanel />
 
         <p style={{ textAlign: "center", color: "#888", fontSize: 13.5, margin: "44px auto 0", maxWidth: 560, lineHeight: 1.6 }}>
-          Primii 100 de utilizatori primesc <strong style={{ color: "#5BB8F5" }}>
+          Fiecare cont nou primește <strong style={{ color: "#5BB8F5" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/z-coin.svg" alt="" width={15} height={15} style={{ display: "inline-block", verticalAlign: "-2px", marginRight: 4 }} />500 Z-Coins gratuite</strong> la confirmarea contului.
+            <img src="/z-coin.svg" alt="" width={15} height={15} style={{ display: "inline-block", verticalAlign: "-2px", marginRight: 4 }} />100 Z-Coins gratuite</strong> la confirmarea contului.
         </p>
       </section>
 
@@ -908,8 +908,11 @@ export default function Landing() {
           <h2 style={{ fontSize: 30, fontWeight: 700, color: "#fff", margin: "0 0 10px", letterSpacing: -.5 }}>
             Gata de automatizare?
           </h2>
+          {/* NU mai promite „primul proiect gratuit": cu bonusul de 100 Z-Coins se acopera ~100 mp
+              la DTAC, iar o casa obisnuita cere 200-300 — poarta de sold ar refuza generarea cu 402,
+              adica exact dupa ce omul si-a facut contul pe baza promisiunii. */}
           <p style={{ fontSize: 15, color: "#555", margin: "0 0 28px" }}>
-            Primul proiect DTAC Casă e gratuit. Creează-ți contul și testează.
+            Creează-ți contul și primești 100 Z-Coins ca să încerci.
           </p>
           <a href="/register" className="cta-main" style={{
             display: "inline-block", padding: "14px 40px", borderRadius: 12,
