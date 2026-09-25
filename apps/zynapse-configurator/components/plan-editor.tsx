@@ -152,6 +152,17 @@ const PANEL_SET = new Set(PANEL_TYPES.map(o => o.value));
 const PRIZA_SET = new Set(PRIZA_TYPES.map(o => o.value));
 const isBulbType = (t: string) => BULB_SET.has(t);
 const isSwitchType = (t: string) => SWITCH_SET.has(t);
+// Corpurile de PERETE — singurele care se lipesc si se orienteaza. Oglinda lui `_WALL_BULBS` din
+// draw_elements.py (care mai are o copie si in bom.py). Cele de TAVAN raman neatinse: un cerc cu X
+// rotit arata identic, iar a-l roti ar fi doar o cale in plus prin care ceva poate iesi stramb.
+const WALL_BULBS = new Set(["aplica_perete", "aplica_senzor"]);
+const isWallBulb = (t: string) => WALL_BULBS.has(t);
+// Simbolul aplicei are „fata" (partea curba + punctul) in JOS la rotatie 0, fiindca asa arata si
+// desenul istoric din planşa. Conventia de orientare are insa 0 = DREAPTA (u = cos,sin, ca la
+// `_draw_switch`). Diferenta de 90 de grade se scade AICI, o singura data, ca ambele oglinzi sa
+// primeasca exact acelasi numar din baza de date.
+const gradeAplica = (rot: number | null | undefined) =>
+  rot === null || rot === undefined ? 0 : (rot * 180) / Math.PI - 90;
 const isPanelType = (t: string) => PANEL_SET.has(t);
 const isPrizaType = (t: string) => PRIZA_SET.has(t);
 const isLegendType = (t: string) => t === "legenda";
@@ -650,12 +661,16 @@ const CS_ABBR: Record<string, string> = {
   nvr: "NVR", rack_9u: "RACK", sursa_alimentare_cs: "SA", doza_cs: "",
   priza_date: "PD", priza_tv: "PTV", priza_mixta: "PM",
 };
-// ── SNAP ÎN COLȚ — camerele se montează de obicei în colț, ca să acopere maximum.
+// ── LIPIRE LA PERETE CU ORIENTARE — mecanism COMUN (camere, PIR, aplice de perete,
+// întrerupătoare). Nu are nimic specific camerelor: conul și raza trăiesc în altă parte, aici e
+// doar geometria „unde se lipește și încotro privește". De-aceea se refolosește ca atare, fără
+// niciun mecanism paralel.
+// ── SNAP ÎN COLȚ — elementele de perete se montează adesea în colț, ca să acopere maximum.
 // Colțurile = capetele de perete din care pornește un al doilea perete PERPENDICULAR. Dacă un colț e
 // mai aproape decât pragul, camera se prinde de el ȘI se orientează pe bisectoare (spre interior).
 // Sub prag nu există colț -> se cade pe snapToWall (mecanismul PRIZELOR, refolosit ca atare).
 const CAM_CORNER_SNAP = 26;    // pt — sub pragul de perete (40), ca peretele să nu fure colțul
-export function snapCamera(px: number, py: number, walls: WallSeg[]):
+export function snapPerete(px: number, py: number, walls: WallSeg[]):
     { x: number; y: number; rot: number | null } {
   if (!walls.length) return { x: px, y: py, rot: null };
   // 1. colț: capătul de perete cel mai apropiat care are un al doilea perete PERPENDICULAR lângă el
@@ -746,6 +761,42 @@ const NET_EDGE = "#8E24AA";     // retea internet: contur violet inchis
 const TRASEU_PRINCIPAL = "#1565C0";   // traseu principal: albastru inchis (= culoarea existenta -> zero regresie)
 const TRASEU_SECUNDAR = "#1ab3ab";    // traseu secundar: turcoaz (distinct de principal)
 const traseuCol = (label?: string | null) => (label === "secundar" ? TRASEU_SECUNDAR : TRASEU_PRINCIPAL);   // fara label -> principal
+// ── SIMBOLUL INTRERUPATORULUI — oglinda lui `_draw_switch` din draw_elements.py ──────────────
+// Pana acum editorul desena un patrat rosu de 14x14: un patrat arata identic la orice unghi, deci
+// orientarea ceruta („arcul spre interiorul camerei") ar fi fost invizibila exact acolo unde
+// lucreaza inginerul. Cotele sunt CELE DIN BACKEND, nu aproximari: R1 2.5, L1 4, R2 4, L2 5,
+// HK 6, HKA 0.7 rad. La rotatie 0 simbolul priveste spre DREAPTA, exact ca pe plansa — deci
+// gradele Konva sunt chiar `rotation` din baza, fara nicio corectie.
+// Ancora (0,0) = cercul PLIN, cel care sta pe perete.
+function switchSymbol(type: string) {
+  const C = COL_SWITCH;
+  const R1 = 2.5, L1 = 4, R2 = 4, L2 = 5, HK = 6, HKA = 0.7;
+  const oc = R1 + L1 + R2;        // 10.5 — centrul cercului GOL
+  const hb = oc + R2 + L2;        // 19.5 — varful tijei, baza carligelor
+  const carlig = (theta: number, off = 0): number[] =>
+    [hb, off, hb + HK * Math.cos(theta), off + HK * Math.sin(theta)];
+  const offScara = R2 * 0.7;      // 2.8 — cele doua carlige PARALELE de la capul de scara
+  const carlige =
+    type === "intrerupator_dublu" ? [carlig(HKA), carlig(-HKA)]
+    : type === "intrerupator_triplu" ? [carlig(HKA), carlig(0), carlig(-HKA)]
+    : type === "intrerupator_cap_scara" ? [carlig(HKA, offScara), carlig(HKA, -offScara)]
+    : [carlig(HKA)];
+  return (
+    <>
+      {/* zona de HIT: dreptunghi transparent peste tot simbolul, INAUNTRUL grupului rotit, ca sa
+          se intoarca odata cu el (simbolul e alungit — un dreptunghi fix n-ar mai acoperi nimic). */}
+      <Rect x={-6} y={-10} width={34} height={20} fill="rgba(0,0,0,0.001)" />
+      <Circle x={0} y={0} radius={R1} fill={C} />
+      <Line points={[R1, 0, R1 + L1, 0]} stroke={C} strokeWidth={1.2} listening={false} />
+      <Circle x={oc} y={0} radius={R2} stroke={C} strokeWidth={1.2} listening={false} />
+      <Line points={[oc + R2, 0, hb, 0]} stroke={C} strokeWidth={1.2} listening={false} />
+      {carlige.map((pts, i) => (
+        <Line key={i} points={pts} stroke={C} strokeWidth={2} listening={false} />
+      ))}
+    </>
+  );
+}
+
 function prizaSymbol(type: string) {
   const C = COL_PRIZA;
   const disc = (cx: number, r = 13, fill: string = PRIZA_TURQ, edge: string = C) => (
@@ -864,7 +915,7 @@ function snapOrtho(ref: number[] | null | undefined, px: number, py: number,
 // DOAR CORPURI DE TAVAN. `aplica_perete` / `aplica_senzor` stau pe perete si au deja snap-ul lor
 // (peretele decide pozitia, nu vecinii), iar banda LED e un traseu, nu un corp.
 // DOAR IN ACEEASI CAMERA: alinierea cu un bec din camera vecina n-are inteles la montaj.
-// Functie PURA, ca `snapToWall` / `snapOrtho` / `snapCamera` — primeste pozitia si vecinii, intoarce
+// Functie PURA, ca `snapToWall` / `snapOrtho` / `snapPerete` — primeste pozitia si vecinii, intoarce
 // pozitia lipita plus ghidajele de desenat. Nu atinge starea, nu deseneaza nimic.
 const CEILING_BULBS = new Set(["lustra_led", "aplica_tavan", "panou_led"]);
 export const isCeilingBulb = (t: string) => CEILING_BULBS.has(t);
@@ -2307,12 +2358,17 @@ export default function PlanEditor({
     // PIR-urile trec prin ACELAȘI snap ca și camerele: se montează la fel (pe perete sau în colț) și
     // privesc la fel (spre interiorul încăperii). Mecanismul se refolosește neschimbat — singura
     // diferență e că un PIR are mereu orientare (n-are tipuri de 360°, ca PTZ-ul).
-    if (el.element_type === "camera_video" || el.element_type === "detector_pir") {
-      const sn = snapCamera(xPdf, yPdf, walls);
+    // Camere, PIR-uri, APLICE DE PERETE si INTRERUPATOARE: acelasi mecanism de lipire + orientare.
+    // Aplicele si intrerupatoarele au fost adaugate aici, nu intr-o ramura proprie, tocmai ca sa nu
+    // existe doua mecanisme care pot diverge. Corpurile de TAVAN nu intra: nu se lipesc de nimic.
+    if (el.element_type === "camera_video" || el.element_type === "detector_pir"
+        || isWallBulb(el.element_type) || isSwitchType(el.element_type)) {
+      const sn = snapPerete(xPdf, yPdf, walls);
       xPdf = sn.x; yPdf = sn.y;
       e.target.position({ x: xPdf * scale, y: yPdf * scale });
       const patch: Partial<PlanElement> = { x: xPdf, y: yPdf };
-      const areOr = el.element_type === "detector_pir" || camAreOrientare(el.camera_tip);
+      // Camerele au o poarta proprie (unele tipuri n-au orientare); restul se orienteaza mereu.
+      const areOr = el.element_type === "camera_video" ? camAreOrientare(el.camera_tip) : true;
       if (sn.rot !== null && areOr) patch.rotation = sn.rot;
       setLocalField(el.id, patch);
       persist(el.id, patch);
@@ -3753,6 +3809,7 @@ export default function PlanEditor({
                   const isReceptor = isReceptorType(el.element_type);   // alimentare receptor (bucata A)
                   const isInternet = isInternetType(el.element_type);   // retea internet (simbol propriu)
                   const isDriver = el.element_type === "banda_led_driver";   // sursa 24V a benzii LED
+                  const isSwitch = isSwitchType(el.element_type);
                   const isEvac = el.element_type === EVAC_TYPE;               // corp de evacuare (autonom)
                   const isCs = isCsType(el.element_type);                     // curenti slabi (efractie/video)
                   const col = isCs ? csColor(el.element_type)
@@ -3859,7 +3916,13 @@ export default function PlanEditor({
                       ) : isBulb ? (
                         <>
                           {bulbHit(el.element_type)}
-                          {bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
+                          {/* Rotatia DOAR pe simbol si DOAR la corpurile de perete (hit-ul e cerc,
+                              nu-i pasa). Tavanul trece pe ramura fara rotatie, exact ca azi. */}
+                          {isWallBulb(el.element_type) ? (
+                            <Group rotation={gradeAplica(el.rotation)} listening={false}>
+                              {bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
+                            </Group>
+                          ) : bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
                         </>
                       ) : isLegend ? (
                         <>
@@ -3894,6 +3957,12 @@ export default function PlanEditor({
                           <Text x={-12} y={-8} width={24} height={16} align="center" verticalAlign="middle"
                                 text="~=" fontSize={11} fontStyle="bold" fill={COL_BANDA_LED} listening={false} />
                         </>
+                      ) : isSwitch ? (
+                        /* Gradele sunt chiar `rotation` din baza: simbolul priveste spre dreapta la 0,
+                           ca pe plansa. Fara corectie de 90 de grade, spre deosebire de aplica. */
+                        <Group rotation={((el.rotation || 0) * 180) / Math.PI}>
+                          {switchSymbol(el.element_type)}
+                        </Group>
                       ) : (
                         <Rect x={-7} y={-7} width={14} height={14} stroke={col} strokeWidth={2} fill="rgba(214,40,40,0.22)" />
                       )}

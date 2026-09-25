@@ -70,7 +70,35 @@ def _find_room_centers(page, W, H):
     return centers
 
 
-def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, scale=1.0, color=None):
+def _sector_aplica(page, cx0, cy0, s, culoare, umplutura, rotation):
+    """Semicercul aplicei de PERETE, orientabil.
+
+    „FATA" aplicei = partea CURBA + punctul plin: acolo lumineaza. Latura DREAPTA (diametrul) e cea
+    care sta pe perete. `rotation` (radiani) = directia in care lumineaza, adica spre INTERIORUL
+    camerei — aceeasi conventie ca la `_draw_switch` (u = (cos, sin)), NU cea a prizei (0 = sus).
+    Cele doua conventii chiar difera cu 90 de grade in codul asta; vezi `_priza_inward`.
+
+    rotation None -> desenul istoric, byte-identic (start la dreapta, sweep 180): proiectele vechi,
+    care n-au orientare salvata, arata exact ca inainte."""
+    center = fitz.Point(cx0, cy0)
+    if rotation is None:
+        page.draw_sector(center, fitz.Point(cx0 + 9 * s, cy0), 180, color=culoare, fill=umplutura,
+                         width=1.2, fullSector=True)
+        page.draw_circle(fitz.Point(cx0, cy0 + 4 * s), 1.8 * s, color=culoare, fill=culoare, width=0.8)
+        return
+    rot = float(rotation)
+    ux, uy = math.cos(rot), math.sin(rot)          # spre interiorul camerei (unde lumineaza)
+    px, py = -uy, ux                               # de-a lungul peretelui (diametrul)
+    # Capatul de start al diametrului: sweep-ul de 180 il duce peste jumatatea dinspre +u.
+    # Semnul lui `p` a fost ales PRIN RANDARE, nu din documentatie — vezi test_aplice_orientare.
+    page.draw_sector(center, fitz.Point(cx0 + 9 * s * px, cy0 + 9 * s * py), 180,
+                     color=culoare, fill=umplutura, width=1.2, fullSector=True)
+    page.draw_circle(fitz.Point(cx0 + 4 * s * ux, cy0 + 4 * s * uy), 1.8 * s,
+                     color=culoare, fill=culoare, width=0.8)
+
+
+def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, scale=1.0, color=None,
+               rotation=None):
     """Simbol corp de iluminat PE TIP (contur roșu; senzor cu umplutură galbenă), portat din Konva:
       aplica_tavan: cerc + X | aplica_perete: semicerc + punct | lustra_led: cerc+X + 2 inele |
       banda_led: dreptunghi alungit + liniuțe | aplica_senzor: cerc + X cu fill galben.
@@ -90,8 +118,7 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
     center = fitz.Point(cx0, cy0)
     et = element_type or "aplica_tavan"
     if et == "aplica_perete":
-        page.draw_sector(center, fitz.Point(cx0 + 9 * s, cy0), 180, color=RED, width=1.2, fullSector=True)
-        page.draw_circle(fitz.Point(cx0, cy0 + 4 * s), 1.8 * s, color=RED, fill=RED, width=0.8)
+        _sector_aplica(page, cx0, cy0, s, RED, None, rotation)
     elif et == "lustra_led":
         page.draw_circle(center, 24 * s, color=RED, width=1.2)
         page.draw_circle(center, 18 * s, color=RED, width=1.2)
@@ -114,9 +141,7 @@ def _draw_bulb(page, cx, cy, element_type="aplica_tavan", r=9.0, y_offset=-22, s
         # Simbolul vechi era cerc+X galben, adica forma de TAVAN — contrazicea propria clasificare
         # (_WALL_BULBS: cablul ii coboara ca la o aplica de perete). Conventia ramane aceeasi ca la
         # tavan: forma normala -> aceeasi forma umpluta galben pentru varianta cu senzor.
-        page.draw_sector(center, fitz.Point(cx0 + 9 * s, cy0), 180, color=RED, fill=_BULB_YELLOW,
-                         width=1.2, fullSector=True)
-        page.draw_circle(fitz.Point(cx0, cy0 + 4 * s), 1.8 * s, color=RED, fill=RED, width=0.8)
+        _sector_aplica(page, cx0, cy0, s, RED, _BULB_YELLOW, rotation)
     else:  # aplica_tavan (default) — NESCHIMBAT: cerc + X la raza r
         page.draw_circle(center, r * s, color=RED, width=1.2)
         X(r * s)
@@ -3356,6 +3381,11 @@ def _switch_centers(centers, doors, columns, h_segs, v_segs, W, H, room_boxes=No
 # un element vechi/orfan se DESENEAZA in continuare, doar ca nu mai intra in legenda de becuri
 # si nu mai poate fi creat din UI. Sincron cu bom.py (altfel BOM-ul si plansa ar diverge).
 _BULB_TYPES = {"lustra_led", "aplica_tavan", "aplica_perete", "aplica_senzor", "panou_led"}
+# Corpurile de PERETE — singurele care se lipesc de perete si se orienteaza. Cele de TAVAN
+# (lustra_led, aplica_tavan, panou_led) raman neatinse: un cerc cu X rotit arata identic.
+# ⚠️ ACEEASI multime exista si in bom.py (unde decide ce cablu COBOARA pe perete), acolo ca
+# variabila locala. Doua liste care trebuie sa spuna acelasi lucru; pazite de test_aplice_orientare.
+_WALL_BULBS = {"aplica_perete", "aplica_senzor"}
 _SWITCH_TYPES = {"intrerupator_simplu", "intrerupator_dublu", "intrerupator_triplu", "intrerupator_cap_scara"}
 # Tablourile „clasice" vin din REGISTRU (panels.py), ca sa nu existe doua liste care trebuie tinute
 # in acord; FV-ul si transformatorul raman scrise aici, fiindca nu-s tablouri de distributie.
@@ -5589,7 +5619,17 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
             if et in _BULB_TYPES:
                 # Kitul de panica NU schimba forma, doar culoarea: acelasi corp, pe acelasi circuit,
                 # dar verde ca sa se vada dintr-o privire care raman aprinse la caderea tensiunii.
-                _draw_bulb(page, x, y, et, y_offset=0,
+                # ORIENTAREA, doar la corpurile de PERETE: `rotation` vine din editor (lipirea pe
+                # perete). Corpurile de TAVAN o ignora — un cerc cu X rotit arata identic, iar a-l
+                # roti ar fi doar o cale in plus prin care ceva poate iesi stramb.
+                # `None` = fara orientare salvata -> desenul istoric, byte-identic (proiecte vechi).
+                _rot_apl = None
+                if et in _WALL_BULBS and el.get("rotation") is not None:
+                    try:
+                        _rot_apl = float(el.get("rotation"))
+                    except (TypeError, ValueError):
+                        _rot_apl = None
+                _draw_bulb(page, x, y, et, y_offset=0, rotation=_rot_apl,
                            color=(_SAFETY_GREEN if _is_kit(el) else None))            # forma PE TIP (1b)
                 _sp = _bulb_label_spec(x, y, et, el.get("power_w"), el.get("circuit_id"), kit=_is_kit(el))
                 if _sp:
