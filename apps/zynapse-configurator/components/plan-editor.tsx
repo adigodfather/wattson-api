@@ -39,6 +39,10 @@ type PlanElement = {
   mount_height_m?: number | null;   // doar prize (metri); default 0.6, editabil per priza
   phase?: string | null;            // Regula 10: 'mono' | 'tri' (radiator/VCV per element); null = mono
   circuit_id?: string | null;       // atribuit AUTOMAT la "Obtine plan" (C3); incarcat pt. eticheta (C4)
+  // DOAR pe becuri: id-urile intrerupatoarelor care comuta becul. Calculat si persistat server-side
+  // la "Obtine plan" (`asociaza_intrerupatoare`), niciodata scris din editor. LISTA fiindca la
+  // cap-scara acelasi bec e comutat de doua intrerupatoare. Se incarca aici ca sa poata fi ARATAT.
+  comutat_de?: string[] | null;
   cable_path?: number[][] | null;   // doar "traseu" (dunga): [[x0,y0],[x1,y1]] puncte PDF
   kit_panica?: boolean | null;      // bec normal echipat cu kit de emergenta 2h (iluminat antipanica)
   camera_tip?: string | null;       // doar camera_video: bullet/dome/turret/ptz/fisheye180/360/termica
@@ -79,7 +83,7 @@ const MODE_LABEL: Record<PlanMode, string> = {
   detectie_incendiu: "detecție incendiu",
 };
 
-const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip, arie_acoperire_mp, copiat_din";
+const SELECT_COLS = "id, element_type, room, label, power_w, phase, x, y, rotation, plan_type, floor, status, wall_mounted, mount_height_m, circuit_id, cable_path, kit_panica, camera_tip, arie_acoperire_mp, copiat_din, comutat_de";
 
 // Tipuri permise de CHECK (chk_element_type), grupate pe categorie. VALOAREA = exact valoarea din CHECK.
 const BULB_TYPES = [

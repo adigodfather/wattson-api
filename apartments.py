@@ -361,7 +361,11 @@ def perechi_identice(conturi_sursa, conturi_tinta, camere_sursa=None, camere_tin
 # Campurile care NU se copiaza: identitatea randului, nivelul (se rescrie) si tot ce e DERIVAT din
 # circuite. `circuit_id` copiat ar purta numarul de circuit al apartamentului SURSA pe planşa
 # tintei — un numar care arata corect si e al altcuiva.
-_NU_SE_COPIAZA = ("id", "created_at", "updated_at", "project_id", "floor", "circuit_id")
+# `comutat_de` e acelasi defect, cu o treapta mai rau: sunt ID-URI de rand, deci becul copiat ar
+# arata spre intrerupatoarele apartamentului SURSA — intrerupatoare care exista, dar sunt in alt
+# apartament. Se lasa gol; prima regenerare il completeaza din geometria TINTEI.
+_NU_SE_COPIAZA = ("id", "created_at", "updated_at", "project_id", "floor", "circuit_id",
+                  "comutat_de")
 
 
 def plan_copiere(elemente_sursa, dx, dy, floor_tinta, project_id):

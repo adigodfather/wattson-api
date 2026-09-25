@@ -5306,6 +5306,148 @@ def compute_circuits(elements, tech_room=None, general="TEG"):
             "circuits": circuits, "element_circuit": element_circuit}
 
 
+def asociaza_intrerupatoare(elements):
+    """CINE COMUTA CE: asocierea bec <-> intrerupator, ca sa poata fi STOCATA.
+
+    DE CE EXISTA. Pana acum asocierea nu traia nicaieri: `compute_cables` o recalcula la fiecare
+    generare, desena cablul si o arunca. Nimeni nu putea raspunde la „ce bec comuta intrerupatorul
+    asta" — nici editorul, nici BOM-ul, nici inginerul. Functia asta o face explicita.
+
+    REGULILE (Dan):
+      - camera are UN intrerupator -> toate becurile pe el;
+      - camera are MAI MULTE -> fiecare bec la intrerupatorul CEL MAI APROPIAT;
+      - un intrerupator ramas FARA niciun bec ia becul cel mai apropiat de el, luat de la unul care
+        are cel putin doua (asta e „se adauga un al doilea intrerupator -> ultimul bec trece pe el");
+      - CAP-SCARA: exact doua in camera -> UN bec comutat de AMANDOUA (de-aia asocierea e o LISTA,
+        nu un singur id);
+      - corpul de evacuare nu se comuta niciodata; senzorul se comuta doar daca are intrerupator in
+        camera (regula R2, identica cu cea din `compute_cables`).
+
+    ATENTIE — DIVERGENTA INTENTIONATA, pachetul 1: `compute_cables` pune si azi TOATE becurile pe UN
+    SINGUR intrerupator (cel mai apropiat de centroidul becurilor), deci lasa orfane intrerupatoarele
+    in plus. Functia asta le imparte. Cele doua NU coincid in camerele cu mai multe intrerupatoare,
+    si asta e voit: pachetul 1 doar STOCHEAZA, nimeni nu citeste inca `comutat_de`, deci planşele
+    raman byte-identice. Pachetul 2 pune `compute_cables` sa citeasca asocierea, si divergenta
+    dispare. `test_asociere_intrerupatoare.py` MASOARA divergenta, ca sa fie vizibila, nu tacuta.
+
+    CAND SE RECALCULEAZA: la fiecare „Obtine plan", adica exact atunci cand se redeseneaza planşa —
+    asa asocierea si desenul raman in pas prin constructie. Intre doua generari nu se rescrie nimic:
+    daca inginerul muta un bec, asocierea ramane cea de dinainte (arata spre un intrerupator care
+    exista, doar ca poate nu mai e cel mai apropiat) si se indreapta la urmatoarea generare. O
+    rescriere la fiecare tragere de maus ar insemna o scriere in baza per miscare, fara ca nimeni sa
+    citeasca intre timp.
+    ATENTIE PENTRU CAND VA EXISTA ATRIBUIRE MANUALA: functia asta rescrie TOT. In ziua in care
+    inginerul poate muta el un bec pe alt intrerupator, alegerea lui trebuie marcata (o coloana in
+    plus) si sarita aici — altfel prima regenerare i-o sterge fara sa-i spuna nimeni.
+
+    Determinist si idempotent (departajarile se fac pe `id`, nu pe ordinea din lista).
+    Intoarce {"updates": [{"id", "comutat_de", "changed"}], "stats": {...}} — apelantul persista
+    DOAR randurile cu `changed`, exact ca la `assign_circuits`."""
+    elements = elements or []
+    st = {"becuri": 0, "fara_intrerupator": 0, "cap_scara": 0, "mutate_la_gol": 0, "schimbate": 0}
+
+    def _xy(el):
+        return float(el["x"]), float(el["y"])
+
+    def _dist(a, b):
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    def _cel_mai_aproape(p, lista):
+        """Cel mai apropiat, cu departajare pe id -> rezultat STABIL la aceeasi intrare."""
+        return min(lista, key=lambda q: (_dist(p, _xy(q)), str(q.get("id") or "")))
+
+    becuri_cam, sw_cam = {}, {}
+    for el in elements:
+        et = (el or {}).get("element_type") or ""
+        if not el.get("id"):
+            continue
+        try:
+            _xy(el)
+        except (TypeError, ValueError, KeyError):
+            continue
+        if et in _BULB_TYPES:
+            becuri_cam.setdefault(el.get("room"), []).append(el)
+        elif et in _SWITCH_TYPES:
+            sw_cam.setdefault(el.get("room"), []).append(el)
+
+    rez = {}                                  # id bec -> [id intrerupator, ...]
+    for room, rb in becuri_cam.items():
+        rsw = sw_cam.get(room, [])
+        senzori = [b for b in rb if b["element_type"] == "aplica_senzor"]
+        normale = [b for b in rb if b["element_type"] != "aplica_senzor"]
+        # R2, ca in compute_cables: senzorul devine comutabil DOAR daca are intrerupator in camera.
+        if rsw:
+            normale = normale + senzori
+        else:
+            for b in senzori:
+                rez[b["id"]] = []
+        st["becuri"] += len(normale)
+        if not normale:
+            continue
+        if not rsw:                            # bec fara niciun intrerupator in camera
+            for b in normale:
+                rez[b["id"]] = []
+            st["fara_intrerupator"] += len(normale)
+            continue
+
+        ramase_sw = list(rsw)
+        # CAP-SCARA: exact doua -> un singur bec, comutat de amandoua. Acelasi criteriu ca in
+        # `compute_cables` (becul cel mai apropiat de mijlocul dintre cele doua), ca starea initiala
+        # sa descrie chiar cablul care se deseneaza azi.
+        cap = [s for s in ramase_sw if s["element_type"] == "intrerupator_cap_scara"]
+        if len(cap) == 2:
+            m = ((_xy(cap[0])[0] + _xy(cap[1])[0]) / 2.0, (_xy(cap[0])[1] + _xy(cap[1])[1]) / 2.0)
+            bec = _cel_mai_aproape(m, normale)
+            rez[bec["id"]] = sorted([str(cap[0]["id"]), str(cap[1]["id"])])
+            st["cap_scara"] += 1
+            normale = [b for b in normale if b is not bec]
+            ramase_sw = [s for s in ramase_sw if s["element_type"] != "intrerupator_cap_scara"]
+            if not normale:
+                continue
+            if not ramase_sw:                  # becuri ramase fara alt intrerupator
+                for b in normale:
+                    rez[b["id"]] = []
+                st["fara_intrerupator"] += len(normale)
+                continue
+
+        # fiecare bec la intrerupatorul CEL MAI APROPIAT
+        grup = {}
+        for b in normale:
+            sw = _cel_mai_aproape(_xy(b), ramase_sw)
+            rez[b["id"]] = [str(sw["id"])]
+            grup.setdefault(str(sw["id"]), []).append(b)
+
+        # „ultimul bec trece pe el": un intrerupator ramas GOL ia becul cel mai apropiat de el, luat
+        # de la unul care are cel putin doua. Ordinea e pe id -> rezultat stabil.
+        for sw in sorted(ramase_sw, key=lambda s: str(s.get("id") or "")):
+            sid = str(sw["id"])
+            if grup.get(sid):
+                continue
+            donatori = [b for k, v in grup.items() if len(v) > 1 for b in v]
+            if not donatori:
+                continue
+            bec = _cel_mai_aproape(_xy(sw), donatori)
+            vechi = rez[bec["id"]][0]
+            grup[vechi] = [b for b in grup[vechi] if b is not bec]
+            grup.setdefault(sid, []).append(bec)
+            rez[bec["id"]] = [sid]
+            st["mutate_la_gol"] += 1
+
+    updates = []
+    for el in elements:
+        pid = (el or {}).get("id")
+        if not pid or pid not in rez:
+            continue
+        nou_v = rez[pid]
+        vechi_v = list(el.get("comutat_de") or [])
+        changed = sorted(str(v) for v in vechi_v) != sorted(str(v) for v in nou_v)
+        el["comutat_de"] = nou_v               # IN-MEMORY, ca la assign_circuits
+        if changed:
+            st["schimbate"] += 1
+        updates.append({"id": pid, "comutat_de": nou_v, "changed": changed})
+    return {"updates": updates, "stats": st}
+
+
 def assign_circuits(elements, rooms, W, H):
     """C3c+T1 orchestrator: asociaza prize->camera (C3a) + detecteaza camera TE-CT (din tablou_te_ct) +
     numeroteaza circuite (T1: tech -> -TECT, rest -> TEG) + scrie circuit_id IN-MEMORY (pt. C4/desen).

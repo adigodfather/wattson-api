@@ -1742,6 +1742,20 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
                         {"circuit_id": _u["circuit_id"], "room": _u["room"]}).eq("id", _u["id"]).execute()
         except Exception as _e:
             print("[regenerate-plan] assign_circuits skip:", _e)   # defensiv: regenerarea continua
+        # CINE COMUTA CE: asocierea bec <-> intrerupator, persistata (pachetul 1). Acelasi tipar ca
+        # assign_circuits de mai sus — se scriu DOAR randurile schimbate — si acelasi contract
+        # defensiv: orice eroare NU strica regenerarea, doar lasa asocierea asa cum era.
+        # NIMENI n-o citeste inca (planşele se deseneaza tot din `compute_cables`), deci pachetul
+        # asta nu poate schimba niciun desen; doar face explicit ce se calcula si se arunca.
+        try:
+            from supabase_client import supabase as _supa6
+            _as = draw_elements.asociaza_intrerupatoare(rows)
+            for _u in _as.get("updates", []):
+                if _u.get("changed"):
+                    _supa6.table("plan_elements").update(
+                        {"comutat_de": _u["comutat_de"]}).eq("id", _u["id"]).execute()
+        except Exception as _e:
+            print("[regenerate-plan] asociaza_intrerupatoare skip:", _e)
         # ETICHETE CIRCUITE pe alimentari (decizia Dan, 2026-07-17): codul enrich (C14 / C3-TECT)
         # injectat IN-MEMORY pe elemente (_cid_label — NU se persista; circuit_id in DB ramane None
         # pt. dedicate, by design). Enrich = ACEEASI functie + ACELEASI inputuri ca finalize
