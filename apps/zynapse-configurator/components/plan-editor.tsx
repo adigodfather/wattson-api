@@ -2621,6 +2621,17 @@ export default function PlanEditor({
     }
   }
 
+  // ── HOOK-URILE STAU AICI, INAINTEA ORICARUI RETURN ──────────────────────────────────────────
+  // Mai jos sunt doua return-uri timpurii (spinner cat se incarca fundalul, mesaj daca lipseste).
+  // Un hook pus DUPA ele se cheama doar in unele randari: la o plansa mare, prima randare iese pe
+  // spinner (N hook-uri), a doua trece mai departe (N+2) -> React #310, „Rendered more hooks than
+  // during the previous render", si editorul crapa. Asa a crapat, din pachetul 3 pana la reparatie.
+  // Casa mica nu crapa fiindca isi randa fundalul destul de repede cat sa sara peste spinner.
+  // `test_hooks_ordine.py` citeste componenta cu parserul TypeScript si pica daca vreun hook
+  // ajunge vreodata dupa un return timpuriu.
+  const legaturi = useMemo(() => legaturiDinCabluri(overlayCables, elements), [overlayCables, elements]);
+  const grupAprins = useMemo(() => grupConex(selectedId, legaturi), [selectedId, legaturi]);
+
   // Ordinea CONTEAZA (fix resume): (1) fundalul SE INCARCA (fetch /render-base-png in curs pe forta;
   // la resume aterizezi direct pe forta -> fereastra de 2-3s e in fata userului) -> SPINNER zy-spin,
   // NU mesajul sec — early-return-ul de mai jos scurtcircuita spinner-ul din caseta Stage.
@@ -2664,8 +2675,7 @@ export default function PlanEditor({
   // Gruparea pentru evidențiere e conectivitate pe muchiile primite, nu regula de asociere
   // rescrisă: într-un lanț, al doilea segment leagă bec de bec, deci un simplu „atinge selecția"
   // n-ar fi găsit tot grupul.
-  const legaturi = useMemo(() => legaturiDinCabluri(overlayCables, elements), [overlayCables, elements]);
-  const grupAprins = useMemo(() => grupConex(selectedId, legaturi), [selectedId, legaturi]);
+  // `legaturi` / `grupAprins` sunt calculate MAI SUS, inaintea return-urilor timpurii — vezi acolo.
 
   // desenează selectatul ULTIMUL -> conturul lui (+ Group) e deasupra vecinilor
   const ordered = selectedId
