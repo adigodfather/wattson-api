@@ -4417,7 +4417,7 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
     # elementele planului (inainte de filtrarea pe plan_type) -> glyph si cablu identic orientate.
     cen_map = room_centroids if room_centroids is not None else _room_centroids(elements)
 
-    def add(ft, a, tt, b, kind, room, via_stripe=False, count=1, path=None):
+    def add(ft, a, tt, b, kind, room, via_stripe=False, count=1, path=None, fid=None, tid=None):
         # traseele ...->tablou trec prin dunga CEA MAI APROPIATA de origine (SOL B, faza B); bec->switch local = L direct.
         # count = cate cabluri sunt in manunchiul segmentului (GROSIME pe trepte): prize -> nr. prize/circuit; iluminat -> 1.
         # path dat explicit (FAZA 2a: lant pe perimetru) -> se foloseste ca atare (via_stripe ignorat).
@@ -4427,9 +4427,14 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             path = _stripe_path(a, b, stripes[si]) if use else _cable_l_path(a, b)
         length = sum(math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
                      for i in range(len(path) - 1))
+        # `from_id`/`to_id`: CINE sunt capetele, nu doar unde erau. Se completeaza doar pe legaturile
+        # bec<->intrerupator, fiindca doar alea se arata in editor — acolo linia trebuie sa urmareasca
+        # elementele cand inginerul le muta, nu sa ramana in aer unde era becul. Restul raman None.
+        # Desenul planşei nu se uita la ele (foloseste `path`), deci sunt inerte pentru PDF.
         cables.append({"from_type": ft, "from_xy": a, "to_type": tt, "to_xy": b,
                        "path": path, "kind": kind, "length": round(length, 1), "room": room,
-                       "via_stripe": use, "stripe_idx": (si if use else None), "count": count})
+                       "via_stripe": use, "stripe_idx": (si if use else None), "count": count,
+                       "from_id": fid, "to_id": tid})
 
     def nearest(p, items):
         return min(items, key=lambda q: math.hypot(q["x"] - p[0], q["y"] - p[1]))
@@ -4498,7 +4503,8 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                 bxy = (bec["x"], bec["y"])
                 for i in ids:
                     sw = harta_sw[i]
-                    add(sw["et"], (sw["x"], sw["y"]), bec["et"], bxy, "cap_scara", room)
+                    add(sw["et"], (sw["x"], sw["y"]), bec["et"], bxy, "cap_scara", room,
+                        fid=sw.get("id"), tid=bec.get("id"))
                 stats["cap_scara"] += 1
             # restul: grupate pe intrerupatorul lor, si cablate dupa TIPUL lui
             per_sw = {}
@@ -4514,15 +4520,18 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
                 swxy = (sw["x"], sw["y"])
                 if sw["et"] in ("intrerupator_simplu", "intrerupator_cap_scara"):
                     rem = list(rb2); prev_xy = swxy; prev_type = sw["et"]; cur = swxy
+                    prev_id = sw.get("id")
                     while rem:                 # LANT, ca la un singur intrerupator simplu
                         nb = nearest(cur, rem); rem.remove(nb)
                         bxy = (nb["x"], nb["y"])
-                        add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room)
+                        add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room,
+                            fid=prev_id, tid=nb.get("id"))
                         stats["bec_sw"] += 1
-                        prev_xy = bxy; prev_type = nb["et"]; cur = bxy
+                        prev_xy = bxy; prev_type = nb["et"]; cur = bxy; prev_id = nb.get("id")
                 else:                          # dublu/triplu -> cate o RAMIFICATIE per bec
                     for nb in rb2:
-                        add(nb["et"], (nb["x"], nb["y"]), sw["et"], swxy, "bec_paralel", room)
+                        add(nb["et"], (nb["x"], nb["y"]), sw["et"], swxy, "bec_paralel", room,
+                            fid=nb.get("id"), tid=sw.get("id"))
                         stats["bec_sw"] += 1
             continue
 
@@ -4534,8 +4543,10 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
             my = (cap[0]["y"] + cap[1]["y"]) / 2.0
             bec = nearest((mx, my), normale)                                                      # becul comandat
             bxy = (bec["x"], bec["y"])
-            add(cap[0]["et"], (cap[0]["x"], cap[0]["y"]), bec["et"], bxy, "cap_scara", room)       # sw1 -> bec
-            add(bec["et"], bxy, cap[1]["et"], (cap[1]["x"], cap[1]["y"]), "cap_scara", room)       # bec -> sw2
+            add(cap[0]["et"], (cap[0]["x"], cap[0]["y"]), bec["et"], bxy, "cap_scara", room,
+                fid=cap[0].get("id"), tid=bec.get("id"))                                            # sw1 -> bec
+            add(bec["et"], bxy, cap[1]["et"], (cap[1]["x"], cap[1]["y"]), "cap_scara", room,
+                fid=bec.get("id"), tid=cap[1].get("id"))                                            # bec -> sw2
             stats["cap_scara"] += 1
             normale = [b for b in normale if b is not bec]                                         # bec CONSUMAT
             rsw = [s for s in rsw if s["et"] != "intrerupator_cap_scara"]                          # cap-scara consumate
@@ -4552,15 +4563,18 @@ def compute_cables(elements, rooms=None, W=None, H=None, room_centroids=None, ro
         # simplu SAU 1/3+ cap_scara ramas -> LANT in serie (fallback simplu); dublu/triplu -> PARALEL
         if sw["et"] in ("intrerupator_simplu", "intrerupator_cap_scara"):
             rem = list(normale); prev_xy = swxy; prev_type = sw["et"]; cur = swxy
+            prev_id = sw.get("id")
             while rem:                     # LANT: switch -> nearest -> next nearest -> ...
                 nb = nearest(cur, rem); rem.remove(nb)
                 bxy = (nb["x"], nb["y"])
-                add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room)
+                add(prev_type, prev_xy, nb["et"], bxy, "bec_lant", room,
+                    fid=prev_id, tid=nb.get("id"))
                 stats["bec_sw"] += 1
-                prev_xy = bxy; prev_type = nb["et"]; cur = bxy
+                prev_xy = bxy; prev_type = nb["et"]; cur = bxy; prev_id = nb.get("id")
         else:                              # dublu/triplu -> PARALEL
             for b in normale:
-                add(b["et"], (b["x"], b["y"]), sw["et"], swxy, "bec_paralel", room)
+                add(b["et"], (b["x"], b["y"]), sw["et"], swxy, "bec_paralel", room,
+                    fid=b.get("id"), tid=sw.get("id"))
                 stats["bec_sw"] += 1
 
     # INTRERUPATOR -> TABLOU (tabloul general al plansei: TEG / TES pe etaj; TE-CT daca room 'tehnic')
@@ -6100,8 +6114,12 @@ def redraw_from_plan_elements(base_pdf_base64: str, elements: list, draw_plan_ty
                          "legend_drawn": n_legend, "ground_drawn": n_ground, "receptor_drawn": n_receptor},
             # Traseele cablurilor (din compute_cables, ACEEASI sursa ca desenul PDF) pt. overlay-ul Konva.
             # Coordonate in PUNCTE PDF (ca x,y ale elementelor) -> frontend le inmulteste cu png_meta.scale.
+            # `from_id`/`to_id` doar pe legaturile bec<->intrerupator (in rest None): editorul le
+            # foloseste ca sa redeseneze linia intre pozitiile DE ACUM ale elementelor, nu intre cele
+            # de la ultima generare. Fara ele, o linie ramanea in aer dupa ce inginerul muta becul.
             "cables": [{"path": [[round(px, 1), round(py, 1)] for (px, py) in (c.get("path") or [])],
-                        "kind": c.get("kind")} for c in _cables],
+                        "kind": c.get("kind"),
+                        "from_id": c.get("from_id"), "to_id": c.get("to_id")} for c in _cables],
         }
     except Exception as e:
         return {"success": False, "error": str(e)}

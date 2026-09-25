@@ -764,6 +764,79 @@ export function csIndexMap(els: Array<{ id: string; element_type: string; label?
   return out;
 }
 
+// ── LEGĂTURILE bec<->întrerupător: din date, nu recalculate ─────────────────────────────────
+export type Legatura = { pts: number[][]; a: string; b: string };
+
+/** Legăturile de arătat, din instantaneul primit la „Obține plan".
+ *  FILTRU pe `kind` (doar bec<->întrerupător) + capetele luate din pozițiile DE ACUM ale
+ *  elementelor, după `from_id`/`to_id`. Mijlocul reproduce `_cable_l_path` din backend (Δ mai mare
+ *  întâi), ca forma să fie aceeași cu a planșei. Un capăt care nu mai există -> linia dispare. */
+export function legaturiDinCabluri(
+  cabluri: { kind?: string; from_id?: string | null; to_id?: string | null }[],
+  elemente: { id: string; x: number; y: number }[],
+): Legatura[] {
+  const KINDS = new Set(["bec_lant", "bec_paralel", "cap_scara"]);
+  const poz = new Map(elemente.map(e => [e.id, e]));
+  const out: Legatura[] = [];
+  for (const c of cabluri || []) {
+    if (!KINDS.has(c.kind || "")) continue;
+    const ea = c.from_id ? poz.get(c.from_id) : undefined;
+    const eb = c.to_id ? poz.get(c.to_id) : undefined;
+    if (!ea || !eb) continue;
+    const mid = Math.abs(eb.x - ea.x) >= Math.abs(eb.y - ea.y) ? [eb.x, ea.y] : [ea.x, eb.y];
+    out.push({ pts: [[ea.x, ea.y], mid, [eb.x, eb.y]], a: ea.id, b: eb.id });
+  }
+  return out;
+}
+
+/** Componenta conexă care conține elementul selectat. Conectivitate pe muchiile PRIMITE, nu regula
+ *  de asociere rescrisă: într-un lanț, al doilea segment leagă bec de bec, deci „atinge selecția"
+ *  n-ar fi găsit tot grupul. */
+export function grupConex(selId: string | null, legaturi: Legatura[]): Set<string> | null {
+  if (!selId || !legaturi.length) return null;
+  const vecini = new Map<string, string[]>();
+  for (const l of legaturi) {
+    vecini.set(l.a, [...(vecini.get(l.a) || []), l.b]);
+    vecini.set(l.b, [...(vecini.get(l.b) || []), l.a]);
+  }
+  if (!vecini.has(selId)) return null;
+  const vazut = new Set<string>([selId]);
+  const coada = [selId];
+  while (coada.length) {
+    for (const v of vecini.get(coada.pop() as string) || []) {
+      if (!vazut.has(v)) { vazut.add(v); coada.push(v); }
+    }
+  }
+  return vazut;
+}
+
+/** Liniile propriu-zise. Palide mereu, grupul selectat aprins. Un singur loc care le desenează,
+ *  ca pagina de verificare să arate exact ce arată editorul. */
+export function LegaturiLayer({ legaturi, grupAprins, scale }:
+    { legaturi: Legatura[]; grupAprins: Set<string> | null; scale: number }) {
+  return (
+    <>
+      {legaturi.map((l, i) => {
+        const aprins = !!grupAprins && (grupAprins.has(l.a) || grupAprins.has(l.b));
+        const estompat = !!grupAprins && !aprins;
+        return (
+          <Line
+            key={`leg-${i}`}
+            points={l.pts.flatMap((pt) => [pt[0] * scale, pt[1] * scale])}
+            stroke="#DB2929"
+            strokeWidth={aprins ? 2.6 : 1.6}
+            dash={[7, 4]}
+            lineCap="round"
+            lineJoin="round"
+            opacity={aprins ? 1 : estompat ? 0.14 : 0.38}
+            listening={false}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
 function bulbHit(type: string) {
   if (type === "banda_led") return <Rect x={-32} y={-9} width={64} height={18} cornerRadius={7} fill="rgba(0,0,0,0.001)" />;
@@ -1137,7 +1210,11 @@ export default function PlanEditor({
   const [regenErr, setRegenErr] = useState<string | null>(null);
   // Traseele cablurilor primite la "Obține plan" (snapshot din compute_cables, puncte PDF).
   // Desenate ca linii Konva SUB simboluri. Se reîmprospătează la fiecare "Obține plan".
-  const [overlayCables, setOverlayCables] = useState<{ path: number[][]; kind?: string }[]>([]);
+  // Se ARATĂ doar legăturile bec<->întrerupător; cablurile spre tablou sunt 64% din metrii de
+  // iluminat și traversează toată planșa — cu ele, media era 52 de linii pe planșă (maxim 85) și
+  // nu se mai înțelegea nimic. Fără ele rămân 12 (maxim 20), scurte și locale.
+  const [overlayCables, setOverlayCables] = useState<
+    { path: number[][]; kind?: string; from_id?: string | null; to_id?: string | null }[]>([]);
   // DEBUG P1: peretii din /extract-geometry (puncte PDF, ACELASI spatiu ca x,y) + toggle overlay.
   const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
   const [showWalls, setShowWalls] = useState(false);
@@ -2543,6 +2620,21 @@ export default function PlanEditor({
 
   const selected = selectedId ? (elements.find(e => e.id === selectedId) ?? null) : null;
 
+  // ── LEGĂTURILE bec<->întrerupător, din instantaneul de la "Obține plan" ────────────────────
+  // Trei lucruri, toate din date, niciunul recalculat aici:
+  //   1. FILTRU pe `kind`: doar cele trei feluri de legătură. Restul (spre tablou, lanțuri de
+  //      prize) nu se mai desenează — erau 4 din 5 linii și făceau planșa ilizibilă.
+  //   2. CAPETELE URMĂRESC ELEMENTELE: linia se trage între pozițiile DE ACUM ale celor două
+  //      elemente (după `from_id`/`to_id`), nu între cele de la ultima generare. Altfel, mutând un
+  //      bec, linia rămânea în aer și arăta o legătură falsă — mai rău decât nicio linie.
+  //      `L` reproduce `_cable_l_path` din backend (Δ mai mare întâi), ca forma să fie aceeași.
+  //   3. Un capăt care nu mai există (element șters) -> linia DISPARE. Nu se ghicește nimic.
+  // Gruparea pentru evidențiere e conectivitate pe muchiile primite, nu regula de asociere
+  // rescrisă: într-un lanț, al doilea segment leagă bec de bec, deci un simplu „atinge selecția"
+  // n-ar fi găsit tot grupul.
+  const legaturi = useMemo(() => legaturiDinCabluri(overlayCables, elements), [overlayCables, elements]);
+  const grupAprins = useMemo(() => grupConex(selectedId, legaturi), [selectedId, legaturi]);
+
   // desenează selectatul ULTIMUL -> conturul lui (+ Group) e deasupra vecinilor
   const ordered = selectedId
     ? [...elements.filter(e => e.id !== selectedId), ...elements.filter(e => e.id === selectedId)]
@@ -3815,21 +3907,9 @@ export default function PlanEditor({
                   <Line key={`wall-${i}`} points={[w.x1 * scale, w.y1 * scale, w.x2 * scale, w.y2 * scale]}
                         stroke="#16A34A" strokeWidth={2} opacity={0.7} listening={false} />
                 ))}
-                {/* CABLURI (snapshot "Obține plan") SUB simboluri: rosu (ca becurile), ne-interactiv.
-                    points = path (puncte PDF) × scale, ACELAȘI scale ca x,y ale elementelor. */}
-                {overlayCables.map((cab, i) => (
-                  <Line
-                    key={`cable-${i}`}
-                    points={(cab.path || []).flatMap((pt) => [pt[0] * scale, pt[1] * scale])}
-                    stroke="#DB2929"
-                    strokeWidth={2}
-                    dash={[7, 4]}
-                    lineCap="round"
-                    lineJoin="round"
-                    opacity={0.95}
-                    listening={false}
-                  />
-                ))}
+                {/* LEGĂTURILE bec<->întrerupător, SUB simboluri, ne-interactive. Vezi
+                    `LegaturiLayer` / `legaturiDinCabluri` mai sus pentru ce se arată și de ce. */}
+                <LegaturiLayer legaturi={legaturi} grupAprins={grupAprins} scale={scale} />
                 {ordered.map((el) => {
                   if (isTraseuType(el.element_type) || isGroundType(el.element_type) || isFvChainType(el.element_type)
                       || isBandaLedPathType(el.element_type) || isConturType(el.element_type)
