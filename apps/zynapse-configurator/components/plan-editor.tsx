@@ -156,6 +156,26 @@ const isSwitchType = (t: string) => SWITCH_SET.has(t);
 // draw_elements.py (care mai are o copie si in bom.py). Cele de TAVAN raman neatinse: un cerc cu X
 // rotit arata identic, iar a-l roti ar fi doar o cale in plus prin care ceva poate iesi stramb.
 const WALL_BULBS = new Set(["aplica_perete", "aplica_senzor"]);
+// ── MARIRE DOAR IN EDITOR, decizie asumata ──────────────────────────────────────────────────
+// Aplicele si intrerupatoarele sunt cele mai MICI simboluri de pe plan (aplica: semicerc de raza 9;
+// intrerupatorul: linii de 1.2 grosime). Pe plansa tiparita, la A3, sunt exact cat trebuie. In
+// editor insa inginerul le apuca cu mausul, si la zoom-ul de lucru erau greu de nimerit si greu de
+// deosebit unul de altul — mai ales orientarea, care abia se vedea.
+//
+// DECIZIA: se maresc DOAR pe ecran. Pe plansa generata ramane exact aceeasi cota, fiindca acolo
+// deseneaza `draw_elements.py`, care nu stie nimic despre numerele de aici. Asta rupe INTENTIONAT
+// corespondenta vizuala 1:1 dintre editor si plansa: un intrerupator arata pe ecran mai mare decat
+// va fi pe hartie. E un compromis acceptat — alternativa (sa fie mari si pe plansa) ar fi stricat
+// planse care se tiparesc deja bine.
+//
+// De ce DOUA numere si nu unul: aplica creste in toate directiile dintr-un punct, deci nu incomodeaza
+// nimic. Intrerupatorul e ALUNGIT si creste PE LUNGUL PERETELUI, exact acolo unde stau vecinii lui —
+// deci primeste un factor mai mic.
+//
+// Cotele din `switchSymbol`/`bulbSymbol` NU se ating: ele trebuie sa rămână identice cu backend-ul
+// (proba `test_aplice_orientare.py` le compara). Marirea se aplica din afara, ca scalare de grup.
+const MARIRE_APLICA = 1.7;   // semicerc: raza 9 -> 15.3 (in liga prizei, 13)
+const MARIRE_SWITCH = 1.5;   // lungime ~26.6 -> ~40 (sub priza dubla, 48)
 const isWallBulb = (t: string) => WALL_BULBS.has(t);
 // Simbolul aplicei are „fata" (partea curba + punctul) in JOS la rotatie 0, fiindca asa arata si
 // desenul istoric din planşa. Conventia de orientare are insa 0 = DREAPTA (u = cos,sin, ca la
@@ -670,12 +690,16 @@ const CS_ABBR: Record<string, string> = {
 // mai aproape decât pragul, camera se prinde de el ȘI se orientează pe bisectoare (spre interior).
 // Sub prag nu există colț -> se cade pe snapToWall (mecanismul PRIZELOR, refolosit ca atare).
 const CAM_CORNER_SNAP = 26;    // pt — sub pragul de perete (40), ca peretele să nu fure colțul
-export function snapPerete(px: number, py: number, walls: WallSeg[]):
+export function snapPerete(px: number, py: number, walls: WallSeg[], cuColt = true):
     { x: number; y: number; rot: number | null } {
   if (!walls.length) return { x: px, y: py, rot: null };
-  // 1. colț: capătul de perete cel mai apropiat care are un al doilea perete PERPENDICULAR lângă el
+  // 1. colț: capătul de perete cel mai apropiat care are un al doilea perete PERPENDICULAR lângă el.
+  // DOAR pentru camere și PIR-uri (`cuColt`): acolo colțul e chiar locul bun, se vede toată
+  // încăperea din el. La ÎNTRERUPĂTOARE și APLICE e greșit — n-ai unde să le montezi, iar tocul
+  // ușii e fix acolo. Ele cad direct pe lipirea de perete de mai jos, care alege peretele CEL MAI
+  // APROPIAT: tras chiar în colț, elementul se lipește de unul dintre cei doi, nu rămâne nelipit.
   let best: { x: number; y: number; d: number; rot: number } | null = null;
-  for (const w of walls) {
+  for (const w of (cuColt ? walls : [])) {
     for (const [cx, cy] of [[w.x1, w.y1], [w.x2, w.y2]] as const) {
       const d = Math.hypot(px - cx, py - cy);
       if (d > CAM_CORNER_SNAP) continue;
@@ -739,14 +763,18 @@ export function csIndexMap(els: Array<{ id: string; element_type: string; label?
 // Zonă de hit invizibilă -> Group draggable/clickable (simbolurile sunt fără fill -> n-ar avea hit interior)
 function bulbHit(type: string) {
   if (type === "banda_led") return <Rect x={-32} y={-9} width={64} height={18} cornerRadius={7} fill="rgba(0,0,0,0.001)" />;
-  const r = type === "lustra_led" ? 26 : type === "panou_led" ? 15 : 11;
+  // corpurile de perete sunt desenate marite (vezi MARIRE_APLICA) -> zona de apucat creste cu ele,
+  // altfel marginea vizibila a simbolului ar fi ramas nefacut clic
+  const r = (type === "lustra_led" ? 26 : type === "panou_led" ? 15 : 11)
+            * (WALL_BULBS.has(type) ? MARIRE_APLICA : 1);
   return <Circle x={0} y={0} radius={r} fill="rgba(0,0,0,0.001)" />;
 }
 
 // Contur de selecție (galben) adaptat la mărimea/forma fiecărui tip de bec
 function bulbSelRing(type: string) {
   if (type === "banda_led") return <Rect x={-35} y={-12} width={70} height={24} cornerRadius={6} stroke={COL_SEL} strokeWidth={3} listening={false} />;
-  const r = type === "lustra_led" ? 29 : type === "panou_led" ? 19 : 15;
+  const r = (type === "lustra_led" ? 29 : type === "panou_led" ? 19 : 15)
+            * (WALL_BULBS.has(type) ? MARIRE_APLICA : 1);
   return <Circle x={0} y={0} radius={r} stroke={COL_SEL} strokeWidth={3} listening={false} />;
 }
 
@@ -2363,7 +2391,9 @@ export default function PlanEditor({
     // existe doua mecanisme care pot diverge. Corpurile de TAVAN nu intra: nu se lipesc de nimic.
     if (el.element_type === "camera_video" || el.element_type === "detector_pir"
         || isWallBulb(el.element_type) || isSwitchType(el.element_type)) {
-      const sn = snapPerete(xPdf, yPdf, walls);
+      // Colțul se aplică DOAR camerelor și PIR-urilor (decizia lui Dan, după test în editor).
+      const cuColt = el.element_type === "camera_video" || el.element_type === "detector_pir";
+      const sn = snapPerete(xPdf, yPdf, walls, cuColt);
       xPdf = sn.x; yPdf = sn.y;
       e.target.position({ x: xPdf * scale, y: yPdf * scale });
       const patch: Partial<PlanElement> = { x: xPdf, y: yPdf };
@@ -3919,7 +3949,8 @@ export default function PlanEditor({
                           {/* Rotatia DOAR pe simbol si DOAR la corpurile de perete (hit-ul e cerc,
                               nu-i pasa). Tavanul trece pe ramura fara rotatie, exact ca azi. */}
                           {isWallBulb(el.element_type) ? (
-                            <Group rotation={gradeAplica(el.rotation)} listening={false}>
+                            <Group rotation={gradeAplica(el.rotation)} listening={false}
+                                   scaleX={MARIRE_APLICA} scaleY={MARIRE_APLICA}>
                               {bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
                             </Group>
                           ) : bulbSymbol(el.element_type, el.kit_panica ? COL_SAFETY : COL_BULB_DEFAULT)}
@@ -3960,7 +3991,8 @@ export default function PlanEditor({
                       ) : isSwitch ? (
                         /* Gradele sunt chiar `rotation` din baza: simbolul priveste spre dreapta la 0,
                            ca pe plansa. Fara corectie de 90 de grade, spre deosebire de aplica. */
-                        <Group rotation={((el.rotation || 0) * 180) / Math.PI}>
+                        <Group rotation={((el.rotation || 0) * 180) / Math.PI}
+                               scaleX={MARIRE_SWITCH} scaleY={MARIRE_SWITCH}>
                           {switchSymbol(el.element_type)}
                         </Group>
                       ) : (
