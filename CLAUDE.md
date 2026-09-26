@@ -2,7 +2,7 @@
 
 Turn n8n workflows into production web apps. Each app is a Next.js frontend that talks to a self-hosted n8n workflow via webhook. n8n handles all orchestration (AI, data transforms, external APIs). The FastAPI backend on Render stays as a pure calculation engine for the electrical calculator app.
 
-**GitHub**: `adigodfather/zynapse` → auto-deploys to Vercel on push to `main`.
+**GitHub**: `adigodfather/wattson-api` → auto-deploys to Vercel on push to `main`.
 
 ---
 
@@ -45,7 +45,7 @@ Before writing any frontend code, confirm:
 
 ### Phase 3 — Ship
 
-1. Push to `main` on `adigodfather/zynapse` (use GitHub MCP)
+1. Push to `main` on `adigodfather/wattson-api` (use GitHub MCP)
 2. Vercel auto-deploys — verify the deployment
 3. Future changes: edit → push → Vercel updates automatically
 
