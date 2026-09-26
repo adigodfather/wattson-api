@@ -11,6 +11,11 @@ export const BUILDING_CATEGORIES_3 = [
 
 // `soon: true` = sub-tip vizibil dar NE-selectabil (badge "Curând") — fluxul generic genereaza,
 // dar fara logica dedicata (apartamente multiple / coloane de bloc / spatii comune) nu-i lansabil.
+// PUBLIC si INDUSTRIAL sunt „Curând" (decizia lui Dan, 26 sept): pana acum erau deschise
+// clientilor, desi primeau logica proprie DOAR la gruparea circuitelor din n8n — planul, BOM-ul,
+// memoriul si caietul sunt cele rezidentiale, iar campurile din „Detalii hala" nu le citea nimic.
+// Deschise clientilor raman doar casa, duplexul si (dupa acordul lui Dan) spatiul comercial.
+// Adminul le poate folosi pe toate, prin portita din `poateGeneraTip`.
 export const BUILDING_SUBTYPES: Record<string, { value: string; label: string; soon?: boolean }[]> = {
   rezidential: [
     { value: "casa_unifamiliala",    label: "Casă unifamilială" },
@@ -20,19 +25,19 @@ export const BUILDING_SUBTYPES: Record<string, { value: string; label: string; s
     { value: "hotel_pensiune",       label: "Hotel / Pensiune",         soon: true },
   ],
   public: [
-    { value: "camin_cultural",  label: "Cămin cultural / Sală eveniment" },
-    { value: "scoala",          label: "Școală / Grădiniță" },
-    { value: "spital",          label: "Spital / Clinică" },
-    { value: "institutie",      label: "Instituție / Primărie" },
-    { value: "biserica",        label: "Biserică" },
-    { value: "sala_sport",      label: "Sală sport" },
+    { value: "camin_cultural",  label: "Cămin cultural / Sală eveniment", soon: true },
+    { value: "scoala",          label: "Școală / Grădiniță", soon: true },
+    { value: "spital",          label: "Spital / Clinică", soon: true },
+    { value: "institutie",      label: "Instituție / Primărie", soon: true },
+    { value: "biserica",        label: "Biserică", soon: true },
+    { value: "sala_sport",      label: "Sală sport", soon: true },
   ],
   industrial: [
-    { value: "hala_productie",      label: "Hală producție" },
-    { value: "depozit",             label: "Depozit / Logistică" },
-    { value: "atelier",             label: "Atelier / Service" },
-    { value: "ferma",               label: "Fermă" },
-    { value: "statie_tehnologica",  label: "Stație tehnologică" },
+    { value: "hala_productie",      label: "Hală producție", soon: true },
+    { value: "depozit",             label: "Depozit / Logistică", soon: true },
+    { value: "atelier",             label: "Atelier / Service", soon: true },
+    { value: "ferma",               label: "Fermă", soon: true },
+    { value: "statie_tehnologica",  label: "Stație tehnologică", soon: true },
   ],
 };
 
