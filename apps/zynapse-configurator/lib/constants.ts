@@ -99,6 +99,27 @@ export function defaultAlimentare(buildingType: string | null | undefined): stri
   return String(buildingType || "") === "spatiu_comercial_bloc" ? "din_firida" : "bransament_propriu";
 }
 
+// Rubrica „Sursa de alimentare" are sens doar la un spațiu dintr-un imobil EXISTENT, unde energia
+// poate veni din firida blocului. La o casă, un duplex sau o hală răspunsul e mereu „branșament
+// propriu", iar întrebarea doar încarcă formularul — de-aia se ascunde (principiul lui Dan: fiecare
+// configurator e specific pe tipul de clădire). Un tip NOU de clădire o are ascunsă implicit.
+//
+// A doua condiție e tiparul lui FARA_LA_CASA: un proiect reluat cu „din firidă" deja salvată trebuie
+// să-și poată VEDEA și SCHIMBA alegerea, nu s-o poarte ascunsă. De ce nu „ascunde dacă e gol":
+// proiectele generate salvează valoarea REZOLVATĂ („bransament_propriu", verificat în baza reală),
+// deci la reluare rubrica ar fi reapărut la fiecare casă.
+//
+// Aici se decide DOAR afișarea. Ce pleacă la generare rămâne `alimentare || defaultAlimentare(...)`,
+// deci o casă trimite în continuare „bransament_propriu"; iar în aval totul compară doar cu
+// „din_firida", unde gol și „bransament_propriu" dau exact același document. Fără regulă pe server:
+// ocolirea interfeței produce o variantă de document validă, nu un preț sau un acces greșit, iar o
+// forțare pe server ar șterge alegerea salvată a proiectelor reluate.
+export function arataRubricaAlimentare(buildingType: string | null | undefined,
+                                       alimentare: string | null | undefined): boolean {
+  return String(buildingType || "") === "spatiu_comercial_bloc"
+      || String(alimentare || "") === "din_firida";
+}
+
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [

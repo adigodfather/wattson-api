@@ -9,7 +9,7 @@ import {
   INSULATION, visibleHeatingGeneration, HEATING_DISTRIBUTION,
   EXTRA_EQUIPMENT_DEFAULTS, FV_PACKAGE_OPTIONS, FV_SOIL_OPTIONS, FV_SOIL_DEFAULT, snapFvPackage, FAZA_PROIECT_OPTIONS, isPhasePT, iluminatPlanseToShow,
   plansaNumberingFromResult, mapSchemasToNumbering, sanitizePdfName, schemaTipFor,
-  defaultTechRoom, ALIMENTARE_OPTIONS, defaultAlimentare,
+  defaultTechRoom, ALIMENTARE_OPTIONS, defaultAlimentare, arataRubricaAlimentare,
   INITIAL_FORM, type FormData, type ProjectResult, type Motor, type ExtraEquipment,
 } from "@/lib/constants";
 import { useAuth } from "@/components/auth-provider";
@@ -2398,14 +2398,20 @@ export function ZynapseConfigurator() {
               Întrebarea e ortogonală pe tipul clădirii (o casă poate fi legată la un racord existent),
               de-aia e câmp propriu, cu default derivat doar ca sugestie. Schimbă textele din memoriu,
               caiet și schemă, plus rândul de alimentare din lista de cantități. */}
-          <SelectField label="Sursa de alimentare"
-            value={form.alimentare || defaultAlimentare(form.building_type)}
-            onChange={v => update("alimentare", v)}
-            options={ALIMENTARE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
-          <p className="text-[11px] leading-snug -mt-2 mb-3.5" style={{ color: "#8B8FA8" }}>
-            {ALIMENTARE_OPTIONS.find(o => o.value ===
-              (form.alimentare || defaultAlimentare(form.building_type)))?.desc}
-          </p>
+          {/* Rubrica apare DOAR unde are sens (spațiu comercial în bloc) sau unde un proiect reluat
+              are deja „din firidă" salvată. Regula e o funcție pură, `arataRubricaAlimentare` —
+              aici doar se cheamă. Ce pleacă la generare (mai sus, `form.alimentare ||
+              defaultAlimentare(...)`) nu depinde de afișare. */}
+          {arataRubricaAlimentare(form.building_type, form.alimentare) && (<>
+            <SelectField label="Sursa de alimentare"
+              value={form.alimentare || defaultAlimentare(form.building_type)}
+              onChange={v => update("alimentare", v)}
+              options={ALIMENTARE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
+            <p className="text-[11px] leading-snug -mt-2 mb-3.5" style={{ color: "#8B8FA8" }}>
+              {ALIMENTARE_OPTIONS.find(o => o.value ===
+                (form.alimentare || defaultAlimentare(form.building_type)))?.desc}
+            </p>
+          </>)}
 
           {/* 6. Nivel izolație */}
           <SectionLabel>Izolație termică</SectionLabel>
