@@ -593,6 +593,69 @@ def _specificatie_tablouri(doc, circuits):
 _CS_DATE_TV = ("priza_date", "priza_tv", "priza_mixta")
 _CS_ACTIVE = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
               "sirena_interioara", "sirena_exterioara", "buton_panica", "camera_video", "nvr")
+# VIDEOINTERFONUL (P7b) — separat de `_CS_ACTIVE`, cu intentie: blocul de efractie/video de mai jos
+# (inaltimi de sirene, programarea centralei, sursa cu acumulator) n-are ce cauta la un bloc care are
+# DOAR interfon. Interfonul isi are cerintele lui, scrise numai cand e pe plan.
+_CS_INTERFON = ("panou_apel_interfon", "cititor_control_acces", "yala_electromagnetica",
+                "post_interior_interfon")
+
+
+def _interfon_cerinte(comp):
+    """Cerintele de EXECUTIE ale videointerfonului. Inaltimile si cablul vin din registrele planşei
+    (`_CS_HEIGHT`, `_CS_CABLE`), accesoriile din regula unica (`interfon.accesorii`) — caietul nu
+    poate cere alt montaj decat cel desenat sau alt cablu decat cel din lista de cantitati."""
+    try:
+        from draw_elements import _CS_HEIGHT, _CS_CABLE
+        import interfon as _ifn
+    except Exception:
+        return []
+
+    def n(k):
+        return int((comp or {}).get(k) or 0)
+
+    def h(k):
+        return ("%.2f" % float(_CS_HEIGHT.get(k) or 0)).replace(".", ",")
+    acc = _ifn.accesorii(comp)
+    _m = ["posturile interioare se montează în holul fiecărui apartament, la %s m faţă de pardoseală"
+          % h("post_interior_interfon")]
+    if n("panou_apel_interfon"):
+        _m.insert(0, "panoul de apel se montează la intrarea în bloc, la %s m faţă de cota "
+                     "pardoselii finite, cu camera orientată spre zona de acces"
+                     % h("panou_apel_interfon"))
+    if n("cititor_control_acces"):
+        _m.append("cititorul de control acces se montează lângă uşa de acces, la %s m"
+                  % h("cititor_control_acces"))
+    if n("yala_electromagnetica"):
+        _m.append("yala electromagnetică se montează pe tocul uşii de acces, în partea superioară "
+                  "(%s m), cu armătura pe canatul mobil" % h("yala_electromagnetica"))
+    out = ["Sistemul de videointerfon se execută pe magistrală cu două fire, nepolarizată, pe "
+           "traseul din planşele de curenţi slabi: " + "; ".join(_m) + "."]
+    _b = []
+    if acc["buton_sonerie"]:
+        _b.append("la uşa fiecărui apartament câte un buton de sonerie, legat la postul interior "
+                  "al apartamentului (%d bucăţi)" % acc["buton_sonerie"])
+    if acc["buton_iesire"]:
+        _b.append("pe faţa interioară a uşii de acces câte un buton de ieşire pentru fiecare yală "
+                  "(%d %s)" % (acc["buton_iesire"], "bucată" if acc["buton_iesire"] == 1 else "bucăţi"))
+    if _b:
+        out.append("Se montează, în plus, " + "; ".join(_b) + ".")
+    out.append("Magistrala se realizează cu %s, fără înnădiri pe traseu; derivaţiile către posturi "
+               "se fac numai în dozele sau distribuitoarele de nivel prevăzute de producătorul "
+               "sistemului. Fiind nepolarizată, magistrala nu impune sensul conductoarelor la borne, "
+               "dar lungimea totală şi numărul de posturi pe magistrală nu depăşesc limitele date de "
+               "producătorul echipamentului ales. Traseul se pozează separat de circuitele de curenţi "
+               "tari, în tub de protecţie propriu." % _CS_CABLE[_ifn.CABLU]["bom"].lower())
+    _usa = [x for x in (("yala electromagnetică" if n("yala_electromagnetica") else None),
+                        ("cititorul de control acces" if n("cititor_control_acces") else None)) if x]
+    _al = ("Sursa sistemului se montează în spaţiul comun şi se alimentează dintr-un circuit dedicat "
+           "din tabloul consumatorilor comuni (TCC), conform schemei acestuia; din ea se alimentează "
+           "magistrala%s." % ((", " if len(_usa) > 1 else " şi ") + " şi ".join(_usa) if _usa else ""))
+    if n("yala_electromagnetica"):
+        _al += (" Yala electromagnetică se alege cu deblocare la dispariţia tensiunii, astfel încât "
+                "evacuarea să nu depindă de funcţionarea sistemului; forţa de reţinere se alege după "
+                "uşa de acces.")
+    out.append(_al)
+    return out
 
 
 def _topologie_stea_cerinte(comp):
@@ -722,6 +785,9 @@ def _cerinte_curenti_slabi(doc, comp):
         _e = _dtv_echipament_cerinte(comp)
         if _e:
             _add_para(doc, _e)
+    if any(comp.get(k) for k in _CS_INTERFON):
+        for _t in _interfon_cerinte(comp):
+            _add_para(doc, _t)
     if not _activ:
         return
     
@@ -920,6 +986,19 @@ def _receptie_curenti_slabi(doc, comp):
     """Completarea la cap. 5 — ce se verifica la receptie pe partea de curenti slabi.
     Verificarile de mai jos privesc echipamentele ACTIVE; verificarea prizelor de date/TV (test de
     perechi, nivel de semnal) e in blocul de executie, langa cerintele lor."""
+    # VIDEOINTERFONUL: verificarile lui, scrise numai cu interfon pe plan si INAINTEA portii de mai
+    # jos — un bloc doar cu interfon n-are echipamente de efractie, dar are ce verifica la receptie.
+    if comp and any(comp.get(k) for k in _CS_INTERFON):
+        _cit, _yal = int(comp.get("cititor_control_acces") or 0), int(comp.get("yala_electromagnetica") or 0)
+        _v = ["apelul de la panoul de apel către fiecare post interior, cu imagine şi convorbire în "
+              "ambele sensuri", "funcţionarea butonului de sonerie de la uşa fiecărui apartament"]
+        if _yal:
+            _v.insert(1, "deschiderea uşii de acces de la fiecare post%s şi de la butonul de ieşire"
+                      % (", de la cititorul de control acces cu fiecare card programat" if _cit else ""))
+            _v.append("deblocarea yalei la întreruperea alimentării sursei")
+        _add_para(doc, "La recepţia sistemului de videointerfon se verifică: %s. La predare se "
+                       "înmânează beneficiarului %smanualele de utilizare ale sistemului."
+                  % ("; ".join(_v), "cardurile de acces programate, lista lor şi " if _cit else ""))
     if not comp or not any(comp.get(k) for k in _CS_ACTIVE):
         return
     _add_para(doc, "La recepţia instalaţiilor de curenţi slabi se verifică suplimentar: "

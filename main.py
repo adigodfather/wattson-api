@@ -1020,6 +1020,47 @@ def generate_schema_det_b64(request: DetSchemaRequest):
         return {"success": False, "error": str(e)}
 
 
+# -------------------------------------------------
+#  SCHEMA DE DISTRIBUTIE RETEA DE INTERFON (POST /generate-schema-interfon-b64) — P7b. Tiparul e
+#  IDENTIC cu al schemelor de sistem de mai sus (elementele din DB pe project_id, gate pe prezenta,
+#  base64 pentru n8n). Gate-ul e `interfon.are_interfon`, ACEEASI functie pe care o citeste
+#  /plansa-numbering: planşa se anunta si se deseneaza din acelasi raspuns, deci nu pot diverge.
+# -------------------------------------------------
+
+class InterfonSchemaRequest(ZynModel):
+    project_id: str = ""              # elementele se citesc din DB (ca la /bom) — sursa UNICA
+    plan_elements: List[dict] = []    # SAU explicit (teste / apelanti care le au deja)
+    cartus_firma: Optional[dict] = None
+    cartus_proiect: Optional[dict] = None
+    plansa_nr: str = ""               # numarul REAL din numerotare (n8n il trimite)
+
+
+@app.post("/generate-schema-interfon-b64")
+def generate_schema_interfon_b64(request: InterfonSchemaRequest):
+    """Schema de distributie a retelei de interfon (base64, pentru n8n). Fara elemente de interfon
+    pe plan -> success cu skipped=True si FARA pdf, ca apelantul sa treaca mai departe."""
+    try:
+        from schema_interfon import build_interfon_schema
+        rows = list(request.plan_elements or [])
+        if not rows and request.project_id:
+            from supabase_client import supabase as _supa
+            rows = (_supa.table("plan_elements").select("*")
+                    .eq("project_id", request.project_id).execute().data) or []
+        pdf_bytes = build_interfon_schema(rows, request.cartus_firma or {},
+                                          request.cartus_proiect or {}, request.plansa_nr or None)
+        if not pdf_bytes:
+            return {"success": True, "skipped": True,
+                    "reason": "fara elemente de videointerfon pe plan"}
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+            "filename": "schema_distributie_interfon.pdf",
+            "size_bytes": len(pdf_bytes),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/generate-schema/test")
 def generate_schema_test():
     """
@@ -1571,8 +1612,34 @@ class PlansaNumberingRequest(ZynModel):
     has_tecv: bool = False
     has_tv: bool = False
     has_date: bool = False
-    has_interfon: bool = False
     detalii: Optional[List[str]] = None       # planşele de detaliu care exista
+    # ── VIDEOINTERFONUL (P7b): NU e un comutator. `has_interfon` a fost scos din contract tocmai ca
+    # nimeni sa nu-l poata trimite; planşa se aprinde din ELEMENTELE PLASATE, prin
+    # `interfon.are_interfon` — aceeasi functie pe care o foloseste generatorul schemei. Elementele se
+    # citesc din DB pe `project_id` (ca la /bom si la schemele de sistem), sau vin explicit — dar
+    # DOAR LA BLOC (`este_bloc`, calculat de /api/finalize cu `esteBloc`, conditia unica). O casa nu
+    # face nicio citire, deci numerotarea ei ramane exact cea de azi, inclusiv la o baza cazuta.
+    este_bloc: bool = False
+    project_id: str = ""
+    plan_elements: Optional[List[dict]] = None
+
+
+def _elemente_numerotare(request):
+    """Elementele planului, pentru portile numerotarii care se deriva din ele — DOAR la bloc.
+
+    None = „nu se stie" -> numerotarea de azi, neatinsa. Asa e la orice proiect care nu e bloc, oricat
+    de complet ar fi apelul: casa nu citeste baza si nu poate pica pe citire. La bloc, o citire esuata
+    ARUNCA: endpointul intoarce eroare, iar nodul n8n reincearca si apoi opreste finalizarea. Un
+    fallback tacut („fara interfon") ar fi scos planşa din borderou fara ca nimeni sa afle."""
+    if not request.este_bloc:
+        return None
+    if request.plan_elements is not None:
+        return request.plan_elements
+    if not request.project_id:
+        return None
+    from supabase_client import supabase as _supa
+    return (_supa.table("plan_elements").select("element_type")
+            .eq("project_id", request.project_id).execute().data) or []
 
 
 @app.post("/plansa-numbering")
@@ -1580,10 +1647,25 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
     """Lista ORDONATA a planselor EXISTENTE, IE.1..IE.N fara goluri. Erori status 200 (n8n)."""
     try:
         from plansa_numbering import compute_plansa_numbering
+        import interfon as _ifn
+        # VIDEOINTERFONUL: conditia se EVALUEAZA aici, din elementele plasate — singurul loc in care
+        # numerotarea o afla (vezi `_elemente_numerotare`: doar la bloc).
+        _rows = _elemente_numerotare(request)
+        has_interfon = _ifn.are_interfon(_rows or [])
+        # SCHEMA DE CURENTI SLABI: anuntata DOAR daca generatorul ei are ce desena — aceeasi poarta,
+        # `schema_cs.are_continut`. Fara elemente (orice proiect care nu e bloc, apelantii de dinainte)
+        # sau fara planşe de curenti slabi, regula de azi ramane neatinsa: schema urmeaza planşele
+        # (`has_cs`). Schimbarea atinge
+        # un singur caz — planşe generate, dar nimic de desenat pe schema — care pana acum lasa in
+        # borderou o planşa promisa si nelivrata. La un bloc cu interfon si fara alarma, cazul obisnuit.
+        _has_schema_cs = request.has_schema_cs
+        if _has_schema_cs is None and _rows is not None and request.has_cs:
+            import schema_cs as _scs
+            _has_schema_cs = _scs.are_continut(_rows)
         planse = compute_plansa_numbering(
             request.extra_floors or [], bool(request.has_tect), request.has_tes,
             bool(request.has_fv),
-            has_cs=bool(request.has_cs), has_schema_cs=request.has_schema_cs,
+            has_cs=bool(request.has_cs), has_schema_cs=_has_schema_cs,
             has_det=bool(request.has_det), has_schema_det=request.has_schema_det,
             coborare_floors=request.coborare_floors,
             has_situatie=bool(request.has_situatie),
@@ -1595,7 +1677,7 @@ def plansa_numbering_endpoint(request: PlansaNumberingRequest):
             fdcp=request.fdcp, apartamente=request.apartamente, spatii=request.spatii,
             has_tcc=bool(request.has_tcc), has_tecv=bool(request.has_tecv),
             has_tv=bool(request.has_tv), has_date=bool(request.has_date),
-            has_interfon=bool(request.has_interfon), detalii=request.detalii)
+            has_interfon=has_interfon, detalii=request.detalii)
         return {"success": True, "planse": planse, "count": len(planse)}
     except Exception as e:
         return {"success": False, "error": str(e), "planse": []}
@@ -2004,10 +2086,28 @@ def regenerate_plan_endpoint(request: RegeneratePlanRequest):
             _subtip = ((_pS.get("input_data") or {}).get("comercial_subtip") or "").strip() or None
         except Exception:
             _subtip = None
-        return draw_elements.redraw_from_plan_elements(
+        _res = draw_elements.redraw_from_plan_elements(
             request.base_pdf_base64, rows, draw_plan_type=request.plan_type, feeds=_feeds, rooms=_rooms,
             plansa_nr=_pl_nr, plansa_titlu=_pl_titlu, circuits=_circs, cross_floor=_cross,
             subtip=_subtip)
+        # VIDEOINTERFONUL (P7b): esecurile TACUTE ale unui sistem plasat de mana (apartament fara post,
+        # posturi fara panou de apel, sistem fara sursa). AVERTIZEAZA, nu blocheaza: planşa s-a
+        # generat oricum, iar inginerul le vede aici, INAINTE de documente. Pe TOT proiectul — `rows`
+        # e doar nivelul cerut, iar un apartament fara post poate fi pe oricare. Doar la planşa de
+        # curenti slabi, si fail-safe: o citire esuata nu strica regenerarea.
+        if (request.plan_type or "") == "curenti_slabi" and isinstance(_res, dict) and _res.get("success"):
+            try:
+                import interfon as _ifn
+                from supabase_client import supabase as _supaI
+                # doar coloanele pe care le citesc avertismentele (tip, nivel, pozitie, eticheta,
+                # conturul) — la un bloc mare, `*` ar fi adus degeaba toate campurile tuturor elementelor
+                _toate = (_supaI.table("plan_elements")
+                          .select("id,element_type,floor,x,y,label,cable_path")
+                          .eq("project_id", request.project_id).execute().data) or []
+                _res["avertismente"] = _ifn.avertismente(_toate)
+            except Exception as _ei:
+                print("[regenerate-plan] avertismente interfon skip:", _ei)
+        return _res
     except Exception as e:
         return {"success": False, "error": str(e)}
 

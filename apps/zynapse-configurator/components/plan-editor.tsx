@@ -15,6 +15,7 @@ import { prizeRuleForRoom, placePrizasInRoom, esteSpatiuExterior } from "@/lib/a
 import { cameraCanonica, CAMERE_COMERCIALE } from "@/lib/comercial";   // numele de pe plan -> camera canonica (sub-tip comercial)
 import { floorCanonic, floorIndex } from "@/lib/floors";   // M2a: un singur sistem de etaje (canonic)
 import { HEATING_RECEPTOR_TYPES, visibleHeatingReceptors, visibleEquipmentReceptors, commercialReceptorDef } from "@/lib/constants";   // Regula 10 + H5/H6: receptoare gate-uite pe formular
+import { esteBloc, blocReceptorDef } from "@/lib/constants";   // P7b: familiile care exista doar la bloc (videointerfonul)
 import { equipKey, isTechReceptorLabel, type HeatingEquipment } from "@/lib/heating-equipment";   // T3 + clasificare tech/extra pt. rubrici
 
 type PngMeta = {
@@ -233,6 +234,9 @@ function receptorPowerDef(label: string | null | undefined):
   const c = commercialReceptorDef(label);
   // compresorul de cabinet urca pana la 3,7 kW, unde varianta trifazata e curenta -> faza editabila
   if (c) return { default_w: c.default_w, editablePhase: true };
+  // P7b: sursa videointerfonului — o sursa mica de 230 V, monofazata prin natura ei
+  const b = blocReceptorDef(label);
+  if (b) return { default_w: b.default_w, editablePhase: false };
   return null;
 }
 // Clasificare receptor plasat -> rubrica „Camera tehnica" (tech) vs „Echipamente extra". DOAR pentru RANDARE
@@ -245,6 +249,9 @@ function isTechReceptor(el: PlanElement): boolean {
   // Fara ramura asta ar cadea pe `return true` de la final (default-ul pentru label necunoscut) si
   // ar aparea sub "Camera tehnica", desi butonul care le plaseaza sta in cealalta rubrica.
   if (commercialReceptorDef(el.label)) return false;
+  // P7b: sursa videointerfonului sta sub „Echipamente extra", langa butonul care o plaseaza —
+  // eticheta ei nu e de camera tehnica, iar default-ul de mai jos ar fi mutat-o acolo.
+  if (blocReceptorDef(el.label)) return false;
   const heat = heatingReceptorDef(el.label);
   // Radiatorul electric = receptor AUTONOM (decizia Dan 2026-07-25): sta sub "Echipamente extra",
   // nu sub "Camera tehnica". VCV/Distribuitor zona raman tech (legate de sistemul cu apa).
@@ -257,6 +264,8 @@ function receptorDefaultHeight(et: string, label: string): number {
   if (h) return h.default_height;                    // Regula 10: radiator 0.3 / VCV 2.2 / distribuitor 0.5
   const com = commercialReceptorDef(label);
   if (com) return com.default_height;                // unit/compresor 0.3 / autoclav+sterilizator 0.9 / post 1.2
+  const blc = blocReceptorDef(label);
+  if (blc) return blc.default_height;                // P7b: sursa videointerfonului 1.5
   if (et === "receptor_internet") return 2.0;
   // driverul benzii se monteaza sus, langa banda (in tavan fals / nisa de rigips)
   if (et === "banda_led_driver") return 2.4;
@@ -515,6 +524,15 @@ const CS_DATE_TV = [
   { value: "priza_tv",    label: "Priză TV",        h: 1.2 },
   { value: "priza_mixta", label: "Priză mixtă",     h: 1.2 },
 ] as const;
+// VIDEOINTERFONUL (P7b) — DOAR la bloc (`esteBloc`). Oglinda lui `interfon.TIPURI` din backend, în
+// aceeași ordine (de la ușa blocului spre apartament); înălțimile, oglinda lui `_CS_HEIGHT`.
+// Butoanele de ieșire și de sonerie NU sunt aici: se NUMĂRĂ (unul per yală, unul per post), nu se plasează.
+const CS_INTERFON = [
+  { value: "panou_apel_interfon",    label: "Panou de apel",         h: 1.5 },
+  { value: "cititor_control_acces",  label: "Cititor control acces", h: 1.3 },
+  { value: "yala_electromagnetica",  label: "Yală electromagnetică", h: 2.1 },
+  { value: "post_interior_interfon", label: "Post interior",         h: 1.5 },
+] as const;
 // A PATRA familie: DETECȚIE INCENDIU ȘI DESFUMARE. Înălțimile lipsă (null) sunt intenționate, ca
 // la NVR: detectoarele stau pe TAVAN, iar trapa, ventilatorul și clapeta în acoperiș sau în
 // tubulatură — n-au o cotă de perete. Regula lor („în punctul cel mai înalt al tavanului", „minimum
@@ -551,7 +569,7 @@ const DET_FARA_H = new Set(["detector_fum", "detector_caldura", "trapa_desfumare
 const csHasHeight = (t: string) =>
   (isCsType(t) && t !== "nvr" && t !== "traseu_cs") || (isDetType(t) && !DET_FARA_H.has(t));
 const CS_TYPES: string[] = [...CS_EFRACTIE.map(x => x.value), ...CS_VIDEO.map(x => x.value),
-                            ...CS_DATE_TV.map(x => x.value)];
+                            ...CS_DATE_TV.map(x => x.value), ...CS_INTERFON.map(x => x.value)];
 const CS_DATE_TV_TYPES: string[] = CS_DATE_TV.map(x => x.value);
 const isCsType = (t: string) => CS_TYPES.includes(t);
 // A treia familie, DOUĂ culori (oglinda lui _CS_DATE / _CS_TV din backend): date = roz, TV =
@@ -559,9 +577,13 @@ const isCsType = (t: string) => CS_TYPES.includes(t);
 // teal-ul cablului de semnal (dE 33) — orice roz mai saturat ar coborî sub 20, adică s-ar confunda.
 const COL_CS_DATE = "#F48FB1";
 const COL_CS_TV   = "#00BFA5";
+// VIDEOINTERFONUL: ocru închis — oglinda lui _CS_INTERFON din backend (dE minim 53 față de tot ce
+// stă pe planșele de curenți slabi și incendiu). Pe alb-negru simbolurile se deosebesc prin FORMĂ.
+const COL_CS_INT  = "#9E6A00";
 const csColor = (t: string) => (isDetType(t) ? COL_DET
                                 : t === "priza_tv" ? COL_CS_TV
                                 : t === "priza_date" || t === "priza_mixta" ? COL_CS_DATE
+                                : CS_INTERFON.some(x => x.value === t) ? COL_CS_INT
                                 : CS_VIDEO.some(x => x.value === t) ? COL_CS_VID : COL_CS_EFR);
 // Tipul de cablu al unui traseu stă în `label` — același tipar ca montajul tablourilor FV.
 // Camerele sunt IP (transmit pe rețeaua structurată către NVR) -> UTP, nu coaxial. RG59 e cablu de
@@ -579,6 +601,10 @@ const CS_CABLES = [
   // `fo24` din _CS_CABLE — dacă cele două listă divergează, inginerul desenează un traseu pe care
   // planșa nu știe să-l coloreze.
   { value: "fo24",       label: "Fibră optică 24 fire (coloană date)", col: "#218721", dash: undefined },
+  // COLOANA DE VIDEOINTERFON (P7b): magistrala pe 2 fire. Oglinda lui `interfon` din _CS_CABLE:
+  // linie-punct, singura de felul ei. Butonul apare DOAR la bloc (vezi `renderCsSection`); un traseu
+  // deja desenat se colorează oricum corect, fiindcă lista asta rămâne întreagă.
+  { value: "interfon",   label: "Videointerfon 2 fire (magistrală)", col: COL_CS_INT, dash: [6, 2, 1, 2] },
 ] as const;
 // traseele desenate înainte de corecție purtau "coax" (zero în baza de date la 30 aug 2026, dar
 // aliasul costă o linie și le ține valide) — oglinda lui _CS_CABLE_ALIAS
@@ -671,6 +697,40 @@ function csSymbol(type: string) {
         <Line points={[0, 2.8, -4.4, -1]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
         <Line points={[0, 2.8, 4.4, -1]} stroke={COL_CS_TV} strokeWidth={1.7} listening={false} />
       </>);
+    // VIDEOINTERFON (P7b) — oglinda EXACTĂ a lui `_draw_cs` (aceleași cote; doar liniile ~1,5x mai
+    // groase, ca la restul simbolurilor de ecran). Cadrul aparatului + calificativul funcției:
+    // panou = vertical, obiectiv + difuzor · post = orizontal, ecran PLIN + difuzor ·
+    // cititor = îngust + undele câmpului în afara cadrului · yală = orizontal jos + gaura cheii.
+    case "panou_apel_interfon":
+      return (<>
+        <Rect x={-6.5} y={-9.5} width={13} height={19} stroke={c} strokeWidth={1.6} />
+        <Circle x={0} y={-4.8} radius={2.2} fill={c} listening={false} />
+        <Rect x={-3.8} y={2.2} width={2} height={3.6} fill={c} listening={false} />
+        <Line points={[-1.8, 2.2, 3.2, 0.4, 3.2, 7.6, -1.8, 5.8]} closed stroke={c} strokeWidth={1.2} listening={false} />
+      </>);
+    case "post_interior_interfon":
+      return (<>
+        <Rect x={-10} y={-6.5} width={20} height={13} stroke={c} strokeWidth={1.6} />
+        <Rect x={-8} y={-4.5} width={9} height={9} fill={c} listening={false} />
+        <Rect x={3} y={-1.2} width={1.6} height={2.8} fill={c} listening={false} />
+        <Line points={[4.6, -1.2, 8.2, -3.4, 8.2, 3.8, 4.6, 1.6]} closed stroke={c} strokeWidth={1.2} listening={false} />
+      </>);
+    case "cititor_control_acces":
+      return (<>
+        <Rect x={-4} y={-7.5} width={8} height={15} stroke={c} strokeWidth={1.6} />
+        <Circle x={0} y={-4.4} radius={1.3} fill={c} listening={false} />
+        {[3.4, 6.4].map(r => (
+          <Line key={r} stroke={c} strokeWidth={1.3} listening={false}
+                points={Array.from({ length: 11 }, (_, i) => (-50 + i * 10) * Math.PI / 180)
+                  .flatMap(a => [4 + r * Math.cos(a), r * Math.sin(a)])} />
+        ))}
+      </>);
+    case "yala_electromagnetica":
+      return (<>
+        <Rect x={-9} y={-5} width={18} height={10} stroke={c} strokeWidth={1.6} />
+        <Circle x={0} y={-1.2} radius={1.9} fill={c} listening={false} />
+        <Line points={[-0.9, -0.2, 0.9, -0.2, 1.9, 3.6, -1.9, 3.6]} closed fill={c} stroke={c} strokeWidth={0.7} listening={false} />
+      </>);
     default:                   // doza_cs
       return <Rect x={-3.5} y={-3.5} width={7} height={7} fill={c} />;
   }
@@ -684,6 +744,9 @@ const CS_ABBR: Record<string, string> = {
   sirena_interioara: "SI", sirena_exterioara: "SE", buton_panica: "BP",
   nvr: "NVR", rack_9u: "RACK", sursa_alimentare_cs: "SA", doza_cs: "",
   priza_date: "PD", priza_tv: "PTV", priza_mixta: "PM",
+  // P7b — CCA, nu „CA" (clapeta antifoc a detecției are deja „CA")
+  panou_apel_interfon: "PA", cititor_control_acces: "CCA",
+  yala_electromagnetica: "YE", post_interior_interfon: "PI",
 };
 // ── LIPIRE LA PERETE CU ORIENTARE — mecanism COMUN (camere, PIR, aplice de perete,
 // întrerupătoare). Nu are nimic specific camerelor: conul și raza trăiesc în altă parte, aici e
@@ -1240,6 +1303,10 @@ export default function PlanEditor({
   const [regenLoading, setRegenLoading] = useState(false);
   const [regenPdf, setRegenPdf] = useState<string | null>(null);
   const [regenErr, setRegenErr] = useState<string | null>(null);
+  // P7b: avertismentele videointerfonului, de la „Obține plan" pe curenți slabi (backendul le
+  // calculează pe TOT proiectul, cu aceeași apartenență la contur ca circuitele). Nu blochează nimic:
+  // le vede inginerul înainte de documente, în rubrica „Videointerfon".
+  const [csAvertismente, setCsAvertismente] = useState<string[]>([]);
   // Traseele cablurilor primite la "Obține plan" (snapshot din compute_cables, puncte PDF).
   // Desenate ca linii Konva SUB simboluri. Se reîmprospătează la fiecare "Obține plan".
   // Se ARATĂ doar legăturile bec<->întrerupător; cablurile spre tablou sunt 64% din metrii de
@@ -2427,6 +2494,7 @@ export default function PlanEditor({
     if (!pos) return;
     const heat = heatingReceptorDef(p.label);          // Regula 10: radiator/VCV/distribuitor -> putere+faza DEFAULT
     const com = commercialReceptorDef(p.label);        // comerciale: unit dentar/compresor/... -> acelasi tipar
+    const blc = blocReceptorDef(p.label);              // P7b: sursa videointerfonului -> acelasi tipar
     const row = {
       project_id: projectId,
       floor: floorCanonic(floor),        // PROP curent (nu elements[0]) — coerent cu priza de pamant
@@ -2447,7 +2515,8 @@ export default function PlanEditor({
       // Comercialele: ACELASI tipar. Backendul are oricum default-ul lui pe label (_RECEPTOR_DEFAULT_W),
       // deci un element fara power_w (plasat prin API) iese la fel — scrisul aici il face doar EDITABIL.
       ...(heat ? { power_w: heat.default_w, phase: heat.default_phase }
-               : com ? { power_w: com.default_w, phase: com.default_phase } : {}),
+               : com ? { power_w: com.default_w, phase: com.default_phase }
+               : blc ? { power_w: blc.default_w, phase: blc.default_phase } : {}),
       status: null as string | null,
     };
     const { data, error } = await supabase.from("plan_elements").insert(row).select(SELECT_COLS).single();
@@ -2613,6 +2682,10 @@ export default function PlanEditor({
                         typeof data.plansa_nr === "string" && data.plansa_nr ? data.plansa_nr : undefined,
                         typeof data.pdf_path === "string" ? data.pdf_path : undefined);
         setOverlayCables(Array.isArray(data.cables) ? data.cables : []);  // snapshot cabluri -> overlay Konva
+        if (mode === "curenti_slabi") {
+          setCsAvertismente(Array.isArray(data.avertismente)
+            ? data.avertismente.filter((a: unknown): a is string => typeof a === "string") : []);
+        }
       }
     } catch (e) {
       setRegenErr(e instanceof Error ? e.message : "Eroare de rețea.");
@@ -3449,6 +3522,8 @@ export default function PlanEditor({
       ));
     const puse = elements.filter(e => isCsType(e.element_type));
     const trasee = elements.filter(e => e.element_type === "traseu_cs");
+    // P7b: videointerfonul și cablul lui există DOAR la bloc — condiția e `esteBloc`, un singur loc.
+    const bloc = esteBloc(buildingType);
     return (
       <>
         <Rubrica title="Efracție">
@@ -3460,6 +3535,11 @@ export default function PlanEditor({
         <Rubrica title="Distribuție date și TV" hint="Prize de date RJ45, TV coaxiale și mixte. Se plasează manual, ca restul; înălțimea implicită e 0,3 m la date și 1,2 m la TV (editabilă pe element).">
           <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_DATE_TV)}</div>
         </Rubrica>
+        {bloc && (
+          <Rubrica title="Videointerfon" hint="Magistrală pe 2 fire. Panoul de apel, cititorul și yala la ușa blocului, câte un post interior în fiecare apartament. Butoanele de ieșire și de sonerie se numără singure (unul per yală, unul per post). Sursa se pune pe planul de forță, în spațiul comun.">
+            <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>{grup(CS_INTERFON)}</div>
+          </Rubrica>
+        )}
         <Rubrica title="Trasee curenți slabi" hint="Cablurile se desenează; metrii din lista de cantități ies din desen. Alinierea ortogonală e activă (Shift o dezactivează).">
           {trasee.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, paddingLeft: 2 }}>
@@ -3487,7 +3567,7 @@ export default function PlanEditor({
             </div>
           ) : (
             <div className="flex gap-1.5" style={{ flexWrap: "wrap", paddingLeft: 2 }}>
-              {CS_CABLES.map(c => (
+              {CS_CABLES.filter(c => bloc || c.value !== "interfon").map(c => (
                 <button key={c.value} type="button" className="zy-add-btn"
                   onClick={() => startDrawTraseuCs(c.value)}>+ {c.label}</button>
               ))}
@@ -3651,7 +3731,7 @@ export default function PlanEditor({
   const renderCameraTehnicaSection = () => {
     if (mode !== "forta") return null;
     const heatButtons = visibleHeatingReceptors(heatingDistribution);   // Radiator/VCV/Distribuitor -> tech
-    const eqTech = visibleEquipmentReceptors({ heatingType, enabledEquipment }).filter(b => isTechReceptorLabel(b.label));   // boiler
+    const eqTech = visibleEquipmentReceptors({ heatingType, enabledEquipment, buildingType }).filter(b => isTechReceptorLabel(b.label));   // boiler
     const techRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && isTechReceptor(e));
     const hasHeatEq = heatingEquipment.length > 0;
     const placedH = new Set(elements.filter(e => e.element_type === "alimentare_receptor").map(e => (e.label || "").trim()));
@@ -3746,7 +3826,7 @@ export default function PlanEditor({
   // ── RUBRICA „Echipamente extra" — receptoarele NON-tech (AC/cuptor/HRV/EV/internet): butoane + lista. ──
   const renderEchipamenteExtraSection = () => {
     if (mode !== "forta") return null;
-    const eqExtra = visibleEquipmentReceptors({ heatingType, enabledEquipment }).filter(b => !isTechReceptorLabel(b.label));   // cuptor/AC/HRV/EV/internet
+    const eqExtra = visibleEquipmentReceptors({ heatingType, enabledEquipment, buildingType }).filter(b => !isTechReceptorLabel(b.label));   // cuptor/AC/HRV/EV/internet
     const extraRecs = elements.filter(e => (e.element_type === "alimentare_receptor" || e.element_type === "receptor_internet") && !isTechReceptor(e));
     if (eqExtra.length === 0 && extraRecs.length === 0) return null;   // empty-state (nimic extra) -> nu apare
     return (
@@ -3919,6 +3999,14 @@ export default function PlanEditor({
                 <a className="zy-add-btn" href={regenPdf} download="Plan_iluminat_editat.pdf">Descarcă</a>
                 <a className="zy-add-btn" href={regenPdf} target="_blank" rel="noopener noreferrer">Deschide</a>
               </div>
+            </div>
+          )}
+          {/* P7b: avertismentele videointerfonului, chiar sub rezultatul generării — acolo se uită
+              inginerul după „Obține plan". Nu blochează: planșa s-a generat oricum. */}
+          {mode === "curenti_slabi" && csAvertismente.length > 0 && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11.5, lineHeight: 1.45,
+              color: "#F0C98A", background: "rgba(240,168,104,0.08)", border: "1px solid rgba(240,168,104,0.28)" }}>
+              {csAvertismente.map(a => <div key={a}>{a}</div>)}
             </div>
           )}
         </div>

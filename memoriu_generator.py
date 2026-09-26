@@ -600,17 +600,35 @@ _CS_NUME = {
     "priza_date":          ("o", "priză de date RJ45 cat. 5e/6", "prize de date RJ45 cat. 5e/6"),
     "priza_tv":            ("o", "priză TV coaxială", "prize TV coaxiale"),
     "priza_mixta":         ("o", "priză mixtă date + TV", "prize mixte date + TV"),
+    # VIDEOINTERFONUL (P7b). Butoanele de iesire si de sonerie NU sunt elemente de plan: se NUMARA
+    # (`interfon.accesorii`) si intra in enumerare langa aparatele din care decurg. Sursa e un
+    # receptor pe TCC, purtat in inventar doar langa sistem (vezi `enrich_circuits._cs_inventar`).
+    "panou_apel_interfon": ("un", "panou de apel videointerfon", "panouri de apel videointerfon"),
+    "cititor_control_acces": ("un", "cititor de control acces cu card de proximitate",
+                              "cititoare de control acces cu card de proximitate"),
+    "yala_electromagnetica": ("o", "yală electromagnetică", "yale electromagnetice"),
+    "buton_iesire":        ("un", "buton de ieșire", "butoane de ieșire"),
+    "post_interior_interfon": ("un", "post interior videointerfon", "posturi interioare videointerfon"),
+    "buton_sonerie":       ("un", "buton de sonerie la ușa apartamentului",
+                            "butoane de sonerie la ușile apartamentelor"),
+    "sursa_interfon":      ("o", "sursă de alimentare pentru videointerfon",
+                            "surse de alimentare pentru videointerfon"),
 }
 # ordinea de enumerare: intai efractia (in ordinea lantului: centrala -> comanda -> detectie ->
-# semnalizare), apoi partea video, apoi infrastructura comuna
+# semnalizare), apoi partea video, apoi infrastructura comuna, apoi interfonul (de la usa blocului
+# spre apartament) — la COADA, ca enumerarea proiectelor de azi sa ramana cuvant cu cuvant aceeasi
 _CS_ORDINE = ["centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
               "buton_panica", "sirena_interioara", "sirena_exterioara",
               "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs",
-              "priza_date", "priza_tv", "priza_mixta"]
+              "priza_date", "priza_tv", "priza_mixta",
+              "panou_apel_interfon", "cititor_control_acces", "yala_electromagnetica", "buton_iesire",
+              "post_interior_interfon", "buton_sonerie", "sursa_interfon"]
 _CS_EFRACTIE = {"centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
                 "buton_panica", "sirena_interioara", "sirena_exterioara"}
 _CS_VIDEO = {"camera_video", "nvr"}
 _CS_DATE_TV = {"priza_date", "priza_tv", "priza_mixta"}
+_CS_INTERFON = {"panou_apel_interfon", "cititor_control_acces", "yala_electromagnetica",
+                "post_interior_interfon"}
 
 
 # ── ALIMENTAREA: bransament propriu (default) vs punct de distributie existent ────────────────
@@ -665,6 +683,54 @@ def _cs_din_circuite(circuits):
             except (TypeError, ValueError):
                 continue
     return comp, cam
+
+
+def _interfon_accesorii(comp):
+    """Butoanele NUMARATE ale interfonului, din regula unica (`interfon.accesorii`). Fara interfon
+    pe plan -> {} (nu zero-uri), ca `dict(comp, **...)` sa lase inventarul de azi neatins."""
+    try:
+        import interfon as _ifn
+    except Exception:
+        return {}
+    return {k: v for k, v in _ifn.accesorii(comp).items() if v}
+
+
+def _interfon_paragrafe(comp):
+    """Descrierea VIDEOINTERFONULUI (P7b) — doar ce e pe plan. Sistemul e pe doua fire, magistrala
+    nepolarizata (decizia lui Dan); sursa e un receptor in spatiul comun, pe TCC."""
+    def n(k):
+        return int((comp or {}).get(k) or 0)
+    out = ["Accesul în clădire se controlează printr-un sistem de videointerfon pe două fire, cu "
+           "magistrală nepolarizată. Panoul de apel de la intrare comunică, pe aceeași magistrală, "
+           "cu posturile interioare video din apartamente, de la care locatarii văd și vorbesc cu "
+           "vizitatorul. Magistrala urcă prin clădire pe traseul figurat în planșele de curenți "
+           "slabi, iar distribuția ei pe niveluri și pe apartamente este cea din planșa „Schemă de "
+           "distribuție rețea de interfon”."]
+    if n("yala_electromagnetica"):
+        out.append("Ușa de acces este prevăzută cu yală electromagnetică, deblocată de la posturile "
+                   "interioare%s și, din interior, de la butonul de ieșire." % (
+                       ", de la cititorul de control acces cu card de proximitate"
+                       if n("cititor_control_acces") else ""))
+    elif n("cititor_control_acces"):
+        out.append("La intrare se prevede un cititor de control acces cu card de proximitate.")
+    if n("post_interior_interfon"):
+        out.append("La ușa fiecărui apartament se montează un buton de sonerie, legat la postul "
+                   "interior al apartamentului.")
+    _usa = [x for x in (("yala electromagnetică" if n("yala_electromagnetica") else None),
+                        ("cititorul de control acces" if n("cititor_control_acces") else None)) if x]
+    if n("sursa_interfon"):
+        _al = ("Sursa sistemului se montează în spațiul comun și se alimentează dintr-un circuit "
+               "dedicat din tabloul consumatorilor comuni (TCC); din ea se alimentează magistrala%s."
+               % ((", " if len(_usa) > 1 else " și ") + " și ".join(_usa) if _usa else ""))
+        if n("yala_electromagnetica"):
+            _al += (" Yala electromagnetică eliberează ușa la dispariția tensiunii, astfel încât "
+                    "evacuarea nu depinde de funcționarea sistemului.")
+        out.append(_al)
+    out.append("Sistemul de videointerfon se proiectează și se execută conform Normativului "
+               "I18/1-2001 și seriei de standarde SR EN 62820 pentru sistemele de interfon ale "
+               "clădirilor%s." % (", iar controlul accesului conform SR EN 60839-11-1"
+                                   if n("cititor_control_acces") else ""))
+    return out
 
 
 def _cs_enumerare(comp):
@@ -877,11 +943,14 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
     _has_efr = any(comp.get(k) for k in _CS_EFRACTIE)
     _has_vid = any(comp.get(k) for k in _CS_VIDEO)
     _has_dtv = any(comp.get(k) for k in _CS_DATE_TV)
+    _has_int = any(comp.get(k) for k in _CS_INTERFON)
     # Fraza de deschidere enumera DOAR sistemele care exista. La o casa cu prize de date si TV dar
     # fara efractie, capitolul nu mai anunta un sistem de alarma inexistent.
     _p = [x for x in (("un sistem de detecție și semnalizare a efracției" if _has_efr else None),
                       ("un sistem de supraveghere video" if _has_vid else None),
-                      ("o instalație de distribuție de date și televiziune" if _has_dtv else None))
+                      ("o instalație de distribuție de date și televiziune" if _has_dtv else None),
+                      ("un sistem de videointerfon cu control al accesului în clădire"
+                       if _has_int else None))
           if x]
     _sist = (" și ".join([", ".join(_p[:-1]), _p[-1]]) if len(_p) > 1
              else (_p[0] if _p else "instalații de curenți slabi"))
@@ -912,10 +981,16 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
         _e = _dtv_echipament(comp)
         if _e:
             _add_para(doc, _e)
+    if _has_int:
+        for _t in _interfon_paragrafe(comp):
+            _add_para(doc, _t)
     _top = _topologie_stea(comp)
     if _top:
         _add_para(doc, _top)
-    _enum = _cs_enumerare(comp)
+    # Accesoriile interfonului se NUMARA (unul per yala, unul per post) — regula e in `interfon`,
+    # aceeasi pentru lista de cantitati si caiet. Fara interfon, `accesorii` da zero si enumerarea
+    # iese exact ca inainte.
+    _enum = _cs_enumerare(dict(comp, **_interfon_accesorii(comp)))
     if _enum:
         _add_para(doc, "Echipamentele prevăzute sunt: %s." % _enum)
     if cam:
@@ -926,6 +1001,18 @@ def _memoriu_docx_curenti_slabi_section(doc, nr, comp, cam):
         _add_para(doc, "Camerele se defalcă pe tipuri astfel: %s, alese după unghiul de acoperire "
                        "necesar fiecărei zone." % (", ".join(_cb[:-1]) + " și " + _cb[-1]
                                                    if len(_cb) > 1 else _cb[0]))
+    if not (_has_efr or _has_vid) and _has_int:
+        # Interfonul ARE echipamente active, cu alimentarea lor (scrisa mai sus), deci fraza de mai jos
+        # („nu cuprinde echipamente active") ar fi falsa. Prizele, daca exista, raman pasive.
+        if _has_dtv:
+            _add_para(doc, "Prizele de date și televiziune sunt pasive și se leagă la punctul de "
+                           "distribuție al locuinței, alimentat dintr-un circuit dedicat de 230 V din "
+                           "tabloul electric.")
+            _add_para(doc, "La proiectarea și executarea instalațiilor de curenți slabi se respectă "
+                           "Normativul I18/1-2001 pentru instalațiile de curenți slabi aferente "
+                           "clădirilor, iar rețeaua de date se realizează conform SR EN 50173 pentru "
+                           "cablarea structurată.")
+        return
     if not (_has_efr or _has_vid):
         # doar prize: nu exista echipament activ de alimentat, deci fraza de 12 V c.c. n-are obiect
         _add_para(doc, "Instalația nu cuprinde echipamente active alimentate; prizele se leagă la "
@@ -1650,10 +1737,14 @@ def build_memoriu_docx(data: dict) -> bytes:
             # borderoul zicea 4 planşe cand proiectul avea 8.
             # Fara derivare din circuite, ca si `has_cs`/`has_det`: un fals pozitiv ar anunta in
             # borderou o planşa care nu exista. Absent -> numerotarea de azi, neschimbata.
+            # `has_interfon` NU e aici, intentionat (P7b): planşa de interfon exista doar din
+            # elementele plasate, iar singura care o evalueaza e /plansa-numbering. Lista ei ajunge
+            # aici intreaga (`plansa_numbering`, ramura de mai sus); plasa asta de rezerva n-are
+            # elementele, deci n-are cum s-o aprinda — si nu primeste un comutator in locul lor.
             _bloc = {k: data.get(k) for k in
                      ("has_situatie", "has_camera_pompe", "has_distributie", "has_bmpt_fdcp",
                       "fdcp", "apartamente", "spatii", "has_tcc", "has_tecv",
-                      "has_tv", "has_date", "has_interfon", "detalii")
+                      "has_tv", "has_date", "detalii")
                      if data.get(k) is not None}
             if data.get("has_teg") is not None:
                 _bloc["has_teg"] = bool(data.get("has_teg"))

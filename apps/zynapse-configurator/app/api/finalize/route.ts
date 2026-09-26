@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabase";
-import { snapFvPackage } from "@/lib/constants";
+import { snapFvPackage, esteBloc } from "@/lib/constants";
 import { culegeDocumente, inregistreaza } from "@/lib/registru-finalizari";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 import { floorCanonic, sortFloors } from "@/lib/floors";   // axa DESCHISĂ de niveluri (oglinda floors.py)
@@ -393,6 +393,11 @@ export async function POST(req: NextRequest) {
     // PORȚILE DE BLOC, derivate mai sus din circuitele CHIAR generate. Pe o casă toate ies goale
     // sau false, deci numerotarea rămâne exact cea de azi — non-regresia e structurală.
     ...portiBloc,
+    // E BLOC? Condiția UNICĂ (`esteBloc`, aceeași care arată paleta de interfon în editor). Pe ea
+    // /plansa-numbering decide dacă CITEȘTE elementele din bază (poarta planșei de interfon, P7b) —
+    // doar la bloc. O casă sau un duplex nu face nicio citire în plus, deci nu primește nici modul
+    // nou de eșec (citire picată -> finalizare oprită), pe care blocul îl are intenționat.
+    este_bloc: esteBloc(String(inputData.building_type || "")),
     // TIPURILE de apartament, pentru schemele care își declară domeniul („AP-1: PARTER P1..P4 · …").
     tipuri_apartament: tipuriAp,
     fv_kw: fvKw,

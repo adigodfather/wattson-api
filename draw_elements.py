@@ -7,6 +7,7 @@ import unicodedata
 import floors as _fl                     # axa DESCHISA de niveluri (sursa unica; vezi floors.py)
 import panels as _pnl                    # registrul de TABLOURI (tipuri, familii, ku; vezi panels.py)
 import apartments as _apm                # conturul de apartament (vezi apartments.py)
+import interfon as _ifn                  # videointerfonul la bloc: tipurile familiei (vezi interfon.py)
 
 import fitz  # PyMuPDF
 
@@ -1096,7 +1097,12 @@ def _legend_cable_rows(elements, plan_type, present, feeds=None, circuits=None, 
 _CS_TYPES = ("centrala_efractie", "tastatura_efractie", "detector_pir", "contact_magnetic",
              "sirena_interioara", "sirena_exterioara", "buton_panica",
              "camera_video", "nvr", "rack_9u", "sursa_alimentare_cs", "doza_cs", "traseu_cs",
-             "priza_date", "priza_tv", "priza_mixta")
+             "priza_date", "priza_tv", "priza_mixta") + _ifn.TIPURI
+# VIDEOINTERFONUL (P7b): tipurile vin din `interfon.py`, nu se retasteaza aici. Intra la curentii
+# slabi pentru tot ce inseamna PLANSA (simbol, eticheta, legenda, lista de cantitati, inventarul
+# purtat pe circuite spre memoriu si caiet), dar au SCHEMA lor — `schema_cs` le exclude, citind
+# acelasi tuplu. La COADA, ca nicio pozitie existenta sa nu se mute (randurile BOM ies in ordinea asta).
+_INTERFON_TYPES = _ifn.TIPURI
 
 
 # ── CURENTI SLABI: simboluri, etichete, puteri ───────────────────────────────────────────────
@@ -1117,6 +1123,11 @@ _CS_VIDEO    = (0.157, 0.208, 0.576)    # #283593
 _CS_DATE     = (0.957, 0.561, 0.694)    # #F48FB1 — roz, prize de date
 _CS_TV       = (0.000, 0.749, 0.647)    # #00BFA5 — turcoaz, prize TV
 _CS_DATE_TV  = _CS_DATE                 # familia (culoarea etichetei); mixta poarta ambele in simbol
+# A PATRA familie: VIDEOINTERFONUL (P7b) — OCRU INCHIS. Masurat (CIE76) fata de tot ce poate sta pe
+# planşa de curenti slabi si pe cea de incendiu: dE minim 53 (rosul detectiei), 65 fata de verdele
+# fibrei, 68 fata de rozul datelor, 70 fata de negru — peste pragul de 30 al proiectului cu mult. Pe
+# tipar alb-negru culoarea nu mai spune nimic, deci cele patru simboluri se deosebesc prin FORMA.
+_CS_INTERFON = (0.620, 0.416, 0.000)    # #9E6A00
 
 # Familia fiecarui tip -> culoarea lui.
 _CS_FAMILY = {
@@ -1127,6 +1138,8 @@ _CS_FAMILY = {
     "camera_video": _CS_VIDEO, "nvr": _CS_VIDEO, "rack_9u": _CS_VIDEO,
     "sursa_alimentare_cs": _CS_VIDEO, "doza_cs": _CS_VIDEO,
     "priza_date": _CS_DATE, "priza_tv": _CS_TV, "priza_mixta": _CS_DATE,
+    "panou_apel_interfon": _CS_INTERFON, "cititor_control_acces": _CS_INTERFON,
+    "yala_electromagnetica": _CS_INTERFON, "post_interior_interfon": _CS_INTERFON,
 }
 
 # Abrevierea de pe plan (eticheta scurta de langa simbol), ca pe planurile de referinta.
@@ -1137,6 +1150,11 @@ _CS_ABBR = {
     "sursa_alimentare_cs": "SA", "doza_cs": "",     # doza n-are eticheta (e prea deasa pe plan)
     # PD/PTV/PM — scurte si distincte intre ele; nu se lovesc de nimic din setul existent
     "priza_date": "PD", "priza_tv": "PTV", "priza_mixta": "PM",
+    # VIDEOINTERFONUL (P7b). CCA, nu „CA": „CA" e deja clapeta antifoc a detectiei, iar
+    # `cs_index_map` numeroteaza pe (etaj, abreviere) — doua aparate cu acelasi cod ar fi numarate
+    # impreuna (CA 1 cititor, CA 2 clapeta) pe orice lista care le vede pe amandoua.
+    "panou_apel_interfon": "PA", "cititor_control_acces": "CCA",
+    "yala_electromagnetica": "YE", "post_interior_interfon": "PI",
 }
 
 # TEXTUL DE LEGENDA — VERBATIM din planurile de referinta (Desktop\ANTI-EFRACTIE + INSTAUDITOR),
@@ -1174,6 +1192,16 @@ _CS_LEGEND = {
     "priza_date":         "PD: Priza de date RJ45, cat. 5e/6",
     "priza_tv":           "PTV: Priza TV coaxiala, 75 ohm",
     "priza_mixta":        "PM: Priza mixta date RJ45 + TV coaxiala, in aceeasi doza",
+    # VIDEOINTERFON (P7b) — formulare noua, in acelasi registru. Sistemul e pe doua fire, deci
+    # textele spun „magistrala 2 fire" acolo unde aparatul sta pe ea (panoul si posturile).
+    "panou_apel_interfon":   "PA: Panou de apel videointerfon, magistrala 2 fire, montat la intrarea "
+                             "in bloc",
+    "cititor_control_acces": "CCA: Cititor control acces cu card de proximitate, montat langa usa de "
+                             "acces",
+    "yala_electromagnetica": "YE: Yala electromagnetica pe usa de acces, alimentata din sursa "
+                             "videointerfonului",
+    "post_interior_interfon": "PI: Post interior videointerfon, magistrala 2 fire, montat in holul "
+                              "apartamentului",
 }
 # Numele scurt pentru lista de cantitati (BOM).
 _CS_BOM_NAME = {
@@ -1195,6 +1223,10 @@ _CS_BOM_NAME = {
     "priza_date": "Priza de date RJ45 cat. 5e/6",
     "priza_tv": "Priza TV coaxiala 75 ohm",
     "priza_mixta": "Priza mixta RJ45 + TV coaxiala",
+    "panou_apel_interfon": "Panou de apel videointerfon, magistrala 2 fire",
+    "cititor_control_acces": "Cititor control acces cu card de proximitate",
+    "yala_electromagnetica": "Yala electromagnetica pentru usa de acces",
+    "post_interior_interfon": "Post interior videointerfon, magistrala 2 fire",
 }
 # Inaltimea de montaj implicita (m) — din planurile de referinta. Editabila per element.
 # NVR-ul lipseste INTENTIONAT: se monteaza IN rack, nu pe perete -> n-are inaltime de montaj si
@@ -1210,6 +1242,10 @@ _CS_HEIGHT = {
     # PRIZE DE DATE SI TV (decizia Dan): priza de date sta langa cea de 230 V, la nivelul placii;
     # cea TV (si cea mixta, care o include) urca la 1,2 m, in spatele televizorului montat pe perete.
     "priza_date": 0.3, "priza_tv": 1.2, "priza_mixta": 1.2,
+    # VIDEOINTERFON (P7b): panoul si postul la inaltimea ochilor (camera panoului vede fata), cititorul
+    # la mana, ca butonul de panica; yala sta sus, pe tocul usii, ca si contactul magnetic.
+    "panou_apel_interfon": 1.5, "cititor_control_acces": 1.3,
+    "yala_electromagnetica": 2.1, "post_interior_interfon": 1.5,
 }
 # PUTERI (W) pentru dimensionarea DDCS (decizia Dan). Sirenele sunt la puterea de ALARMA — worst
 # case, care e exact ce trebuie la dimensionare. Butonul si contactul sunt pasive (0 W).
@@ -1224,6 +1260,11 @@ _CS_POWER_W = {
     # Prizele de date si TV sunt PASIVE: nu consuma nimic, deci nu urca puterea DDCS-ului.
     # Echipamentul care le deserveste (switch-ul) NU e element de plan: vezi `cs_switch_porturi`.
     "priza_date": 0, "priza_tv": 0, "priza_mixta": 0,
+    # VIDEOINTERFONUL NU se alimenteaza din DDCS: are SURSA LUI, un receptor cu circuit dedicat pe
+    # TCC (decizia lui Dan). Zero aici, scris explicit — altfel un default viitor l-ar fi numarat de
+    # doua ori, o data pe DDCS si o data pe circuitul sursei.
+    "panou_apel_interfon": 0, "cititor_control_acces": 0,
+    "yala_electromagnetica": 0, "post_interior_interfon": 0,
 }
 
 
@@ -1419,6 +1460,9 @@ _CS_CABLE_SERVESTE = {
     # `fo24` LIPSESTE INTENTIONAT: harta asta inmulteste metrii cu numarul de APARATE servite, iar
     # fibra nu hraneste aparate, ci doze (DDCS, DTC). Metrii ei sunt ai traseului desenat, o singura
     # data — pusa aici, coloana ar fi fost numarata de cate ori are un etaj apartamente.
+    # `interfon` LIPSESTE din acelasi motiv, si inca mai tare: e o MAGISTRALA pe doua fire, un singur
+    # cablu care trece pe la toate posturile. Inmultit cu aparatele, un bloc cu 20 de posturi ar fi
+    # primit de 20 de ori coloana desenata.
 }
 
 
@@ -1752,6 +1796,15 @@ _CS_CABLE = {
     "semnal":     {"nume": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm",
                    "bom": "Cablu semnal 2x(LiY(St)Y) 3x2x0,6 mm", "col": (0.0, 0.514, 0.561),
                    "dash": "[3 2] 0"},
+    # COLOANA DE VIDEOINTERFON (P7b): magistrala pe DOUA FIRE, nepolarizata (decizia lui Dan) — un
+    # singur cablu de la panoul de apel prin toata cladirea, pe la fiecare post. SE DESENEAZA, ca
+    # `fo24`: inginerul o traseaza cu `traseu_cs`, iar lungimea e a traseului, fara nicio inmultire
+    # (vezi `_CS_CABLE_SERVESTE`). Linie-PUNCT, singura de felul ei: pe tipar alb-negru se deosebeste
+    # de UTP (plina) si de semnal (intrerupta). La COADA dictionarului, ca ordinea randurilor de
+    # cablu din lista de cantitati si din legenda sa ramana cea de azi.
+    "interfon":   {"nume": "Cablu videointerfon 2 fire (magistrala nepolarizata), 2x1 mmp torsadat",
+                   "bom": "Cablu videointerfon 2x1 mmp torsadat", "col": _CS_INTERFON,
+                   "dash": "[6 2 1 2] 0"},
 }
 _CS_CABLE_DEFAULT = "utp"
 # Traseele desenate INAINTE de corectie aveau cheia "coax". La 30 aug 2026 nu exista niciunul in baza
@@ -2338,6 +2391,46 @@ def _draw_cs(page, cx, cy, element_type, scale=1.0, label=None):
             # confunda cu niciuna dintre prizele simple.
             _rj45(_CS_DATE, -4.4)
             _antena(_CS_TV, 3.4)
+    # ── VIDEOINTERFON (P7b) — PROPUNERI, de aprobat de Dan pe capturi ─────────────────────────
+    # Compozitia din SR EN 60617: CADRUL aparatului (dreptunghiul, simbolul general de echipament) +
+    # simbolul CALIFICATIV al functiei, inauntru. Pe tipar alb-negru se deosebesc prin FORMA:
+    #   panou de apel = cadru VERTICAL, obiectiv + difuzor · post interior = cadru ORIZONTAL, ecran
+    #   PLIN + difuzor · cititor = cadru INGUST + undele campului, IN AFARA cadrului · yala = cadru
+    #   orizontal JOS + gaura cheii. Difuzorul (corp + palnie) e calificativul SR EN 60617 al
+    #   sonorizarii si leaga vizual panoul de post — aceeasi convorbire, cele doua capete.
+    elif element_type == "panou_apel_interfon":
+        page.draw_rect(R(6.5, 9.5), color=col, width=1.1)
+        page.draw_circle(fitz.Point(cx, cy - 4.8 * s), 2.2 * s, color=col, fill=col, width=0.6)
+        page.draw_rect(fitz.Rect(cx - 3.8 * s, cy + 2.2 * s, cx - 1.8 * s, cy + 5.8 * s),
+                       color=col, fill=col, width=0.5)
+        page.draw_polyline([fitz.Point(cx - 1.8 * s, cy + 2.2 * s), fitz.Point(cx + 3.2 * s, cy + 0.4 * s),
+                            fitz.Point(cx + 3.2 * s, cy + 7.6 * s), fitz.Point(cx - 1.8 * s, cy + 5.8 * s)],
+                           color=col, width=0.8, closePath=True)
+    elif element_type == "post_interior_interfon":
+        # ecranul e PLIN: asa nu se confunda cu panoul repetor de incendiu (ecran gol, fara difuzor)
+        page.draw_rect(R(10, 6.5), color=col, width=1.1)
+        page.draw_rect(fitz.Rect(cx - 8 * s, cy - 4.5 * s, cx + 1 * s, cy + 4.5 * s),
+                       color=col, fill=col, width=0.5)
+        page.draw_rect(fitz.Rect(cx + 3 * s, cy - 1.2 * s, cx + 4.6 * s, cy + 1.6 * s),
+                       color=col, fill=col, width=0.5)
+        page.draw_polyline([fitz.Point(cx + 4.6 * s, cy - 1.2 * s), fitz.Point(cx + 8.2 * s, cy - 3.4 * s),
+                            fitz.Point(cx + 8.2 * s, cy + 3.8 * s), fitz.Point(cx + 4.6 * s, cy + 1.6 * s)],
+                           color=col, width=0.8, closePath=True)
+    elif element_type == "cititor_control_acces":
+        # undele campului de proximitate: doua arce DESCHISE, centrate pe latura din dreapta — singurul
+        # simbol cu linii libere in afara cadrului, deci se recunoaste si la dimensiunea legendei
+        page.draw_rect(R(4, 7.5), color=col, width=1.1)
+        page.draw_circle(fitz.Point(cx, cy - 4.4 * s), 1.3 * s, color=col, fill=col, width=0.5)
+        for r_ in (3.4, 6.4):
+            page.draw_polyline([fitz.Point(cx + 4 * s + r_ * s * math.cos(math.radians(a)),
+                                           cy + r_ * s * math.sin(math.radians(a)))
+                                for a in range(-50, 51, 10)], color=col, width=0.9)
+    elif element_type == "yala_electromagnetica":
+        page.draw_rect(R(9, 5), color=col, width=1.1)
+        page.draw_circle(fitz.Point(cx, cy - 1.2 * s), 1.9 * s, color=col, fill=col, width=0.5)
+        page.draw_polyline([fitz.Point(cx - 0.9 * s, cy - 0.2 * s), fitz.Point(cx + 0.9 * s, cy - 0.2 * s),
+                            fitz.Point(cx + 1.9 * s, cy + 3.6 * s), fitz.Point(cx - 1.9 * s, cy + 3.6 * s)],
+                           color=col, fill=col, width=0.5, closePath=True)
     else:   # doza_cs (default): patrat mic plin — se pun multe pe plan, trebuie sa fie discret
         page.draw_rect(R(3.5, 3.5), color=col, fill=col, width=0.6)
 

@@ -14,6 +14,7 @@ import panels as _panels                 # registrul de TABLOURI + graful lor (v
 import protectii as _prot               # curba si capacitatea de rupere (vezi protectii.py)
 import apartments as _ap_mod             # apartamentul ca entitate de grupare (vezi apartments.py)
 import bloc as _blc                      # TCC / TECV / TEP, cablul E90, grupul electrogen (bloc.py)
+import interfon as _ifn                  # videointerfonul: recunoasterea sursei + protectia ei
 
 _pn_bucket = _panels.panel_bucket        # scurtatura — se cheama o data per circuit
 from draw_elements import compute_circuits, tech_room_from_elements, _BULB_DEFAULT_W, _grouped_heating_kind
@@ -182,7 +183,12 @@ _RECEPTOR_DEFAULT_W = {"boiler": 2000, "cuptor_electric": 2000, "ac": 2000, "hrv
                        # senzor de gaz si doza DTC = 0,1 kW; ventilatorul axial de baie = 15 W
                        # (din legenda planşei: „80 m3/h, 15W").
                        "masina_spalat": 2000, "uscator": 2000, "sonerie": 100,
-                       "senzor_gaz": 100, "dtc": 100, "ventilator_axial": 15}
+                       "senzor_gaz": 100, "dtc": 100, "ventilator_axial": 15,
+                       # VIDEOINTERFONUL (P7b): sursa magistralei + yala + cititorul, pe un singur
+                       # circuit. 100 W = ordinul de marime al receptoarelor mici din AP-1 (0,1 kW);
+                       # IMPLICIT, nu plafon — editorul scrie `power_w` la plasare si acela castiga.
+                       # Oglinda lui BLOC_RECEPTOR_TYPES din lib/constants.ts.
+                       "sursa_interfon": 100}
 # PROTECTIA DIFERENTIALA ceruta de APARAT (mA), nu de camera. Proprietate a TIPULUI de receptor —
 # de-aia sta aici si nu ca o coloana noua pe plan_elements. Unitul dentar cere 10 mA pe circuitul LUI
 # oriunde ar sta: un cabinet nu-i o zona umeda, deci `rccb_zone` nu l-ar acoperi niciodata.
@@ -218,7 +224,12 @@ _RECEPTOR_LABEL_MAP = [("boiler", "boiler"), ("cuptor", "cuptor_electric"),
                        ("centrala", "centrala"),   # FIX 3: "Centrala pe gaz" -> default 2 kW
                        ("unit dentar", "unit_dentar"), ("compresor", "compresor"),
                        ("autoclav", "autoclav"), ("post frizerie", "post_frizerie"),
-                       ("sterilizator", "sterilizator"), ("radiologie", "radiologie_dentara")]
+                       ("sterilizator", "sterilizator"), ("radiologie", "radiologie_dentara"),
+                       # VIDEOINTERFONUL (P7b): „Sursa interfon" (butonul din editor) si orice alta
+                       # eticheta cu „interfon". La COADA, deci nu poate schimba tipul niciunei etichete
+                       # existente; verificat in baza la 26 sept: nicio eticheta nu contine „interfon".
+                       # Fara intrare in `_AP1_ALIMENTARI`: protectia iese din regulile de azi.
+                       ("interfon", "sursa_interfon")]
 
 def receptor_type_of(label):
     l = " " + (label or "").strip().lower()
@@ -268,6 +279,18 @@ def _cs_inventar(els):
         comp[et] = comp.get(et, 0) + 1
         if et == "camera_video":
             cam[_cam_tip(e)] = cam.get(_cam_tip(e), 0) + 1
+    # VIDEOINTERFONUL (P7b): sursa lui e un RECEPTOR (pe TCC), nu un element de curenti slabi, deci
+    # bucla de mai sus n-o vede. Memoriul si caietul trebuie totusi sa stie daca exista, ca sa scrie
+    # de unde se alimenteaza yala si cititorul. Intra DOAR langa sistem: o sursa singura, fara niciun
+    # aparat de interfon, n-ar trebui sa deschida un capitol de curenti slabi.
+    try:
+        import interfon as _ifn
+        if any(k in comp for k in _ifn.TIPURI):
+            _ns = sum(1 for e in (els or []) if _ifn.este_sursa(e))
+            if _ns:
+                comp[_ifn.SURSA_TIP] = _ns
+    except Exception:
+        pass
     return comp, cam
 
 
@@ -600,6 +623,12 @@ def _enrich_receptor(el, cid, panel, floor_idx, form, is_mono=False, all_els=Non
     # ca ordin de marime, si gresit ca aparat. Tipurile de aici NU exista pe niciun proiect de azi
     # (verificat pe etichetele din baza), deci tabelul nu poate schimba nimic existent.
     _ap1 = _AP1_ALIMENTARI.get(tip)
+    # VIDEOINTERFONUL (P7b, decizia lui Dan): sursa are protectia EI — MCB 10 A, cablu CYY-F 3x1,5.
+    # Recunoscuta prin ACEEASI functie ca in lista de cantitati si in memoriu (`interfon.este_sursa`),
+    # iar valorile stau langa ea (`PROTECTIE_SURSA`). Regula e tintita: orice alt receptor trece pe
+    # drumul de azi, cu minimul general de 16 A.
+    if _ifn.este_sursa(el):
+        _ap1 = _ifn.PROTECTIE_SURSA
     # Circuitele VITALE se dimensioneaza la fel ca oricare altele — doar familia cablului difera.
     # Tabelul de catalog `_AP1_ALIMENTARI` e al receptoarelor de APARTAMENT (sonerie, DTC, ventilator
     # axial de baie) si n-are ce cauta pe un tablou de consumatori vitali; de-aia `vital` il ocoleste.

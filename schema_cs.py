@@ -87,11 +87,28 @@ def _eticheta(el, idx):
     return "%s %d" % (ab, i) if i else ab
 
 
+def _pe_schema(e):
+    """Elementul intra pe schema de curenti slabi? Traseele nu (sunt cablu, nu echipament).
+    VIDEOINTERFONUL (P7b) sta pe planşa de curenti slabi, dar are SCHEMA LUI („Schema de distributie
+    retea de interfon") — exclus pe acelasi tuplu din care il deseneaza planşa. Altfel un bloc numai
+    cu interfon ar fi primit si o schema de curenti slabi goala, iar unul cu alarma ar fi vazut
+    posturile atarnand fara nicio ramura pe schema de efractie."""
+    t = ((e or {}).get("element_type") or "")
+    return t in DE._CS_TYPES and t != "traseu_cs" and t not in DE._INTERFON_TYPES
+
+
+def are_continut(elements):
+    """POARTA schemei, intr-un singur loc: exista cel putin un echipament pe care schema il deseneaza.
+    O citesc `build_cs_schema` (fara continut -> None) si /plansa-numbering (fara continut -> planşa
+    nu se ANUNTA). Pana la P7b numerotarea anunta schema dupa planşele de curenti slabi generate, iar
+    generatorul o sarea cand n-avea ce desena — o planşa promisa in borderou si nelivrata. La un bloc
+    cu interfon (si fara alarma) asta devenea cazul obisnuit."""
+    return any(_pe_schema(e) for e in (elements or []))
+
+
 def _cs_elemente(elements):
     """Elementele de curenti slabi, grupate pe rol, cu eticheta de pe planşa deja calculata."""
-    els = [e for e in (elements or [])
-           if ((e or {}).get("element_type") or "") in DE._CS_TYPES
-           and (e or {}).get("element_type") != "traseu_cs"]
+    els = [e for e in (elements or []) if _pe_schema(e)]
     idx = cs_index_map(els)
     # sortare identica cu numerotarea (sus->jos, apoi stanga->dreapta) -> ordinea de pe schema
     # urmeaza ordinea de pe planşa, deci "PIR 1" e primul si pe hartie
@@ -642,9 +659,9 @@ def build_cs_schema(elements, cartus_firma=None, cartus_proiect=None, plansa_nr=
     `elements` = plan_elements ale proiectului. Etichetele, simbolurile si randurile de legenda ies
     din ACELEASI functii ca planşa (`cs_index_map`, `_draw_cs`, `build_legend_rows`), deci nu pot
     diverge. `subtip` = sub-tipul comercial: doar numele RACK-ului depinde de el (DDCS / RACK)."""
+    if not are_continut(elements):
+        return None                       # gate: fara echipamente -> fara schema (vezi are_continut)
     g = _cs_elemente(elements)
-    if not g["toate"]:
-        return None                       # gate: fara echipamente -> fara schema
 
     # `benzi_fixe`: cele doua benzi merg la CUTII DIFERITE (rack / centrala de efractie), deci nu
     # pot fi comasate pe un rand. Peste ~65 de elemente asezarea cadea pe o singura banda, iar

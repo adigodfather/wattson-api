@@ -125,6 +125,22 @@ export function arataRubricaAlimentare(buildingType: string | null | undefined,
       || String(alimentare || "") === "din_firida";
 }
 
+// E BLOC? — condiția de EDITOR pentru ce există doar la bloc (videointerfonul, P7b): cele patru
+// simboluri, sursa lor și cablul coloanei apar în paletă DOAR aici. Un singur loc, citit de toate
+// butoanele — o a doua copie a condiției ar putea arăta unui duplex un buton pe care celălalt îl ascunde.
+//
+// Oglinda lui `bloc.este_bloc()` din backend, dar pe TIPUL clădirii, nu pe contururi — și nu din
+// comoditate. Backendul vede TOT proiectul; editorul vede doar nivelul și planșa deschise (le încarcă
+// pe `floor` + `plan_type`). Criteriul backendului pus aici ar fi ascuns panoul de apel exact la
+// parterul unde se montează — parterul unui bloc n-are de regulă niciun apartament conturat — și l-ar
+// fi ascuns pe tot blocul până la desenarea primului contur. Tipul clădirii e al întregului proiect
+// și există de la prima deschidere.
+// Aval-ul NU citește funcția asta: planșa, schema, lista de cantități și documentele se conduc după
+// elementele PLASATE. Ea hotărăște doar ce butoane vede inginerul.
+export function esteBloc(buildingType: string | null | undefined): boolean {
+  return String(buildingType || "") === "bloc_locuinte";
+}
+
 // ─── Insulation ───────────────────────────────────────────────────────────────
 
 export const INSULATION = [
@@ -310,6 +326,24 @@ export function commercialReceptorDef(label: string | null | undefined) {
   return COMMERCIAL_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
 }
 
+// ─── Receptoare de BLOC (P7b: sursa videointerfonului) ────────────────────────
+// ACELAȘI mecanism ca receptoarele comerciale: element_type rămâne "alimentare_receptor", tipul se
+// citește din LABEL (backendul: `receptor_type_of` -> "sursa_interfon"), deci ZERO migrație. Plasată
+// în spațiul COMUN, ajunge singură pe TCC, ca circuit dedicat, cu protecția din regulile de azi.
+// Puterea e un DEFAULT scris pe element la plasare (editabil în inspector); oglinda lui
+// `_RECEPTOR_DEFAULT_W["sursa_interfon"]` din enrich_circuits.py, care acoperă elementele fără putere.
+// LABEL fără diacritice, ca „Aer conditionat": e cheia citită de backend. Oglinda lui
+// `interfon.SURSA_ETICHETA`; butonul apare doar la bloc (`esteBloc`).
+export const BLOC_RECEPTOR_TYPES: {
+  label: string; default_w: number; default_phase: "mono" | "tri"; default_height: number;
+}[] = [
+  { label: "Sursa interfon", default_w: 100, default_phase: "mono", default_height: 1.5 },
+];
+
+export function blocReceptorDef(label: string | null | undefined) {
+  return BLOC_RECEPTOR_TYPES.find(t => t.label === (label || "")) || null;
+}
+
 // H5: butoanele termice apar STRICT dupa emisia aleasa in formular (heating_distribution). Helper PUR.
 // floor_heating + radiant_ceiling -> Distribuitor zona (aceleasi bucle/actuatoare/distribuitor de zona) ;
 // fan_coil -> VCV + Distribuitor zona ; electric_radiator -> Radiator electric.
@@ -335,7 +369,9 @@ export type EquipmentReceptorButton = {
   btnText: string;    // textul butonului: "+ Alimentare {btnText}" (internet = "+ Retea internet")
   // equipment: vizibil daca equipType e bifat. heatingType (boiler): vizibil daca heating_type implica
   // boiler ACM SAU equipType ("boiler") e bifat (SAU-logic). always: vizibil MEREU (receptor autonom).
-  gate: { kind: "equipment"; equipType: string } | { kind: "heatingType"; equipType: string } | { kind: "always" };
+  // bloc: vizibil doar la bloc (`esteBloc`) — sursa videointerfonului (P7b).
+  gate: { kind: "equipment"; equipType: string } | { kind: "heatingType"; equipType: string }
+      | { kind: "always" } | { kind: "bloc" };
 };
 // Ordinea = ordinea afisata in paleta (boiler, cuptor, AC, HRV, EV, internet).
 export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
@@ -359,16 +395,20 @@ export const EQUIPMENT_RECEPTOR_BUTTONS: EquipmentReceptorButton[] = [
   // LABEL fara diacritice, ca la "Aer conditionat"/"Statie incarcare": el e cheia pe care backendul
   // o citeste cu `receptor_type_of`, iar aia NU normalizeaza diacriticele. Doar btnText le poarta.
   { et: "alimentare_receptor", label: "Radiologie dentara", btnText: "radiologie dentară", gate: { kind: "always" } },
+  // VIDEOINTERFONUL (P7b): sursa sistemului, DOAR la bloc. La coadă, ca ordinea butoanelor de azi să
+  // rămână aceeași; la o casă filtrul o scoate, deci paleta caselor iese identică.
+  { et: "alimentare_receptor", label: "Sursa interfon", btnText: "sursă interfon", gate: { kind: "bloc" } },
 ];
 
 // H6: butoanele NON-termice vizibile pt. gate-ul curent. Boiler -> heating_type; restul -> echipamente bifate.
 export function visibleEquipmentReceptors(
-  gate: { heatingType?: string | null; enabledEquipment?: string[] }
+  gate: { heatingType?: string | null; enabledEquipment?: string[]; buildingType?: string | null }
 ): EquipmentReceptorButton[] {
   const ht = (gate.heatingType || "").trim();
   const enabled = new Set(gate.enabledEquipment || []);
   return EQUIPMENT_RECEPTOR_BUTTONS.filter(b => {
     if (b.gate.kind === "always") return true;       // receptor autonom (radiator electric) — mereu vizibil
+    if (b.gate.kind === "bloc") return esteBloc(gate.buildingType);   // P7b: sursa interfonului
     const byEquip = enabled.has(b.gate.equipType);   // bifat in formularul de echipamente
     // H6: boilerul = SAU-logic (heating_type implica boiler ACM SAU bifa "Boiler ACM" activa); restul = doar bifa.
     return b.gate.kind === "heatingType" ? (BOILER_HEATING_TYPES.includes(ht) || byEquip) : byEquip;
@@ -775,6 +815,11 @@ export function computePlansaNumbering(opts: {
 export const sanitizePdfName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
 
 // tipul unei intrari schemas[] (name/description/filename, insensibil la diacritice/majuscule)
+// SCHEMA DE INTERFON (P7b) — NU se mapează aici, INTENȚIONAT. Oglinda de numerotare din frontend
+// nu cunoaște porțile de bloc (TCC, distribuția, apartamentele), deci pentru o planșă de bloc ar
+// calcula alt număr decât autoritatea. Nemapată, lista de scheme afișează
+// `plansa_nr` cu care vine schema — pus de n8n din /plansa-numbering, singura care o numără corect.
+// Numele ei („Schema Distributie Interfon") nu atinge niciun tipar de mai jos.
 export function schemaTipFor(s: { name?: string | null; description?: string | null; filename?: string | null }):
   "schema_teg" | "schema_tes" | "schema_tect" | "schema_cs" | "schema_detectie" | "schema_fv" | null {
   const t = `${s?.name || ""} ${s?.description || ""} ${s?.filename || ""}`.toLowerCase()

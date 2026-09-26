@@ -12,6 +12,7 @@ import draw_elements
 import enrich_circuits
 import panels as _pnl                    # registrul de TABLOURI (vezi panels.py)
 import bloc as _bloc                     # TCC / TECV / TEP, grupul electrogen (vezi bloc.py)
+import interfon as _ifn                  # videointerfonul: accesoriile numarate + sursa (vezi interfon.py)
 from draw_elements import _PX_TO_M, _cable_l_path
 
 # ── kind (compute_cables) -> sectiune cablu. iluminat=1.5 fix, prize=2.5 fix (ca enrich). ──
@@ -885,6 +886,25 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
                     continue
                 rows.append(_row("Curenti slabi", _CS_BOM_NAME[et], "", _cs_cnt[et], "buc",
                                  sectiune="CURENTI SLABI"))
+        # VIDEOINTERFONUL (P7b): accesoriile NUMARATE, nedesenate — regula (unul per yala, unul per
+        # post) sta in `interfon.accesorii`, aceeasi pentru memoriu si caiet. Apoi SURSA: pe plan e un
+        # receptor pe TCC, dar pe lista de cantitati sta langa sistemul ei, nu printre receptoarele de
+        # forta (de acolo o scoate sectiunea 6, ca sa nu fie numarata de doua ori). Fara interfon pe
+        # plan nu apare niciun rand nou.
+        _acc = _ifn.accesorii(_cs_cnt)
+        if _acc["buton_iesire"]:
+            rows.append(_row("Curenti slabi", "Buton de iesire pentru deblocarea usii de acces",
+                             "1 per yala electromagnetica", _acc["buton_iesire"], "buc",
+                             sectiune="CURENTI SLABI"))
+        if _acc["buton_sonerie"]:
+            rows.append(_row("Curenti slabi", "Buton de sonerie la usa apartamentului",
+                             "1 per post interior", _acc["buton_sonerie"], "buc",
+                             sectiune="CURENTI SLABI"))
+        _n_sursa = sum(1 for el in plan_elements if _ifn.este_sursa(el))
+        if _n_sursa:
+            rows.append(_row("Curenti slabi", "Sursa de alimentare videointerfon, magistrala 2 fire",
+                             "alimentata din TCC, circuit dedicat", _n_sursa, "buc",
+                             sectiune="CURENTI SLABI"))
         # ECHIPAMENTUL DE DISTRIBUTIE, propus automat din numarul de prize (cererea Dan). Nu-i element
         # de plan — se DERIVA, deci nu poate lipsi din greseala si nu poate fi plasat de doua ori.
         # Priza mixta se numara la AMBELE, prin `cs_prize_dtv` (regula sta intr-un singur loc).
@@ -1014,6 +1034,8 @@ def build_bom(plan_elements, circuits, cables, scale, waste=1.1, rooms=None, pow
     for el in plan_elements:
         et = (el.get("element_type") or "")
         if et == "alimentare_receptor":
+            if _ifn.este_sursa(el):
+                continue                   # sursa videointerfonului: listata la curenti slabi (4c)
             lbl = (el.get("label") or "receptor").strip()
             rec[lbl] = rec.get(lbl, 0) + 1
         elif et == "receptor_internet":
